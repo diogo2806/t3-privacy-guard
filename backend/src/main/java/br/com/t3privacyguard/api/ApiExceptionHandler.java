@@ -1,6 +1,7 @@
 package br.com.t3privacyguard.api;
 
 import br.com.t3privacyguard.integration.GatewayUnavailableException;
+import br.com.t3privacyguard.integration.SensitivePromptRejectedException;
 import br.com.t3privacyguard.security.TooManyLoginAttemptsException;
 import br.com.t3privacyguard.service.*;
 import java.net.URI;
@@ -32,6 +33,11 @@ public class ApiExceptionHandler {
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
             .header(HttpHeaders.RETRY_AFTER, Long.toString(ex.retryAfterSeconds()))
             .body(body);
+    }
+
+    @ExceptionHandler(SensitivePromptRejectedException.class)
+    ResponseEntity<ProblemDetail> sensitivePrompt(SensitivePromptRejectedException ex) {
+        return problem(HttpStatus.UNPROCESSABLE_ENTITY, "Sensitive prompt rejected", "Remove literal private values and use an approved logical reference such as verified email instead.");
     }
 
     @ExceptionHandler(GatewayUnavailableException.class)
