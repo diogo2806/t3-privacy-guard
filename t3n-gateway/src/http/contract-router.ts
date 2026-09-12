@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import type { PolicyEvaluationRequest, PrivacyGuardContractService } from '../contract/privacy-guard-contract.js';
+import type { PolicyEvaluationRequest, PrivacyGuardContractService, RemediationVerificationRequest } from '../contract/privacy-guard-contract.js';
 import type { RemediationAuthorizationVerifier, RemediationBody } from '../security/remediation-authorization.js';
 import { requireServiceToken } from '../security/service-auth.js';
 
@@ -37,7 +37,20 @@ export function createContractRouter(
       const code = error instanceof Error ? error.message : 'UNKNOWN';
       if (code === 'CAPABILITY_REPLAY') response.status(409).json({ error: 'Remediation authorization proof was already consumed' });
       else if (code.startsWith('CAPABILITY_')) response.status(403).json({ error: 'Remediation authorization proof is invalid or unavailable' });
-      else response.status(503).json({ error: 'Protected remediation could not be completed' });
+      else response.status(503).json({ error: 'Protected remediation could not be accepted' });
+    }
+  });
+
+  router.post('/verify-remediation', requireServiceToken(serviceToken), async (request, response) => {
+    try {
+      const body = request.body as RemediationVerificationRequest;
+      if (!body?.request_id || !body?.operation_id || body.expected_state !== 'REVOKED') {
+        response.status(400).json({ error: 'Verification request is invalid' });
+        return;
+      }
+      response.json(await service.verifyRemediation(body));
+    } catch {
+      response.status(503).json({ error: 'External remediation state could not be verified' });
     }
   });
 
