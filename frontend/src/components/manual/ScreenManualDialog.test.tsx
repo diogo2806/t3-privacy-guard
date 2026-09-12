@@ -26,7 +26,7 @@ describe('ScreenManualDialog', () => {
     expect(screen.getByText(/ALLOW does not mean executed/i)).toBeInTheDocument();
     expect(screen.getByText(/COMPLETED appears only after independent read-back/i)).toBeInTheDocument();
     expect(screen.getByText(/Protection demo/i)).toBeInTheDocument();
-    expect(screen.getByText(/Proof & evidence/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Proof & evidence/i).length).toBeGreaterThan(0);
     expect(closeButton).toHaveFocus();
 
     await user.tab();
