@@ -61,6 +61,15 @@ Identity and delegation endpoints:
 - `GET /internal/agent/delegations/:contractId`
 - `DELETE /internal/agent/delegations/:contractId`
 
+## Terminal 3 integration findings
+
+The challenge asks builders to report bugs/findings discovered while integrating. Two concrete findings shaped this implementation:
+
+1. **Member Delegation documentation sample omits a required field.** The current Terminal 3 Member Delegation page shows `member-delegation-update` and `updateMemberDelegation` examples without `scopes`, while the field table on the same page marks `scopes` as required. Copying the snippet literally can therefore produce a rejected/incomplete grant. T3 Privacy Guard always requires and sends explicit scopes.
+2. **Delegated-call target is easy to misconfigure.** The authenticated agent DID identifies the caller, but `pii_did` identifies whose grant/data authority is being used. Omitting it on a delegated call can make the node evaluate the wrong subject. T3 Privacy Guard derives `pii_did` only from the authenticated tenant/data-owner session and never accepts it from the browser or business API.
+
+The first item is a documentation inconsistency; the second is an integration gotcha rather than a platform-security bypass.
+
 ## TEE policy contract
 
 `contracts/privacy-guard` implements the critical policy decision in Rust/WASM rather than trusting React, Java or the LLM. Its WIT world uses Terminal 3's `generic-input` envelope and exports:
