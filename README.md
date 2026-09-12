@@ -49,6 +49,8 @@ The gateway authenticates tenant and agent independently with SDK 5.2.0. `T3N_AG
 
 Revocation expires only the matching agent+contract grant, preserving unrelated grants. Authentication alone never grants contract access.
 
+For every delegated contract invocation, the agent remains the authenticated caller while `pii_did` is set internally from `tenantSession.getTenantDid()`. This tells T3N which tenant/data-owner grant must be checked. `pii_did` is never accepted from React, Java, or request payloads, so callers cannot redirect authorization to another subject.
+
 Identity and delegation endpoints:
 
 - `GET /internal/t3n/status`
