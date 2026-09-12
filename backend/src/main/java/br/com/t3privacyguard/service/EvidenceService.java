@@ -45,7 +45,9 @@ public class EvidenceService {
                 required(manifest, "agentDid"),
                 required(manifest, "contractId"),
                 required(manifest, "contractVersion"),
-                required(manifest, "wasmSha256")
+                required(manifest, "wasmSha256"),
+                required(manifest, "policyVersion"),
+                required(manifest, "policyHash")
             );
             validateMetadata(metadata);
             assertSame(testnet, "network", metadata.network());
@@ -55,6 +57,8 @@ public class EvidenceService {
             assertSame(testnet, "contractId", metadata.contractId());
             assertSame(testnet, "contractVersion", metadata.contractVersion());
             assertSame(testnet, "wasmSha256", metadata.wasmSha256());
+            assertSame(testnet, "policyVersion", metadata.policyVersion());
+            assertSame(testnet, "policyHash", metadata.policyHash());
 
             JsonNode scenarioNodes = testnet.path("scenarios");
             if (!scenarioNodes.isArray()) throw new IllegalStateException("Evidence scenarios are missing");
@@ -88,6 +92,7 @@ public class EvidenceService {
         if (!value.tenantDid().startsWith("did:t3n:") || !value.agentDid().startsWith("did:t3n:")) throw new IllegalStateException("Evidence DIDs are invalid");
         if (value.tenantDid().equals(value.agentDid())) throw new IllegalStateException("Evidence tenant and agent DIDs must differ");
         if (!value.wasmSha256().matches("[a-f0-9]{64}")) throw new IllegalStateException("Evidence WASM SHA-256 is invalid");
+        if (value.policyVersion().isBlank() || !value.policyHash().matches("[a-f0-9]{64}")) throw new IllegalStateException("Evidence policy provenance is invalid");
     }
 
     private static String required(JsonNode node, String field) {
@@ -106,7 +111,7 @@ public class EvidenceService {
     }
 
     public record EvidenceResponse(Metadata metadata, List<Scenario> scenarios, Totals totals) {}
-    public record Metadata(String source, String generatedAt, String network, String sdkVersion, String tenantDid, String agentDid, String contractId, String contractVersion, String wasmSha256) {}
+    public record Metadata(String source, String generatedAt, String network, String sdkVersion, String tenantDid, String agentDid, String contractId, String contractVersion, String wasmSha256, String policyVersion, String policyHash) {}
     public record Scenario(String id, String expected, String actual, String status, String detail) {}
     public record Totals(int pass, int fail, int notRun) {}
 }
