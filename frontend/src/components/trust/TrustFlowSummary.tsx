@@ -1,4 +1,4 @@
-import { ArrowRight, BadgeCheck, BrainCircuit, ServerCog, ShieldCheck, UserCheck } from 'lucide-react';
+import { ArrowRight, BadgeCheck, BrainCircuit, ServerCog, ShieldCheck, UserCheck, type LucideIcon } from 'lucide-react';
 import type {
   ActionProposal,
   AgentAnalysis,
@@ -23,7 +23,7 @@ interface TrustStep {
   state: string;
   detail: string;
   tone: StepTone;
-  icon: typeof BrainCircuit;
+  icon: LucideIcon;
 }
 
 function t3nReady(status: SystemStatus | null): boolean {
@@ -65,7 +65,8 @@ function trustSteps(
   let executionState = 'NOT STARTED';
   let executionTone: StepTone = 'pending';
   if (execution?.state === 'EXECUTING') { executionState = 'EXECUTING'; executionTone = 'info'; }
-  if (execution?.state === 'PENDING_VERIFICATION' || execution?.state === 'COMPLETED') { executionState = 'ACCEPTED'; executionTone = 'success'; }
+  if (execution?.state === 'PENDING_VERIFICATION') { executionState = 'ACCEPTED'; executionTone = 'warning'; }
+  if (execution?.state === 'COMPLETED') { executionState = 'ACCEPTED'; executionTone = 'success'; }
   if (execution?.state === 'UNVERIFIED') { executionState = 'UNVERIFIED'; executionTone = 'warning'; }
   if (execution?.state === 'FAILED') { executionState = 'FAILED'; executionTone = 'danger'; }
 
@@ -79,7 +80,7 @@ function trustSteps(
     {
       label: 'AI proposal',
       state: proposalReceived ? 'RECEIVED' : 'WAITING',
-      detail: proposalReceived ? 'The model proposed an action. It did not authorize it.' : 'Waiting for an agent proposal.',
+      detail: proposalReceived ? 'A structured action proposal is available. It does not carry authorization.' : 'Waiting for an agent proposal.',
       tone: proposalReceived ? 'info' : 'pending',
       icon: BrainCircuit,
     },
@@ -124,7 +125,7 @@ function resultMessage(
 ): string {
   if (!statusLoading && !ready) return 'T3N controls are unavailable or incomplete. Policy decisions and protected execution cannot be proven until live status recovers.';
   if (!proposalReceived) return 'Start with a prompt. The AI may propose an action, but it has no authority to execute it.';
-  if (!decision) return 'AI proposal received. T3N policy has not produced a decision yet.';
+  if (!decision) return 'An action proposal is available. T3N policy has not produced a decision yet.';
   if (decision.decision === 'DENY') return 'Policy blocked the proposal before protected egress. No execution is claimed.';
   if (decision.decision === 'REDACT') return 'Policy requires data minimization before the action may continue. No execution is claimed.';
   if (!isHumanAuthorized(selectedAction)) return 'Policy allowed the proposal, but protected execution is blocked until a human authorizes it.';
