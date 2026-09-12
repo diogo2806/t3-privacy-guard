@@ -17,17 +17,13 @@ public class GatewayRemediationClient {
         @Value("${privacy-guard.gateway.base-url}") String baseUrl,
         @Value("${privacy-guard.gateway.service-token}") String serviceToken
     ) {
-        if (serviceToken == null || serviceToken.length() < 32) {
-            throw new IllegalStateException("GATEWAY_SERVICE_TOKEN must contain at least 32 characters");
-        }
+        if (serviceToken == null || serviceToken.length() < 32) throw new IllegalStateException("GATEWAY_SERVICE_TOKEN must contain at least 32 characters");
         this.restClient = builder.baseUrl(baseUrl).build();
         this.serviceToken = serviceToken;
     }
 
     public RemediationResult execute(RemediationRequest request, String capability) {
-        if (capability == null || capability.isBlank()) {
-            throw new IllegalArgumentException("Remediation capability is required");
-        }
+        if (capability == null || capability.isBlank()) throw new IllegalArgumentException("Remediation capability is required");
         try {
             RemediationResult result = restClient.post()
                 .uri("/internal/contracts/privacy-guard/remediate")
@@ -36,10 +32,7 @@ public class GatewayRemediationClient {
                 .body(request)
                 .retrieve()
                 .body(RemediationResult.class);
-
-            if (result == null || !"COMPLETED".equals(result.status())) {
-                throw new GatewayUnavailableException("Gateway returned an invalid remediation result");
-            }
+            if (result == null || !"COMPLETED".equals(result.status())) throw new GatewayUnavailableException("Gateway returned an invalid remediation result");
             return result;
         } catch (RestClientException ex) {
             throw new GatewayUnavailableException("Protected remediation is unavailable", ex);
@@ -54,7 +47,8 @@ public class GatewayRemediationClient {
         String action,
         String resource,
         String purpose,
-        List<String> fields
+        List<String> fields,
+        @JsonProperty("private_refs") List<String> privateRefs
     ) {}
 
     public record RemediationResult(
