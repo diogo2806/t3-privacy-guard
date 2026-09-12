@@ -28,7 +28,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
-@SpringBootTest(properties = "spring.datasource.url=jdbc:h2:mem:incident-test;DB_CLOSE_DELAY=-1")
+@SpringBootTest
 class IncidentServiceTest {
     @Autowired IncidentService service;
     @Autowired IncidentRepository incidents;
