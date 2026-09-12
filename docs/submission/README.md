@@ -1,5 +1,15 @@
 # T3 Privacy Guard — Submission & Judge Guide
 
+## Product position
+
+**T3 Privacy Guard is an enterprise trust runtime for AI agents.** Its purpose is not to make the model itself trustworthy. Its purpose is to keep policy, identity, private-data resolution, business authorization and completion proof outside the model even when the model is manipulated.
+
+The product thesis is intentionally simple:
+
+> **AI can propose. Policy decides. Humans authorize. T3N executes. Independent evidence proves the outcome.**
+
+The current challenge implementation applies that pattern to confidential incident response. The Rust policy already recognizes four concrete operational actions: credential revocation, account isolation, incident recording and security notification. The dashboard currently emphasizes the adversarial credential-remediation flow because it exercises the strongest end-to-end controls in one scenario.
+
 ## Executive summary
 
 T3 Privacy Guard assumes the AI agent itself can be manipulated. The demo sends a real textual prompt to a configured tool-calling model. The model may propose an unsafe action, but its tool surface contains only `action`, `resource`, `purpose`, optional `host`, normal field names and enumerated logical private-data references. It cannot provide a policy decision, DID, override, secret, execution capability or literal T3N profile placeholder.
@@ -8,26 +18,96 @@ The structured proposal is persisted and sent to the independent Terminal 3 Rust
 
 For private profile data, the application carries only a category such as `verified_email`. The Rust/WASM contract maps that closed reference to the supported T3N marker `{{profile.verified_contacts.email.value}}`; the real value can be resolved only by T3N during protected egress and is not returned to React, Java, the model or gateway responses.
 
-Protected execution is also fail-safe under retries. Spring creates a persistent atomic claim before egress. The TEE sends `requestId` as the stable idempotency key, but a 2xx only produces `PENDING_VERIFICATION`. A distinct T3N `verify-remediation` read-back must observe the matching `operation_id` and the closed expected state `REVOKED` before the business state becomes `COMPLETED`. Ambiguous outcomes become `UNVERIFIED`; they may be re-verified but are never automatically executed again.
+Protected execution is fail-safe under retries. Spring creates a persistent atomic claim before egress. The TEE sends `requestId` as the stable idempotency key, but a 2xx only produces `PENDING_VERIFICATION`. A distinct T3N `verify-remediation` read-back must observe the matching `operation_id` and the closed expected state `REVOKED` before the business state becomes `COMPLETED`. Ambiguous outcomes become `UNVERIFIED`; they may be re-verified but are never automatically executed again.
 
 The project reports only verifiable state: `NOT_RUN` never becomes `PASS`, simulated output is not labelled live, profile-placeholder resolution is not labelled proved live until a compatible testnet profile actually executes it, external execution is not labelled completed from HTTP acceptance alone, and hardware attestation is not claimed without a concrete artifact.
+
+## Why this is more than PII detection
+
+A normal PII filter answers questions such as “does this prompt contain an email address?”. T3 Privacy Guard addresses a larger authority problem:
+
+```text
+What may the agent propose?
+        |
+Who is the authenticated agent?
+        |
+Which action/purpose/host/data are allowed?
+        |
+Which private value may be resolved, and where?
+        |
+Has a human authorized the exact action?
+        |
+Can this exact authorization be replayed?
+        |
+Did the external side effect really reach the expected state?
+```
+
+A model can therefore remain useful while being structurally unable to grant itself the missing authority.
+
+## 60-second judge story
+
+### Attack path
+
+```text
+Prompt injection
+  -> real model proposes api_key + attacker.example
+  -> proposal is persisted as untrusted output
+  -> authenticated Agent DID is added outside the model
+  -> T3N Rust/WASM policy evaluates the request
+  -> DENY
+  -> no human authorization
+  -> no protected egress
+```
+
+The important observation is not merely that a keyword was detected. The model is allowed to produce the malicious proposal, but **the model does not control the decision boundary**.
+
+### Legitimate path
+
+```text
+Minimum legitimate proposal
+  -> T3N policy ALLOW
+  -> authenticated human authorizes exact action
+  -> Spring signs one-time capability
+  -> gateway validates body equality + expiry + anti-replay
+  -> T3N protected execution
+  -> external acknowledgement = PENDING_VERIFICATION
+  -> separate read-back
+  -> VERIFIED REVOKED
+  -> Spring records COMPLETED
+```
+
+The important observation is that no single success signal is trusted to mean more than it proves.
+
+## Current enterprise actions
+
+The current Rust policy defines these real action contracts:
+
+| Action | Purpose | Allowed normal fields | Private reference |
+|---|---|---|---|
+| `revoke-credential` | `incident-remediation` | `incident_id`, `credential_id`, `reason` | none |
+| `isolate-account` | `incident-remediation` | `incident_id`, `account_id`, `reason` | none |
+| `create-incident` | `incident-recording` | `incident_id`, `severity`, `summary`, `source` | none |
+| `notify-security` | `incident-notification` | `incident_id`, `severity`, `summary` | `verified_email` allowed |
+
+The challenge UI currently spotlights credential revocation because it demonstrates policy enforcement, explicit authorization, protected egress, replay resistance and independent completion verification in a single path. The other policy actions are not presented here as broader vertical products that have already been built.
 
 ## Judge quick path
 
 ```text
 1. Sign in as application operator
-2. Confirm Gateway / Tenant / Agent / Contract / Delegation separately
-3. Inspect the attack prompt
-4. Click Run attack scenario
-5. Inspect the real model's structured Agent proposal
-6. Observe independent T3N TEE DENY
-7. Submit a legitimate prompt or prepare the minimum safe action
-8. Observe T3N ALLOW/REDACT and the logical private-data boundary
-9. Record explicit human authorization only after ALLOW
-10. Execute protected remediation when synthetic egress/read-back is configured
-11. Observe PENDING_VERIFICATION or the verification transition
-12. Accept COMPLETED only when independent read-back shows VERIFIED
-13. Open Evidence and confirm T3N_TESTNET metadata/results
+2. Read the product thesis before inspecting low-level metadata
+3. Confirm Gateway / Tenant / Agent / Contract / Delegation separately
+4. Inspect the attack prompt
+5. Click Run attack scenario
+6. Inspect the real model's structured Agent proposal
+7. Observe independent T3N TEE DENY
+8. Submit a legitimate prompt or prepare the minimum safe action
+9. Observe T3N ALLOW/REDACT and the logical private-data boundary
+10. Record explicit human authorization only after ALLOW
+11. Execute protected remediation when synthetic egress/read-back is configured
+12. Observe PENDING_VERIFICATION or the verification transition
+13. Accept COMPLETED only when independent read-back shows VERIFIED
+14. Open Evidence and confirm exact T3N_TESTNET claims and NOT_RUN boundaries
 ```
 
 ## Architecture and trust boundaries
@@ -78,6 +158,20 @@ Trust model:
 - **Private KV owns remediation credentials/endpoints.** The protected credential, action URL and verification URL are not browser inputs.
 - **T3N protected egress is the profile-resolution and remediation boundary.** Responses are minimized before returning to application layers.
 - **HTTP acceptance is not truth.** Completion is derived from an independent closed read-back, not from the original response code.
+
+## Authority matrix
+
+| Question | Source of authority |
+|---|---|
+| What did the user ask? | Untrusted prompt |
+| What action does the model suggest? | AI proposal |
+| Which agent identity is executing? | Authenticated T3N Agent session |
+| Which tenant/data owner is the authorization subject? | Authenticated tenant session |
+| Is action/purpose/host/data allowed? | Rust/WASM policy |
+| Is business remediation approved? | Authenticated human operator |
+| Is this exact execution authorized now? | Signed one-time capability |
+| May a private value be resolved? | Closed Rust mapping + T3N protected boundary |
+| Did the side effect complete? | Independent read-back + Spring state machine |
 
 ## Security claims matrix
 
@@ -213,15 +307,19 @@ Failure semantics:
 ## Terminal 3 integration findings
 
 ### Member Delegation example and `scopes`
+
 The project validates/sends non-empty scopes even where simplified examples omit them, following the field reference.
 
 ### Delegated `pii_did`
+
 Every delegated execution derives `pii_did` internally from `tenantSession.getTenantDid()`. Browser, Java and LLM cannot supply or override the authorization subject.
 
 ### Profile placeholders
+
 The application never lets the LLM/browser choose a raw placeholder. `verified_email` is mapped inside the TEE contract to the documented `profile.verified_contacts.email.value` marker, limiting the public application contract to an auditable domain vocabulary.
 
 ### Remediation verification
+
 The contract exposes separate `execute-remediation` and `verify-remediation` functions. Live delegation includes both only when required. Evidence orchestration derives the allowed HTTPS hosts from the configured remediation and verification endpoints rather than broadening the grant arbitrarily.
 
 ## Post-challenge operation and handover
@@ -271,7 +369,9 @@ When preparing egress evidence, configure `SECURITY_API_URL` and the separate `S
 
 ## Screenshot shot list
 
-1. Live T3N operational status.
+Screenshots must tell the same authority-separation story as the product, not merely prove that screens exist.
+
+1. Product header + live T3N operational status.
 2. Attack prompt + provider/model provenance + model proposal + `DENY`.
 3. `REDACT` data-minimization evidence.
 4. Private-reference panel showing `Verified email`, Agent plaintext `NO`, Java plaintext `NO`, T3N egress resolution boundary.
@@ -286,18 +386,21 @@ Never capture passwords, cookies, T3N keys, provider key, service/capability key
 ## Demo video storyboard
 
 ```text
-0–15s    Problem: model compromise must not become authority or data access
-15–35s   Show live tenant/agent/contract/delegation identities
-35–60s   Attack prompt -> real provider -> structured Agent proposal
-60–80s   Independent T3N TEE DENY
-80–105s  Show logical private reference instead of private value
-105–125s T3N ALLOW/REDACT and explicit human authorization
-125–150s Execute -> accepted/PENDING_VERIFICATION
+0–10s    Product thesis: AI proposes; it does not own authority
+10–25s   Show authenticated tenant/agent/contract/delegation
+25–50s   Attack prompt -> real provider -> malicious structured proposal
+50–70s   Independent T3N TEE DENY; no protected egress
+70–95s   Show logical private reference instead of private value
+95–115s  Minimum legitimate request -> ALLOW/REDACT
+115–130s Explicit human authorization
+130–150s Protected execution -> accepted/PENDING_VERIFICATION
 150–165s Independent read-back -> VERIFIED/COMPLETED when available
-165–180s Evidence Center -> exact live proof status
+165–180s Evidence Center -> exact proof status and NOT_RUN boundaries
 ```
 
-## UX/claim wording rules
+## UX and claim wording rules
+
+The submission must lead with user/business meaning, then expose the technical proof. Technical labels remain precise.
 
 - **agent proposal**: model-produced structured request, not authorization;
 - **logical private reference**: category such as `verified_email`, not the private value;
