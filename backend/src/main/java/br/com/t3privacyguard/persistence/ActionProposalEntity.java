@@ -1,0 +1,60 @@
+package br.com.t3privacyguard.persistence;
+
+import br.com.t3privacyguard.domain.ProposalStatus;
+import jakarta.persistence.*;
+import java.time.Instant;
+
+@Entity
+@Table(name = "action_proposals", uniqueConstraints = @UniqueConstraint(name = "uk_action_request_id", columnNames = "request_id"))
+public class ActionProposalEntity {
+    @Id
+    private String id;
+    @Column(name = "incident_id", nullable = false, length = 36)
+    private String incidentId;
+    @Column(name = "request_id", nullable = false, length = 128)
+    private String requestId;
+    @Column(nullable = false, length = 80)
+    private String action;
+    @Column(nullable = false, length = 240)
+    private String resource;
+    @Column(nullable = false, length = 80)
+    private String purpose;
+    @Column(length = 253)
+    private String host;
+    @Column(name = "fields_json", nullable = false, length = 4000)
+    private String fieldsJson;
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 40)
+    private ProposalStatus status;
+    @Column(nullable = false)
+    private Instant createdAt;
+
+    protected ActionProposalEntity() {}
+
+    public ActionProposalEntity(String id, String incidentId, String requestId, String action, String resource, String purpose, String host, String fieldsJson, Instant createdAt) {
+        this.id = id;
+        this.incidentId = incidentId;
+        this.requestId = requestId;
+        this.action = action;
+        this.resource = resource;
+        this.purpose = purpose;
+        this.host = host;
+        this.fieldsJson = fieldsJson;
+        this.status = ProposalStatus.PENDING;
+        this.createdAt = createdAt;
+    }
+
+    public void markEvaluated() { this.status = ProposalStatus.EVALUATED; }
+    public void authorizeRemediation() { this.status = ProposalStatus.REMEDIATION_AUTHORIZED; }
+    public void markRemediated() { this.status = ProposalStatus.REMEDIATED; }
+    public String getId() { return id; }
+    public String getIncidentId() { return incidentId; }
+    public String getRequestId() { return requestId; }
+    public String getAction() { return action; }
+    public String getResource() { return resource; }
+    public String getPurpose() { return purpose; }
+    public String getHost() { return host; }
+    public String getFieldsJson() { return fieldsJson; }
+    public ProposalStatus getStatus() { return status; }
+    public Instant getCreatedAt() { return createdAt; }
+}

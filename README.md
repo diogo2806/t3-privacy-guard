@@ -5,7 +5,7 @@ Confidential Incident Response Agent for the Terminal 3 Network challenge.
 ## Architecture
 
 - `frontend/`: React + Vite, production build served by Nginx.
-- `backend/`: Java 21 + Spring Boot business API.
+- `backend/`: Java 21 + Spring Boot business API with durable incident orchestration.
 - `t3n-gateway/`: Node.js + TypeScript adapter for `@terminal3/t3n-sdk` 5.2.0.
 - `contracts/privacy-guard/`: Rust/WIT policy contract compiled to a WASI Preview 2 component for T3N TEE execution.
 
@@ -14,26 +14,24 @@ Each runtime has its own Dockerfile. There is intentionally no `docker-compose.y
 ## Security baseline
 
 - Never commit `T3N_API_KEY`, `T3N_AGENT_API_KEY`, external service secrets, or real `.env` files.
-- Tenant and agent keys must be different credentials.
-- The React bundle never receives T3N credentials.
-- The Java backend does not need either T3N private key.
-- Canonical tenant and agent DIDs come from authenticated T3N sessions (`did.value`), never from hardcoded configuration.
-- Authorization failure, invalid input or dependency failure must fail closed rather than become an implicit authorization.
+- Tenant and agent keys must be different credentials and exist only in the gateway container.
+- The React bundle and Java backend never receive T3N private keys.
+- Canonical tenant and agent DIDs come from authenticated T3N sessions (`did.value`).
+- Authorization, integration or validation failure fails closed.
+- Java audit events store sanitized operational metadata, never secret-bearing payloads.
 
 ## T3N identities and delegation
 
-The gateway authenticates the tenant and the agent independently using the SDK 5.2.0 handshake/auth flow. Set `T3N_AGENT_API_KEY` to a separate key claimed/funded for the agent. When absent, tenant connectivity still works but agent status remains `configured: false`.
-
-Member delegation is performed through the tenant/data-owner session with `updateMemberDelegation`, scoped by:
+The gateway authenticates tenant and agent independently using the SDK 5.2.0 handshake/auth flow. `T3N_AGENT_API_KEY` is a separate funded agent credential. Member delegation is written by the tenant/data-owner session with `updateMemberDelegation` and can scope:
 
 - exact `contract_id`;
-- allowed WIT `functions`;
-- exact data `scopes`;
+- WIT `functions`;
+- data `scopes`;
 - optional `read_scopes`;
 - optional `allowed_hosts`;
 - optional validity window.
 
-Revocation updates only the matching agent+contract grant with an already-expired validity window, so the agent loses authority without replacing or deleting unrelated grants in the member delegation document.
+Revocation expires only the matching agent+contract grant, preserving unrelated grants.
 
 Identity/delegation endpoints:
 
@@ -45,80 +43,66 @@ Identity/delegation endpoints:
 - `GET /internal/agent/delegations/:contractId`
 - `DELETE /internal/agent/delegations/:contractId`
 
-The agent DID is always read from its own authenticated session. Authentication alone does not grant contract access.
+Authentication alone does not grant contract access.
 
 ## TEE policy contract
 
-The critical policy decision is implemented inside `contracts/privacy-guard` rather than trusted to React, Java or the LLM. The WIT world follows the Terminal 3 `generic-input` envelope and exports one operation: `evaluate-action`.
+`contracts/privacy-guard` implements the critical decision inside Rust/WASM, not in React, Java or the LLM. Its WIT world follows Terminal 3's `generic-input` envelope and exports `evaluate-action`.
 
-The contract produces exactly one of:
+The result is exactly one of:
 
-- `ALLOW`: action and data are inside the minimum policy scope;
-- `REDACT`: action is allowed only after unnecessary non-secret fields are removed;
-- `DENY`: action, purpose, destination or requested secret is forbidden.
+- `ALLOW`: action and requested fields fit the minimum policy scope;
+- `REDACT`: action can proceed only after unnecessary non-secret fields are removed;
+- `DENY`: action, purpose, host, identity or secret request violates policy.
 
-The policy fails closed for malformed input, unknown actions, wrong purposes, invalid agent DIDs, direct secret disclosure and hosts outside its own policy. T3N member delegation remains an independent platform-level boundary for which agent, contract functions, scopes and egress hosts are callable.
+The policy fails closed for malformed input, unknown action, wrong purpose, invalid agent DID, direct secret disclosure and disallowed egress. Replay requires durable cross-call state, so the WASM validates a bounded `request_id` while durable duplicate prevention is performed by the Java orchestration layer.
 
-Replay protection needs durable state across calls. This pure policy function validates a bounded `request_id`, while durable duplicate/replay prevention is implemented in the backend orchestration/idempotency layer instead of being falsely represented as a stateless WASM guarantee.
-
-### Build
+Build and register:
 
 ```bash
 rustup target add wasm32-wasip2
 cd contracts/privacy-guard
 cargo test
 cargo build --target wasm32-wasip2 --release
-```
 
-### Register
-
-After the WASM exists, register it from `t3n-gateway`:
-
-```bash
-cd t3n-gateway
+cd ../../t3n-gateway
 npm install
 npm run contract:register
 ```
 
-Registration uses the authenticated tenant DID, `TenantClient`, `tenant.contracts.register({ tail, version, wasm })`, `T3N_CONTRACT_TAIL` and `T3N_CONTRACT_VERSION`. The canonical identity is computed as `z:<tid>:<tail>` from the authenticated tenant DID.
+Registration uses the authenticated `TenantClient` and `tenant.contracts.register({ tail, version, wasm })`. The canonical name is computed as `z:<tid>:<tail>` from the authenticated tenant DID. Runtime evaluation uses the separately authenticated agent and `executeAndDecode`.
 
-### Invoke
-
-Runtime evaluation is executed by the separately authenticated agent through `executeAndDecode`:
+Contract endpoints:
 
 - `GET /internal/contracts/privacy-guard/identity`
 - `POST /internal/contracts/privacy-guard/evaluate`
 
-The gateway resolves the registered version using the active T3N node and injects the authenticated agent DID into the contract request. The browser never calls the T3N SDK directly.
+## Backend incident orchestration
+
+The Spring Boot API persists incidents, proposed actions, policy decisions and audit events in an H2 file database under `/data`. `requestId` is unique in the database. A duplicate request is rejected with HTTP 409, and an already persisted policy decision is returned without invoking T3N again. This is the durable idempotency/replay boundary for the stateless policy contract.
+
+Business endpoints:
+
+- `POST /api/incidents`
+- `GET /api/incidents`
+- `GET /api/incidents/{incidentId}`
+- `POST /api/incidents/{incidentId}/actions`
+- `GET /api/incidents/{incidentId}/actions`
+- `POST /api/incidents/{incidentId}/actions/{actionId}/evaluate`
+- `POST /api/incidents/{incidentId}/actions/{actionId}/authorize-remediation`
+- `GET /api/incidents/{incidentId}/history`
+
+The backend calls only the gateway's internal policy API and never receives a T3N key. `DENY`, `REDACT`, timeout, malformed response or unavailable gateway never authorize remediation. A typed frontend consumer exists in `frontend/src/services/privacyGuardApi.ts` for the dashboard layer.
 
 ## Local builds
 
-### Frontend
-
 ```bash
-cd frontend
-npm install
-npm run build
-```
-
-### Backend
-
-```bash
-cd backend
-mvn test
-mvn package
-```
-
-### T3N gateway
-
-```bash
-cd t3n-gateway
-npm install
-npm test
-npm run typecheck
-npm run build
+cd backend && mvn test && mvn package
+cd ../frontend && npm install && npm run build
+cd ../t3n-gateway && npm install && npm test && npm run typecheck && npm run build
+cd ../contracts/privacy-guard && cargo test && cargo build --target wasm32-wasip2 --release
 ```
 
 ## Environment
 
-Use `.env.example` only as a list of variable names. Inject real secrets through the deployment environment. T3N private keys belong only to the T3N gateway container and are never returned by its APIs.
+Use `.env.example` only as a variable-name template. Inject real secrets through the deployment environment. `DATABASE_URL` can override the default H2 file database for the backend.
