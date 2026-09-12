@@ -6,10 +6,11 @@ export const SAFE_PROMPT = 'Revoke credential:production-security-api for incide
 
 interface Props {
   busy: boolean;
+  privacyError?: string | null;
   onAnalyze: (prompt: string) => void;
 }
 
-export function AgentPromptPanel({ busy, onAnalyze }: Props) {
+export function AgentPromptPanel({ busy, privacyError, onAnalyze }: Props) {
   const [prompt, setPrompt] = useState(ATTACK_PROMPT);
   return (
     <section className="card agent-prompt-card" aria-labelledby="agent-prompt-title">
@@ -18,8 +19,10 @@ export function AgentPromptPanel({ busy, onAnalyze }: Props) {
         <div><p className="eyebrow">Untrusted input</p><h2 id="agent-prompt-title">AI agent prompt</h2></div>
       </div>
       <p className="card-copy">The model may be manipulated. It can only propose a structured action; T3N independently decides whether that proposal is allowed.</p>
+      <p className="card-copy"><strong>Do not paste private values or secrets.</strong> Use approved logical references such as “verified email”. Sensitive literals are rejected server-side before any external AI provider is called.</p>
       <label className="agent-prompt-label" htmlFor="agent-prompt">Prompt</label>
-      <textarea id="agent-prompt" className="agent-prompt-input" rows={5} maxLength={4000} value={prompt} onChange={(event) => setPrompt(event.target.value)} disabled={busy} />
+      <textarea id="agent-prompt" className="agent-prompt-input" rows={5} maxLength={4000} value={prompt} onChange={(event) => setPrompt(event.target.value)} disabled={busy} aria-describedby={privacyError ? 'agent-prompt-privacy-error' : undefined} />
+      {privacyError && <div id="agent-prompt-privacy-error" className="feedback feedback-error" role="alert" aria-live="assertive">{privacyError}</div>}
       <div className="agent-prompt-actions">
         <button type="button" className="button button-secondary" onClick={() => setPrompt(ATTACK_PROMPT)} disabled={busy}>Load attack prompt</button>
         <button type="button" className="button button-secondary" onClick={() => setPrompt(SAFE_PROMPT)} disabled={busy}><ShieldCheck aria-hidden="true" />Load safe prompt</button>
