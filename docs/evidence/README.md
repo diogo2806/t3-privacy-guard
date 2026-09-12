@@ -10,7 +10,7 @@ From the repository root:
 bash scripts/run-local-evidence.sh
 ```
 
-This executes Rust policy/remediation tests, Java replay/authorization/idempotency tests, gateway delegation/`pii_did`/leak tests and React accessibility/decision tests. Raw runtime logs are gitignored.
+This executes Rust policy/remediation/verification tests, Java replay/authorization/distributed-idempotency tests, gateway delegation/`pii_did`/leak tests and React accessibility/decision/remediation-state tests. Raw runtime logs are gitignored.
 
 Optional sentinel scan:
 
@@ -26,7 +26,7 @@ Prerequisites:
 - separate funded `T3N_AGENT_API_KEY`;
 - built release WASM at the documented path, or `T3N_CONTRACT_WASM_PATH`;
 - `T3N_CONTRACT_NUMERIC_ID` when the configured contract version already exists and an operation needs its numeric id;
-- synthetic `SECURITY_API_KEY`/`SECURITY_API_URL` only when protected egress is enabled.
+- synthetic `SECURITY_API_KEY`, `SECURITY_API_URL` and `SECURITY_VERIFICATION_URL` only when protected egress/read-back is enabled.
 
 From `t3n-gateway/`:
 
@@ -43,10 +43,11 @@ The orchestrator:
 4. resolves the configured live contract version or registers it when absent;
 5. writes sanitized `docs/evidence/deployment-manifest.json`;
 6. optionally prepares the private remediation map when `EVIDENCE_PREPARE_EGRESS=true`;
-7. writes the minimum challenge delegation;
-8. invokes the existing `evidence:testnet` runner;
-9. verifies that testnet evidence and deployment manifest have the same network, SDK, DIDs, contract id/version and WASM hash;
-10. fails if the runner reports failure, the identities mismatch, or leak detection finds configured secret material.
+7. derives least-privilege allowed hosts from the configured HTTPS action/verification endpoints;
+8. delegates `evaluate-action`, `execute-remediation` and `verify-remediation` as required;
+9. invokes the existing `evidence:testnet` runner;
+10. verifies that testnet evidence and deployment manifest have the same network, SDK, DIDs, contract id/version and WASM hash;
+11. fails if the runner reports failure, the identities mismatch, or leak detection finds configured secret material.
 
 The evidence chain is:
 
@@ -65,11 +66,13 @@ testnet-run.json
 
 This proves linkage between the local artifact used in the registration flow, the resolved T3N contract identity/version and the live scenario results. It is not described as hardware attestation unless a separate T3N API explicitly provides that evidence.
 
-## Optional protected egress proof
+## Optional protected egress + independent verification proof
 
 After the private synthetic-secret map can be prepared:
 
 ```bash
+SECURITY_API_URL='https://<allowed-action-host>/<action-path>' \
+SECURITY_VERIFICATION_URL='https://<allowed-readback-host>/<verification-path>' \
 EVIDENCE_PREPARE_EGRESS=true \
 EVIDENCE_RUN_EGRESS_NEGATIVES=true \
 EVIDENCE_RUN_REMEDIATION=true \
@@ -77,9 +80,27 @@ EVIDENCE_SENTINEL_SECRET='your-synthetic-sentinel-value' \
 npm run evidence:live
 ```
 
-`EVIDENCE_PREPARE_EGRESS=true` requires the numeric contract id, plus the synthetic remediation URL/key expected by `contract:setup-remediation`.
+`EVIDENCE_PREPARE_EGRESS=true` requires the numeric contract id, synthetic remediation credential, action URL and independent verification URL expected by `contract:setup-remediation`. Both URLs are sealed in the private map. Their HTTPS hostnames are used to build the delegation host allowlist.
+
+A remediation live scenario is successful only when the complete sequence is observed:
+
+```text
+attack policy = DENY
+protected execution = PENDING_VERIFICATION
+operation_id = present
+independent read-back = VERIFIED
+observed state = REVOKED
+```
+
+An HTTP 2xx or `PENDING_VERIFICATION` alone is not completion evidence. Missing operation id, contradictory state or unavailable verification is not upgraded to `PASS`.
 
 Negative grant tests restore the known-good challenge grant in `finally`. They count as PASS only for recognizable authorization/delegation rejection; missing private configuration or transport errors are FAIL.
+
+## Idempotency claim boundary
+
+The application creates a durable, pessimistically locked execution claim before initiating protected egress. `requestId` is propagated as a stable `Idempotency-Key`, and replays reconcile the persisted execution state instead of intentionally initiating another egress.
+
+This evidence does **not** claim provider-level exactly-once or at-most-once solely because that header is sent. Such a guarantee requires explicit support from the external provider. Ambiguous execution outcomes are `UNVERIFIED` and are never automatically re-executed.
 
 ## Generated artifacts
 
@@ -95,10 +116,14 @@ Negative grant tests restore the known-good challenge grant in `finally`. They c
 
 `testnet-run.json` contains live scenario outcomes including PASS/FAIL/NOT_RUN. Optional scenarios that were not executed stay `NOT_RUN`; they are never converted into PASS.
 
-Both artifacts pass the leak detector against tenant key, agent key, remediation key and optional sentinel before being accepted.
+Both artifacts pass leak detection against configured tenant/agent keys, remediation key, AI provider key, service token, capability signing key and optional sentinel before being accepted.
+
+## Profile placeholder evidence
+
+The policy-level logical-reference scenario can run independently. Actual `verified_email` profile resolution must remain `NOT_RUN` until a dedicated synthetic T3N profile and compatible user context are available. Unit/integration tests proving the closed mapping do not count as live profile-resolution proof.
 
 ## What is not live evidence
 
-Mocks, unit tests, screenshots, docs and unexecuted commands are not T3N testnet proof. The generated deployment manifest plus matching successful `testnet-run.json` are the live evidence source of truth.
+Mocks, unit tests, screenshots, docs and unexecuted commands are not T3N testnet proof. The generated deployment manifest plus matching successful `testnet-run.json` are the live evidence source of truth. A screenshot of a 2xx response is not remediation completion proof; the matching verification state is required.
 
 See `scenario-matrix.md` for the security-scenario mapping.
