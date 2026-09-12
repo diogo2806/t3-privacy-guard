@@ -4,97 +4,64 @@ Confidential Incident Response Agent for the Terminal 3 Network challenge.
 
 ## Architecture
 
-- `frontend/`: React + Vite, production build served by Nginx.
-- `backend/`: Java 21 + Spring Boot business API with durable incident orchestration.
+- `frontend/`: React + Vite, served by Nginx.
+- `backend/`: Java 21 + Spring Boot with durable incident orchestration.
 - `t3n-gateway/`: Node.js + TypeScript adapter for `@terminal3/t3n-sdk` 5.2.0.
-- `contracts/privacy-guard/`: Rust/WIT policy contract compiled to a WASI Preview 2 component for T3N TEE execution.
+- `contracts/privacy-guard/`: Rust/WIT TEE policy and remediation contract.
 
-Each runtime has its own Dockerfile. There is intentionally no `docker-compose.yml`; production deployment is expected to run the services independently in containers.
+Each runtime has its own Dockerfile. There is intentionally no `docker-compose.yml`.
 
 ## Security baseline
 
-- Never commit `T3N_API_KEY`, `T3N_AGENT_API_KEY`, external service secrets, or real `.env` files.
-- Tenant and agent keys must be different credentials and exist only in the gateway container.
-- The React bundle and Java backend never receive T3N private keys.
-- Canonical tenant and agent DIDs come from authenticated T3N sessions (`did.value`).
-- Authorization, integration or validation failure fails closed.
-- Java audit events store sanitized operational metadata, never secret-bearing payloads.
+Tenant and agent use separate private keys held only by the gateway. Their DIDs come from authenticated T3N sessions. React and Java never receive those keys. Integration and validation failures fail closed. Audit events contain sanitized operational metadata only.
 
-## T3N identities and delegation
+## T3N identity, delegation and contract
 
-The gateway authenticates tenant and agent independently using the SDK 5.2.0 handshake/auth flow. `T3N_AGENT_API_KEY` is a separate funded agent credential. Member delegation is written by the tenant/data-owner session with `updateMemberDelegation` and can scope:
+The gateway manages tenant/agent sessions and member delegation scoped by contract, functions, scopes, hosts and optional validity window. The `privacy-guard` contract exports `evaluate-action` and `execute-remediation`. Policy returns `ALLOW`, `REDACT` or `DENY`; duplicate `requestId` values are blocked durably by the Java database.
 
-- exact `contract_id`;
-- WIT `functions`;
-- data `scopes`;
-- optional `read_scopes`;
-- optional `allowed_hosts`;
-- optional validity window.
+## Secretless remediation
 
-Revocation expires only the matching agent+contract grant, preserving unrelated grants.
+The remediation path is intentionally different from a normal API integration:
 
-Identity/delegation endpoints:
+1. register contract version `0.2.0` and record its numeric `contract_id`;
+2. create private `z:<tid>:secrets` with readers/writers restricted to that numeric contract id;
+3. seed `security_api_key` and `security_api_url` through the tenant control plane with `npm run contract:setup-remediation`;
+4. grant the agent `execute-remediation` plus the destination in `allowed_hosts`;
+5. the agent invokes the contract with only non-secret incident/action metadata;
+6. inside the TEE, the contract re-evaluates policy, reads the credential through `kv-store`, and performs `http-with-placeholders` egress;
+7. the contract returns only sanitized completion metadata (`status`, HTTP code, optional operation id), never the upstream body or credential.
 
-- `GET /internal/t3n/status`
-- `POST /internal/t3n/reconnect`
-- `GET /internal/agent/status`
-- `POST /internal/agent/connect`
-- `POST /internal/agent/delegations`
-- `GET /internal/agent/delegations/:contractId`
-- `DELETE /internal/agent/delegations/:contractId`
+For a reproducible public demo, `SECURITY_API_URL=https://postman-echo.com/post` is supported as a synthetic remediation adapter. Because echo services return request headers in their body, the contract deliberately never returns or logs the raw upstream payload. A production deployment should seed the real security API HTTPS endpoint and delegate only its hostname.
 
-Authentication alone does not grant contract access.
+Terminal 3 additionally enforces the outbound hostname from the caller's member-delegation `allowed_hosts`; missing authorization causes host-level egress denial even if application code attempts the call.
 
-## TEE policy contract
-
-`contracts/privacy-guard` implements the critical decision inside Rust/WASM, not in React, Java or the LLM. Its WIT world follows Terminal 3's `generic-input` envelope and exports `evaluate-action`.
-
-The result is exactly one of:
-
-- `ALLOW`: action and requested fields fit the minimum policy scope;
-- `REDACT`: action can proceed only after unnecessary non-secret fields are removed;
-- `DENY`: action, purpose, host, identity or secret request violates policy.
-
-The policy fails closed for malformed input, unknown action, wrong purpose, invalid agent DID, direct secret disclosure and disallowed egress. Replay requires durable cross-call state, so the WASM validates a bounded `request_id` while durable duplicate prevention is performed by the Java orchestration layer.
-
-Build and register:
+### Setup
 
 ```bash
-rustup target add wasm32-wasip2
 cd contracts/privacy-guard
-cargo test
 cargo build --target wasm32-wasip2 --release
 
 cd ../../t3n-gateway
-npm install
 npm run contract:register
+# Set T3N_CONTRACT_NUMERIC_ID from registration output plus SECURITY_API_KEY/SECURITY_API_URL
+npm run contract:setup-remediation
 ```
 
-Registration uses the authenticated `TenantClient` and `tenant.contracts.register({ tail, version, wasm })`. The canonical name is computed as `z:<tid>:<tail>` from the authenticated tenant DID. Runtime evaluation uses the separately authenticated agent and `executeAndDecode`.
+Never put `SECURITY_API_KEY` in Git, Java, React, an HTTP request body, or a Dockerfile.
 
-Contract endpoints:
-
-- `GET /internal/contracts/privacy-guard/identity`
-- `POST /internal/contracts/privacy-guard/evaluate`
-
-## Backend incident orchestration
-
-The Spring Boot API persists incidents, proposed actions, policy decisions and audit events in an H2 file database under `/data`. `requestId` is unique in the database. A duplicate request is rejected with HTTP 409, and an already persisted policy decision is returned without invoking T3N again. This is the durable idempotency/replay boundary for the stateless policy contract.
-
-Business endpoints:
+## Business API
 
 - `POST /api/incidents`
 - `GET /api/incidents`
-- `GET /api/incidents/{incidentId}`
 - `POST /api/incidents/{incidentId}/actions`
-- `GET /api/incidents/{incidentId}/actions`
 - `POST /api/incidents/{incidentId}/actions/{actionId}/evaluate`
 - `POST /api/incidents/{incidentId}/actions/{actionId}/authorize-remediation`
+- `POST /api/incidents/{incidentId}/actions/{actionId}/execute-remediation`
 - `GET /api/incidents/{incidentId}/history`
 
-The backend calls only the gateway's internal policy API and never receives a T3N key. `DENY`, `REDACT`, timeout, malformed response or unavailable gateway never authorize remediation. A typed frontend consumer exists in `frontend/src/services/privacyGuardApi.ts` for the dashboard layer.
+A remediation must have a persisted `ALLOW`, then explicit authorization, before Java asks the gateway to execute. The TEE rechecks policy before egress, so Java cannot turn a prior `DENY` into a protected call.
 
-## Local builds
+## Build
 
 ```bash
 cd backend && mvn test && mvn package
@@ -103,6 +70,4 @@ cd ../t3n-gateway && npm install && npm test && npm run typecheck && npm run bui
 cd ../contracts/privacy-guard && cargo test && cargo build --target wasm32-wasip2 --release
 ```
 
-## Environment
-
-Use `.env.example` only as a variable-name template. Inject real secrets through the deployment environment. `DATABASE_URL` can override the default H2 file database for the backend.
+Use `.env.example` only as a variable-name template. Inject all real secrets through the deployment environment.

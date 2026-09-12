@@ -3,7 +3,7 @@
 
 extern crate alloc;
 
-pub const CONTRACT_VERSION: &str = "0.1.0";
+pub const CONTRACT_VERSION: &str = "0.2.0";
 
 wit_bindgen::generate!({
     world: "privacy-guard",
@@ -13,16 +13,20 @@ wit_bindgen::generate!({
 });
 
 pub mod policy;
+pub mod remediation;
 
 struct Component;
 
 #[cfg(target_arch = "wasm32")]
 impl exports::z::privacy_guard::contracts::Guest for Component {
-    fn evaluate_action(
-        req: exports::z::privacy_guard::contracts::GenericInput,
-    ) -> Result<alloc::vec::Vec<u8>, alloc::string::String> {
+    fn evaluate_action(req: exports::z::privacy_guard::contracts::GenericInput) -> Result<alloc::vec::Vec<u8>, alloc::string::String> {
         let input = req.input.ok_or("evaluate-action: missing input")?;
         policy::evaluate_json(&input)
+    }
+
+    fn execute_remediation(req: exports::z::privacy_guard::contracts::GenericInput) -> Result<alloc::vec::Vec<u8>, alloc::string::String> {
+        let input = req.input.ok_or("execute-remediation: missing input")?;
+        remediation::execute_remediation(&input)
     }
 }
 
@@ -32,7 +36,6 @@ export!(Component);
 #[cfg(test)]
 mod tests {
     use super::CONTRACT_VERSION;
-
     #[test]
     fn contract_version_is_semver() {
         let parts: Vec<&str> = CONTRACT_VERSION.split('.').collect();

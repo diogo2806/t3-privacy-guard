@@ -1,6 +1,10 @@
-package z:privacy-guard@0.1.0;
+package z:privacy-guard@0.2.0;
 
 world privacy-guard {
+    import host:tenant/tenant-context@1.0.0;
+    import host:interfaces/logging@2.1.0;
+    import host:interfaces/kv-store@2.1.0;
+    import host:interfaces/http-with-placeholders@2.1.0;
     export contracts;
 }
 
@@ -11,8 +15,6 @@ interface contracts {
         context: option<list<u8>>,
     }
 
-    /// Evaluate a proposed incident-response action inside the TEE.
-    /// Input: PolicyEvaluationRequest JSON.
-    /// Output: PolicyDecision JSON with ALLOW, REDACT or DENY.
     evaluate-action: func(req: generic-input) -> result<list<u8>, string>;
+    execute-remediation: func(req: generic-input) -> result<list<u8>, string>;
 }
