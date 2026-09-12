@@ -16,6 +16,7 @@ import br.com.t3privacyguard.integration.GatewayPolicyClient;
 import br.com.t3privacyguard.integration.GatewayPolicyClient.GatewayDecision;
 import br.com.t3privacyguard.integration.GatewayRemediationClient;
 import br.com.t3privacyguard.integration.GatewayRemediationClient.RemediationResult;
+import br.com.t3privacyguard.integration.GatewayUnavailableException;
 import br.com.t3privacyguard.persistence.ActionProposalRepository;
 import br.com.t3privacyguard.persistence.AuditEventRepository;
 import br.com.t3privacyguard.persistence.IncidentRepository;
@@ -51,20 +52,8 @@ class IncidentServiceTest {
 
     @Test
     void rejectsDuplicateRequestIdAsReplay() {
-        var incident = service.createIncident(new CreateIncidentRequest(
-            "Leak",
-            Severity.CRITICAL,
-            "Synthetic incident",
-            "test"
-        ));
-        var input = new CreateActionRequest(
-            "req-1",
-            "revoke-credential",
-            "credential:test",
-            "incident-remediation",
-            "postman-echo.com",
-            List.of("incident_id", "credential_id", "reason")
-        );
+        var incident = createIncident("Leak");
+        var input = safeAction("req-1");
 
         service.addAction(incident.id(), input);
 
@@ -74,20 +63,8 @@ class IncidentServiceTest {
 
     @Test
     void denyCannotAuthorizeRemediation() {
-        var incident = service.createIncident(new CreateIncidentRequest(
-            "Attack",
-            Severity.CRITICAL,
-            "Synthetic incident",
-            "test"
-        ));
-        var action = service.addAction(incident.id(), new CreateActionRequest(
-            "req-2",
-            "revoke-credential",
-            "credential:test",
-            "incident-remediation",
-            "postman-echo.com",
-            List.of("incident_id", "credential_id")
-        ));
+        var incident = createIncident("Attack");
+        var action = service.addAction(incident.id(), safeAction("req-2"));
         when(gateway.evaluate(any())).thenReturn(new GatewayDecision(
             "req-2",
             DecisionType.DENY,
@@ -105,12 +82,7 @@ class IncidentServiceTest {
 
     @Test
     void persistedDecisionPreventsSecondGatewayExecution() {
-        var incident = service.createIncident(new CreateIncidentRequest(
-            "Attack",
-            Severity.HIGH,
-            "Synthetic incident",
-            "test"
-        ));
+        var incident = createIncident("Attack");
         var action = service.addAction(incident.id(), new CreateActionRequest(
             "req-3",
             "create-incident",
@@ -136,28 +108,9 @@ class IncidentServiceTest {
 
     @Test
     void protectedRemediationIsIdempotent() {
-        var incident = service.createIncident(new CreateIncidentRequest(
-            "Credential",
-            Severity.CRITICAL,
-            "Synthetic incident",
-            "test"
-        ));
-        var action = service.addAction(incident.id(), new CreateActionRequest(
-            "req-4",
-            "revoke-credential",
-            "credential:test",
-            "incident-remediation",
-            "postman-echo.com",
-            List.of("incident_id", "credential_id", "reason")
-        ));
-        when(gateway.evaluate(any())).thenReturn(new GatewayDecision(
-            "req-4",
-            DecisionType.ALLOW,
-            "POLICY_ALLOW",
-            "Allowed",
-            List.of("incident_id", "credential_id", "reason"),
-            List.of()
-        ));
+        var incident = createIncident("Credential");
+        var action = service.addAction(incident.id(), safeAction("req-4"));
+        allow("req-4");
         service.evaluate(incident.id(), action.id());
         service.authorizeRemediation(incident.id(), action.id());
         when(remediationGateway.execute(any())).thenReturn(new RemediationResult(
@@ -173,5 +126,100 @@ class IncidentServiceTest {
         assertThat(second.httpCode()).isEqualTo(first.httpCode());
         assertThat(second.operationId()).isEqualTo("op-1");
         verify(remediationGateway, times(1)).execute(any());
+    }
+
+    @Test
+    void gatewayUnavailableFailsClosedWithoutPersistingDecision() {
+        var incident = createIncident("Gateway failure");
+        var action = service.addAction(incident.id(), safeAction("req-5"));
+        when(gateway.evaluate(any())).thenThrow(new GatewayUnavailableException("gateway unavailable"));
+
+        assertThatThrownBy(() -> service.evaluate(incident.id(), action.id()))
+            .isInstanceOf(GatewayUnavailableException.class);
+        assertThat(decisions.count()).isZero();
+        assertThatThrownBy(() -> service.authorizeRemediation(incident.id(), action.id()))
+            .isInstanceOf(ConflictException.class);
+    }
+
+    @Test
+    void mismatchedPolicyResponseRequestIdFailsClosed() {
+        var incident = createIncident("Tampered response");
+        var action = service.addAction(incident.id(), safeAction("req-6"));
+        when(gateway.evaluate(any())).thenReturn(new GatewayDecision(
+            "another-request",
+            DecisionType.ALLOW,
+            "POLICY_ALLOW",
+            "Allowed",
+            List.of("incident_id", "credential_id", "reason"),
+            List.of()
+        ));
+
+        assertThatThrownBy(() -> service.evaluate(incident.id(), action.id()))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("request id mismatch");
+        assertThat(decisions.count()).isZero();
+    }
+
+    @Test
+    void remediationCannotExecuteBeforeExplicitAuthorization() {
+        var incident = createIncident("Unauthorized execution");
+        var action = service.addAction(incident.id(), safeAction("req-7"));
+        allow("req-7");
+        service.evaluate(incident.id(), action.id());
+
+        assertThatThrownBy(() -> service.executeRemediation(incident.id(), action.id()))
+            .isInstanceOf(PolicyDeniedException.class);
+        verify(remediationGateway, times(0)).execute(any());
+    }
+
+    @Test
+    void mismatchedRemediationResponseRequestIdFailsClosedWithoutPersistence() {
+        var incident = createIncident("Tampered remediation");
+        var action = service.addAction(incident.id(), safeAction("req-8"));
+        allow("req-8");
+        service.evaluate(incident.id(), action.id());
+        service.authorizeRemediation(incident.id(), action.id());
+        when(remediationGateway.execute(any())).thenReturn(new RemediationResult(
+            "another-request",
+            "COMPLETED",
+            200,
+            null
+        ));
+
+        assertThatThrownBy(() -> service.executeRemediation(incident.id(), action.id()))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("request id mismatch");
+        assertThat(remediations.count()).isZero();
+    }
+
+    private br.com.t3privacyguard.api.ApiModels.IncidentResponse createIncident(String title) {
+        return service.createIncident(new CreateIncidentRequest(
+            title,
+            Severity.CRITICAL,
+            "Synthetic incident",
+            "adversarial-test"
+        ));
+    }
+
+    private CreateActionRequest safeAction(String requestId) {
+        return new CreateActionRequest(
+            requestId,
+            "revoke-credential",
+            "credential:test",
+            "incident-remediation",
+            "postman-echo.com",
+            List.of("incident_id", "credential_id", "reason")
+        );
+    }
+
+    private void allow(String requestId) {
+        when(gateway.evaluate(any())).thenReturn(new GatewayDecision(
+            requestId,
+            DecisionType.ALLOW,
+            "POLICY_ALLOW",
+            "Allowed",
+            List.of("incident_id", "credential_id", "reason"),
+            List.of()
+        ));
     }
 }
