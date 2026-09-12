@@ -22,6 +22,9 @@ export function EvidenceCenter({ evidence, loading, error, onRefresh }: Props) {
     );
   }
 
+  const trustAnchorState = evidence.metadata.trustAnchorVerified ? 'VERIFIED' : 'NOT VERIFIED';
+  const rollbackFloorState = evidence.metadata.trustManifestFloorPersisted ? 'PERSISTED' : 'NOT PERSISTED';
+
   return (
     <section className="evidence-layout" aria-label="T3N testnet evidence">
       <div className="card">
@@ -31,12 +34,16 @@ export function EvidenceCenter({ evidence, loading, error, onRefresh }: Props) {
           <div><dt>Generated</dt><dd>{new Date(evidence.metadata.generatedAt).toLocaleString()}</dd></div>
           <div><dt>SDK</dt><dd>{evidence.metadata.sdkVersion}</dd></div>
           <div><dt>Network</dt><dd>{evidence.metadata.network}</dd></div>
-          <div><dt>Contract</dt><dd><code>{evidence.metadata.contractId}</code></dd></div>
-          <div><dt>Version</dt><dd>{evidence.metadata.contractVersion}</dd></div>
+          <div><dt>Trust anchor</dt><dd>{trustAnchorState}</dd></div>
+          <div><dt>Rollback floor</dt><dd>{rollbackFloorState}</dd></div>
+          <div><dt>Trust manifest version</dt><dd>{evidence.metadata.trustManifestVersion}</dd></div>
+          <div><dt>Contract version</dt><dd>{evidence.metadata.contractVersion}</dd></div>
+          <div className="evidence-wide"><dt>Contract</dt><dd><code>{evidence.metadata.contractId}</code></dd></div>
           <div className="evidence-wide"><dt>WASM SHA-256</dt><dd><code>{evidence.metadata.wasmSha256}</code></dd></div>
           <div className="evidence-wide"><dt>Tenant DID</dt><dd><code>{evidence.metadata.tenantDid}</code></dd></div>
           <div className="evidence-wide"><dt>Agent DID</dt><dd><code>{evidence.metadata.agentDid}</code></dd></div>
         </dl>
+        <p className="evidence-disclaimer">Trust anchor VERIFIED means the T3N signed manifest established the cluster trust boundary for these authenticated sessions. Rollback floor PERSISTED means the accepted manifest version was stored across gateway restarts; it is not a claim of per-request hardware attestation.</p>
       </div>
 
       <div className="card">
