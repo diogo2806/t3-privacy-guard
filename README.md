@@ -10,6 +10,8 @@ Confidential Incident Response Agent for the Terminal 3 Network challenge.
 
 T3 Privacy Guard assumes the AI agent can be manipulated. A malicious proposal attempts to exfiltrate a protected credential to `attacker.example`; the Rust/WASM policy returns `DENY`. The same incident can produce a minimum legitimate remediation request. An `ALLOW` still does not execute anything: an authenticated application operator must explicitly authorize the remediation before protected T3N execution.
 
+Human authorization is enforced end-to-end. Immediately before execution the Spring backend signs a short-lived, one-time capability bound to the incident, action, persisted ALLOW decision, request, purpose, resource and exact field set. The T3N gateway requires both service-to-service authentication and that capability, verifies its HMAC, rejects expiry/body mismatch and persists consumed nonces to reject replay. The capability never reaches the browser.
+
 The remediation credential remains outside the browser, Spring Boot backend and AI-agent context. It is consumed through the private T3N contract path.
 
 ## Architecture
@@ -21,7 +23,7 @@ React / Nginx
      v
 Java 21 / Spring Boot
      |
-     | internal container network
+     | service auth + one-time signed remediation capability
      v
 Node / TypeScript T3N Gateway
      |
@@ -32,7 +34,7 @@ T3N / Rust WASM / private KV
 
 - `frontend/`: React/Vite dashboard served by Nginx.
 - `backend/`: Java 21/Spring Boot business API, operator sessions, replay/idempotency and audit state.
-- `t3n-gateway/`: isolated T3N SDK adapter with separate tenant/agent sessions.
+- `t3n-gateway/`: isolated T3N SDK adapter with separate tenant/agent sessions and a durable anti-replay store for privileged capabilities.
 - `contracts/privacy-guard/`: Rust/WIT policy and protected remediation contract for `wasm32-wasip2`.
 
 Each runtime has its own Dockerfile. There is intentionally no `docker-compose.yml`; services can be deployed independently in containers.
@@ -41,12 +43,16 @@ Each runtime has its own Dockerfile. There is intentionally no `docker-compose.y
 
 - Operator login is an application identity, not a T3N identity.
 - `T3N_API_KEY` and `T3N_AGENT_API_KEY` are separate and gateway-only.
+- `GATEWAY_SERVICE_TOKEN` is a distinct service-to-service credential; it is never reused as a T3N key or operator password.
+- `REMEDIATION_CAPABILITY_KEY` signs one-time human authorization proofs and is distinct from every T3N/remediation credential.
 - Canonical tenant/agent DIDs come from authenticated T3N sessions.
 - Delegated calls derive `pii_did` internally from the authenticated tenant session.
 - Member delegation restricts contract, functions, scopes, hosts and validity.
 - `DENY`, `REDACT`, malformed responses, unavailable policy evaluation and ambiguous states fail closed.
-- Java persists unique request ids and prior results to prevent duplicate execution.
-- `ALLOW` + authenticated operator + explicit human authorization are all required before remediation execution.
+- Java persists unique request ids and prior results to prevent duplicate business execution.
+- `ALLOW` + authenticated operator + explicit human authorization + valid one-time capability are all required before remediation execution.
+- Privileged delegation/connect routes require internal service authentication.
+- Consumed capability nonces are persisted at `REMEDIATION_REPLAY_STORE_PATH`; mount the gateway `/data` volume persistently so replay protection survives container restarts.
 - `UNKNOWN`, `REVOKED` and `NOT_GRANTED` are never displayed as successful delegation.
 
 See the threat model and claims matrix in [`docs/submission/README.md`](docs/submission/README.md).
@@ -60,9 +66,13 @@ OPERATOR_USERNAME
 OPERATOR_PASSWORD
 OPERATOR_SESSION_TIMEOUT
 SESSION_COOKIE_SECURE
+GATEWAY_SERVICE_TOKEN
+REMEDIATION_CAPABILITY_KEY
+REMEDIATION_CAPABILITY_TTL_SECONDS
+REMEDIATION_REPLAY_STORE_PATH
 ```
 
-Business APIs require the Spring Security operator session. Mutating requests require CSRF protection. The browser never receives a T3N private key.
+Business APIs require the Spring Security operator session. Mutating requests require CSRF protection. The browser never receives a T3N private key, internal service token or remediation capability.
 
 ## T3N operational status
 
@@ -85,24 +95,22 @@ The Rust contract exports:
 - `evaluate-action`: `ALLOW`, `REDACT` or `DENY`;
 - `execute-remediation`: rechecks policy and performs protected egress only when the request remains allowed.
 
-The signature scenario is:
+The authorization path is:
 
 ```text
-prompt injection / untrusted log
-          |
-          v
-AI proposes secret exfiltration
-          |
-          v
-T3N policy -> DENY
-          |
-          +---- safe minimum remediation -> ALLOW
-                                      |
-                             human authorization
-                                      |
-                                      v
-                             protected execution
+unsafe proposal -> T3N DENY
+safe proposal   -> T3N ALLOW
+                     |
+             human authorization
+                     |
+             signed one-time proof
+                     |
+          gateway verifies + consumes nonce
+                     |
+             protected T3N execution
 ```
+
+A capability is never accepted when its signed incident/action/decision/request/action/resource/purpose/fields differ from the request body, when it is expired, or when the nonce was already consumed.
 
 ## Evidence
 
@@ -167,6 +175,6 @@ cd ../contracts/privacy-guard && cargo test && cargo build --target wasm32-wasip
 
 ## Environment
 
-Use `.env.example` only as a variable-name template. Never commit real tenant keys, agent keys, operator passwords, remediation credentials or `.env` files.
+Use `.env.example` only as a variable-name template. Never commit real tenant keys, agent keys, operator passwords, service tokens, capability signing keys, remediation credentials or `.env` files.
 
 The project will continue to be operated after the challenge. A future handover process that rotates/provisions new credentials is documented in the submission guide; existing private keys are not transferred through GitHub or the UI.
