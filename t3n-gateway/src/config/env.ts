@@ -30,6 +30,26 @@ function requiredSecret(env: NodeJS.ProcessEnv, name: string): string {
   return value;
 }
 
+function isIpv4Loopback(hostname: string): boolean {
+  const parts = hostname.split('.');
+  if (parts.length !== 4) return false;
+  const octets = parts.map((part) => Number(part));
+  return octets.every((value, index) => Number.isInteger(value) && value >= 0 && value <= 255 && (index !== 0 || value === 127));
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.trim().toLowerCase().replace(/\.$/, '');
+  return normalized === 'localhost' || normalized === '::1' || normalized === '[::1]' || isIpv4Loopback(normalized);
+}
+
+function validateAiProviderUrl(parsed: URL): void {
+  if (parsed.username || parsed.password) throw new ConfigurationError('AI_API_URL must not contain embedded credentials');
+  if (parsed.protocol === 'https:') return;
+  if (parsed.protocol === 'http:' && isLoopbackHostname(parsed.hostname)) return;
+  if (parsed.protocol === 'http:') throw new ConfigurationError('AI_API_URL must use HTTPS for remote providers; HTTP is allowed only on loopback');
+  throw new ConfigurationError('AI_API_URL must use HTTPS, or HTTP only on loopback');
+}
+
 export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig {
   const apiKey = env.T3N_API_KEY?.trim();
   if (!apiKey) throw new ConfigurationError('T3N_API_KEY is required and must be provided through the runtime environment');
@@ -61,7 +81,7 @@ export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): Gateway
     if (!aiApiKey || !aiModel) throw new ConfigurationError('AI_API_KEY and AI_MODEL are required when AI_PROVIDER=openai-compatible');
     let parsed: URL;
     try { parsed = new URL(aiApiUrl); } catch { throw new ConfigurationError('AI_API_URL must be a valid URL'); }
-    if (!['https:', 'http:'].includes(parsed.protocol)) throw new ConfigurationError('AI_API_URL must use http or https');
+    validateAiProviderUrl(parsed);
   }
 
   return {
