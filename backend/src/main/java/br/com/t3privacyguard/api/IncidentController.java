@@ -9,6 +9,7 @@ import br.com.t3privacyguard.api.ApiModels.IncidentResponse;
 import br.com.t3privacyguard.api.ApiModels.RemediationAuthorizationResponse;
 import br.com.t3privacyguard.api.ApiModels.RemediationExecutionResponse;
 import br.com.t3privacyguard.service.IncidentService;
+import br.com.t3privacyguard.service.RemediationQueryService;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.HttpStatus;
@@ -24,8 +25,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/incidents")
 public class IncidentController {
     private final IncidentService service;
+    private final RemediationQueryService remediationQuery;
 
-    public IncidentController(IncidentService service) { this.service = service; }
+    public IncidentController(IncidentService service, RemediationQueryService remediationQuery) {
+        this.service = service;
+        this.remediationQuery = remediationQuery;
+    }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
@@ -58,6 +63,11 @@ public class IncidentController {
 
     @PostMapping("/{incidentId}/actions/{actionId}/verify-remediation")
     public RemediationExecutionResponse verifyRemediation(@PathVariable String incidentId, @PathVariable String actionId) { return service.verifyRemediation(incidentId, actionId); }
+
+    @GetMapping("/{incidentId}/actions/{actionId}/remediation")
+    public RemediationExecutionResponse remediation(@PathVariable String incidentId, @PathVariable String actionId) {
+        return remediationQuery.get(incidentId, actionId);
+    }
 
     @GetMapping("/{incidentId}/history")
     public List<AuditResponse> history(@PathVariable String incidentId) { return service.history(incidentId); }
