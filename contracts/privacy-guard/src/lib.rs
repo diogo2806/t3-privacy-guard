@@ -28,6 +28,11 @@ impl exports::z::privacy_guard::contracts::Guest for Component {
         let input = req.input.ok_or("execute-remediation: missing input")?;
         remediation::execute_remediation(&input)
     }
+
+    fn verify_remediation(req: exports::z::privacy_guard::contracts::GenericInput) -> Result<alloc::vec::Vec<u8>, alloc::string::String> {
+        let input = req.input.ok_or("verify-remediation: missing input")?;
+        remediation::verify_remediation(&input)
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
