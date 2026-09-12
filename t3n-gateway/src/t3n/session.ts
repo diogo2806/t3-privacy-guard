@@ -1,6 +1,8 @@
 import { T3nClient } from '@terminal3/t3n-sdk';
 import type { GatewayConfig } from '../config/env.js';
 import { sanitizeError, type SanitizedError } from '../security/sanitize.js';
+import type { TrustFloorSnapshot } from '../security/trust-manifest-floor-store.js';
+import { TrustManifestFloorStore } from '../security/trust-manifest-floor-store.js';
 import { authenticatePrincipal } from './authenticated-client.js';
 
 export interface T3nSessionStatus {
@@ -8,16 +10,18 @@ export interface T3nSessionStatus {
   readonly ready: boolean;
   readonly tenantDid: string | null;
   readonly network: GatewayConfig['network'];
+  readonly trust: (TrustFloorSnapshot & { readonly trustAnchorVerified: true }) | null;
   readonly lastError: SanitizedError | null;
 }
 
 export class T3nSession {
   private client: T3nClient | null = null;
   private tenantDid: string | null = null;
+  private trust: (TrustFloorSnapshot & { readonly trustAnchorVerified: true }) | null = null;
   private lastError: SanitizedError | null = null;
   private connecting: Promise<void> | null = null;
 
-  constructor(private readonly config: GatewayConfig) {}
+  constructor(private readonly config: GatewayConfig, private readonly trustFloorStore: TrustManifestFloorStore) {}
 
   getClient(): T3nClient {
     if (!this.client || !this.tenantDid) {
@@ -33,12 +37,18 @@ export class T3nSession {
     return this.tenantDid;
   }
 
+  getTrustStatus(): TrustFloorSnapshot & { readonly trustAnchorVerified: true } {
+    if (!this.trust) throw new Error('T3N trust verification has not completed');
+    return this.trust;
+  }
+
   getStatus(): T3nSessionStatus {
     return {
       connected: this.client !== null && this.tenantDid !== null,
-      ready: this.client !== null && this.tenantDid !== null && this.lastError === null,
+      ready: this.client !== null && this.tenantDid !== null && this.trust !== null && this.lastError === null,
       tenantDid: this.tenantDid,
       network: this.config.network,
+      trust: this.trust,
       lastError: this.lastError,
     };
   }
@@ -57,13 +67,15 @@ export class T3nSession {
 
   private async connectInternal(): Promise<void> {
     try {
-      const principal = await authenticatePrincipal(this.config.apiKey, this.config.network);
+      const principal = await authenticatePrincipal(this.config.apiKey, this.config.network, this.trustFloorStore);
       this.client = principal.client;
       this.tenantDid = principal.did;
+      this.trust = principal.trust;
       this.lastError = null;
     } catch (error) {
       this.client = null;
       this.tenantDid = null;
+      this.trust = null;
       this.lastError = sanitizeError(error, [this.config.apiKey]);
       throw new Error(`${this.lastError.category}: ${this.lastError.message}`);
     }
