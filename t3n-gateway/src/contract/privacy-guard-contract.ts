@@ -1,9 +1,15 @@
 import { getContractVersion, getNodeUrl } from '@terminal3/t3n-sdk';
 import type { AgentSession } from '../agent/agent-session.js';
 import type { GatewayConfig } from '../config/env.js';
+import type { ActivityLogService, ActivityReference } from '../t3n/activity-log-service.js';
 import type { T3nSession } from '../t3n/session.js';
 
 export type PolicyDecisionType = 'ALLOW' | 'REDACT' | 'DENY';
+
+interface ActivityAnnotated {
+  readonly activity_sequence?: number;
+  readonly activity_hash?: string;
+}
 
 export interface PolicyEvaluationRequest {
   readonly request_id: string;
@@ -16,7 +22,7 @@ export interface PolicyEvaluationRequest {
   readonly private_refs?: string[];
 }
 
-export interface PolicyDecision {
+export interface PolicyDecision extends ActivityAnnotated {
   readonly request_id: string;
   readonly decision: PolicyDecisionType;
   readonly reason_code: string;
@@ -27,7 +33,7 @@ export interface PolicyDecision {
   readonly redacted_private_refs: string[];
 }
 
-export interface RemediationResult {
+export interface RemediationResult extends ActivityAnnotated {
   readonly request_id: string;
   readonly status: 'PENDING_VERIFICATION';
   readonly http_code: number;
@@ -40,7 +46,7 @@ export interface RemediationVerificationRequest {
   readonly expected_state: 'REVOKED';
 }
 
-export interface RemediationVerificationResult {
+export interface RemediationVerificationResult extends ActivityAnnotated {
   readonly request_id: string;
   readonly status: 'VERIFIED' | 'UNVERIFIED';
   readonly observed_state?: string | null;
@@ -83,49 +89,73 @@ function isVerification(value: unknown): value is RemediationVerificationResult 
     && (candidate.observed_state == null || typeof candidate.observed_state === 'string');
 }
 
+function annotate<T extends object>(result: T, activity?: ActivityReference): T & ActivityAnnotated {
+  return activity ? { ...result, activity_sequence: activity.sequence, activity_hash: activity.hash } : result;
+}
+
 export class PrivacyGuardContractService {
-  constructor(private readonly config: GatewayConfig, private readonly tenantSession: T3nSession, private readonly agentSession: AgentSession) {}
+  constructor(
+    private readonly config: GatewayConfig,
+    private readonly tenantSession: T3nSession,
+    private readonly agentSession: AgentSession,
+    private readonly activityLog?: ActivityLogService,
+  ) {}
 
   async canonicalContractId(): Promise<string> {
     await this.tenantSession.connect();
     const tenantId = this.tenantSession.getTenantDid().slice('did:t3n:'.length);
     return `z:${tenantId}:${this.config.contractTail}`;
   }
+
   private async currentVersion(contractId: string): Promise<string> { return getContractVersion(getNodeUrl(), contractId); }
+
+  private async capture<T>(contractId: string, functionName: string, operation: () => Promise<T>): Promise<{ result: T; activity?: ActivityReference }> {
+    if (!this.activityLog) return { result: await operation() };
+    return this.activityLog.capture({
+      actorDid: this.agentSession.getAgentDid(),
+      onBehalfOfDid: this.tenantSession.getTenantDid(),
+      contractId,
+      function: functionName,
+    }, operation);
+  }
+
   async identity(): Promise<ContractIdentity> {
     const contractId = await this.canonicalContractId();
     return { contractId, contractVersion: await this.currentVersion(contractId) };
   }
+
   async evaluate(request: Omit<PolicyEvaluationRequest, 'agent_did'>): Promise<PolicyDecision> {
     await this.agentSession.connect();
     const contractId = await this.canonicalContractId();
     const contractVersion = await this.currentVersion(contractId);
-    const result = await this.agentSession.getClient().executeAndDecode(buildDelegatedExecutionRequest(
+    const captured = await this.capture(contractId, 'evaluate-action', () => this.agentSession.getClient().executeAndDecode(buildDelegatedExecutionRequest(
       this.tenantSession.getTenantDid(), contractId, contractVersion, 'evaluate-action',
       { ...request, private_refs: request.private_refs ?? [], agent_did: this.agentSession.getAgentDid() },
-    ));
-    if (!isDecision(result)) throw new Error('T3N contract returned an invalid policy decision');
-    return result;
+    )));
+    if (!isDecision(captured.result)) throw new Error('T3N contract returned an invalid policy decision');
+    return annotate(captured.result, captured.activity);
   }
+
   async remediate(request: Omit<PolicyEvaluationRequest, 'agent_did' | 'host'>): Promise<RemediationResult> {
     await this.agentSession.connect();
     const contractId = await this.canonicalContractId();
     const contractVersion = await this.currentVersion(contractId);
-    const result = await this.agentSession.getClient().executeAndDecode(buildDelegatedExecutionRequest(
+    const captured = await this.capture(contractId, 'execute-remediation', () => this.agentSession.getClient().executeAndDecode(buildDelegatedExecutionRequest(
       this.tenantSession.getTenantDid(), contractId, contractVersion, 'execute-remediation',
       { ...request, private_refs: request.private_refs ?? [], agent_did: this.agentSession.getAgentDid() },
-    ));
-    if (!isRemediation(result)) throw new Error('T3N contract returned an invalid remediation result');
-    return result;
+    )));
+    if (!isRemediation(captured.result)) throw new Error('T3N contract returned an invalid remediation result');
+    return annotate(captured.result, captured.activity);
   }
+
   async verifyRemediation(request: RemediationVerificationRequest): Promise<RemediationVerificationResult> {
     await this.agentSession.connect();
     const contractId = await this.canonicalContractId();
     const contractVersion = await this.currentVersion(contractId);
-    const result = await this.agentSession.getClient().executeAndDecode(buildDelegatedExecutionRequest(
+    const captured = await this.capture(contractId, 'verify-remediation', () => this.agentSession.getClient().executeAndDecode(buildDelegatedExecutionRequest(
       this.tenantSession.getTenantDid(), contractId, contractVersion, 'verify-remediation', request,
-    ));
-    if (!isVerification(result)) throw new Error('T3N contract returned an invalid remediation verification result');
-    return result;
+    )));
+    if (!isVerification(captured.result)) throw new Error('T3N contract returned an invalid remediation verification result');
+    return annotate(captured.result, captured.activity);
   }
 }
