@@ -10,6 +10,14 @@ spring:
     hibernate:
       ddl-auto: update
     open-in-view: false
+server:
+  servlet:
+    session:
+      timeout: ${OPERATOR_SESSION_TIMEOUT:30m}
+      cookie:
+        http-only: true
+        same-site: strict
+        secure: ${SESSION_COOKIE_SECURE:false}
 management:
   endpoints:
     web:
@@ -22,3 +30,7 @@ management:
 privacy-guard:
   gateway:
     base-url: ${T3N_GATEWAY_URL:http://t3n-gateway:3001}
+  operator:
+    username: ${OPERATOR_USERNAME:}
+    password: ${OPERATOR_PASSWORD:}
+    cookie-secure: ${SESSION_COOKIE_SECURE:false}

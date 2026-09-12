@@ -8,3 +8,15 @@ spring:
     hibernate:
       ddl-auto: create-drop
     open-in-view: false
+server:
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        same-site: strict
+        secure: false
+privacy-guard:
+  operator:
+    username: test-operator
+    password: test-password
+    cookie-secure: false

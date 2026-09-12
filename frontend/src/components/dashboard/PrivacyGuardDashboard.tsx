@@ -1,7 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowRight, RotateCcw, ShieldCheck } from 'lucide-react';
-import { privacyGuardApi, type ActionProposal, type AuditEvent, type Incident, type PolicyDecision, type SystemStatus } from '../../services/privacyGuardApi';
+import {
+  PrivacyGuardApiError,
+  privacyGuardApi,
+  type ActionProposal,
+  type AuditEvent,
+  type Incident,
+  type OperatorSession,
+  type PolicyDecision,
+  type SystemStatus,
+} from '../../services/privacyGuardApi';
 import { ActionProposalPanel } from '../actions/ActionProposalPanel';
+import { OperatorSessionGate } from '../auth/OperatorSessionGate';
 import { AuditTrail } from '../audit/AuditTrail';
 import { IncidentSummary } from '../incidents/IncidentSummary';
 import { AppHeader } from '../layout/AppHeader';
@@ -13,6 +23,66 @@ import { SystemStatusBar } from '../status/SystemStatusBar';
 function requestId(prefix: string) { return `${prefix}-${crypto.randomUUID()}`; }
 
 export function PrivacyGuardDashboard() {
+  const [session, setSession] = useState<OperatorSession | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void privacyGuardApi.session()
+      .then(setSession)
+      .catch(() => setSession({ authenticated: false }))
+      .finally(() => setSessionLoading(false));
+  }, []);
+
+  const login = async (credentials: { username: string; password: string }) => {
+    setAuthBusy(true);
+    setAuthError(null);
+    try {
+      setSession(await privacyGuardApi.login(credentials));
+    } catch (cause) {
+      setSession({ authenticated: false });
+      setAuthError(cause instanceof Error ? cause.message : 'Unable to sign in.');
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const logout = async () => {
+    setAuthBusy(true);
+    setAuthError(null);
+    try {
+      await privacyGuardApi.logout();
+      setSession({ authenticated: false });
+    } catch (cause) {
+      setAuthError(cause instanceof Error ? cause.message : 'Unable to sign out safely.');
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const expireSession = useCallback(() => {
+    setSession({ authenticated: false });
+    setAuthError('Your operator session has expired. Sign in again to continue.');
+  }, []);
+
+  return (
+    <div className="app-shell">
+      <AppHeader />
+      <OperatorSessionGate
+        session={session}
+        loading={sessionLoading}
+        busy={authBusy}
+        error={authError}
+        onLogin={login}
+        onLogout={logout}
+      />
+      {session?.authenticated && <AuthenticatedDashboard onSessionExpired={expireSession} />}
+    </div>
+  );
+}
+
+function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => void }) {
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [incident, setIncident] = useState<Incident | null>(null);
   const [actions, setActions] = useState<ActionProposal[]>([]);
@@ -24,18 +94,34 @@ export function PrivacyGuardDashboard() {
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const handleError = useCallback((cause: unknown, fallback: string) => {
+    if (cause instanceof PrivacyGuardApiError && cause.status === 401) {
+      onSessionExpired();
+      return;
+    }
+    setError(cause instanceof Error ? cause.message : fallback);
+  }, [onSessionExpired]);
+
   const refreshSystem = useCallback(async () => {
     setStatusLoading(true);
-    try { setSystemStatus(await privacyGuardApi.systemStatus()); }
-    catch (cause) { setSystemStatus(null); setError(cause instanceof Error ? cause.message : 'Unable to load system status.'); }
-    finally { setStatusLoading(false); }
-  }, []);
+    try {
+      setSystemStatus(await privacyGuardApi.systemStatus());
+    } catch (cause) {
+      setSystemStatus(null);
+      handleError(cause, 'Unable to load system status.');
+    } finally {
+      setStatusLoading(false);
+    }
+  }, [handleError]);
 
   const loadDecision = useCallback(async (currentIncident: Incident, action: ActionProposal) => {
     if (action.status === 'PENDING') { setDecision(null); return; }
     try { setDecision(await privacyGuardApi.getDecision(currentIncident.id, action.id)); }
-    catch { setDecision(null); }
-  }, []);
+    catch (cause) {
+      if (cause instanceof PrivacyGuardApiError && cause.status === 401) onSessionExpired();
+      else setDecision(null);
+    }
+  }, [onSessionExpired]);
 
   const refreshIncident = useCallback(async (currentIncident: Incident, preferredActionId?: string) => {
     const [currentActions, currentHistory] = await Promise.all([
@@ -55,13 +141,13 @@ export function PrivacyGuardDashboard() {
       const current = items[0] ?? null;
       setIncident(current);
       if (current) await refreshIncident(current);
-    }).catch(() => undefined);
-  }, [refreshIncident, refreshSystem]);
+    }).catch((cause) => handleError(cause, 'Unable to load incidents.'));
+  }, [handleError, refreshIncident, refreshSystem]);
 
   const run = async (operation: () => Promise<void>) => {
     setBusy(true); setError(null); setNotice(null);
     try { await operation(); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'The operation could not be completed safely.'); }
+    catch (cause) { handleError(cause, 'The operation could not be completed safely.'); }
     finally { setBusy(false); }
   };
 
@@ -101,7 +187,7 @@ export function PrivacyGuardDashboard() {
     const result = await privacyGuardApi.evaluate(incident.id, safeAction.id);
     await refreshIncident(incident, safeAction.id);
     setDecision(result);
-    setNotice(result.decision === 'ALLOW' ? 'Minimum remediation request allowed. Explicit authorization is still required.' : `Remediation received ${result.decision}; execution remains blocked.`);
+    setNotice(result.decision === 'ALLOW' ? 'Minimum remediation request allowed. Human authorization is still required before execution.' : `Remediation received ${result.decision}; execution remains blocked.`);
   });
 
   const retryEvaluation = () => run(async () => {
@@ -121,7 +207,7 @@ export function PrivacyGuardDashboard() {
     if (!incident || !selectedAction) return;
     await privacyGuardApi.authorizeRemediation(incident.id, selectedAction.id);
     await refreshIncident(incident, selectedAction.id);
-    setNotice('Remediation authorized. The protected TEE execution is now available.');
+    setNotice('Human authorization recorded. Protected TEE execution is now available for this allowed action.');
   });
 
   const execute = () => run(async () => {
@@ -132,8 +218,7 @@ export function PrivacyGuardDashboard() {
   });
 
   return (
-    <div className="app-shell">
-      <AppHeader />
+    <>
       <SystemStatusBar status={systemStatus} loading={statusLoading} onRefresh={() => void refreshSystem()} />
       {error && <div className="feedback feedback-error" role="alert">{error}</div>}
       {notice && <div className="feedback feedback-success" role="status">{notice}</div>}
@@ -156,6 +241,6 @@ export function PrivacyGuardDashboard() {
           <aside className="dashboard-side"><AuditTrail events={history} /></aside>
         </main>
       )}
-    </div>
+    </>
   );
 }
