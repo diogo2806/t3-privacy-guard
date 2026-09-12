@@ -88,6 +88,7 @@ export const privacyGuardApi = {
   evaluate: (incidentId: string, actionId: string) => api<PolicyDecision>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/evaluate`, { method: 'POST' }),
   getDecision: (incidentId: string, actionId: string) => api<PolicyDecision>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/decision`),
   authorizeRemediation: (incidentId: string, actionId: string) => api<{ incidentId: string; actionId: string; requestId: string; state: ProposalStatus }>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/authorize-remediation`, { method: 'POST' }),
+  getRemediation: (incidentId: string, actionId: string) => api<RemediationExecution>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/remediation`),
   executeRemediation: (incidentId: string, actionId: string) => api<RemediationExecution>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/execute-remediation`, { method: 'POST' }),
   verifyRemediation: (incidentId: string, actionId: string) => api<RemediationExecution>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/verify-remediation`, { method: 'POST' }),
   history: (incidentId: string) => api<AuditEvent[]>(`/api/incidents/${encodeURIComponent(incidentId)}/history`),
