@@ -28,7 +28,20 @@ export interface SystemStatus {
   allowedHosts: string[];
   message: string;
 }
-export interface EvidenceMetadata { source: 'T3N_TESTNET'; generatedAt: string; network: string; sdkVersion: string; tenantDid: string; agentDid: string; contractId: string; contractVersion: string; wasmSha256: string; }
+export interface EvidenceMetadata {
+  source: 'T3N_TESTNET';
+  generatedAt: string;
+  network: string;
+  sdkVersion: string;
+  tenantDid: string;
+  agentDid: string;
+  contractId: string;
+  contractVersion: string;
+  wasmSha256: string;
+  trustAnchorVerified: boolean;
+  trustManifestFloorPersisted: boolean;
+  trustManifestVersion: number;
+}
 export interface EvidenceScenario { id: string; expected: string; actual?: string | null; status: EvidenceScenarioStatus; detail?: string | null; }
 export interface EvidenceBundle { metadata: EvidenceMetadata; scenarios: EvidenceScenario[]; totals: { pass: number; fail: number; notRun: number }; }
 
