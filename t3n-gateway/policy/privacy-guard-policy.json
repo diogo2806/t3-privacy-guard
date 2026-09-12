@@ -1,0 +1,37 @@
+{
+  "version": "2026-09-12.1",
+  "actions": {
+    "create-incident": {
+      "purpose": "incident-recording",
+      "allowed_fields": ["incident_id", "severity", "summary", "source"],
+      "allowed_hosts": [],
+      "allowed_private_refs": [],
+      "requires_host": false,
+      "requires_human_authorization": false
+    },
+    "isolate-account": {
+      "purpose": "incident-remediation",
+      "allowed_fields": ["incident_id", "account_id", "reason"],
+      "allowed_hosts": ["postman-echo.com", "security-api.internal"],
+      "allowed_private_refs": [],
+      "requires_host": true,
+      "requires_human_authorization": true
+    },
+    "notify-security": {
+      "purpose": "incident-notification",
+      "allowed_fields": ["incident_id", "severity", "summary"],
+      "allowed_hosts": ["postman-echo.com", "security-api.internal"],
+      "allowed_private_refs": ["verified_email"],
+      "requires_host": true,
+      "requires_human_authorization": false
+    },
+    "revoke-credential": {
+      "purpose": "incident-remediation",
+      "allowed_fields": ["incident_id", "credential_id", "reason"],
+      "allowed_hosts": ["postman-echo.com", "security-api.internal"],
+      "allowed_private_refs": [],
+      "requires_host": true,
+      "requires_human_authorization": true
+    }
+  }
+}
