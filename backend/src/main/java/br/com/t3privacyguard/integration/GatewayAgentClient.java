@@ -1,5 +1,6 @@
 package br.com.t3privacyguard.integration;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -39,5 +40,12 @@ public class GatewayAgentClient {
 
     public record AgentPromptRequest(String prompt) {}
     public record AgentProposalResult(String provider, String model, AgentProposal proposal) {}
-    public record AgentProposal(String action, String resource, String purpose, String host, List<String> fields) {}
+    public record AgentProposal(
+        String action,
+        String resource,
+        String purpose,
+        String host,
+        List<String> fields,
+        @JsonProperty("private_refs") List<String> privateRefs
+    ) {}
 }
