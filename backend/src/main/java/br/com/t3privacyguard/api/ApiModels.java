@@ -35,7 +35,8 @@ public final class ApiModels {
         @NotBlank @Size(max = 240) String resource,
         @NotBlank @Size(max = 80) String purpose,
         @Size(max = 253) String host,
-        @NotNull @Size(max = 64) List<@NotBlank @Size(max = 80) String> fields
+        @NotNull @Size(max = 64) List<@NotBlank @Size(max = 80) String> fields,
+        @Size(max = 4) List<@NotBlank @Size(max = 64) String> privateRefs
     ) {}
 
     public record ActionResponse(
@@ -47,6 +48,7 @@ public final class ApiModels {
         String purpose,
         String host,
         List<String> fields,
+        List<String> privateRefs,
         ProposalStatus status,
         Instant createdAt
     ) {}
@@ -59,42 +61,14 @@ public final class ApiModels {
         String reason,
         List<String> allowedFields,
         List<String> redactedFields,
+        List<String> allowedPrivateRefs,
+        List<String> redactedPrivateRefs,
         Instant evaluatedAt
     ) {}
 
-    public record AuditResponse(
-        String id,
-        String incidentId,
-        String type,
-        String message,
-        Instant createdAt
-    ) {}
-
-    public record RemediationAuthorizationResponse(
-        String incidentId,
-        String actionId,
-        String requestId,
-        String state
-    ) {}
-
-    public record RemediationExecutionResponse(
-        String incidentId,
-        String actionId,
-        String requestId,
-        String state,
-        int httpCode,
-        String operationId
-    ) {}
-
-    public record AnalyzeAgentRequest(
-        @NotBlank @Size(max = 4000) String prompt
-    ) {}
-
-    public record AgentAnalysisResponse(
-        String provider,
-        String model,
-        IncidentResponse incident,
-        ActionResponse action,
-        DecisionResponse decision
-    ) {}
+    public record AuditResponse(String id, String incidentId, String type, String message, Instant createdAt) {}
+    public record RemediationAuthorizationResponse(String incidentId, String actionId, String requestId, String state) {}
+    public record RemediationExecutionResponse(String incidentId, String actionId, String requestId, String state, int httpCode, String operationId) {}
+    public record AnalyzeAgentRequest(@NotBlank @Size(max = 4000) String prompt) {}
+    public record AgentAnalysisResponse(String provider, String model, IncidentResponse incident, ActionResponse action, DecisionResponse decision) {}
 }
