@@ -46,7 +46,7 @@ export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): Gateway
   const contractTail = (env.T3N_CONTRACT_TAIL ?? 'privacy-guard').trim();
   if (!/^[a-zA-Z0-9_-][a-zA-Z0-9_.-]{0,127}$/.test(contractTail)) throw new ConfigurationError('T3N_CONTRACT_TAIL has an invalid format');
 
-  const contractVersion = (env.T3N_CONTRACT_VERSION ?? '0.3.0').trim();
+  const contractVersion = (env.T3N_CONTRACT_VERSION ?? '0.4.0').trim();
   if (!/^\d+\.\d+\.\d+$/.test(contractVersion)) throw new ConfigurationError('T3N_CONTRACT_VERSION must be semantic version MAJOR.MINOR.PATCH');
 
   const aiProviderValue = (env.AI_PROVIDER ?? 'disabled').trim().toLowerCase();
