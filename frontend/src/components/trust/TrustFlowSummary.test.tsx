@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom/vitest';
+import type { ComponentProps } from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { ActionProposal, PolicyDecision, RemediationExecution, SystemStatus } from '../../services/privacyGuardApi';
@@ -62,7 +63,7 @@ function execution(state: RemediationExecution['state']): RemediationExecution {
   };
 }
 
-function renderSummary(overrides: Partial<React.ComponentProps<typeof TrustFlowSummary>> = {}) {
+function renderSummary(overrides: Partial<ComponentProps<typeof TrustFlowSummary>> = {}) {
   render(<TrustFlowSummary
     agentAnalysis={null}
     decision={null}
@@ -77,7 +78,7 @@ function renderSummary(overrides: Partial<React.ComponentProps<typeof TrustFlowS
 describe('TrustFlowSummary', () => {
   it('starts with waiting states and never claims execution', () => {
     renderSummary();
-    expect(screen.getByText('WAITING')).toBeInTheDocument();
+    expect(screen.getAllByText('WAITING')).toHaveLength(2);
     expect(screen.getAllByText('NOT STARTED')).toHaveLength(2);
     expect(screen.getByText(/AI may propose an action, but it has no authority to execute it/i)).toBeInTheDocument();
   });
