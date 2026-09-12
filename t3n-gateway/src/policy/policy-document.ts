@@ -86,3 +86,10 @@ export function canonicalizeOperationalPolicy(input: unknown): CanonicalOperatio
   const hash = createHash('sha256').update(canonicalJson).digest('hex');
   return { document, canonicalJson, hash };
 }
+
+export function assertPolicyVersionImmutable(existing: CanonicalOperationalPolicy | null, candidate: CanonicalOperationalPolicy): void {
+  if (!existing || existing.document.version !== candidate.document.version) return;
+  if (existing.hash !== candidate.hash) {
+    throw new Error(`policy version ${candidate.document.version} already exists with different content; publish a new version instead`);
+  }
+}
