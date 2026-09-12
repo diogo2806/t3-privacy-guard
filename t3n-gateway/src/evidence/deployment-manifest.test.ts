@@ -12,8 +12,10 @@ function manifest(): DeploymentManifest {
     agentDid: 'did:t3n:agent',
     contractId: 'z:tenant:privacy-guard',
     numericContractId: 123,
-    contractVersion: '0.3.0',
+    contractVersion: '0.4.0',
     wasmSha256: 'a'.repeat(64),
+    policyVersion: '2026-09-12.1',
+    policyHash: 'b'.repeat(64),
   };
 }
 
@@ -34,14 +36,17 @@ test('accepts matching deployment and testnet evidence identities', () => {
     contractId: value.contractId,
     contractVersion: value.contractVersion,
     wasmSha256: value.wasmSha256,
+    policyVersion: value.policyVersion,
+    policyHash: value.policyHash,
   }));
 });
 
-test('rejects a different WASM hash or contract version', () => {
+test('rejects a different WASM contract or policy identity', () => {
   const value = manifest();
   assert.throws(() => assertEvidenceMatchesDeployment(value, {
     source: 'T3N_TESTNET', network: value.network, sdkVersion: value.sdkVersion,
     tenantDid: value.tenantDid, agentDid: value.agentDid, contractId: value.contractId,
-    contractVersion: '0.3.1', wasmSha256: 'b'.repeat(64),
+    contractVersion: '0.4.1', wasmSha256: 'c'.repeat(64),
+    policyVersion: '2026-09-12.2', policyHash: 'd'.repeat(64),
   }), /Evidence mismatch/);
 });
