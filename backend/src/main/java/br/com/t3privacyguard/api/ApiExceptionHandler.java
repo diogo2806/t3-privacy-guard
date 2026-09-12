@@ -2,6 +2,7 @@ package br.com.t3privacyguard.api;
 
 import br.com.t3privacyguard.integration.GatewayUnavailableException;
 import br.com.t3privacyguard.integration.SensitivePromptRejectedException;
+import br.com.t3privacyguard.privacy.UnsafeIncidentContentException;
 import br.com.t3privacyguard.security.TooManyLoginAttemptsException;
 import br.com.t3privacyguard.service.*;
 import java.net.URI;
@@ -38,6 +39,11 @@ public class ApiExceptionHandler {
     @ExceptionHandler(SensitivePromptRejectedException.class)
     ResponseEntity<ProblemDetail> sensitivePrompt(SensitivePromptRejectedException ex) {
         return problem(HttpStatus.UNPROCESSABLE_ENTITY, "Sensitive prompt rejected", "Remove literal private values and use an approved logical reference such as verified email instead.");
+    }
+
+    @ExceptionHandler(UnsafeIncidentContentException.class)
+    ResponseEntity<ProblemDetail> unsafeIncident(UnsafeIncidentContentException ex) {
+        return problem(HttpStatus.UNPROCESSABLE_ENTITY, "Incident content rejected", "This content could not be stored safely. Remove literal personal data, credentials, tokens or secrets and retry with operational metadata only.");
     }
 
     @ExceptionHandler(GatewayUnavailableException.class)
