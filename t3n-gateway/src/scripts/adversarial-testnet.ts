@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { AgentSession } from '../agent/agent-session.js';
 import { DelegationService } from '../agent/delegation-service.js';
 import { readGatewayConfig } from '../config/env.js';
-import { PrivacyGuardContractService } from '../contract/privacy-guard-contract.js';
+import { PrivacyGuardContractService, type PolicyDecision } from '../contract/privacy-guard-contract.js';
 import { assertNoSecretLeak, sanitizeEvidenceError } from '../evidence/leak-detector.js';
 import { T3nSession } from '../t3n/session.js';
 
@@ -13,7 +13,8 @@ type EvidenceStatus = 'PASS' | 'FAIL' | 'NOT_RUN';
 interface ScenarioResult { id: string; layer: 'T3N_TESTNET'; expected: string; actual: string | null; status: EvidenceStatus; detail?: string; }
 interface EvidenceBundle {
   generatedAt: string; network: string; sdkVersion: '5.2.0'; tenantDid: string; agentDid: string;
-  contractId: string; contractVersion: string; wasmSha256: string | null; scenarios: ScenarioResult[];
+  contractId: string; contractVersion: string; wasmSha256: string | null;
+  policyVersion: string | null; policyHash: string | null; scenarios: ScenarioResult[];
 }
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -42,9 +43,21 @@ const agentSession = new AgentSession(config);
 const delegation = new DelegationService(tenantSession, agentSession);
 const contract = new PrivacyGuardContractService(config, tenantSession, agentSession);
 const scenarios: ScenarioResult[] = [];
+let observedPolicyVersion: string | null = null;
+let observedPolicyHash: string | null = null;
 
 function record(id: string, expected: string, actual: string | null, status: EvidenceStatus, detail?: string): void {
   scenarios.push({ id, layer: 'T3N_TESTNET', expected, actual, status, detail });
+}
+function observePolicy(decision: PolicyDecision): void {
+  if (!decision.policy_version || !decision.policy_hash || !/^[a-f0-9]{64}$/.test(decision.policy_hash)) {
+    throw new Error('Live decision did not return valid versioned policy metadata');
+  }
+  if (observedPolicyVersion && (observedPolicyVersion !== decision.policy_version || observedPolicyHash !== decision.policy_hash)) {
+    throw new Error('Policy changed during one evidence run');
+  }
+  observedPolicyVersion = decision.policy_version;
+  observedPolicyHash = decision.policy_hash;
 }
 async function wasmHash(): Promise<string | null> {
   try { return createHash('sha256').update(await readFile(wasmPath)).digest('hex'); } catch { return null; }
@@ -61,13 +74,18 @@ async function grantFull(contractId: string, version: string): Promise<void> {
 async function decisionScenario(id: string, expected: 'ALLOW' | 'REDACT' | 'DENY', input: Parameters<PrivacyGuardContractService['evaluate']>[0]): Promise<void> {
   try {
     const result = await contract.evaluate(input);
-    record(id, expected, result.decision, result.decision === expected ? 'PASS' : 'FAIL', result.reason_code);
+    observePolicy(result);
+    record(id, expected, result.decision, result.decision === expected ? 'PASS' : 'FAIL', `${result.reason_code}; policy=${result.policy_version}; hash=${result.policy_hash}`);
   } catch (error) { record(id, expected, null, 'FAIL', sanitizeEvidenceError(error)); }
 }
 function isAuthorizationRejection(message: string): boolean {
   return /(egress|denied|not[ -]?authori[sz]ed|authori[sz]ation|delegat|permission|function.*allow|grant)/i.test(message);
 }
 async function expectProtectedEgressRejected(id: string, expected: string, requestId: string): Promise<void> {
+  if (!observedPolicyVersion || !observedPolicyHash) {
+    record(id, expected, null, 'FAIL', 'Versioned policy metadata was not established before protected egress');
+    return;
+  }
   try {
     const result = await contract.remediate({
       request_id: requestId,
@@ -75,6 +93,8 @@ async function expectProtectedEgressRejected(id: string, expected: string, reque
       resource: 'credential:security-api',
       purpose: 'incident-remediation',
       fields: ['incident_id', 'credential_id', 'reason'],
+      policy_version: observedPolicyVersion,
+      policy_hash: observedPolicyHash,
     });
     record(id, expected, result.status, 'FAIL', 'Protected egress unexpectedly reached the acceptance state');
   } catch (error) {
@@ -100,6 +120,12 @@ await decisionScenario('LIVE-PRIVATE-REFERENCE-POLICY', 'ALLOW', {
   request_id: 'live-private-ref-policy', action: 'notify-security', resource: 'incident:synthetic', purpose: 'incident-notification', host: 'postman-echo.com',
   fields: ['incident_id', 'severity', 'summary'], private_refs: ['verified_email'],
 });
+record(
+  'LIVE-VERSIONED-POLICY-PROVENANCE',
+  'all decisions expose one stable policy version and SHA-256 during the run',
+  observedPolicyVersion && observedPolicyHash ? `${observedPolicyVersion} / ${observedPolicyHash}` : null,
+  observedPolicyVersion && observedPolicyHash ? 'PASS' : 'FAIL',
+);
 record(
   'LIVE-PROFILE-PLACEHOLDER-RESOLUTION',
   'verified_email resolved by T3N profile placeholder only during protected egress',
@@ -131,50 +157,66 @@ if (process.env.EVIDENCE_RUN_REMEDIATION === 'true') {
       host: 'attacker.example',
       fields: ['incident_id', 'credential_id', 'reason', 'api_key'],
     });
-    if (attack.decision !== 'DENY') {
-      record('LIVE-SAFE-AFTER-ATTACK', 'DENY -> accepted execution -> independent VERIFIED read-back', attack.decision, 'FAIL');
+    observePolicy(attack);
+    const safe = await contract.evaluate({
+      request_id: 'live-safe-after-attack',
+      action: 'revoke-credential',
+      resource: 'credential:security-api',
+      purpose: 'incident-remediation',
+      host: 'postman-echo.com',
+      fields: ['incident_id', 'credential_id', 'reason'],
+    });
+    observePolicy(safe);
+    if (attack.decision !== 'DENY' || safe.decision !== 'ALLOW' || !safe.policy_version || !safe.policy_hash) {
+      record('LIVE-SAFE-AFTER-ATTACK', 'DENY -> ALLOW -> accepted execution -> independent VERIFIED read-back', `${attack.decision} -> ${safe.decision}`, 'FAIL');
     } else {
       const remediation = await contract.remediate({
-        request_id: 'live-safe-after-attack',
+        request_id: safe.request_id,
         action: 'revoke-credential',
         resource: 'credential:security-api',
         purpose: 'incident-remediation',
         fields: ['incident_id', 'credential_id', 'reason'],
+        policy_version: safe.policy_version,
+        policy_hash: safe.policy_hash,
       });
       if (!remediation.operation_id) {
-        record('LIVE-SAFE-AFTER-ATTACK', 'DENY -> accepted execution -> independent VERIFIED read-back', `${attack.decision} -> ${remediation.status}`, 'FAIL', 'External acceptance did not return an operation id; completion cannot be verified.');
+        record('LIVE-SAFE-AFTER-ATTACK', 'DENY -> ALLOW -> accepted execution -> independent VERIFIED read-back', `${attack.decision} -> ${safe.decision} -> ${remediation.status}`, 'FAIL', 'External acceptance did not return an operation id; completion cannot be verified.');
       } else {
         const verification = await contract.verifyRemediation({
           request_id: remediation.request_id,
           operation_id: remediation.operation_id,
           expected_state: 'REVOKED',
         });
-        const actual = `${attack.decision} -> ${remediation.status} -> ${verification.status}${verification.observed_state ? ` (${verification.observed_state})` : ''}`;
+        const actual = `${attack.decision} -> ${safe.decision} -> ${remediation.status} -> ${verification.status}${verification.observed_state ? ` (${verification.observed_state})` : ''}`;
         record(
           'LIVE-SAFE-AFTER-ATTACK',
-          'DENY -> accepted execution -> independent VERIFIED read-back',
+          'DENY -> ALLOW -> accepted execution -> independent VERIFIED read-back',
           actual,
           verification.status === 'VERIFIED' && verification.observed_state === 'REVOKED' ? 'PASS' : 'FAIL',
         );
       }
     }
   } catch (error) {
-    record('LIVE-SAFE-AFTER-ATTACK', 'DENY -> accepted execution -> independent VERIFIED read-back', null, 'FAIL', sanitizeEvidenceError(error));
+    record('LIVE-SAFE-AFTER-ATTACK', 'DENY -> ALLOW -> accepted execution -> independent VERIFIED read-back', null, 'FAIL', sanitizeEvidenceError(error));
   }
 } else {
   record(
     'LIVE-SAFE-AFTER-ATTACK',
-    'DENY -> accepted execution -> independent VERIFIED read-back',
+    'DENY -> ALLOW -> accepted execution -> independent VERIFIED read-back',
     null,
     'NOT_RUN',
     'Set EVIDENCE_RUN_REMEDIATION=true only after seeding both remediation and independent verification endpoints in the private map and granting both contract functions.',
   );
 }
 
-const evidence: EvidenceBundle = { generatedAt: new Date().toISOString(), network: config.network, sdkVersion: '5.2.0', tenantDid, agentDid, contractId: identity.contractId, contractVersion: identity.contractVersion, wasmSha256: await wasmHash(), scenarios };
+const evidence: EvidenceBundle = {
+  generatedAt: new Date().toISOString(), network: config.network, sdkVersion: '5.2.0', tenantDid, agentDid,
+  contractId: identity.contractId, contractVersion: identity.contractVersion, wasmSha256: await wasmHash(),
+  policyVersion: observedPolicyVersion, policyHash: observedPolicyHash, scenarios,
+};
 const serialized = `${JSON.stringify(evidence, null, 2)}\n`;
 assertNoSecretLeak(serialized, [config.apiKey, config.agentApiKey, process.env.EVIDENCE_SENTINEL_SECRET, process.env.SECURITY_API_KEY, process.env.AI_API_KEY, config.gatewayServiceToken, config.remediationCapabilityKey]);
 await mkdir(dirname(outputPath), { recursive: true });
 await writeFile(outputPath, serialized, 'utf8');
-console.info(JSON.stringify({ outputPath, pass: scenarios.filter((item) => item.status === 'PASS').length, fail: scenarios.filter((item) => item.status === 'FAIL').length, notRun: scenarios.filter((item) => item.status === 'NOT_RUN').length }, null, 2));
+console.info(JSON.stringify({ outputPath, policyVersion: observedPolicyVersion, policyHash: observedPolicyHash, pass: scenarios.filter((item) => item.status === 'PASS').length, fail: scenarios.filter((item) => item.status === 'FAIL').length, notRun: scenarios.filter((item) => item.status === 'NOT_RUN').length }, null, 2));
 if (scenarios.some((item) => item.status === 'FAIL')) process.exitCode = 1;
