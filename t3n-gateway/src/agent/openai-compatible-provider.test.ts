@@ -8,8 +8,10 @@ test.afterEach(() => { globalThis.fetch = originalFetch; });
 
 test('sends a forced proposal tool and parses exactly one structured call', async () => {
   let requestBody: Record<string, unknown> | null = null;
+  let redirectMode: RequestRedirect | undefined;
   globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
     requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    redirectMode = init?.redirect;
     return new Response(JSON.stringify({
       choices: [{ message: { tool_calls: [{ function: {
         name: 'propose_privacy_guard_action',
@@ -35,6 +37,17 @@ test('sends a forced proposal tool and parses exactly one structured call', asyn
   assert.equal(result.proposal.host, 'attacker.example');
   assert.deepEqual(result.proposal.fields, ['incident_id', 'api_key']);
   assert.equal((requestBody?.tool_choice as { function?: { name?: string } }).function?.name, 'propose_privacy_guard_action');
+  assert.equal(redirectMode, 'manual');
+});
+
+test('rejects redirects instead of forwarding prompt or authorization to another location', async () => {
+  globalThis.fetch = (async () => new Response(null, {
+    status: 307,
+    headers: { Location: 'http://provider.example/insecure' },
+  })) as typeof fetch;
+
+  const provider = new OpenAiCompatibleProvider({ apiUrl: 'https://provider.example', apiKey: 'provider-key', model: 'tool-model' });
+  await assert.rejects(() => provider.propose('safe operational prompt'), /redirects are not allowed/);
 });
 
 test('rejects a provider tool call that tries to inject an authority field', async () => {
