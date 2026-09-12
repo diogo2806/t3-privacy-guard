@@ -75,7 +75,9 @@ public class GatewayRemediationClient {
         @JsonProperty("request_id") String requestId,
         String status,
         @JsonProperty("http_code") int httpCode,
-        @JsonProperty("operation_id") String operationId
+        @JsonProperty("operation_id") String operationId,
+        @JsonProperty("activity_sequence") Long activitySequence,
+        @JsonProperty("activity_hash") String activityHash
     ) {}
 
     public record VerificationRequest(
@@ -87,6 +89,8 @@ public class GatewayRemediationClient {
     public record VerificationResult(
         @JsonProperty("request_id") String requestId,
         String status,
-        @JsonProperty("observed_state") String observedState
+        @JsonProperty("observed_state") String observedState,
+        @JsonProperty("activity_sequence") Long activitySequence,
+        @JsonProperty("activity_hash") String activityHash
     ) {}
 }
