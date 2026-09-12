@@ -4,6 +4,7 @@ import br.com.t3privacyguard.integration.GatewayUnavailableException;
 import br.com.t3privacyguard.service.*;
 import java.net.URI;
 import org.springframework.http.*;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.*;
 
@@ -17,6 +18,11 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(PolicyDeniedException.class)
     ResponseEntity<ProblemDetail> denied(PolicyDeniedException ex) { return problem(HttpStatus.FORBIDDEN, "Policy denied remediation", ex.getMessage()); }
+
+    @ExceptionHandler(AuthenticationException.class)
+    ResponseEntity<ProblemDetail> authentication(AuthenticationException ex) {
+        return problem(HttpStatus.UNAUTHORIZED, "Authentication failed", "Invalid operator credentials.");
+    }
 
     @ExceptionHandler(GatewayUnavailableException.class)
     ResponseEntity<ProblemDetail> gateway(GatewayUnavailableException ex) { return problem(HttpStatus.SERVICE_UNAVAILABLE, "T3N policy service unavailable", "The action was not authorized because policy evaluation could not be completed."); }
