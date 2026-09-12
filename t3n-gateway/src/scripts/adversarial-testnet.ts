@@ -20,6 +20,19 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDir, '../../..');
 const outputPath = resolve(process.env.EVIDENCE_OUTPUT ?? resolve(repositoryRoot, 'docs/evidence/testnet-run.json'));
 const wasmPath = resolve(process.env.T3N_CONTRACT_WASM_PATH ?? resolve(repositoryRoot, 'contracts/privacy-guard/target/wasm32-wasip2/release/privacy_guard_contract.wasm'));
+
+function configuredEgressHosts(): string[] {
+  const configured = [process.env.SECURITY_API_URL, process.env.SECURITY_VERIFICATION_URL]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value));
+  if (configured.length === 0) return ['postman-echo.com'];
+  return [...new Set(configured.map((value) => {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'https:') throw new Error('Evidence egress endpoints must use HTTPS');
+    return parsed.hostname;
+  }))];
+}
+
 const config = readGatewayConfig();
 if (config.network !== 'testnet' && process.env.EVIDENCE_ALLOW_PRODUCTION !== 'true') throw new Error('Adversarial evidence runner is restricted to testnet unless EVIDENCE_ALLOW_PRODUCTION=true is explicitly set');
 if (!config.agentApiKey) throw new Error('T3N_AGENT_API_KEY is required for testnet evidence');
@@ -42,7 +55,7 @@ async function grantFull(contractId: string, version: string): Promise<void> {
     versionReq: version,
     functions: ['evaluate-action', 'execute-remediation', 'verify-remediation'],
     scopes: ['incident_id', 'credential_id', 'reason'],
-    allowedHosts: ['postman-echo.com'],
+    allowedHosts: configuredEgressHosts(),
   });
 }
 async function decisionScenario(id: string, expected: 'ALLOW' | 'REDACT' | 'DENY', input: Parameters<PrivacyGuardContractService['evaluate']>[0]): Promise<void> {
