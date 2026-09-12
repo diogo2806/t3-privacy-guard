@@ -19,6 +19,18 @@ const wasmPath = resolve(process.env.T3N_CONTRACT_WASM_PATH ?? resolve(repositor
 const manifestPath = resolve(process.env.EVIDENCE_DEPLOYMENT_MANIFEST ?? resolve(evidenceDir, 'deployment-manifest.json'));
 const testnetPath = resolve(process.env.EVIDENCE_OUTPUT ?? resolve(evidenceDir, 'testnet-run.json'));
 
+function configuredEgressHosts(): string[] {
+  const configured = [process.env.SECURITY_API_URL, process.env.SECURITY_VERIFICATION_URL]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value));
+  if (configured.length === 0) return ['postman-echo.com'];
+  return [...new Set(configured.map((value) => {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'https:') throw new Error('Evidence egress endpoints must use HTTPS');
+    return parsed.hostname;
+  }))];
+}
+
 const config = readGatewayConfig();
 if (config.network !== 'testnet' && process.env.EVIDENCE_ALLOW_PRODUCTION !== 'true') {
   throw new Error('Live evidence orchestration is restricted to testnet unless EVIDENCE_ALLOW_PRODUCTION=true');
@@ -89,6 +101,9 @@ await writeFile(manifestPath, serializedManifest, 'utf8');
 
 if (process.env.EVIDENCE_PREPARE_EGRESS === 'true') {
   if (!numericContractId) throw new Error('T3N_CONTRACT_NUMERIC_ID is required to prepare the private remediation map for an existing contract');
+  if (!process.env.SECURITY_API_URL?.startsWith('https://')) {
+    throw new Error('SECURITY_API_URL is required when preparing verifiable remediation evidence');
+  }
   if (!process.env.SECURITY_VERIFICATION_URL?.startsWith('https://')) {
     throw new Error('SECURITY_VERIFICATION_URL is required when preparing verifiable remediation evidence');
   }
@@ -105,7 +120,7 @@ await delegation.grant({
   versionReq: contractVersion,
   functions: ['evaluate-action', 'execute-remediation', 'verify-remediation'],
   scopes: ['incident_id', 'credential_id', 'reason'],
-  allowedHosts: ['postman-echo.com'],
+  allowedHosts: configuredEgressHosts(),
 });
 
 const run = spawnSync('npm', ['run', 'evidence:testnet'], {
