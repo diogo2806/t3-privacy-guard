@@ -419,3 +419,18 @@ The submission must lead with user/business meaning, then expose the technical p
 Do not say “guarantees GDPR compliance”, “hardware verified”, “exactly once”, “at most once”, “profile resolution proved live” or “completed from HTTP 2xx” without corresponding evidence/contract.
 
 This file is the repository source of truth for the public submission narrative and handover model.
+
+## Persistent trust-manifest rollback boundary
+
+Before either T3N identity is authenticated, the gateway verifies the official signed trust manifest and reads the persisted high-water mark for the selected network. If a floor exists, `fetchTrustedManifest(network, { minVersion })` is mandatory. Tenant and Agent sessions share the same `TrustManifestFloorStore`, so one runtime cannot accept separate rollback histories for the same network.
+
+The floor is monotonic and network-scoped: accepting version 101 allows 101 or a later verified version, while version 100 is rejected even after a gateway restart. The state is written atomically to persistent `/data` storage and contains only the network, accepted version and acceptance timestamp. Missing state is valid only for first bootstrap; malformed, truncated or unreadable state fails closed and is never silently reset. Resetting the floor is an explicit operational recovery decision because it discards rollback history.
+
+For judging and evidence, the claims are deliberately separate:
+
+- **Trust anchor VERIFIED**: the signed T3N manifest established the cluster trust boundary used for authentication.
+- **Rollback floor PERSISTED**: a valid monotonic manifest-version floor was durably stored and reused across restarts.
+- **Trust manifest version**: the observed high-water version associated with that evidence bundle.
+- **Hardware attestation**: not implied by any of the three states above and not claimed without a separate execution-specific artifact.
+
+The Evidence Center exposes those sanitized states and the Manual da Tela explains the expected failure cases (`TRUST MANIFEST UNAVAILABLE`, `ROLLBACK REJECTED`, `TRUST FLOOR CORRUPTED`, `VERSION NOT EXPOSED BY SDK`) without exposing trust-manifest contents or credentials.
