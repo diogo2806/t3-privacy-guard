@@ -13,6 +13,7 @@ export interface PolicyEvaluationRequest {
   readonly purpose: string;
   readonly host?: string;
   readonly fields: string[];
+  readonly private_refs: string[];
 }
 
 export interface PolicyDecision {
@@ -22,6 +23,8 @@ export interface PolicyDecision {
   readonly reason: string;
   readonly allowed_fields: string[];
   readonly redacted_fields: string[];
+  readonly allowed_private_refs: string[];
+  readonly redacted_private_refs: string[];
 }
 
 export interface RemediationResult {
@@ -57,7 +60,9 @@ function isDecision(value: unknown): value is PolicyDecision {
     && typeof candidate.reason_code === 'string'
     && typeof candidate.reason === 'string'
     && Array.isArray(candidate.allowed_fields)
-    && Array.isArray(candidate.redacted_fields);
+    && Array.isArray(candidate.redacted_fields)
+    && Array.isArray(candidate.allowed_private_refs)
+    && Array.isArray(candidate.redacted_private_refs);
 }
 
 function isRemediation(value: unknown): value is RemediationResult {
