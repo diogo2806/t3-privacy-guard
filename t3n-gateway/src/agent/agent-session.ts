@@ -24,7 +24,7 @@ export class AgentSession {
 
   constructor(
     private readonly config: GatewayConfig,
-    private readonly trustFloorStore: TrustManifestFloorStore,
+    private readonly trustFloorStore: TrustManifestFloorStore = new TrustManifestFloorStore(config.trustManifestFloorStorePath),
   ) {}
 
   getClient(): T3nClient {
