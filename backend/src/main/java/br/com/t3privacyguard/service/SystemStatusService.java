@@ -3,6 +3,7 @@ package br.com.t3privacyguard.service;
 import br.com.t3privacyguard.integration.GatewaySystemClient;
 import br.com.t3privacyguard.integration.GatewaySystemClient.AgentStatus;
 import br.com.t3privacyguard.integration.GatewaySystemClient.ContractIdentity;
+import br.com.t3privacyguard.integration.GatewaySystemClient.DelegationStatus;
 import br.com.t3privacyguard.integration.GatewaySystemClient.TenantStatus;
 import java.util.List;
 import java.util.Optional;
@@ -21,46 +22,54 @@ public class SystemStatusService {
         Optional<TenantStatus> tenant = gateway.tenantStatus();
         Optional<AgentStatus> agent = gateway.agentStatus();
         Optional<ContractIdentity> contract = gateway.contractIdentity();
+        Optional<DelegationStatus> delegation = contract.flatMap(value -> gateway.delegationStatus(value.contractId()));
+
+        boolean tenantAuthenticated = tenant.map(TenantStatus::ready).orElse(false);
+        boolean agentAuthenticated = agent.map(AgentStatus::ready).orElse(false);
+        boolean contractResolved = contract.isPresent();
+        String delegationState = delegation.map(DelegationStatus::state).orElse("UNKNOWN");
 
         String message;
         if (!gatewayReachable) {
             message = "T3N gateway is unreachable.";
-        } else if (tenant.map(TenantStatus::ready).orElse(false)
-            && agent.map(AgentStatus::ready).orElse(false)
-            && contract.isPresent()) {
-            message = "Tenant, agent and registered T3N contract are ready.";
+        } else if (tenantAuthenticated && agentAuthenticated && contractResolved && "ACTIVE".equals(delegationState)) {
+            message = "Tenant and agent are authenticated, the contract is resolved, and the observed delegation is active.";
         } else {
-            message = "Gateway is online, but one or more T3N capabilities are not ready.";
+            message = "Gateway is online, but one or more T3N operational states are not confirmed as ready.";
         }
 
         return new SystemStatusResponse(
             gatewayReachable,
-            tenant.map(TenantStatus::ready).orElse(false),
+            tenantAuthenticated,
             tenant.map(TenantStatus::network).orElse(null),
             tenant.map(TenantStatus::tenantDid).orElse(null),
             agent.map(AgentStatus::configured).orElse(false),
-            agent.map(AgentStatus::ready).orElse(false),
+            agentAuthenticated,
             agent.map(AgentStatus::agentDid).orElse(null),
-            contract.isPresent(),
+            contractResolved,
             contract.map(ContractIdentity::contractId).orElse(null),
             contract.map(ContractIdentity::contractVersion).orElse(null),
-            contract.map(ContractIdentity::functions).orElse(List.of()),
+            delegationState,
+            delegation.map(DelegationStatus::functions).orElse(List.of()),
+            delegation.map(DelegationStatus::allowedHosts).orElse(List.of()),
             message
         );
     }
 
     public record SystemStatusResponse(
         boolean gatewayReachable,
-        boolean t3nReady,
+        boolean tenantAuthenticated,
         String network,
         String tenantDid,
         boolean agentConfigured,
-        boolean agentReady,
+        boolean agentAuthenticated,
         String agentDid,
-        boolean contractRegistered,
+        boolean contractResolved,
         String contractId,
         String contractVersion,
-        List<String> contractFunctions,
+        String delegationState,
+        List<String> delegatedFunctions,
+        List<String> allowedHosts,
         String message
     ) {}
 }

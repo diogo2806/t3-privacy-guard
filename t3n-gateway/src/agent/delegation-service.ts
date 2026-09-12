@@ -13,6 +13,12 @@ export interface DelegationGrantRequest {
 }
 
 export type DelegationState = 'ACTIVE' | 'REVOKED' | 'NOT_GRANTED' | 'UNKNOWN';
+export interface DelegationStatus {
+  readonly state: DelegationState;
+  readonly functions: string[];
+  readonly allowedHosts: string[];
+  readonly policy: unknown;
+}
 
 interface GrantRecord {
   grantee?: unknown;
@@ -26,9 +32,7 @@ interface GrantRecord {
 }
 
 function assertNonEmpty(values: string[], field: string): void {
-  if (!Array.isArray(values) || values.length === 0 || values.some((value) => !value.trim())) {
-    throw new Error(`${field} must contain at least one non-empty value`);
-  }
+  if (!Array.isArray(values) || values.length === 0 || values.some((value) => !value.trim())) throw new Error(`${field} must contain at least one non-empty value`);
 }
 
 function extractGrants(value: unknown, depth = 0): GrantRecord[] {
@@ -47,28 +51,18 @@ function asStrings(value: unknown): string[] {
 }
 
 export class DelegationService {
-  constructor(
-    private readonly tenantSession: T3nSession,
-    private readonly agentSession: AgentSession,
-  ) {}
+  constructor(private readonly tenantSession: T3nSession, private readonly agentSession: AgentSession) {}
 
   async grant(request: DelegationGrantRequest): Promise<void> {
     if (!request.contractId.trim()) throw new Error('contractId is required');
     assertNonEmpty(request.functions, 'functions');
     assertNonEmpty(request.scopes, 'scopes');
     await this.ensureSessions();
-
     await this.tenantSession.getClient().updateMemberDelegation({
-      grantee: this.agentSession.getAgentDid(),
-      contract_id: request.contractId,
-      version_req: request.versionReq,
-      functions: request.functions,
-      scopes: request.scopes,
-      read_scopes: request.readScopes,
+      grantee: this.agentSession.getAgentDid(), contract_id: request.contractId, version_req: request.versionReq,
+      functions: request.functions, scopes: request.scopes, read_scopes: request.readScopes,
       allowed_hosts: request.allowedHosts,
-      window: request.validFromSecs || request.validUntilSecs
-        ? { valid_from_secs: request.validFromSecs, valid_until_secs: request.validUntilSecs }
-        : undefined,
+      window: request.validFromSecs || request.validUntilSecs ? { valid_from_secs: request.validFromSecs, valid_until_secs: request.validUntilSecs } : undefined,
     });
   }
 
@@ -78,43 +72,36 @@ export class DelegationService {
     const policy = await this.tenantSession.getClient().getMemberDelegation();
     const grant = this.findAgentGrant(policy, contractId);
     if (!grant) return 'NOT_GRANTED';
-
     const functions = asStrings(grant.functions);
     const scopes = asStrings(grant.scopes);
-    if (functions.length === 0 || scopes.length === 0) {
-      throw new Error('Existing delegation cannot be safely revoked because its functions/scopes are unreadable');
-    }
-
+    if (functions.length === 0 || scopes.length === 0) throw new Error('Existing delegation cannot be safely revoked because its functions/scopes are unreadable');
     const now = Math.floor(Date.now() / 1000);
     await this.tenantSession.getClient().updateMemberDelegation({
-      grantee: this.agentSession.getAgentDid(),
-      contract_id: contractId,
+      grantee: this.agentSession.getAgentDid(), contract_id: contractId,
       version_req: typeof grant.version_req === 'string' ? grant.version_req : undefined,
-      functions,
-      scopes,
-      read_scopes: asStrings(grant.read_scopes),
-      allowed_hosts: asStrings(grant.allowed_hosts),
+      functions, scopes, read_scopes: asStrings(grant.read_scopes), allowed_hosts: asStrings(grant.allowed_hosts),
       window: { valid_until_secs: now - 1 },
     });
     return 'REVOKED';
   }
 
-  async status(contractId: string): Promise<{ state: DelegationState; policy: unknown }> {
+  async status(contractId: string): Promise<DelegationStatus> {
     await this.ensureSessions();
     const policy = await this.tenantSession.getClient().getMemberDelegation();
     const grant = this.findAgentGrant(policy, contractId);
-    if (!grant) return { state: 'NOT_GRANTED', policy };
-
+    if (!grant) return { state: 'NOT_GRANTED', functions: [], allowedHosts: [], policy };
+    const functions = asStrings(grant.functions);
+    const scopes = asStrings(grant.scopes);
+    const allowedHosts = asStrings(grant.allowed_hosts);
+    if (functions.length === 0 || scopes.length === 0) return { state: 'UNKNOWN', functions, allowedHosts, policy };
     const validUntil = typeof grant.window?.valid_until_secs === 'number' ? grant.window.valid_until_secs : null;
     const state: DelegationState = validUntil !== null && validUntil < Math.floor(Date.now() / 1000) ? 'REVOKED' : 'ACTIVE';
-    return { state, policy };
+    return { state, functions, allowedHosts, policy };
   }
 
   private findAgentGrant(policy: unknown, contractId: string): GrantRecord | undefined {
     const agentDid = this.agentSession.getAgentDid();
-    return extractGrants(policy).find(
-      (grant) => grant.grantee === agentDid && grant.contract_id === contractId,
-    );
+    return extractGrants(policy).find((grant) => grant.grantee === agentDid && grant.contract_id === contractId);
   }
 
   private async ensureSessions(): Promise<void> {

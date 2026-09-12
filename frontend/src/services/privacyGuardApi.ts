@@ -7,18 +7,21 @@ export interface ActionProposal { id: string; incidentId: string; requestId: str
 export interface PolicyDecision { id: string; actionProposalId: string; decision: DecisionType; reasonCode: string; reason: string; allowedFields: string[]; redactedFields: string[]; evaluatedAt: string; }
 export interface AuditEvent { id: string; incidentId: string; type: string; message: string; createdAt: string; }
 export interface OperatorSession { authenticated: boolean; username?: string | null; }
+export type DelegationState = 'ACTIVE' | 'REVOKED' | 'NOT_GRANTED' | 'UNKNOWN';
 export interface SystemStatus {
   gatewayReachable: boolean;
-  t3nReady: boolean;
+  tenantAuthenticated: boolean;
   network?: string | null;
   tenantDid?: string | null;
   agentConfigured: boolean;
-  agentReady: boolean;
+  agentAuthenticated: boolean;
   agentDid?: string | null;
-  contractRegistered: boolean;
+  contractResolved: boolean;
   contractId?: string | null;
   contractVersion?: string | null;
-  contractFunctions: string[];
+  delegationState: DelegationState;
+  delegatedFunctions: string[];
+  allowedHosts: string[];
   message: string;
 }
 
@@ -55,19 +58,11 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? 'GET').toUpperCase();
   const headers = new Headers(init?.headers);
   if (init?.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
-
   if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
     const csrf = await ensureCsrf();
     headers.set(csrf.headerName, csrf.token);
   }
-
-  const response = await fetch(path, {
-    ...init,
-    method,
-    headers,
-    credentials: 'same-origin',
-  });
-
+  const response = await fetch(path, { ...init, method, headers, credentials: 'same-origin' });
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) csrfState = null;
     throw new PrivacyGuardApiError(await readProblem(response), response.status);
@@ -83,10 +78,7 @@ export const privacyGuardApi = {
     csrfState = null;
     return session;
   },
-  logout: async () => {
-    await api<void>('/api/auth/logout', { method: 'POST' });
-    csrfState = null;
-  },
+  logout: async () => { await api<void>('/api/auth/logout', { method: 'POST' }); csrfState = null; },
   systemStatus: () => api<SystemStatus>('/api/system/status'),
   listIncidents: () => api<Incident[]>('/api/incidents'),
   getIncident: (id: string) => api<Incident>(`/api/incidents/${encodeURIComponent(id)}`),
