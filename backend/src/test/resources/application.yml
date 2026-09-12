@@ -16,6 +16,12 @@ server:
         same-site: strict
         secure: false
 privacy-guard:
+  gateway:
+    base-url: http://localhost:3001
+    service-token: test-gateway-service-token-1234567890
+  remediation-capability:
+    key: test-remediation-capability-key-1234567890
+    ttl-seconds: 60
   operator:
     username: test-operator
     password: test-password

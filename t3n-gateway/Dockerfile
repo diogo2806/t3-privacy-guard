@@ -12,6 +12,8 @@ ENV NODE_ENV=production
 COPY package*.json ./
 RUN npm install --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
+RUN mkdir -p /data && chown node:node /data
+VOLUME ["/data"]
 USER node
 EXPOSE 3001
 CMD ["node", "dist/index.js"]

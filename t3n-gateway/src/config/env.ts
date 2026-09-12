@@ -7,6 +7,9 @@ export interface GatewayConfig {
   readonly port: number;
   readonly contractTail: string;
   readonly contractVersion: string;
+  readonly gatewayServiceToken: string;
+  readonly remediationCapabilityKey: string;
+  readonly remediationReplayStorePath: string;
 }
 
 export class ConfigurationError extends Error {
@@ -14,6 +17,14 @@ export class ConfigurationError extends Error {
     super(message);
     this.name = 'ConfigurationError';
   }
+}
+
+function requiredSecret(env: NodeJS.ProcessEnv, name: string): string {
+  const value = env[name]?.trim();
+  if (!value || value.length < 32) {
+    throw new ConfigurationError(`${name} is required and must contain at least 32 characters`);
+  }
+  return value;
 }
 
 export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig {
@@ -54,5 +65,8 @@ export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): Gateway
     port: portValue,
     contractTail,
     contractVersion,
+    gatewayServiceToken: requiredSecret(env, 'GATEWAY_SERVICE_TOKEN'),
+    remediationCapabilityKey: requiredSecret(env, 'REMEDIATION_CAPABILITY_KEY'),
+    remediationReplayStorePath: (env.REMEDIATION_REPLAY_STORE_PATH ?? '/data/remediation-capability-nonces.json').trim(),
   };
 }

@@ -2,193 +2,134 @@
 
 ## Executive summary
 
-T3 Privacy Guard is a confidential incident-response agent built around a hostile assumption: the AI agent itself may be manipulated by prompt injection or malicious external data. Instead of trusting the LLM to obey policy, critical authorization is enforced outside the model through Terminal 3 identities, member delegation and a Rust/WASM policy contract executed through T3N.
+T3 Privacy Guard assumes the agent can be manipulated by prompt injection or malicious external data. Critical authorization is enforced outside the model through Terminal 3 identities, member delegation and a Rust/WASM policy contract executed through T3N.
 
-The signature flow is intentionally adversarial. An injected instruction asks the agent to exfiltrate a protected credential to an undelegated host. The policy returns `DENY`. The same incident can still produce a minimum legitimate credential-revocation request. After `ALLOW` and explicit authenticated human authorization, protected remediation executes while the remediation credential remains in the tenant private map and outside the browser, Spring Boot API and AI-agent context.
+An unsafe proposal attempts credential exfiltration and receives `DENY`. A minimum legitimate remediation can receive `ALLOW`, but `ALLOW` still does not execute anything. An authenticated operator must authorize the action, then the Spring backend creates a short-lived, one-time signed capability bound to that exact incident/action/decision/request. The gateway verifies service authentication, capability integrity, expiry, payload equality and anti-replay state before invoking protected T3N execution. The remediation credential remains in T3N private KV and outside browser, Java and agent context.
 
-The project prioritizes verifiable state over presentation claims: authenticated identities, resolved contract version, observed delegation and evidence are displayed separately; `NOT_RUN` never becomes `PASS`; no hardware-attestation claim is made unless a concrete T3N artifact supports it.
+The project reports only verifiable state: authenticated identities, resolved contract version, observed delegation and evidence are separate; `NOT_RUN` never becomes `PASS`; hardware attestation is not claimed without an explicit artifact.
 
 ## Judge quick path
 
 ```text
-1. Sign in as the application operator
+1. Sign in as application operator
 2. Confirm Gateway / Tenant / Agent / Contract / Delegation separately
-3. Run attack scenario
-4. Observe DENY for credential exfiltration
-5. Prepare minimum safe remediation
-6. Observe ALLOW
-7. Record explicit human authorization
-8. Execute protected remediation when the synthetic egress environment is enabled
-9. Open Evidence
-10. Confirm source=T3N_TESTNET, contract/version, DIDs, WASM SHA-256 and scenario results
+3. Run attack scenario -> DENY
+4. Prepare minimum safe remediation -> ALLOW
+5. Record explicit human authorization
+6. Observe one-time execution authorization state
+7. Execute protected remediation when synthetic egress is enabled
+8. Open Evidence
+9. Confirm T3N_TESTNET source, contract/version, DIDs, WASM SHA-256 and results
 ```
 
 ## Architecture and trust boundaries
 
 ```text
-Browser / Nginx             Spring Boot              T3N Gateway             T3N / TEE
-      |                           |                         |                       |
-  untrusted UI              business state           T3N private keys       policy + private KV
-      |                           |                         |                       |
-      +------ HTTPS / API ------>+---- internal net ----->+------ T3N ----------->+
-      |                           |                         |                       |
- operator session            replay/idempotency       tenant + agent sessions   delegation / egress
+Browser / Nginx          Spring Boot               T3N Gateway                 T3N / TEE
+      |                       |                         |                           |
+ untrusted UI           business state        tenant/agent sessions           policy + private KV
+      |                       |                         |                           |
+      +--- session/API -----> |                         |                           |
+                              +-- service token ------->|                           |
+                              +-- signed one-time ----->|                           |
+                                  capability            +--------- T3N ----------->|
 ```
 
 Trust model:
 
-- **Browser is not a trusted security boundary.** Buttons can be bypassed, so the backend enforces operator authentication, CSRF and business authorization.
-- **LLM/agent may be compromised.** Its proposed action is treated as untrusted input.
-- **Spring Boot owns durable business state.** It persists incidents, decisions, audit metadata and replay/idempotency state. It does not receive T3N private keys or the remediation credential.
-- **T3N Gateway owns T3N sessions.** Tenant and agent authenticate separately. Canonical DIDs come from authenticated sessions.
-- **Rust/WASM contract owns the critical policy decision.** Action, purpose, host and requested data are evaluated independently of the LLM.
-- **Private KV owns remediation secrets.** The protected credential is consumed inside the T3N contract path and is not returned to browser, Java or agent context.
-- **Member delegation limits authority.** Contract, functions, scopes, hosts and validity determine what the agent may do on behalf of the tenant.
-- **Human operator authorization is separate from T3N authorization.** A policy `ALLOW` does not execute an action; the authenticated operator must authorize remediation before the backend can request protected execution.
+- **Browser is untrusted.** Backend enforces operator authentication, CSRF and business state.
+- **Agent may be compromised.** Its proposal is untrusted input; it cannot manufacture a policy decision.
+- **Spring Boot owns business authorization.** It stores incident/action/decision state and issues a remediation capability only after a persisted `ALLOW` and explicit human authorization.
+- **The capability is not an API token.** It is HMAC-signed, short-lived, one-use and bound to `incidentId`, `actionId`, `decisionId`, `requestId`, action, resource, purpose and a canonical fields hash.
+- **T3N Gateway owns T3N sessions.** It requires a separate service token for privileged internal routes, validates the capability before remediation and persists consumed nonces so replay remains rejected after process restart when `/data` is persistent.
+- **Rust/WASM owns critical policy.** Action, purpose, host and requested data are evaluated independently of the model and Java.
+- **Private KV owns remediation secrets.** Secret material is consumed only in the protected contract path.
+- **Member delegation limits authority.** Contract, functions, scopes, hosts and validity remain independent requirements.
 
-Out of scope:
-
-- claiming formal GDPR certification/compliance;
-- claiming generic immunity to all model compromise;
-- claiming hardware attestation when no attestation artifact is present in the evidence bundle;
-- protecting a host operating system or deployment account after full infrastructure compromise;
-- replacing the upstream enterprise security product being called by the remediation adapter.
+Out of scope: formal GDPR certification, immunity to full infrastructure compromise, or hardware-attestation claims without an explicit T3N attestation artifact.
 
 ## Security claims matrix
 
-This table is intentionally conservative before the final live evidence run.
-
 | Claim | Current status | Source of truth |
 |---|---|---|
-| Tenant DID is derived from authenticated T3N session | PROVED LOCAL | gateway session code/tests; live confirmation will be in evidence |
-| Agent uses a separate credential/DID | PROVED LOCAL | config/session separation tests; live DID separation will be in evidence |
-| Delegated calls bind `pii_did` to canonical tenant DID | PROVED LOCAL | `privacy-guard-contract.test.ts` |
-| Direct secret disclosure request is denied by policy | PROVED LOCAL | Rust adversarial tests |
-| Undelegated host is denied by policy | PROVED LOCAL | Rust adversarial tests |
-| Excess non-secret fields produce `REDACT` | PROVED LOCAL | Rust adversarial tests |
-| Duplicate request/replay is rejected or reused idempotently | PROVED LOCAL | Spring service tests |
-| A persisted `DENY` cannot be human-authorized | PROVED LOCAL | Spring service tests |
-| Remediation requires authenticated operator + CSRF + explicit authorization | PROVED LOCAL | Spring Security/integration tests |
-| Reflected upstream secret/header is not returned by remediation result | PROVED LOCAL | Rust remediation regression test |
-| Evidence artifacts reject configured secret/sentinel values | PROVED LOCAL | leak-detector tests |
-| Revoked/limited delegation blocks protected egress on T3N testnet | NOT CLAIMED | becomes live claim only after successful `evidence:live` optional negative scenarios |
-| Attack `DENY` followed by protected remediation `COMPLETED` on T3N testnet | NOT CLAIMED | becomes live claim only after successful protected-evidence run |
-| Hardware attestation for this specific execution | NOT CLAIMED | no claim without explicit T3N attestation artifact/API evidence |
+| Tenant DID derives from authenticated T3N session | PROVED LOCAL | gateway session code/tests |
+| Agent uses separate credential/DID | PROVED LOCAL | agent/tenant session separation |
+| Delegated calls bind `pii_did` to tenant DID | PROVED LOCAL | gateway contract tests |
+| Secret/undelegated-host proposals are denied | PROVED LOCAL | Rust adversarial tests |
+| Excess non-secret fields produce `REDACT` | PROVED LOCAL | Rust policy tests |
+| Persisted `DENY` cannot be human-authorized | PROVED LOCAL | Spring service tests |
+| Protected remediation requires operator authorization | PROVED LOCAL | Spring service/security tests |
+| Gateway remediation requires service auth + signed capability | PROVED LOCAL | gateway authorization boundary |
+| Capability body tampering/expiry/replay is rejected | PROVED LOCAL | `remediation-authorization.test.ts` |
+| Consumed nonce remains rejected after verifier restart using same replay store | PROVED LOCAL | persistent replay-store test |
+| Secret/header reflection is not returned | PROVED LOCAL | Rust remediation regression |
+| Revoked delegation blocks protected egress on testnet | NOT CLAIMED | only after matching live evidence |
+| Full attack -> remediation run on testnet | NOT CLAIMED | only after matching live evidence |
+| Hardware attestation for this execution | NOT CLAIMED | no explicit attestation artifact yet |
 
-After a successful `npm run evidence:live`, only claims directly represented by the matching `deployment-manifest.json` + `testnet-run.json` should be described as **PROVED LIVE** in the public submission document.
-
-## Signature security flow
+## Privileged remediation flow
 
 ```text
-Untrusted security log / prompt injection
-               |
-               v
-        AI proposes action
-               |
-               v
-     Rust/WASM policy in T3N
-      |         |          |
-     DENY     REDACT     ALLOW
-      |         |          |
-      |         |          +----> still NOT executed
-      |         |                        |
-      |         |                authenticated operator
-      |         |                        |
-      |         |                explicit authorization
-      |         |                        |
-      |         |                        v
-      |         +----------------> protected remediation
-      |                                  |
-      |                                  v
-      +-------------------------- private KV + delegated egress
+TEE policy ALLOW
+      |
+      v
+Authenticated operator authorizes
+      |
+      v
+Spring verifies persisted action + ALLOW
+      |
+      v
+HMAC capability
+  incident/action/decision/request
+  action/resource/purpose/fieldsHash
+  authorizedAt/expiresAt/nonce
+      |
+      v
+Gateway verifies service token
+      |
+      v
+Gateway verifies signature + exact body + expiry
+      |
+      v
+Gateway consumes nonce in persistent replay store
+      |
+      v
+T3N execute-remediation
 ```
+
+`DENY` and `REDACT` never generate a valid execution path. Capability values, signing keys and service tokens must never appear in browser, logs, audit or evidence.
 
 ## Terminal 3 integration findings
 
-### Finding 1 — Member Delegation example omits `scopes`
+### Member Delegation example and `scopes`
+The current integration treats non-empty scopes as required because the field reference requires them even where simplified examples omit them. `DelegationService.grant` always validates/sends explicit scopes.
 
-**Observed source:** current Terminal 3 member-delegation documentation used during the challenge.
+### Delegated `pii_did`
+Authenticated agent identity identifies the caller, while `pii_did` identifies the tenant/data-owner authorization subject. Every delegated execution derives `pii_did` from `tenantSession.getTenantDid()`; browser/Java cannot override it.
 
-**Expected:** an example of `member-delegation-update` / `updateMemberDelegation` should include all fields required by the same page's field reference.
-
-**Observed:** the example omits `scopes`, while the reference describes `scopes` as required.
-
-**Impact:** a developer copying the example literally can create an incomplete/rejected grant or misunderstand the required authorization model.
-
-**Project workaround:** `DelegationService.grant` validates that `functions` and `scopes` are non-empty and always sends explicit scopes.
-
-**Classification:** documentation inconsistency, not a platform-security bypass.
-
-### Finding 2 — delegated-call `pii_did` subject is easy to misconfigure
-
-**Expected:** an agent acting for a tenant must cause authorization to be checked under the tenant/data-owner grant.
-
-**Observed:** authenticated agent identity identifies the caller, while `pii_did` selects the grant/data subject. Omitting it can lead to authorization being evaluated under the agent's own DID and surface as an authorization/egress failure.
-
-**Impact:** valid delegation can appear broken, and a developer can debug the wrong layer.
-
-**Project workaround:** every delegated `executeAndDecode` request derives `pii_did` internally from `tenantSession.getTenantDid()`. Browser and Java payloads cannot supply or override it.
-
-**Classification:** integration gotcha with security relevance, not a bypass.
-
-## Post-challenge operation decision
+## Post-challenge operation and handover
 
 **Decision: continue running the project after the challenge.**
 
-The implementation is structured so operation can later be handed to Terminal 3 or another maintainer without transferring existing private keys.
-
-## Handover runbook
-
-1. Provision a new tenant credential and a separate agent credential.
-2. Rotate/revoke prior credentials according to the account/network controls available at handover time.
-3. Configure runtime variable names documented in `.env.example`; never commit values.
-4. Build the Rust contract for `wasm32-wasip2`.
-5. Register the intended contract version with the new tenant or resolve the existing intended version.
-6. Record the numeric contract id where private-map administration requires it.
-7. Seed a new private remediation map using a new upstream credential.
-8. Create the minimum member delegation for the agent: exact contract/version, functions, scopes, hosts and validity.
-9. Configure a new application operator username/password and invalidate the old operator session/credential.
-10. Run `npm run evidence:live` with synthetic remediation credentials first.
-11. Verify Evidence Center shows matching DIDs, contract/version/hash and no `FAIL` scenarios.
-12. Only then configure any production upstream security endpoint.
-
-No handover step requires publishing or sending an existing T3N private key through GitHub, the UI or the submission document.
+For handover, provision new tenant/agent credentials, rotate operator credentials, generate new `GATEWAY_SERVICE_TOKEN` and `REMEDIATION_CAPABILITY_KEY`, mount persistent gateway `/data`, register/resolve the intended contract version, seed private remediation configuration, create minimum delegation and run live evidence before production use. Existing private keys are never transferred through GitHub or the UI.
 
 ## Evidence model
 
 ```text
-WASM bytes
-   | SHA-256
-   v
-docs/evidence/deployment-manifest.json
-   | same network / DIDs / contract / version / hash
-   v
-docs/evidence/testnet-run.json
+WASM bytes -> SHA-256 -> deployment-manifest.json
+                         |
+                         +-> same network/DIDs/contract/version/hash
+                                      |
+                                      v
+                               testnet-run.json
 ```
 
-The Evidence Center reads an allowlisted projection through the authenticated Spring API. It does not execute T3N and never reads raw runtime logs or `.env`.
-
-States:
-
-- `PASS`: observed result matched expected security outcome.
-- `FAIL`: observed result did not match expected outcome.
-- `NOT_RUN`: scenario was not executed in this bundle; never counted as PASS.
-
-## Reproduction
+`PASS` means observed result matched expectation. `FAIL` means it did not. `NOT_RUN` means the scenario was not executed and is never counted as `PASS`.
 
 ### Local controls
 
 ```bash
 bash scripts/run-local-evidence.sh
-```
-
-### Build the TEE contract
-
-```bash
-rustup target add wasm32-wasip2
-cd contracts/privacy-guard
-cargo test
-cargo build --target wasm32-wasip2 --release
 ```
 
 ### Live testnet evidence
@@ -199,117 +140,60 @@ npm install
 npm run evidence:live
 ```
 
-Full synthetic protected-egress proof:
-
-```bash
-EVIDENCE_PREPARE_EGRESS=true \
-EVIDENCE_RUN_EGRESS_NEGATIVES=true \
-EVIDENCE_RUN_REMEDIATION=true \
-EVIDENCE_SENTINEL_SECRET='a-synthetic-sentinel-value' \
-npm run evidence:live
-```
-
-The command must fail on scenario `FAIL`, identity/version/hash mismatch or detected secret material.
+Full synthetic egress remains opt-in through the documented evidence flags. The command must fail on scenario `FAIL`, identity/version/hash mismatch or detected secret material.
 
 ## Screenshot shot list
 
-Capture only real application states, in this order:
+1. Operational T3N status with separate tenant/agent/contract/delegation states.
+2. Unsafe proposal and `DENY`.
+3. `REDACT` data-minimization evidence.
+4. Safe remediation and `ALLOW`.
+5. Human authorization displayed separately from execution.
+6. One-time authorization proof state without exposing token/signature/nonce.
+7. Protected remediation result only when synthetic egress actually succeeds.
+8. Evidence Center with T3N_TESTNET metadata/results.
 
-1. **Operational status:** tenant/agent authenticated, contract resolved, delegation ACTIVE.
-2. **Attack proposal + DENY:** destination `attacker.example` and blocked policy result.
-3. **REDACT:** Evidence Center live data-minimization scenario.
-4. **Safe remediation ALLOW:** minimum request before execution.
-5. **Human authorization:** ALLOW and execution shown as separate steps.
-6. **Protected remediation completed:** only when synthetic egress is enabled and actually succeeds.
-7. **Evidence Center:** source T3N_TESTNET, contract/version/hash, DIDs, PASS/FAIL/NOT RUN totals.
-
-Never capture operator passwords, cookies, T3N private keys, remediation keys, `.env`, raw logs or a simulated/local screen labelled live.
+Never capture passwords, cookies, T3N private keys, service token, capability signing key/token, remediation key, `.env` or raw logs.
 
 ## Automated capture harness
 
-The repository includes a local Playwright harness that captures the real deployed application only after validating the live evidence/status preconditions.
-
-Install Chromium once for the pinned Playwright version, then run from `frontend/`:
+From `frontend/`:
 
 ```bash
 npm install
 npx playwright install chromium
-
 CAPTURE_BASE_URL='https://your-live-app.example' \
 CAPTURE_OPERATOR_USERNAME='operator-name' \
 CAPTURE_OPERATOR_PASSWORD='runtime-password' \
 npm run capture:submission
 ```
 
-The operator credentials are supplied only through the local process environment. The harness authenticates through the API **before navigating the page**, so the password field is never shown in screenshots or the recorded browser video.
-
-Final capture is refused unless:
-
-- operational status shows authenticated tenant/agent, resolved contract and ACTIVE delegation;
-- Evidence source is `T3N_TESTNET`;
-- Evidence has `0 FAIL`;
-- tenant and agent DIDs differ;
-- WASM SHA-256 has the expected format.
-
-By default the harness records the human-authorization state but does **not** click protected remediation. To enable the synthetic protected-remediation scene explicitly:
-
-```bash
-CAPTURE_ALLOW_REMEDIATION=true \
-CAPTURE_BASE_URL='https://your-live-app.example' \
-CAPTURE_OPERATOR_USERNAME='operator-name' \
-CAPTURE_OPERATOR_PASSWORD='runtime-password' \
-npm run capture:submission
-```
-
-Only use that flag when the displayed action is the documented synthetic `postman-echo.com` path and the live evidence prerequisites are satisfied.
-
-Generated files are local and gitignored under `artifacts/submission-capture/`:
-
-- numbered PNG screenshots;
-- `submission-demo.webm`;
-- `capture-metadata.json` containing only sanitized URL/evidence metadata, contract/version/hash/DIDs and filenames.
-
-The metadata is passed through the existing evidence leak detector before it is written. It must not contain the operator password, T3N keys, remediation key or configured sentinel.
+Final capture is refused unless operational status and T3N_TESTNET evidence satisfy the existing harness checks. Protected remediation remains disabled unless `CAPTURE_ALLOW_REMEDIATION=true` is explicitly supplied for the documented synthetic host.
 
 ## Demo video storyboard
 
-Target narrative: approximately 90–180 seconds.
-
 ```text
-0–15s    Problem: an AI incident agent can be prompt-injected
+0–15s    Problem: compromised agent should not become authority
 15–35s   Show separate live tenant/agent/contract/delegation status
-35–55s   Run malicious exfiltration proposal -> DENY
-55–75s   Explain REDACT/data-minimization evidence
-75–100s  Prepare legitimate minimum remediation -> ALLOW
-100–125s Show explicit human authorization as a separate gate
-125–150s Execute synthetic protected remediation when enabled
-150–180s Open Evidence Center and finish on T3N_TESTNET proof metadata/results
+35–55s   Unsafe exfiltration proposal -> DENY
+55–75s   Show minimization/REDACT evidence
+75–100s  Legitimate minimum remediation -> ALLOW
+100–125s Human authorization -> one-time bound proof
+125–150s Synthetic protected execution when enabled
+150–180s Evidence Center -> T3N_TESTNET proof metadata/results
 ```
-
-The recording must not use overlays or edits that change the application's actual security state.
 
 ## UX/claim wording rules
 
-Use these terms precisely:
-
-- **authenticated**: session identity was authenticated;
-- **resolved**: contract id/version could be resolved;
-- **delegated**: member grant was observed and active;
+- **authenticated**: a session identity was authenticated;
+- **resolved**: contract id/version were resolved;
+- **delegated**: an active member grant was observed;
+- **authorized**: human business authorization was persisted;
+- **execution proof**: short-lived server-to-gateway capability, not hardware attestation;
 - **executed**: the operation actually ran;
-- **proved live**: matching live evidence artifact exists;
-- **secretless from application/agent layers**: secret is not exposed to browser, Java or AI agent; do not say the system contains no secret;
-- do not say “guarantees GDPR compliance”;
-- do not say “hardware verified” without explicit attestation evidence.
+- **proved live**: matching live evidence exists;
+- **secretless from application/agent layers**: the secret is not exposed to browser, Java or agent; it still exists in protected storage.
 
-## Submission assembly
+Do not say “guarantees GDPR compliance” or “hardware verified” without corresponding evidence.
 
-The external challenge submission should point to:
-
-- public GitHub repository;
-- public submission document derived from this guide;
-- screenshots generated from the live capture harness;
-- short demo video;
-- Terminal 3 findings reproduced above;
-- live evidence artifacts once generated.
-
-This file is the repository source of truth for the public submission narrative. Do not maintain a second divergent threat model or handover guide.
+This file is the repository source of truth for the public submission narrative and handover model.
