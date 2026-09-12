@@ -4,6 +4,7 @@ import br.com.t3privacyguard.domain.RemediationStatus;
 import br.com.t3privacyguard.persistence.ActionProposalRepository;
 import br.com.t3privacyguard.persistence.RemediationExecutionEntity;
 import br.com.t3privacyguard.persistence.RemediationExecutionRepository;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
@@ -13,6 +14,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class RemediationExecutionCoordinator {
+    private static final Duration EXECUTION_STALE_AFTER = Duration.ofMinutes(2);
+
     private final ActionProposalRepository actions;
     private final RemediationExecutionRepository executions;
 
@@ -58,7 +61,13 @@ public class RemediationExecutionCoordinator {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public RemediationExecutionEntity markUnverified(String actionId, String failureCode) {
         RemediationExecutionEntity entity = require(actionId);
-        entity.markUnverified(safeCode(failureCode), Instant.now());
+        Instant now = Instant.now();
+        if ("RECOVERY_EXECUTION_OUTCOME_UNKNOWN".equals(failureCode)
+            && entity.getStatus() == RemediationStatus.EXECUTING
+            && entity.getStartedAt().plus(EXECUTION_STALE_AFTER).isAfter(now)) {
+            return entity;
+        }
+        entity.markUnverified(safeCode(failureCode), now);
         return executions.saveAndFlush(entity);
     }
 
