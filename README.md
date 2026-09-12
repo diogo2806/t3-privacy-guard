@@ -1,10 +1,118 @@
 # T3 Privacy Guard
 
-Confidential Incident Response Agent for the Terminal 3 Network challenge.
+**Enterprise trust runtime for AI agents on the Terminal 3 Network.**
+
+T3 Privacy Guard is designed for a simple enterprise assumption: **the AI model can be useful and still be untrusted**. The model may analyze an incident and propose an action, but it is not allowed to become the authority that decides policy, selects trusted identities, retrieves private profile values directly, or declares a critical side effect completed.
+
+The product separates those responsibilities across independent controls:
+
+```text
+Untrusted AI
+    |
+    | proposes
+    v
+T3N policy / Rust WASM
+    |
+    | DENY / REDACT / ALLOW
+    v
+Human authorization
+    |
+    | approves business intent
+    v
+One-time execution capability
+    |
+    v
+T3N protected execution
+    |
+    v
+Independent external read-back
+    |
+    v
+VERIFIED -> COMPLETED
+```
+
+The central product thesis is:
+
+> **AI can propose. Policy decides. Humans authorize. T3N executes. Independent evidence proves the outcome.**
 
 > **Judge / submission guide:** [`docs/submission/README.md`](docs/submission/README.md)  
 > **Evidence reproduction:** [`docs/evidence/README.md`](docs/evidence/README.md)  
 > **Adversarial matrix:** [`docs/evidence/scenario-matrix.md`](docs/evidence/scenario-matrix.md)
+
+## What problem it solves
+
+Enterprise agents are often given enough context and credentials to be useful. That creates a dangerous coupling: a prompt injection, compromised model or bad instruction can become data access or a real side effect if the same component is also trusted to authorize what it proposes.
+
+T3 Privacy Guard breaks that coupling. The AI receives a deliberately narrow proposal surface. Security-sensitive authority is derived elsewhere and cannot be supplied by the model.
+
+For private profile data, the application carries logical references such as `verified_email`, not the private value. The Rust/WASM contract maps a closed reference to the supported T3N profile marker only inside the protected execution boundary. React, Spring Boot, the model and normal gateway responses do not receive the resolved plaintext.
+
+For side effects, an HTTP success response is not treated as business completion. The application records `COMPLETED` only after a separate read-back observes the expected closed external state.
+
+## Where it applies
+
+The current implementation is demonstrated through security incident response, but the trust pattern is broader. The same architecture is relevant anywhere an AI agent can recommend or trigger actions involving sensitive data or privileged operations, for example:
+
+- security operations, where an agent can propose credential revocation, account isolation, incident recording or a security notification;
+- HR or identity workflows, where an agent may need a verified attribute but should not receive the underlying private value;
+- financial or compliance workflows, where policy and human authorization must remain independent from the model;
+- support and operations agents, where outbound destinations and fields must be restricted to an explicit minimum;
+- autonomous enterprise agents, where a useful model must not implicitly become the source of authorization.
+
+The project does **not** claim that all of those vertical workflows are already implemented. They illustrate where the trust-runtime pattern can be applied.
+
+## 60-second mental model
+
+A judge should be able to understand the system through two opposite scenarios.
+
+### 1. Compromised-agent scenario
+
+```text
+Prompt injection
+   |
+   v
+AI proposes:
+- send api_key
+- attacker.example
+   |
+   v
+T3N Rust/WASM policy
+   |
+   v
+DENY
+
+No protected egress.
+No model-controlled override.
+```
+
+### 2. Legitimate-remediation scenario
+
+```text
+AI proposes minimum valid action
+   |
+   v
+T3N policy -> ALLOW
+   |
+   v
+Authenticated human authorizes
+   |
+   v
+Short-lived one-time capability
+   |
+   v
+Protected T3N execution
+   |
+   v
+PENDING_VERIFICATION
+   |
+   v
+Independent read-back
+   |
+   +--> expected state observed -> COMPLETED
+   +--> ambiguous/mismatch      -> UNVERIFIED
+```
+
+This is why `ALLOW` is not the same thing as execution and why HTTP `2xx` is not the same thing as completion.
 
 ## What the demo proves
 
@@ -12,7 +120,7 @@ T3 Privacy Guard assumes the AI agent can be manipulated. The dashboard sends an
 
 A legitimate model proposal can receive `ALLOW`, but `ALLOW` still does not execute anything. An authenticated operator must explicitly authorize remediation. Immediately before execution the Spring backend signs a short-lived, one-time capability bound to the exact persisted action, decision, fields and logical private-data references. The gateway validates service authentication, signature, expiry, payload equality and replay state before T3N execution.
 
-Private profile values are structural to T3N. The agent, React, Spring Boot and gateway APIs carry only logical references such as `verified_email`; the Rust/WASM contract maps that closed reference to the supported T3N marker `{{profile.verified_contacts.email.value}}`, and T3N resolves the plaintext only during protected egress. The resolved value is never returned to the application. The remediation credential likewise remains outside browser, Spring Boot and AI-agent context.
+Private profile values are structural to T3N. The agent, React, Spring Boot and gateway APIs carry only logical references such as `verified_email`; the Rust/WASM contract maps that closed reference to the supported T3N marker `{{profile.verified_contacts.email.value}}`, and T3N resolves the plaintext only during protected egress. The resolved value is never returned to the application.
 
 A successful external HTTP response is **not** treated as completion. The backend first acquires a durable execution claim, the contract propagates the stable `requestId` as an idempotency key, accepted egress becomes `PENDING_VERIFICATION`, and a separate `verify-remediation` read-back must observe the closed expected state before Spring records `COMPLETED`. Ambiguous outcomes are `UNVERIFIED` and are never automatically re-executed.
 
@@ -53,12 +161,28 @@ T3N / Rust WASM policy
         otherwise -> UNVERIFIED
 ```
 
-- `frontend/`: React/Vite dashboard served by Nginx.
+- `frontend/`: React/Vite operator dashboard served by Nginx.
 - `backend/`: Java 21/Spring Boot business API, operator sessions and durable business/remediation state.
 - `t3n-gateway/`: isolated T3N SDK adapter, AI provider adapter, separate tenant/agent sessions and anti-replay protection.
 - `contracts/privacy-guard/`: Rust/WIT policy, closed private-reference mapping, protected remediation and independent verification for `wasm32-wasip2`.
 
 Each runtime has its own Dockerfile. There is intentionally no `docker-compose.yml`; services are deployed independently in containers.
+
+## Authority separation
+
+The architecture deliberately prevents the model from owning security authority.
+
+| Responsibility | Authority |
+|---|---|
+| Understand prompt and propose an action | AI model |
+| Authenticate tenant and agent identity | T3N sessions |
+| Decide allowed action/data/host | Rust/WASM policy |
+| Approve business remediation | Authenticated operator |
+| Prove an exact approved execution | Short-lived one-time capability |
+| Resolve approved private profile value | T3N protected execution boundary |
+| Decide whether external side effect is complete | Independent read-back + Spring state machine |
+
+The prompt is untrusted content. It is never an authorization source.
 
 ## Real AI agent boundary
 
@@ -88,7 +212,20 @@ The only model tool surface is:
 
 Unknown properties are rejected. In particular the model cannot supply `decision`, `allow`, `override`, `approved`, `agent_did`, `pii_did`, API keys, credentials, secrets, remediation capabilities or literal `{{profile...}}` markers. `agent_did` comes only from the authenticated Agent session and `pii_did` only from the authenticated tenant session.
 
-The prompt is treated as untrusted content, not as an authorization source. Real private values must never be placed in demo prompts; the model asks only for an enumerated logical category when a supported private value is needed.
+Real private values must never be placed in demo prompts; the model asks only for an enumerated logical category when a supported private value is needed.
+
+## Current policy vocabulary
+
+The current Rust policy contains four concrete security actions:
+
+| Action | Purpose | Minimum normal fields | Private reference |
+|---|---|---|---|
+| `revoke-credential` | `incident-remediation` | `incident_id`, `credential_id`, `reason` | none |
+| `isolate-account` | `incident-remediation` | `incident_id`, `account_id`, `reason` | none |
+| `create-incident` | `incident-recording` | `incident_id`, `severity`, `summary`, `source` | none |
+| `notify-security` | `incident-notification` | `incident_id`, `severity`, `summary` | `verified_email` allowed |
+
+Extra non-secret fields are minimized with `REDACT`. Forbidden secret fields are denied. Unsupported actions, purposes, hosts or private references fail closed.
 
 ## Structural private-data boundary
 
@@ -219,6 +356,8 @@ verify-remediation
 
 ## Evidence
 
+The project distinguishes local controls from live T3N proof. It does not upgrade mocks, unit tests or unexecuted scenarios into live evidence.
+
 Local controls:
 
 ```bash
@@ -235,11 +374,11 @@ npm run evidence:live
 
 Generated artifacts are `docs/evidence/deployment-manifest.json` and `docs/evidence/testnet-run.json`. The orchestrator binds WASM SHA-256, canonical DIDs and contract id/version and fails on mismatch, scenario `FAIL` or configured secret leakage. `NOT_RUN` is never counted as `PASS`.
 
-For live remediation proof, both `SECURITY_API_URL` and `SECURITY_VERIFICATION_URL` must be configured/sealed and the delegation includes only their derived HTTPS hosts. A live remediation scenario passes only on `DENY -> PENDING_VERIFICATION -> VERIFIED (REVOKED)`. An accepted 2xx without read-back cannot become a passing completion claim.
+For live remediation proof, both `SECURITY_API_URL` and `SECURITY_VERIFICATION_URL` must be configured/sealed and the delegation includes only their derived HTTPS hosts. A live remediation scenario passes only on the documented execution plus independent verification sequence. An accepted 2xx without read-back cannot become a passing completion claim.
 
 Profile-placeholder resolution must remain `NOT_RUN` in public evidence until a compatible T3N testnet profile/user context actually executes it. Local Rust/Java/gateway/frontend tests prove the closed-reference architecture but are not mislabeled as live profile-resolution evidence.
 
-The submission capture harness also rejects AI/T3N/operator/service/capability secrets in generated metadata and captures a remediation success only after the UI shows independently verified `COMPLETED`.
+The submission capture harness rejects AI/T3N/operator/service/capability secrets in generated metadata and captures a remediation success only after the UI shows independently verified `COMPLETED`.
 
 ## Terminal 3 integration findings
 
