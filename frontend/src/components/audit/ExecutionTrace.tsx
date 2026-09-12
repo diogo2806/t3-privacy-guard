@@ -29,7 +29,7 @@ export function ExecutionTrace({ events, action }: { events: ExecutionTraceEvent
                     <time dateTime={event.createdAt}>{new Date(event.createdAt).toLocaleString()}</time>
                     {event.durationMs != null && <span>{event.durationMs} ms</span>}
                   </div>
-                  {event.reasonCode && <p className="trace-reason">Reason: {label(event.reasonCode)}</p>}
+                  {event.reasonCode && <p className="trace-reason">Reason code <code>{event.reasonCode}</code></p>}
                   <p className="trace-id">Trace <code>{event.traceId}</code></p>
                 </li>
               ))}
