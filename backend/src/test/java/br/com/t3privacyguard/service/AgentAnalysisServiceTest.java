@@ -1,6 +1,7 @@
 package br.com.t3privacyguard.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
@@ -11,6 +12,7 @@ import br.com.t3privacyguard.integration.GatewayAgentClient.AgentProposal;
 import br.com.t3privacyguard.integration.GatewayAgentClient.AgentProposalResult;
 import br.com.t3privacyguard.integration.GatewayPolicyClient;
 import br.com.t3privacyguard.integration.GatewayPolicyClient.GatewayDecision;
+import br.com.t3privacyguard.integration.SensitivePromptRejectedException;
 import br.com.t3privacyguard.persistence.ActionProposalRepository;
 import br.com.t3privacyguard.persistence.AuditEventRepository;
 import br.com.t3privacyguard.persistence.IncidentRepository;
@@ -93,5 +95,20 @@ class AgentAnalysisServiceTest {
         assertThat(result.action().privateRefs()).containsExactly("verified_email");
         assertThat(result.decision().allowedPrivateRefs()).containsExactly("verified_email");
         assertThat(result.incident().summary()).doesNotContain("@", "{{profile");
+    }
+
+    @Test
+    void sensitivePromptRejectedBeforeProviderCreatesNoPersistentBusinessData() {
+        when(agentGateway.propose(eq("send synthetic@example.com"))).thenThrow(new SensitivePromptRejectedException());
+
+        assertThatThrownBy(() -> service.analyze("send synthetic@example.com"))
+            .isInstanceOf(SensitivePromptRejectedException.class)
+            .hasMessageNotContaining("synthetic@example.com");
+
+        assertThat(incidents.count()).isZero();
+        assertThat(actions.count()).isZero();
+        assertThat(decisions.count()).isZero();
+        assertThat(audits.count()).isZero();
+        assertThat(remediations.count()).isZero();
     }
 }
