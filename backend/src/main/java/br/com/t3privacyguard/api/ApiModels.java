@@ -1,5 +1,6 @@
 package br.com.t3privacyguard.api;
 
+import br.com.t3privacyguard.domain.AuditReconciliationStatus;
 import br.com.t3privacyguard.domain.DecisionType;
 import br.com.t3privacyguard.domain.ProposalStatus;
 import br.com.t3privacyguard.domain.Severity;
@@ -67,6 +68,47 @@ public final class ApiModels {
     ) {}
 
     public record AuditResponse(String id, String incidentId, String type, String message, Instant createdAt) {}
+    public record LocalAuditEvidence(
+        String id,
+        String incidentId,
+        String type,
+        String message,
+        Instant createdAt,
+        AuditReconciliationStatus status,
+        Long t3nSequence,
+        String t3nFunction,
+        Long matchedSequence
+    ) {}
+    public record T3nActivityEvidence(
+        long sequence,
+        String hash,
+        Instant timestamp,
+        String callerType,
+        String actorDid,
+        String onBehalfOfDid,
+        String contractId,
+        String function,
+        String outcome,
+        AuditReconciliationStatus status
+    ) {}
+    public record AuditProvenance(
+        boolean localAvailable,
+        boolean t3nAvailable,
+        boolean t3nComplete,
+        int matched,
+        int unmatched,
+        int localOnly,
+        int t3nOnly,
+        String message
+    ) {}
+    public record AuditEvidenceResponse(
+        List<LocalAuditEvidence> localEvents,
+        List<T3nActivityEvidence> t3nEvents,
+        AuditProvenance provenance,
+        Long nextSequence,
+        int limit
+    ) {}
+
     public record RemediationAuthorizationResponse(String incidentId, String actionId, String requestId, String state) {}
     public record RemediationExecutionResponse(
         String incidentId,
