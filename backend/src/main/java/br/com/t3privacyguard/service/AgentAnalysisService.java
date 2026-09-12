@@ -28,11 +28,12 @@ public class AgentAnalysisService {
         var generated = agentGateway.propose(normalized);
         var proposal = generated.proposal();
         List<String> fields = proposal.fields() == null ? List.of() : proposal.fields();
+        List<String> privateRefs = proposal.privateRefs() == null ? List.of() : proposal.privateRefs();
 
         var incident = incidents.createIncident(new CreateIncidentRequest(
             "AI agent action proposal",
             Severity.CRITICAL,
-            "An untrusted prompt was interpreted by the configured AI agent. Only the structured proposal is persisted and independently evaluated by the T3N policy contract.",
+            "An untrusted prompt was interpreted by the configured AI agent. Only structured metadata and logical private-data references are persisted; private values remain outside the model and application layers.",
             "AI agent " + generated.provider()
         ));
         var action = incidents.addAction(incident.id(), new CreateActionRequest(
@@ -41,7 +42,8 @@ public class AgentAnalysisService {
             proposal.resource(),
             proposal.purpose(),
             proposal.host(),
-            fields
+            fields,
+            privateRefs
         ));
         var decision = incidents.evaluate(incident.id(), action.id());
         var refreshedAction = incidents.listActions(incident.id()).stream()
