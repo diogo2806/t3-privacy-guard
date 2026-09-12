@@ -32,11 +32,14 @@ export function EvidenceCenter({ evidence, loading, error, onRefresh }: Props) {
           <div><dt>SDK</dt><dd>{evidence.metadata.sdkVersion}</dd></div>
           <div><dt>Network</dt><dd>{evidence.metadata.network}</dd></div>
           <div><dt>Contract</dt><dd><code>{evidence.metadata.contractId}</code></dd></div>
-          <div><dt>Version</dt><dd>{evidence.metadata.contractVersion}</dd></div>
+          <div><dt>Contract version</dt><dd>{evidence.metadata.contractVersion}</dd></div>
+          <div><dt>Policy version</dt><dd>{evidence.metadata.policyVersion}</dd></div>
+          <div className="evidence-wide"><dt>Policy SHA-256</dt><dd><code>{evidence.metadata.policyHash}</code></dd></div>
           <div className="evidence-wide"><dt>WASM SHA-256</dt><dd><code>{evidence.metadata.wasmSha256}</code></dd></div>
           <div className="evidence-wide"><dt>Tenant DID</dt><dd><code>{evidence.metadata.tenantDid}</code></dd></div>
           <div className="evidence-wide"><dt>Agent DID</dt><dd><code>{evidence.metadata.agentDid}</code></dd></div>
         </dl>
+        <p className="evidence-disclaimer">Policy version/hash identify the canonical operational policy used by this evidence run. They are provenance metadata, not hardware attestation.</p>
       </div>
 
       <div className="card">
