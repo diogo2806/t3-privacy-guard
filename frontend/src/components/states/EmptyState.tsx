@@ -1,12 +1,11 @@
 import { ShieldAlert } from 'lucide-react';
 
-export function EmptyState({ onRun, busy }: { onRun: () => void; busy: boolean }) {
+export function EmptyState(_: { onRun: () => void; busy: boolean }) {
   return (
     <section className="empty-state">
       <ShieldAlert aria-hidden="true" />
-      <h2>Prove the security boundary</h2>
-      <p>Start with an AI-driven exfiltration attempt. The request is evaluated by the T3N contract, not trusted because the model proposed it.</p>
-      <button type="button" className="button button-danger" onClick={onRun} disabled={busy}>{busy ? 'Running scenario…' : 'Run attack scenario'}</button>
+      <h2>No incident selected yet</h2>
+      <p>Use the AI agent prompt panel above to run the attack prompt or submit a legitimate instruction. The model proposes an action and T3N independently decides it.</p>
     </section>
   );
 }

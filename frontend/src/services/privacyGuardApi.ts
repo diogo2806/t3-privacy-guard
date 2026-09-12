@@ -9,6 +9,7 @@ export interface ActionProposal { id: string; incidentId: string; requestId: str
 export interface PolicyDecision { id: string; actionProposalId: string; decision: DecisionType; reasonCode: string; reason: string; allowedFields: string[]; redactedFields: string[]; evaluatedAt: string; }
 export interface AuditEvent { id: string; incidentId: string; type: string; message: string; createdAt: string; }
 export interface OperatorSession { authenticated: boolean; username?: string | null; }
+export interface AgentAnalysis { provider: string; model: string; incident: Incident; action: ActionProposal; decision: PolicyDecision; }
 export interface SystemStatus {
   gatewayReachable: boolean;
   tenantAuthenticated: boolean;
@@ -39,8 +40,8 @@ export class PrivacyGuardApiError extends Error {
 async function readProblem(response: Response): Promise<string> {
   let message = `Request failed with status ${response.status}.`;
   try {
-    const problem = await response.json() as { detail?: string; title?: string };
-    message = problem.detail || problem.title || message;
+    const problem = await response.json() as { detail?: string; title?: string; error?: string };
+    message = problem.detail || problem.title || problem.error || message;
   } catch { /* Keep sanitized generic status message. */ }
   return message;
 }
@@ -76,6 +77,7 @@ export const privacyGuardApi = {
   logout: async () => { await api<void>('/api/auth/logout', { method: 'POST' }); csrfState = null; },
   systemStatus: () => api<SystemStatus>('/api/system/status'),
   latestEvidence: () => api<EvidenceBundle>('/api/evidence/latest'),
+  analyzeAgent: (prompt: string) => api<AgentAnalysis>('/api/agent/analyze', { method: 'POST', body: JSON.stringify({ prompt }) }),
   listIncidents: () => api<Incident[]>('/api/incidents'),
   getIncident: (id: string) => api<Incident>(`/api/incidents/${encodeURIComponent(id)}`),
   createIncident: (input: { title: string; severity: Severity; summary: string; source: string }) => api<Incident>('/api/incidents', { method: 'POST', body: JSON.stringify(input) }),

@@ -85,4 +85,16 @@ public final class ApiModels {
         int httpCode,
         String operationId
     ) {}
+
+    public record AnalyzeAgentRequest(
+        @NotBlank @Size(max = 4000) String prompt
+    ) {}
+
+    public record AgentAnalysisResponse(
+        String provider,
+        String model,
+        IncidentResponse incident,
+        ActionResponse action,
+        DecisionResponse decision
+    ) {}
 }

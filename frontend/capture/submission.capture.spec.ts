@@ -76,11 +76,11 @@ test('capture submission material only from live testnet evidence', async ({ pag
   files.push('03-data-minimization.png');
 
   await page.getByRole('button', { name: 'Demo', exact: true }).click();
-  const attackButton = page.getByRole('button', { name: /Run (new )?attack scenario/i });
-  await attackButton.click();
+  await page.getByRole('button', { name: /Run attack scenario/i }).click();
   await expect(page.getByRole('heading', { name: 'DENY', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Agent proposal' })).toBeVisible();
   await expect(page.getByText('attacker.example', { exact: true })).toBeVisible();
-  files.push(await screenshot(page, '02-attack-deny.png'));
+  files.push(await screenshot(page, '02-real-ai-attack-deny.png'));
 
   await page.getByRole('button', { name: /Prepare safe remediation/i }).click();
   await expect(page.getByRole('heading', { name: 'ALLOW', exact: true })).toBeVisible();
@@ -128,6 +128,9 @@ test('capture submission material only from live testnet evidence', async ({ pag
     process.env.T3N_API_KEY,
     process.env.T3N_AGENT_API_KEY,
     process.env.SECURITY_API_KEY,
+    process.env.AI_API_KEY,
+    process.env.GATEWAY_SERVICE_TOKEN,
+    process.env.REMEDIATION_CAPABILITY_KEY,
     process.env.EVIDENCE_SENTINEL_SECRET,
   ]);
   await writeFile(resolve(outputRoot, 'capture-metadata.json'), serialized, 'utf8');

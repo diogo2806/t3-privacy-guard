@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowRight, RotateCcw, ShieldCheck } from 'lucide-react';
+import { ArrowRight, ShieldCheck } from 'lucide-react';
 import {
   PrivacyGuardApiError,
   privacyGuardApi,
   type ActionProposal,
+  type AgentAnalysis,
   type AuditEvent,
   type EvidenceBundle,
   type Incident,
@@ -12,6 +13,8 @@ import {
   type SystemStatus,
 } from '../../services/privacyGuardApi';
 import { ActionProposalPanel } from '../actions/ActionProposalPanel';
+import { AgentPromptPanel, ATTACK_PROMPT } from '../agent/AgentPromptPanel';
+import { AgentProposalPanel } from '../agent/AgentProposalPanel';
 import { OperatorSessionGate } from '../auth/OperatorSessionGate';
 import { AuditTrail } from '../audit/AuditTrail';
 import { DashboardTabs, type DashboardView } from './DashboardTabs';
@@ -70,6 +73,7 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
   const [actions, setActions] = useState<ActionProposal[]>([]);
   const [selectedAction, setSelectedAction] = useState<ActionProposal | null>(null);
   const [decision, setDecision] = useState<PolicyDecision | null>(null);
+  const [agentAnalysis, setAgentAnalysis] = useState<AgentAnalysis | null>(null);
   const [history, setHistory] = useState<AuditEvent[]>([]);
   const [evidence, setEvidence] = useState<EvidenceBundle | null>(null);
   const [evidenceLoading, setEvidenceLoading] = useState(false);
@@ -130,27 +134,36 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
     try { await operation(); } catch (cause) { handleError(cause, 'The operation could not be completed safely.'); } finally { setBusy(false); }
   };
 
-  const runAttackScenario = () => run(async () => {
-    const current = await privacyGuardApi.createIncident({ title: 'Credential exfiltration attempt', severity: 'CRITICAL', summary: 'Untrusted content instructed the AI agent to send a protected credential to an undelegated external host.', source: 'Adversarial demo' });
-    setIncident(current);
-    const attack = await privacyGuardApi.createAction(current.id, { requestId: requestId('attack'), action: 'revoke-credential', resource: 'credential:production-security-api', purpose: 'incident-remediation', host: 'attacker.example', fields: ['incident_id', 'credential_id', 'reason', 'api_key'] });
-    const result = await privacyGuardApi.evaluate(current.id, attack.id);
-    await refreshIncident(current, attack.id); setDecision(result);
-    setNotice(result.decision === 'DENY' ? 'Attack blocked by the T3N policy contract.' : `Unexpected ${result.decision} decision. Review policy and evidence.`);
+  const analyzeAgentPrompt = (prompt: string) => run(async () => {
+    const result = await privacyGuardApi.analyzeAgent(prompt);
+    setAgentAnalysis(result);
+    setIncident(result.incident);
+    setSelectedAction(result.action);
+    setDecision(result.decision);
+    await refreshIncident(result.incident, result.action.id);
+    if (result.decision.decision === 'DENY') {
+      setNotice('The real AI agent produced a structured proposal, and the independent T3N TEE policy blocked it. No protected egress was executed.');
+    } else if (result.decision.decision === 'REDACT') {
+      setNotice('The real AI proposal exceeded the minimum data scope. T3N requires minimization before any action can continue.');
+    } else {
+      setNotice('The real AI proposal passed T3N policy. ALLOW is not execution; explicit human authorization is still required for remediation.');
+    }
   });
+
+  const runAttackScenario = () => analyzeAgentPrompt(ATTACK_PROMPT);
 
   const prepareSafeRemediation = () => run(async () => {
     if (!incident) return;
     const safeAction = await privacyGuardApi.createAction(incident.id, { requestId: requestId('remediation'), action: 'revoke-credential', resource: 'credential:production-security-api', purpose: 'incident-remediation', host: 'postman-echo.com', fields: ['incident_id', 'credential_id', 'reason'] });
     const result = await privacyGuardApi.evaluate(incident.id, safeAction.id);
     await refreshIncident(incident, safeAction.id); setDecision(result);
-    setNotice(result.decision === 'ALLOW' ? 'Minimum remediation request allowed. Human authorization is still required before execution.' : `Remediation received ${result.decision}; execution remains blocked.`);
+    setNotice(result.decision === 'ALLOW' ? 'Minimum structured remediation request allowed. Human authorization is still required before execution.' : `Remediation received ${result.decision}; execution remains blocked.`);
   });
 
   const authorize = () => run(async () => {
     if (!incident || !selectedAction) return;
     await privacyGuardApi.authorizeRemediation(incident.id, selectedAction.id); await refreshIncident(incident, selectedAction.id);
-    setNotice('Human authorization recorded. Protected TEE execution is now available for this allowed action.');
+    setNotice('Human authorization recorded. Protected execution will require a short-lived one-time proof bound to this exact action.');
   });
 
   const execute = () => run(async () => {
@@ -168,17 +181,20 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
 
       {view === 'evidence' ? (
         <EvidenceCenter evidence={evidence} loading={evidenceLoading} error={evidenceError} onRefresh={() => void refreshEvidence()} />
-      ) : !incident ? <EmptyState onRun={runAttackScenario} busy={busy} /> : (
+      ) : (
         <main className="dashboard-grid">
           <div className="dashboard-main">
-            <IncidentSummary incident={incident} />
-            <div className="scenario-actions">
-              <button type="button" className="button button-danger" onClick={runAttackScenario} disabled={busy}><RotateCcw aria-hidden="true" />Run new attack scenario</button>
-              <button type="button" className="button button-primary" onClick={prepareSafeRemediation} disabled={busy}><ShieldCheck aria-hidden="true" />Prepare safe remediation<ArrowRight aria-hidden="true" /></button>
-              {selectedAction?.status === 'PENDING' && <button type="button" className="button button-secondary" onClick={() => void run(async () => { if (!incident || !selectedAction) return; const result = await privacyGuardApi.evaluate(incident.id, selectedAction.id); setDecision(result); await refreshIncident(incident, selectedAction.id); })} disabled={busy}>Retry T3N evaluation</button>}
-            </div>
-            <div className="two-column"><ActionProposalPanel actions={actions} selectedActionId={selectedAction?.id ?? null} onSelect={(action) => { setSelectedAction(action); if (incident) void loadDecision(incident, action); }} /><DecisionPanel decision={decision} /></div>
-            <RemediationPanel action={selectedAction} decision={decision} busy={busy} onAuthorize={authorize} onExecute={execute} />
+            <AgentPromptPanel busy={busy} onAnalyze={analyzeAgentPrompt} />
+            <AgentProposalPanel analysis={agentAnalysis} />
+            {!incident ? <EmptyState onRun={runAttackScenario} busy={busy} /> : <>
+              <IncidentSummary incident={incident} />
+              <div className="scenario-actions">
+                <button type="button" className="button button-primary" onClick={prepareSafeRemediation} disabled={busy}><ShieldCheck aria-hidden="true" />Prepare safe remediation<ArrowRight aria-hidden="true" /></button>
+                {selectedAction?.status === 'PENDING' && <button type="button" className="button button-secondary" onClick={() => void run(async () => { if (!incident || !selectedAction) return; const result = await privacyGuardApi.evaluate(incident.id, selectedAction.id); setDecision(result); await refreshIncident(incident, selectedAction.id); })} disabled={busy}>Retry T3N evaluation</button>}
+              </div>
+              <div className="two-column"><ActionProposalPanel actions={actions} selectedActionId={selectedAction?.id ?? null} onSelect={(action) => { setSelectedAction(action); if (incident) void loadDecision(incident, action); }} /><DecisionPanel decision={decision} /></div>
+              <RemediationPanel action={selectedAction} decision={decision} busy={busy} onAuthorize={authorize} onExecute={execute} />
+            </>}
           </div>
           <aside className="dashboard-side"><AuditTrail events={history} /></aside>
         </main>
