@@ -10,10 +10,19 @@ import org.springframework.web.client.RestClientException;
 
 @Component
 public class GatewayPolicyClient {
+    private static final String SERVICE_TOKEN_HEADER = "X-Gateway-Service-Token";
+
     private final RestClient restClient;
 
-    public GatewayPolicyClient(RestClient.Builder builder, @Value("${privacy-guard.gateway.base-url}") String baseUrl) {
-        this.restClient = builder.baseUrl(baseUrl).build();
+    public GatewayPolicyClient(
+        RestClient.Builder builder,
+        @Value("${privacy-guard.gateway.base-url}") String baseUrl,
+        @Value("${privacy-guard.gateway.service-token}") String serviceToken
+    ) {
+        this.restClient = builder
+            .baseUrl(baseUrl)
+            .defaultHeader(SERVICE_TOKEN_HEADER, serviceToken)
+            .build();
     }
 
     public GatewayDecision evaluate(GatewayEvaluationRequest request) {
