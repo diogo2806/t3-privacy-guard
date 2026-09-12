@@ -37,7 +37,13 @@ async function wasmHash(): Promise<string | null> {
   try { return createHash('sha256').update(await readFile(wasmPath)).digest('hex'); } catch { return null; }
 }
 async function grantFull(contractId: string, version: string): Promise<void> {
-  await delegation.grant({ contractId, versionReq: version, functions: ['evaluate-action', 'execute-remediation'], scopes: ['incident_id', 'credential_id', 'reason'], allowedHosts: ['postman-echo.com'] });
+  await delegation.grant({
+    contractId,
+    versionReq: version,
+    functions: ['evaluate-action', 'execute-remediation', 'verify-remediation'],
+    scopes: ['incident_id', 'credential_id', 'reason'],
+    allowedHosts: ['postman-echo.com'],
+  });
 }
 async function decisionScenario(id: string, expected: 'ALLOW' | 'REDACT' | 'DENY', input: Parameters<PrivacyGuardContractService['evaluate']>[0]): Promise<void> {
   try {
@@ -50,8 +56,14 @@ function isAuthorizationRejection(message: string): boolean {
 }
 async function expectProtectedEgressRejected(id: string, expected: string, requestId: string): Promise<void> {
   try {
-    await contract.remediate({ request_id: requestId, action: 'revoke-credential', resource: 'credential:security-api', purpose: 'incident-remediation', fields: ['incident_id', 'credential_id', 'reason'] });
-    record(id, expected, 'COMPLETED', 'FAIL', 'Protected egress unexpectedly completed');
+    const result = await contract.remediate({
+      request_id: requestId,
+      action: 'revoke-credential',
+      resource: 'credential:security-api',
+      purpose: 'incident-remediation',
+      fields: ['incident_id', 'credential_id', 'reason'],
+    });
+    record(id, expected, result.status, 'FAIL', 'Protected egress unexpectedly reached the acceptance state');
   } catch (error) {
     const detail = sanitizeEvidenceError(error);
     record(id, expected, 'REJECTED', isAuthorizationRejection(detail) ? 'PASS' : 'FAIL', detail);
@@ -98,15 +110,52 @@ if (process.env.EVIDENCE_RUN_EGRESS_NEGATIVES === 'true') {
 
 if (process.env.EVIDENCE_RUN_REMEDIATION === 'true') {
   try {
-    const attack = await contract.evaluate({ request_id: 'live-attack-before-remediation', action: 'revoke-credential', resource: 'credential:security-api', purpose: 'incident-remediation', host: 'attacker.example', fields: ['incident_id', 'credential_id', 'reason', 'api_key'] });
-    if (attack.decision !== 'DENY') record('LIVE-SAFE-AFTER-ATTACK', 'attack DENY followed by remediation COMPLETED', attack.decision, 'FAIL');
-    else {
-      const remediation = await contract.remediate({ request_id: 'live-safe-after-attack', action: 'revoke-credential', resource: 'credential:security-api', purpose: 'incident-remediation', fields: ['incident_id', 'credential_id', 'reason'] });
-      record('LIVE-SAFE-AFTER-ATTACK', 'attack DENY followed by remediation COMPLETED', `${attack.decision} -> ${remediation.status} (${remediation.http_code})`, remediation.status === 'COMPLETED' ? 'PASS' : 'FAIL');
+    const attack = await contract.evaluate({
+      request_id: 'live-attack-before-remediation',
+      action: 'revoke-credential',
+      resource: 'credential:security-api',
+      purpose: 'incident-remediation',
+      host: 'attacker.example',
+      fields: ['incident_id', 'credential_id', 'reason', 'api_key'],
+    });
+    if (attack.decision !== 'DENY') {
+      record('LIVE-SAFE-AFTER-ATTACK', 'DENY -> accepted execution -> independent VERIFIED read-back', attack.decision, 'FAIL');
+    } else {
+      const remediation = await contract.remediate({
+        request_id: 'live-safe-after-attack',
+        action: 'revoke-credential',
+        resource: 'credential:security-api',
+        purpose: 'incident-remediation',
+        fields: ['incident_id', 'credential_id', 'reason'],
+      });
+      if (!remediation.operation_id) {
+        record('LIVE-SAFE-AFTER-ATTACK', 'DENY -> accepted execution -> independent VERIFIED read-back', `${attack.decision} -> ${remediation.status}`, 'FAIL', 'External acceptance did not return an operation id; completion cannot be verified.');
+      } else {
+        const verification = await contract.verifyRemediation({
+          request_id: remediation.request_id,
+          operation_id: remediation.operation_id,
+          expected_state: 'REVOKED',
+        });
+        const actual = `${attack.decision} -> ${remediation.status} -> ${verification.status}${verification.observed_state ? ` (${verification.observed_state})` : ''}`;
+        record(
+          'LIVE-SAFE-AFTER-ATTACK',
+          'DENY -> accepted execution -> independent VERIFIED read-back',
+          actual,
+          verification.status === 'VERIFIED' && verification.observed_state === 'REVOKED' ? 'PASS' : 'FAIL',
+        );
+      }
     }
-  } catch (error) { record('LIVE-SAFE-AFTER-ATTACK', 'attack DENY followed by remediation COMPLETED', null, 'FAIL', sanitizeEvidenceError(error)); }
+  } catch (error) {
+    record('LIVE-SAFE-AFTER-ATTACK', 'DENY -> accepted execution -> independent VERIFIED read-back', null, 'FAIL', sanitizeEvidenceError(error));
+  }
 } else {
-  record('LIVE-SAFE-AFTER-ATTACK', 'attack DENY followed by remediation COMPLETED', null, 'NOT_RUN', 'Set EVIDENCE_RUN_REMEDIATION=true after seeding the private secrets map and delegating postman-echo.com.');
+  record(
+    'LIVE-SAFE-AFTER-ATTACK',
+    'DENY -> accepted execution -> independent VERIFIED read-back',
+    null,
+    'NOT_RUN',
+    'Set EVIDENCE_RUN_REMEDIATION=true only after seeding both remediation and independent verification endpoints in the private map and granting both contract functions.',
+  );
 }
 
 const evidence: EvidenceBundle = { generatedAt: new Date().toISOString(), network: config.network, sdkVersion: '5.2.0', tenantDid, agentDid, contractId: identity.contractId, contractVersion: identity.contractVersion, wasmSha256: await wasmHash(), scenarios };
