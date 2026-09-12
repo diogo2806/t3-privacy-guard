@@ -13,6 +13,9 @@ public class ApiExceptionHandler {
     @ExceptionHandler(IncidentNotFoundException.class)
     ResponseEntity<ProblemDetail> notFound(IncidentNotFoundException ex) { return problem(HttpStatus.NOT_FOUND, "Resource not found", ex.getMessage()); }
 
+    @ExceptionHandler(EvidenceNotFoundException.class)
+    ResponseEntity<ProblemDetail> evidenceNotFound(EvidenceNotFoundException ex) { return problem(HttpStatus.NOT_FOUND, "Evidence not available", ex.getMessage()); }
+
     @ExceptionHandler(ConflictException.class)
     ResponseEntity<ProblemDetail> conflict(ConflictException ex) { return problem(HttpStatus.CONFLICT, "Request conflict", ex.getMessage()); }
 
@@ -20,9 +23,7 @@ public class ApiExceptionHandler {
     ResponseEntity<ProblemDetail> denied(PolicyDeniedException ex) { return problem(HttpStatus.FORBIDDEN, "Policy denied remediation", ex.getMessage()); }
 
     @ExceptionHandler(AuthenticationException.class)
-    ResponseEntity<ProblemDetail> authentication(AuthenticationException ex) {
-        return problem(HttpStatus.UNAUTHORIZED, "Authentication failed", "Invalid operator credentials.");
-    }
+    ResponseEntity<ProblemDetail> authentication(AuthenticationException ex) { return problem(HttpStatus.UNAUTHORIZED, "Authentication failed", "Invalid operator credentials."); }
 
     @ExceptionHandler(GatewayUnavailableException.class)
     ResponseEntity<ProblemDetail> gateway(GatewayUnavailableException ex) { return problem(HttpStatus.SERVICE_UNAVAILABLE, "T3N policy service unavailable", "The action was not authorized because policy evaluation could not be completed."); }
