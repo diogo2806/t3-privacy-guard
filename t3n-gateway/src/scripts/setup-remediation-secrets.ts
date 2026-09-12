@@ -5,9 +5,11 @@ import { T3nSession } from '../t3n/session.js';
 const numericContractId = Number(process.env.T3N_CONTRACT_NUMERIC_ID);
 const securityApiKey = process.env.SECURITY_API_KEY?.trim();
 const securityApiUrl = process.env.SECURITY_API_URL?.trim();
+const securityVerificationUrl = process.env.SECURITY_VERIFICATION_URL?.trim();
 if (!Number.isInteger(numericContractId) || numericContractId <= 0) throw new Error('T3N_CONTRACT_NUMERIC_ID is required after contract registration');
 if (!securityApiKey) throw new Error('SECURITY_API_KEY is required at setup time');
 if (!securityApiUrl?.startsWith('https://')) throw new Error('SECURITY_API_URL must be an HTTPS URL');
+if (!securityVerificationUrl?.startsWith('https://')) throw new Error('SECURITY_VERIFICATION_URL must be an HTTPS URL');
 
 const config = readGatewayConfig();
 const session = new T3nSession(config);
@@ -24,4 +26,9 @@ try {
 const mapName = tenant.canonicalName('secrets');
 await tenant.executeControl('map-entry-set', { map_name: mapName, key: 'security_api_key', value: securityApiKey });
 await tenant.executeControl('map-entry-set', { map_name: mapName, key: 'security_api_url', value: securityApiUrl });
-console.info(JSON.stringify({ mapName, contractId: numericContractId, seededKeys: ['security_api_key', 'security_api_url'] }));
+await tenant.executeControl('map-entry-set', { map_name: mapName, key: 'security_verification_url', value: securityVerificationUrl });
+console.info(JSON.stringify({
+  mapName,
+  contractId: numericContractId,
+  seededKeys: ['security_api_key', 'security_api_url', 'security_verification_url'],
+}));
