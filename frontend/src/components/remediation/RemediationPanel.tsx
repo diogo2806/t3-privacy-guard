@@ -13,8 +13,11 @@ export function RemediationPanel({ action, decision, busy, onAuthorize, onExecut
       <p className="card-copy">The upstream credential stays in the tenant private map. The browser, Java backend and AI agent receive no secret value.</p>
       {decision?.decision !== 'ALLOW' && <p className="inline-notice">A persisted ALLOW decision is required before remediation can be authorized.</p>}
       {canAuthorize && <button className="button button-primary" type="button" onClick={onAuthorize} disabled={busy}><ShieldCheck aria-hidden="true" />Authorize remediation</button>}
-      {canExecute && <button className="button button-primary" type="button" onClick={onExecute} disabled={busy}><PlayCircle aria-hidden="true" />Execute protected remediation</button>}
-      {completed && <div className="success-state"><ShieldCheck aria-hidden="true" /><span>Protected remediation completed. Review the audit trail for the sanitized result.</span></div>}
+      {canExecute && <>
+        <div className="success-state"><ShieldCheck aria-hidden="true" /><span>Human authorization is recorded. Execution will use a short-lived, one-time authorization proof bound to this exact action.</span></div>
+        <button className="button button-primary" type="button" onClick={onExecute} disabled={busy}><PlayCircle aria-hidden="true" />Execute protected remediation</button>
+      </>}
+      {completed && <div className="success-state"><ShieldCheck aria-hidden="true" /><span>Protected remediation completed with a consumed one-time authorization proof. Review the audit trail for the sanitized result.</span></div>}
     </section>
   );
 }
