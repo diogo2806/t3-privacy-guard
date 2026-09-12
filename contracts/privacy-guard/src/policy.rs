@@ -60,13 +60,13 @@ fn action_policy(action: &str) -> Option<ActionPolicy> {
         "revoke-credential" => Some(ActionPolicy {
             purpose: "incident-remediation",
             allowed_fields: &["incident_id", "credential_id", "reason"],
-            allowed_hosts: &["security-api.internal"],
+            allowed_hosts: &["security-api.internal", "postman-echo.com"],
             requires_host: true,
         }),
         "isolate-account" => Some(ActionPolicy {
             purpose: "incident-remediation",
             allowed_fields: &["incident_id", "account_id", "reason"],
-            allowed_hosts: &["security-api.internal"],
+            allowed_hosts: &["security-api.internal", "postman-echo.com"],
             requires_host: true,
         }),
         "create-incident" => Some(ActionPolicy {
@@ -78,7 +78,7 @@ fn action_policy(action: &str) -> Option<ActionPolicy> {
         "notify-security" => Some(ActionPolicy {
             purpose: "incident-notification",
             allowed_fields: &["incident_id", "severity", "summary", "contact_email"],
-            allowed_hosts: &["security-api.internal"],
+            allowed_hosts: &["security-api.internal", "postman-echo.com"],
             requires_host: true,
         }),
         _ => None,
@@ -99,10 +99,18 @@ fn deny(request_id: &str, code: &str, reason: &str) -> PolicyDecision {
 pub fn evaluate(request: &PolicyEvaluationRequest) -> PolicyDecision {
     let request_id = request.request_id.trim();
     if request_id.is_empty() || request_id.len() > 128 {
-        return deny(request_id, "INVALID_REQUEST_ID", "Request id is required and must be at most 128 characters");
+        return deny(
+            request_id,
+            "INVALID_REQUEST_ID",
+            "Request id is required and must be at most 128 characters",
+        );
     }
     if !request.agent_did.trim().starts_with("did:t3n:") {
-        return deny(request_id, "INVALID_AGENT_DID", "Agent identity must be an authenticated T3N DID");
+        return deny(
+            request_id,
+            "INVALID_AGENT_DID",
+            "Agent identity must be an authenticated T3N DID",
+        );
     }
     if request.resource.trim().is_empty() {
         return deny(request_id, "INVALID_RESOURCE", "Resource is required");
@@ -110,29 +118,66 @@ pub fn evaluate(request: &PolicyEvaluationRequest) -> PolicyDecision {
 
     let action = normalized(&request.action);
     let Some(policy) = action_policy(&action) else {
-        return deny(request_id, "ACTION_NOT_ALLOWED", "Requested action is not allowed by policy");
+        return deny(
+            request_id,
+            "ACTION_NOT_ALLOWED",
+            "Requested action is not allowed by policy",
+        );
     };
 
-    let purpose = normalized(&request.purpose);
-    if purpose != policy.purpose {
-        return deny(request_id, "PURPOSE_NOT_ALLOWED", "Declared purpose does not authorize this action");
+    if normalized(&request.purpose) != policy.purpose {
+        return deny(
+            request_id,
+            "PURPOSE_NOT_ALLOWED",
+            "Declared purpose does not authorize this action",
+        );
     }
 
-    let requested_fields: BTreeSet<String> = request.fields.iter().map(|field| normalized(field)).filter(|field| !field.is_empty()).collect();
-    if requested_fields.iter().any(|field| FORBIDDEN_SECRET_FIELDS.contains(&field.as_str())) {
-        return deny(request_id, "SECRET_DISCLOSURE_FORBIDDEN", "Direct disclosure of secrets or high-risk credentials is forbidden");
+    let requested_fields: BTreeSet<String> = request
+        .fields
+        .iter()
+        .map(|field| normalized(field))
+        .filter(|field| !field.is_empty())
+        .collect();
+
+    if requested_fields
+        .iter()
+        .any(|field| FORBIDDEN_SECRET_FIELDS.contains(&field.as_str()))
+    {
+        return deny(
+            request_id,
+            "SECRET_DISCLOSURE_FORBIDDEN",
+            "Direct disclosure of secrets or high-risk credentials is forbidden",
+        );
     }
 
-    let host = request.host.as_deref().map(normalized).filter(|value| !value.is_empty());
+    let host = request
+        .host
+        .as_deref()
+        .map(normalized)
+        .filter(|value| !value.is_empty());
+
     if policy.requires_host {
         let Some(host) = host.as_deref() else {
-            return deny(request_id, "HOST_REQUIRED", "This action requires an explicitly authorized destination host");
+            return deny(
+                request_id,
+                "HOST_REQUIRED",
+                "This action requires an explicitly authorized destination host",
+            );
         };
         if host.contains('/') || host.contains(':') || !policy.allowed_hosts.contains(&host) {
-            return deny(request_id, "HOST_NOT_ALLOWED", "Destination host is outside the policy allowlist");
+            return deny(
+                request_id,
+                "HOST_NOT_ALLOWED",
+                "Destination host is outside the policy allowlist",
+            );
         }
     } else if host.is_some() {
-        return deny(request_id, "UNEXPECTED_EGRESS", "This action does not require outbound network access");
+        return deny(
+            request_id,
+            "UNEXPECTED_EGRESS",
+            "This action does not require outbound network access",
+        );
     }
 
     let allowed: BTreeSet<&str> = policy.allowed_fields.iter().copied().collect();
@@ -160,7 +205,7 @@ pub fn evaluate(request: &PolicyEvaluationRequest) -> PolicyDecision {
             request_id: request_id.to_string(),
             decision: Decision::Redact,
             reason_code: "DATA_MINIMIZATION_REQUIRED".to_string(),
-            reason: "Action is allowed only after removing fields that are unnecessary for the declared purpose".to_string(),
+            reason: "Action is allowed only after removing fields unnecessary for the declared purpose".to_string(),
             allowed_fields,
             redacted_fields,
         }
@@ -170,8 +215,8 @@ pub fn evaluate(request: &PolicyEvaluationRequest) -> PolicyDecision {
 pub fn evaluate_json(input: &[u8]) -> Result<Vec<u8>, String> {
     let request: PolicyEvaluationRequest = serde_json::from_slice(input)
         .map_err(|_| "evaluate-action: invalid JSON input".to_string())?;
-    let decision = evaluate(&request);
-    serde_json::to_vec(&decision).map_err(|_| "evaluate-action: failed to encode decision".to_string())
+    serde_json::to_vec(&evaluate(&request))
+        .map_err(|_| "evaluate-action: failed to encode decision".to_string())
 }
 
 #[cfg(test)]
@@ -185,7 +230,7 @@ mod tests {
             action: "revoke-credential".into(),
             resource: "credential:cred-42".into(),
             purpose: "incident-remediation".into(),
-            host: Some("security-api.internal".into()),
+            host: Some("postman-echo.com".into()),
             fields: vec!["incident_id".into(), "credential_id".into(), "reason".into()],
         }
     }

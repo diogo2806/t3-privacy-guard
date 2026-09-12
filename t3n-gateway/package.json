@@ -1,7 +1,7 @@
 {
   "name": "t3-privacy-guard-gateway",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
@@ -9,6 +9,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test src/**/*.test.ts",
     "contract:register": "tsx src/scripts/register-contract.ts",
+    "contract:setup-remediation": "tsx src/scripts/setup-remediation-secrets.ts",
     "start": "node dist/index.js"
   },
   "dependencies": {
