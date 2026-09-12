@@ -36,7 +36,8 @@ public class GatewayPolicyClient {
         String resource,
         String purpose,
         String host,
-        List<String> fields
+        List<String> fields,
+        @JsonProperty("private_refs") List<String> privateRefs
     ) {}
 
     public record GatewayDecision(
@@ -45,6 +46,8 @@ public class GatewayPolicyClient {
         @JsonProperty("reason_code") String reasonCode,
         String reason,
         @JsonProperty("allowed_fields") List<String> allowedFields,
-        @JsonProperty("redacted_fields") List<String> redactedFields
+        @JsonProperty("redacted_fields") List<String> redactedFields,
+        @JsonProperty("allowed_private_refs") List<String> allowedPrivateRefs,
+        @JsonProperty("redacted_private_refs") List<String> redactedPrivateRefs
     ) {}
 }
