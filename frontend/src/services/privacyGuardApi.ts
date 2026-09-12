@@ -62,7 +62,7 @@ interface CsrfState { token: string; headerName: string; }
 let csrfState: CsrfState | null = null;
 
 export class PrivacyGuardApiError extends Error {
-  constructor(message: string, readonly status: number) { super(message); this.name = 'PrivacyGuardApiError'; }
+  constructor(message: string, readonly status: number, readonly retryAfterSeconds?: number) { super(message); this.name = 'PrivacyGuardApiError'; }
 }
 
 async function readProblem(response: Response): Promise<string> {
@@ -74,10 +74,17 @@ async function readProblem(response: Response): Promise<string> {
   return message;
 }
 
+function retryAfterSeconds(response: Response): number | undefined {
+  const raw = response.headers.get('Retry-After');
+  if (!raw) return undefined;
+  const seconds = Number(raw);
+  return Number.isInteger(seconds) && seconds > 0 && seconds <= 3600 ? seconds : undefined;
+}
+
 async function ensureCsrf(): Promise<CsrfState> {
   if (csrfState) return csrfState;
   const response = await fetch('/api/auth/csrf', { credentials: 'same-origin' });
-  if (!response.ok) throw new PrivacyGuardApiError(await readProblem(response), response.status);
+  if (!response.ok) throw new PrivacyGuardApiError(await readProblem(response), response.status, retryAfterSeconds(response));
   csrfState = await response.json() as CsrfState;
   return csrfState;
 }
@@ -93,7 +100,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { ...init, method, headers, credentials: 'same-origin' });
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) csrfState = null;
-    throw new PrivacyGuardApiError(await readProblem(response), response.status);
+    throw new PrivacyGuardApiError(await readProblem(response), response.status, retryAfterSeconds(response));
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
@@ -114,8 +121,8 @@ export const privacyGuardApi = {
   evaluate: (incidentId: string, actionId: string) => api<PolicyDecision>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/evaluate`, { method: 'POST' }),
   getDecision: (incidentId: string, actionId: string) => api<PolicyDecision>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/decision`),
   authorizeRemediation: (incidentId: string, actionId: string) => api<{ incidentId: string; actionId: string; requestId: string; state: ProposalStatus }>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/authorize-remediation`, { method: 'POST' }),
-  executeRemediation: (incidentId: string, actionId: string) => api<RemediationExecution>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/execute-remediation`, { method: 'POST' }),
   getRemediation: (incidentId: string, actionId: string) => api<RemediationExecution>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/remediation`),
+  executeRemediation: (incidentId: string, actionId: string) => api<RemediationExecution>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/execute-remediation`, { method: 'POST' }),
   verifyRemediation: (incidentId: string, actionId: string) => api<RemediationExecution>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/verify-remediation`, { method: 'POST' }),
   history: (incidentId: string) => api<AuditEvent[]>(`/api/incidents/${encodeURIComponent(incidentId)}/history`),
 };
