@@ -8,6 +8,16 @@ const baseEnv = {
   REMEDIATION_CAPABILITY_KEY: 'remediation-capability-key-123456789012',
 };
 
+function aiEnv(url: string) {
+  return {
+    ...baseEnv,
+    AI_PROVIDER: 'openai-compatible',
+    AI_API_URL: url,
+    AI_API_KEY: 'provider-test-key',
+    AI_MODEL: 'tool-model',
+  };
+}
+
 test('rejects missing tenant API key', () => {
   assert.throws(() => readGatewayConfig({
     GATEWAY_SERVICE_TOKEN: baseEnv.GATEWAY_SERVICE_TOKEN,
@@ -27,17 +37,35 @@ test('defaults to testnet, disabled AI and current contract version', () => {
   assert.equal(config.aiModel, null);
 });
 
-test('accepts an explicitly configured OpenAI-compatible tool-calling provider', () => {
-  const config = readGatewayConfig({
-    ...baseEnv,
-    AI_PROVIDER: 'openai-compatible',
-    AI_API_URL: 'https://provider.example/v1/chat/completions',
-    AI_API_KEY: 'provider-test-key',
-    AI_MODEL: 'tool-model',
-  });
-  assert.equal(config.aiProvider, 'openai-compatible');
-  assert.equal(config.aiApiUrl, 'https://provider.example/v1/chat/completions');
-  assert.equal(config.aiModel, 'tool-model');
+test('accepts HTTPS remote and explicit loopback HTTP AI providers', () => {
+  for (const url of [
+    'https://provider.example/v1/chat/completions',
+    'http://localhost:11434/v1/chat/completions',
+    'http://127.0.0.1:11434/v1/chat/completions',
+    'http://127.1.2.3:11434/v1/chat/completions',
+    'http://[::1]:11434/v1/chat/completions',
+  ]) {
+    assert.equal(readGatewayConfig(aiEnv(url)).aiApiUrl, url);
+  }
+});
+
+test('rejects remote or non-loopback HTTP AI providers', () => {
+  for (const url of [
+    'http://provider.example/v1/chat/completions',
+    'http://10.0.0.2/v1/chat/completions',
+    'http://172.18.0.5/v1/chat/completions',
+    'http://0.0.0.0/v1/chat/completions',
+    'http://evil-localhost.example/v1/chat/completions',
+  ]) {
+    assert.throws(() => readGatewayConfig(aiEnv(url)), ConfigurationError, url);
+  }
+});
+
+test('rejects AI provider URLs containing embedded credentials', () => {
+  assert.throws(
+    () => readGatewayConfig(aiEnv('https://user:password@provider.example/v1/chat/completions')),
+    ConfigurationError,
+  );
 });
 
 test('rejects enabled AI provider without model or key', () => {
