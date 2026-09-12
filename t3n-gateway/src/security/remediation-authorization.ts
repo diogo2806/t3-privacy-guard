@@ -11,6 +11,7 @@ export interface RemediationBody {
   resource: string;
   purpose: string;
   fields: string[];
+  private_refs: string[];
 }
 
 interface Claims {
@@ -22,12 +23,17 @@ interface Claims {
   resource: string;
   purpose: string;
   fieldsHash: string;
+  privateRefsHash: string;
   authorizedAt: number;
   expiresAt: number;
   nonce: string;
 }
 
 interface ReplayEntry { nonce: string; expiresAt: number }
+
+function listHash(values: string[] | undefined): string {
+  return createHash('sha256').update(JSON.stringify([...(values ?? [])].map((value) => value.trim()).sort())).digest('hex');
+}
 
 export class RemediationAuthorizationVerifier {
   constructor(
@@ -48,7 +54,6 @@ export class RemediationAuthorizationVerifier {
     if (!claims.nonce || !claims.expiresAt || claims.expiresAt <= this.now()) throw new Error('CAPABILITY_EXPIRED');
     if (claims.authorizedAt > this.now() + 5_000) throw new Error('CAPABILITY_INVALID');
 
-    const fieldsHash = createHash('sha256').update(JSON.stringify([...(body.fields ?? [])].sort())).digest('hex');
     const mismatched = claims.incidentId !== body.incident_id
       || claims.actionId !== body.action_id
       || claims.decisionId !== body.decision_id
@@ -56,7 +61,8 @@ export class RemediationAuthorizationVerifier {
       || claims.action !== body.action
       || claims.resource !== body.resource
       || claims.purpose !== body.purpose
-      || claims.fieldsHash !== fieldsHash;
+      || claims.fieldsHash !== listHash(body.fields)
+      || claims.privateRefsHash !== listHash(body.private_refs);
     if (mismatched) throw new Error('CAPABILITY_BODY_MISMATCH');
 
     const entries = this.loadEntries().filter((entry) => entry.expiresAt > this.now());
