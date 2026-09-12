@@ -10,6 +10,7 @@
     "test": "tsx --test src/**/*.test.ts",
     "contract:register": "tsx src/scripts/register-contract.ts",
     "contract:setup-remediation": "tsx src/scripts/setup-remediation-secrets.ts",
+    "evidence:testnet": "tsx src/scripts/adversarial-testnet.ts",
     "start": "node dist/index.js"
   },
   "dependencies": {
