@@ -52,8 +52,10 @@ export class OpenAiCompatibleProvider implements AgentProvider {
         tool_choice: { type: 'function', function: { name: 'propose_privacy_guard_action' } },
       }),
       signal: AbortSignal.timeout(20_000),
+      redirect: 'manual',
     }).catch(() => { throw new AgentProviderUnavailableError(); });
 
+    if (response.status >= 300 && response.status < 400) throw new AgentProviderUnavailableError('AI provider redirects are not allowed');
     if (!response.ok) throw new AgentProviderUnavailableError(`AI provider returned HTTP ${response.status}`);
     const payload = await response.json() as { choices?: Array<{ message?: { tool_calls?: Array<{ function?: { name?: string; arguments?: string } }> } }> };
     const calls = payload.choices?.[0]?.message?.tool_calls ?? [];
