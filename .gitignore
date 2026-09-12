@@ -17,6 +17,9 @@ t3n-gateway/dist/
 # Rust
 contracts/**/target/
 
+# Generated local evidence logs (review live JSON before committing it)
+docs/evidence/runtime/
+
 # IDE / OS
 .idea/
 .vscode/

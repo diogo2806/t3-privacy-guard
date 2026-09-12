@@ -61,6 +61,15 @@ Identity and delegation endpoints:
 - `GET /internal/agent/delegations/:contractId`
 - `DELETE /internal/agent/delegations/:contractId`
 
+## Terminal 3 integration findings
+
+The challenge asks builders to report bugs/findings discovered while integrating. Two concrete findings shaped this implementation:
+
+1. **Member Delegation documentation sample omits a required field.** The current Terminal 3 Member Delegation page shows `member-delegation-update` and `updateMemberDelegation` examples without `scopes`, while the field table on the same page marks `scopes` as required. Copying the snippet literally can therefore produce a rejected/incomplete grant. T3 Privacy Guard always requires and sends explicit scopes.
+2. **Delegated-call target is easy to misconfigure.** The authenticated agent DID identifies the caller, but `pii_did` identifies whose grant/data authority is being used. Omitting it on a delegated call can make the node evaluate the wrong subject. T3 Privacy Guard derives `pii_did` only from the authenticated tenant/data-owner session and never accepts it from the browser or business API.
+
+The first item is a documentation inconsistency; the second is an integration gotcha rather than a platform-security bypass.
+
 ## TEE policy contract
 
 `contracts/privacy-guard` implements the critical policy decision in Rust/WASM rather than trusting React, Java or the LLM. Its WIT world uses Terminal 3's `generic-input` envelope and exports:
@@ -138,6 +147,33 @@ Business endpoints:
 - `GET /api/incidents/{incidentId}/history`
 
 A remediation requires a persisted `ALLOW`, explicit authorization and then TEE execution. The TEE evaluates policy again immediately before egress, so Java cannot transform a previous `DENY` into a protected outbound call.
+
+## Adversarial evidence
+
+The repository includes a reproducible security-evidence layer instead of relying only on screenshots or claims:
+
+- `contracts/privacy-guard/tests/adversarial.rs` exercises policy abuse, exfiltration, purpose abuse, host abuse, minimization and fail-closed cases;
+- `IncidentServiceTest` covers replay, idempotency, unavailable T3N/gateway, tampered responses and authorization gates;
+- gateway tests cover delegation, revocation and canonical tenant `pii_did` binding;
+- the remediation regression test proves a reflected upstream secret/header cannot cross the contract result boundary;
+- the evidence leak detector rejects serialized artifacts containing configured secret/sentinel values;
+- `docs/evidence/scenario-matrix.md` maps each control to its executable assertion;
+- `npm run evidence:testnet` creates live T3N evidence only when valid credentials/credits are available. Unexecuted live scenarios remain `NOT_RUN`, never fabricated as `PASS`.
+
+Local regression evidence:
+
+```bash
+bash scripts/run-local-evidence.sh
+```
+
+Live testnet evidence after contract registration/delegation:
+
+```bash
+cd t3n-gateway
+npm run evidence:testnet
+```
+
+Protected egress negative and attack-then-remediation scenarios require the private synthetic-secret map to be seeded first. See `docs/evidence/README.md` for the exact flags and safety rules.
 
 ## Local builds
 
