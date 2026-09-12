@@ -56,7 +56,7 @@ describe('RemediationPanel', () => {
   it('offers read-back without offering a second execution for an unverified result', async () => {
     const user = userEvent.setup();
     const onVerify = renderPanel(execution('UNVERIFIED', { failureCode: 'VERIFICATION_UNAVAILABLE' }));
-    expect(screen.getByText('UNVERIFIED')).toBeInTheDocument();
+    expect(screen.getAllByText('UNVERIFIED')).toHaveLength(2);
     expect(screen.queryByRole('button', { name: 'Execute protected remediation' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Verify external state' }));
     expect(onVerify).toHaveBeenCalledTimes(1);
