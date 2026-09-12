@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { ScreenManualDialog } from './ScreenManualDialog';
 
 describe('ScreenManualDialog', () => {
-  it('traps keyboard focus, closes with Escape and restores focus to the trigger', async () => {
+  it('traps keyboard focus, explains the trust journey, closes with Escape and restores focus', async () => {
     const user = userEvent.setup();
     render(
       <div>
@@ -16,11 +16,17 @@ describe('ScreenManualDialog', () => {
 
     const trigger = screen.getByRole('button', { name: 'Open Screen Manual' });
     expect(trigger).toHaveAttribute('title', 'Manual da Tela / Screen Manual');
+    expect(trigger).toHaveTextContent('Manual da Tela');
 
     await user.click(trigger);
     const dialog = screen.getByRole('dialog', { name: 'Incident Response Dashboard' });
     const closeButton = screen.getByRole('button', { name: 'Close Screen Manual' });
     expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(screen.getByText('What this screen is for')).toBeInTheDocument();
+    expect(screen.getByText(/ALLOW does not mean executed/i)).toBeInTheDocument();
+    expect(screen.getByText(/COMPLETED appears only after independent read-back/i)).toBeInTheDocument();
+    expect(screen.getByText(/Protection demo/i)).toBeInTheDocument();
+    expect(screen.getByText(/Proof & evidence/i)).toBeInTheDocument();
     expect(closeButton).toHaveFocus();
 
     await user.tab();
