@@ -12,6 +12,9 @@ export interface DeploymentManifest {
   numericContractId: number | null;
   contractVersion: string;
   wasmSha256: string;
+  trustAnchorVerified: true;
+  trustManifestFloorPersisted: true;
+  trustManifestVersion: number;
 }
 
 export interface TestnetEvidenceIdentity {
@@ -38,6 +41,12 @@ export function assertManifestIdentity(manifest: DeploymentManifest): void {
   }
   if (!/^[a-f0-9]{64}$/.test(manifest.wasmSha256)) {
     throw new Error('Deployment manifest contains an invalid WASM SHA-256');
+  }
+  if (manifest.trustAnchorVerified !== true || manifest.trustManifestFloorPersisted !== true) {
+    throw new Error('Deployment manifest must prove verified trust anchor and persisted rollback floor');
+  }
+  if (!Number.isSafeInteger(manifest.trustManifestVersion) || manifest.trustManifestVersion < 1) {
+    throw new Error('Deployment manifest contains an invalid trust manifest version');
   }
 }
 
