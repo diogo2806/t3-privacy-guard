@@ -34,20 +34,28 @@ export function PrivacyGuardDashboard() {
   const [sessionLoading, setSessionLoading] = useState(true);
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [authRetryAfterSeconds, setAuthRetryAfterSeconds] = useState(0);
 
   useEffect(() => {
     void privacyGuardApi.session().then(setSession).catch(() => setSession({ authenticated: false })).finally(() => setSessionLoading(false));
   }, []);
 
   const login = async (credentials: { username: string; password: string }) => {
-    setAuthBusy(true); setAuthError(null);
+    setAuthBusy(true); setAuthError(null); setAuthRetryAfterSeconds(0);
     try { setSession(await privacyGuardApi.login(credentials)); }
-    catch (cause) { setSession({ authenticated: false }); setAuthError(cause instanceof Error ? cause.message : 'Unable to sign in.'); }
+    catch (cause) {
+      setSession({ authenticated: false });
+      if (cause instanceof PrivacyGuardApiError && cause.status === 429) {
+        setAuthRetryAfterSeconds(cause.retryAfterSeconds ?? 5);
+      } else {
+        setAuthError(cause instanceof Error ? cause.message : 'Unable to sign in.');
+      }
+    }
     finally { setAuthBusy(false); }
   };
 
   const logout = async () => {
-    setAuthBusy(true); setAuthError(null);
+    setAuthBusy(true); setAuthError(null); setAuthRetryAfterSeconds(0);
     try { await privacyGuardApi.logout(); setSession({ authenticated: false }); }
     catch (cause) { setAuthError(cause instanceof Error ? cause.message : 'Unable to sign out safely.'); }
     finally { setAuthBusy(false); }
@@ -55,13 +63,14 @@ export function PrivacyGuardDashboard() {
 
   const expireSession = useCallback(() => {
     setSession({ authenticated: false });
+    setAuthRetryAfterSeconds(0);
     setAuthError('Your operator session has expired. Sign in again to continue.');
   }, []);
 
   return (
     <div className="app-shell">
       <AppHeader />
-      <OperatorSessionGate session={session} loading={sessionLoading} busy={authBusy} error={authError} onLogin={login} onLogout={logout} />
+      <OperatorSessionGate session={session} loading={sessionLoading} busy={authBusy} error={authError} retryAfterSeconds={authRetryAfterSeconds} onLogin={login} onLogout={logout} />
       {session?.authenticated && <AuthenticatedDashboard onSessionExpired={expireSession} />}
     </div>
   );
