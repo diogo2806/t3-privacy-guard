@@ -2,234 +2,159 @@
 
 Confidential Incident Response Agent for the Terminal 3 Network challenge.
 
+> **Judge / submission guide:** [`docs/submission/README.md`](docs/submission/README.md)  
+> **Evidence reproduction:** [`docs/evidence/README.md`](docs/evidence/README.md)  
+> **Adversarial matrix:** [`docs/evidence/scenario-matrix.md`](docs/evidence/scenario-matrix.md)
+
 ## What the demo proves
 
-T3 Privacy Guard assumes the AI agent can be manipulated. A malicious proposal attempts to send protected credential data to `attacker.example`; the T3N policy contract returns `DENY`. The same incident can then produce a minimum legitimate revoke request. After an independent `ALLOW` and explicit authenticated operator authorization, the TEE executes the remediation using a credential stored only in the tenant private map.
+T3 Privacy Guard assumes the AI agent can be manipulated. A malicious proposal attempts to exfiltrate a protected credential to `attacker.example`; the Rust/WASM policy returns `DENY`. The same incident can produce a minimum legitimate remediation request. An `ALLOW` still does not execute anything: an authenticated application operator must explicitly authorize the remediation before protected T3N execution.
 
-The browser, Java backend and AI agent never receive the remediation credential value.
+The remediation credential remains outside the browser, Spring Boot backend and AI-agent context. It is consumed through the private T3N contract path.
 
 ## Architecture
 
-- `frontend/`: React + Vite dashboard served by Nginx.
-- `backend/`: Java 21 + Spring Boot business API with durable incident orchestration and operator sessions.
-- `t3n-gateway/`: Node.js + TypeScript adapter for `@terminal3/t3n-sdk` **5.2.0**.
-- `contracts/privacy-guard/`: Rust/WIT policy and secretless-remediation contract compiled to WASI Preview 2 for T3N TEE execution.
-
-Each runtime has its own Dockerfile. There is intentionally no `docker-compose.yml`; production deployment is expected to run services independently in containers.
-
 ```text
-Browser / Nginx
-      |
-      | /api + operator session
-      v
-Spring Boot
-      |
-      | internal container network
-      v
-T3N Gateway
-      |
-      | authenticated tenant + agent sessions
-      v
-Terminal 3 / TEE / private KV
+React / Nginx
+     |
+     | operator session + /api
+     v
+Java 21 / Spring Boot
+     |
+     | internal container network
+     v
+Node / TypeScript T3N Gateway
+     |
+     | @terminal3/t3n-sdk 5.2.0
+     v
+T3N / Rust WASM / private KV
 ```
+
+- `frontend/`: React/Vite dashboard served by Nginx.
+- `backend/`: Java 21/Spring Boot business API, operator sessions, replay/idempotency and audit state.
+- `t3n-gateway/`: isolated T3N SDK adapter with separate tenant/agent sessions.
+- `contracts/privacy-guard/`: Rust/WIT policy and protected remediation contract for `wasm32-wasip2`.
+
+Each runtime has its own Dockerfile. There is intentionally no `docker-compose.yml`; services can be deployed independently in containers.
+
+## Security boundaries
+
+- Operator login is an application identity, not a T3N identity.
+- `T3N_API_KEY` and `T3N_AGENT_API_KEY` are separate and gateway-only.
+- Canonical tenant/agent DIDs come from authenticated T3N sessions.
+- Delegated calls derive `pii_did` internally from the authenticated tenant session.
+- Member delegation restricts contract, functions, scopes, hosts and validity.
+- `DENY`, `REDACT`, malformed responses, unavailable policy evaluation and ambiguous states fail closed.
+- Java persists unique request ids and prior results to prevent duplicate execution.
+- `ALLOW` + authenticated operator + explicit human authorization are all required before remediation execution.
+- `UNKNOWN`, `REVOKED` and `NOT_GRANTED` are never displayed as successful delegation.
+
+See the threat model and claims matrix in [`docs/submission/README.md`](docs/submission/README.md).
 
 ## Operator authentication
 
-The public Nginx proxy exposes `/api`, so business APIs are protected by a Spring Security server-side operator session rather than by UI state alone.
-
-Runtime-only variables:
-
-- `OPERATOR_USERNAME`
-- `OPERATOR_PASSWORD`
-- `OPERATOR_SESSION_TIMEOUT`
-- `SESSION_COOKIE_SECURE`
-
-The operator identity is deliberately separate from T3N identities. T3N tenant/agent keys are never accepted by the login form.
-
-Auth endpoints:
-
-- `POST /api/auth/login`
-- `GET /api/auth/session`
-- `GET /api/auth/csrf`
-- `POST /api/auth/logout`
-
-Business APIs require role `OPERATOR`. Mutating requests use CSRF protection. Session cookies are HttpOnly and SameSite=Strict; production HTTPS deployments must set `SESSION_COOKIE_SECURE=true`.
-
-## Dashboard and operational status
-
-The React dashboard is composed from reusable components under `frontend/src/components`. CSS lives only under `frontend/src/shared/styles`, with `index.css` as the global entry.
-
-The **Manual da Tela / Screen Manual** uses `BookOpen`, `aria-label`, `title` and an accessible dialog. It documents purpose, operator session, actions, fields, permissions, flow and states.
-
-Operational status deliberately separates facts that are often conflated:
-
-- **Gateway**: reachable or unavailable.
-- **Tenant**: authenticated only when its T3N session is ready.
-- **Agent**: authenticated only when its separate T3N session is ready.
-- **Contract**: `RESOLVED` when canonical id/version can be resolved from T3N. This is not labelled hardware attestation.
-- **Delegation**: `ACTIVE`, `REVOKED`, `NOT_GRANTED` or `UNKNOWN`, derived from the observed member grant.
-- **Delegated functions / allowed hosts**: shown from the observed grant, never from a hardcoded “live” function list.
-
-Demo flow:
-
-1. Sign in as the application operator.
-2. Confirm tenant, agent, contract and delegation states independently.
-3. `Run attack scenario` and observe `DENY`.
-4. `Prepare safe remediation` and observe `ALLOW` for the minimum request.
-5. Record explicit human authorization.
-6. Execute protected remediation.
-7. Review sanitized audit history and evidence.
-
-## Security baseline
-
-- Never commit `T3N_API_KEY`, `T3N_AGENT_API_KEY`, remediation credentials, operator passwords or real `.env` files.
-- Tenant and agent keys are separate credentials held only by the T3N gateway.
-- Canonical tenant and agent DIDs come from authenticated T3N sessions (`did.value`).
-- Operator authentication does not imply T3N authorization.
-- Delegation scopes exact contract, functions, data and outbound hosts.
-- `DENY`, `REDACT`, unavailable dependencies, malformed responses and ambiguous states fail closed.
-- Java audit events contain sanitized operational metadata, never secret-bearing payloads.
-- Java persists unique request ids and prior decisions/remediation results to prevent duplicate execution.
-- The application never calls `UNKNOWN`, `REVOKED` or `NOT_GRANTED` a successful delegation.
-
-## T3N identities and delegation
-
-The gateway authenticates tenant and agent independently with SDK 5.2.0. `T3N_AGENT_API_KEY` must be a separate funded agent credential. Member delegation is written by the tenant/data-owner session with `updateMemberDelegation` and scopes access by contract, WIT functions, scopes, optional read scopes, outbound hosts and validity window.
-
-Revocation expires only the matching agent+contract grant, preserving unrelated grants. Authentication alone never grants contract access.
-
-For every delegated contract invocation, the agent remains the authenticated caller while `pii_did` is set internally from `tenantSession.getTenantDid()`. `pii_did` is never accepted from React, Java or user request payloads.
-
-Identity/delegation endpoints:
-
-- `GET /internal/t3n/status`
-- `POST /internal/t3n/reconnect`
-- `GET /internal/agent/status`
-- `POST /internal/agent/connect`
-- `POST /internal/agent/delegations`
-- `GET /internal/agent/delegations/:contractId`
-- `DELETE /internal/agent/delegations/:contractId`
-
-## Terminal 3 integration findings
-
-Two concrete findings shaped the integration:
-
-1. **Member Delegation documentation sample omits a required field.** Current examples omit `scopes`, while the field reference marks `scopes` as required. T3 Privacy Guard requires and sends explicit scopes.
-2. **Delegated-call target is easy to misconfigure.** The agent DID identifies the caller, while `pii_did` identifies whose grant/data authority is being used. T3 Privacy Guard derives it only from the authenticated tenant session.
-
-The first is a documentation inconsistency. The second is an integration gotcha, not a platform-security bypass.
-
-## TEE policy contract
-
-`contracts/privacy-guard` implements the critical decision in Rust/WASM instead of trusting React, Java or the LLM.
-
-Exports:
-
-- `evaluate-action`: `ALLOW`, `REDACT` or `DENY`.
-- `execute-remediation`: rechecks policy inside the TEE and performs protected egress only after an allowed decision.
-
-The policy fails closed for malformed input, unknown actions, wrong purpose, invalid agent DID, direct secret disclosure and disallowed egress. `REDACT` identifies unnecessary non-secret fields without returning their values.
-
-Replay requires durable state across calls. The WASM validates bounded `request_id`; Java makes `requestId` unique and reuses persisted policy/remediation results instead of executing twice.
-
-### Build and register
-
-```bash
-rustup target add wasm32-wasip2
-cd contracts/privacy-guard
-cargo test
-cargo build --target wasm32-wasip2 --release
-
-cd ../../t3n-gateway
-npm install
-npm run contract:register
-```
-
-Registration uses the authenticated tenant through `TenantClient.contracts.register`. The canonical contract name is derived from the authenticated tenant DID. Runtime calls use the separately authenticated agent through `executeAndDecode` with canonical tenant `pii_did`.
-
-Contract endpoints:
-
-- `GET /internal/contracts/privacy-guard/identity`
-- `POST /internal/contracts/privacy-guard/evaluate`
-- `POST /internal/contracts/privacy-guard/remediate`
-
-## Secretless remediation
-
-1. Register contract version `0.2.0` and record the numeric T3N contract id.
-2. Create private `z:<tid>:secrets` with readers/writers restricted to that contract id.
-3. Seed `security_api_key` and `security_api_url` through the tenant control plane.
-4. Delegate `execute-remediation` and only the required hostname.
-5. The agent sends non-secret action metadata.
-6. Inside the TEE, the contract re-evaluates policy, reads private KV and sends HTTPS via `http-with-placeholders`.
-7. Only request id, completion status, HTTP code and optional operation id return to the application.
-
-For a reproducible public demo, `SECURITY_API_URL=https://postman-echo.com/post` is supported as a synthetic adapter. Because echo services can reflect authorization headers, the contract never returns/logs the raw upstream body.
-
-Setup after registration:
-
-```bash
-cd t3n-gateway
-npm run contract:setup-remediation
-```
-
-## Backend incident orchestration
-
-Spring Boot persists incidents, proposed actions, policy decisions, protected remediation results and audit events in an H2 file database under `/data`. A duplicate `requestId` is rejected. Persisted decisions/results are reused without invoking T3N/upstream twice.
-
-A remediation requires all three layers:
+Required runtime variables:
 
 ```text
-TEE decision ALLOW
-      +
-authenticated operator session
-      +
-explicit human authorization
-      ↓
-protected TEE execution
+OPERATOR_USERNAME
+OPERATOR_PASSWORD
+OPERATOR_SESSION_TIMEOUT
+SESSION_COOKIE_SECURE
 ```
 
-A previous `DENY` cannot be transformed into execution by Java.
+Business APIs require the Spring Security operator session. Mutating requests require CSRF protection. The browser never receives a T3N private key.
 
-## Adversarial evidence
+## T3N operational status
 
-The repository includes reproducible security controls instead of relying on screenshots/claims:
+The dashboard reports independent observed states:
 
-- Rust adversarial tests for policy abuse, exfiltration, purpose/host abuse, minimization and fail-closed behavior.
-- Java tests for replay, idempotency, unavailable gateway, tampered responses and authorization gates.
-- Gateway tests for delegation, revocation and canonical `pii_did` binding.
-- A remediation regression test for reflected secret/header responses.
-- An evidence leak detector for configured secrets/sentinels.
-- `docs/evidence/scenario-matrix.md` maps controls to executable assertions.
-- `npm run evidence:testnet` creates live T3N results only when actually executed. Unexecuted scenarios stay `NOT_RUN`.
+```text
+Gateway       ONLINE / UNAVAILABLE
+Tenant        AUTHENTICATED / NOT AUTHENTICATED
+Agent         AUTHENTICATED / NOT AUTHENTICATED / NOT CONFIGURED
+Contract      RESOLVED / UNAVAILABLE
+Delegation    ACTIVE / REVOKED / NOT_GRANTED / UNKNOWN
+```
+
+`RESOLVED` means contract id/version were resolved. It is not labelled hardware attestation. Delegated functions and allowed hosts come from the observed grant, not from a hardcoded live-function list.
+
+## Policy and remediation
+
+The Rust contract exports:
+
+- `evaluate-action`: `ALLOW`, `REDACT` or `DENY`;
+- `execute-remediation`: rechecks policy and performs protected egress only when the request remains allowed.
+
+The signature scenario is:
+
+```text
+prompt injection / untrusted log
+          |
+          v
+AI proposes secret exfiltration
+          |
+          v
+T3N policy -> DENY
+          |
+          +---- safe minimum remediation -> ALLOW
+                                      |
+                             human authorization
+                                      |
+                                      v
+                             protected execution
+```
+
+## Evidence
+
+Local controls:
 
 ```bash
 bash scripts/run-local-evidence.sh
-
-cd t3n-gateway
-npm run evidence:testnet
 ```
 
-See `docs/evidence/README.md` for live-test prerequisites and safety flags.
+One-command live testnet evidence, after configuring valid rotated credentials/credits and building the WASM:
+
+```bash
+cd t3n-gateway
+npm install
+npm run evidence:live
+```
+
+Generated live artifacts:
+
+```text
+docs/evidence/deployment-manifest.json
+docs/evidence/testnet-run.json
+```
+
+The orchestrator binds the WASM SHA-256, canonical DIDs and contract id/version to the testnet evidence. It fails on identity/version/hash mismatch, scenario `FAIL` or configured secret leakage. Optional scenarios that did not execute remain `NOT_RUN`, never `PASS`.
+
+The dashboard **Evidence** view is read-only and returns only an allowlisted projection of consistent live evidence through the authenticated backend.
+
+## Terminal 3 integration findings
+
+Two concrete findings are documented with impact/workaround in [`docs/submission/README.md`](docs/submission/README.md):
+
+1. Member Delegation examples omit `scopes` although the field reference treats it as required.
+2. Delegated calls can use the wrong authorization subject if `pii_did` is omitted; this project always derives it from the authenticated tenant session.
 
 ## Pinned toolchain
 
-The repository pins direct Node dependencies and Docker image tags so a future install does not silently jump to a new direct framework/compiler version. This section records the declared toolchain; an evidence run is the source of truth for what has actually been executed successfully.
+Direct dependencies and Docker tags are explicit rather than `latest`/caret ranges:
 
-- Node build/runtime: `22.20.0-alpine3.22`
-- React: `19.3.0`
-- React DOM: `19.3.0`
+- Node: `22.20.0-alpine3.22`
+- React / React DOM: `19.3.0`
 - Vite: `8.2.2`
 - `@vitejs/plugin-react`: `6.1.1`
 - TypeScript: `5.9.2`
-- Vitest: `2.1.8`
 - T3N SDK: **`5.2.0`**
 - Express: `5.1.0`
 - Maven image: `3.9.16-eclipse-temurin-21`
-- Java runtime image: `eclipse-temurin:21.0.12_8-jre`
-- Nginx runtime: `1.27.5-alpine3.21-slim`
-- Rust contract version: `0.2.0`, target `wasm32-wasip2`
+- Java runtime: `eclipse-temurin:21.0.12_8-jre`
+- Nginx: `1.27.5-alpine3.21-slim`
+- Rust contract: `0.2.0`, target `wasm32-wasip2`
 
-Direct package versions are exact rather than `latest`/caret ranges. Transitive package resolution is recorded by the install environment when evidence is generated; this project does not treat an unexecuted dependency declaration as validation.
+Declared versions are not presented as execution proof; generated evidence is the source of truth for what actually ran.
 
 ## Local builds
 
@@ -242,4 +167,6 @@ cd ../contracts/privacy-guard && cargo test && cargo build --target wasm32-wasip
 
 ## Environment
 
-Use `.env.example` only as a variable-name template. Inject all real secrets through the deployment environment. `DATABASE_URL` can override the backend H2 file database.
+Use `.env.example` only as a variable-name template. Never commit real tenant keys, agent keys, operator passwords, remediation credentials or `.env` files.
+
+The project will continue to be operated after the challenge. A future handover process that rotates/provisions new credentials is documented in the submission guide; existing private keys are not transferred through GitHub or the UI.
