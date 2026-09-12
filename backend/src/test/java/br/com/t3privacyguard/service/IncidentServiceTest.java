@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -17,6 +18,7 @@ import br.com.t3privacyguard.integration.GatewayPolicyClient;
 import br.com.t3privacyguard.integration.GatewayPolicyClient.GatewayDecision;
 import br.com.t3privacyguard.integration.GatewayRemediationClient;
 import br.com.t3privacyguard.integration.GatewayRemediationClient.RemediationResult;
+import br.com.t3privacyguard.integration.GatewayRemediationClient.VerificationResult;
 import br.com.t3privacyguard.integration.GatewayUnavailableException;
 import br.com.t3privacyguard.persistence.ActionProposalRepository;
 import br.com.t3privacyguard.persistence.AuditEventRepository;
@@ -24,6 +26,9 @@ import br.com.t3privacyguard.persistence.IncidentRepository;
 import br.com.t3privacyguard.persistence.PolicyDecisionRepository;
 import br.com.t3privacyguard.persistence.RemediationExecutionRepository;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -94,13 +99,82 @@ class IncidentServiceTest {
         verify(gateway, times(1)).evaluate(any());
     }
 
-    @Test void protectedRemediationIsIdempotent() {
-        var incident = createIncident("Credential"); var action = service.addAction(incident.id(), safeAction("req-4"));
-        allow("req-4"); service.evaluate(incident.id(), action.id()); service.authorizeRemediation(incident.id(), action.id());
-        when(remediationGateway.execute(any(), anyString())).thenReturn(new RemediationResult("req-4", "COMPLETED", 201, "op-1"));
-        var first = service.executeRemediation(incident.id(), action.id()); var second = service.executeRemediation(incident.id(), action.id());
-        assertThat(second.httpCode()).isEqualTo(first.httpCode()); assertThat(second.operationId()).isEqualTo("op-1");
+    @Test void completedRequiresIndependentReadBackAndReplayDoesNotReexecute() {
+        var context = authorizedAction("req-4");
+        when(remediationGateway.execute(any(), anyString())).thenReturn(new RemediationResult("req-4", "PENDING_VERIFICATION", 202, "op-1"));
+        when(remediationGateway.verify("req-4", "op-1")).thenReturn(new VerificationResult("req-4", "VERIFIED", "REVOKED"));
+
+        var first = service.executeRemediation(context.incidentId(), context.actionId());
+        var second = service.executeRemediation(context.incidentId(), context.actionId());
+
+        assertThat(first.state()).isEqualTo("COMPLETED");
+        assertThat(second.state()).isEqualTo("COMPLETED");
+        assertThat(second.operationId()).isEqualTo("op-1");
+        assertThat(second.verificationAttempts()).isEqualTo(1);
         verify(remediationGateway, times(1)).execute(any(), anyString());
+        verify(remediationGateway, times(1)).verify("req-4", "op-1");
+    }
+
+    @Test void concurrentRequestsProduceOnlyOneExternalExecution() throws Exception {
+        var context = authorizedAction("req-concurrent");
+        when(remediationGateway.execute(any(), anyString())).thenReturn(new RemediationResult("req-concurrent", "PENDING_VERIFICATION", 202, "op-concurrent"));
+        when(remediationGateway.verify("req-concurrent", "op-concurrent")).thenReturn(new VerificationResult("req-concurrent", "VERIFIED", "REVOKED"));
+        CountDownLatch start = new CountDownLatch(1);
+
+        CompletableFuture<?> first = CompletableFuture.supplyAsync(() -> {
+            await(start); return service.executeRemediation(context.incidentId(), context.actionId());
+        });
+        CompletableFuture<?> second = CompletableFuture.supplyAsync(() -> {
+            await(start); return service.executeRemediation(context.incidentId(), context.actionId());
+        });
+        start.countDown();
+        CompletableFuture.allOf(first, second).get(10, TimeUnit.SECONDS);
+
+        verify(remediationGateway, times(1)).execute(any(), anyString());
+        assertThat(remediations.findByActionProposalId(context.actionId())).isPresent();
+        assertThat(remediations.findByActionProposalId(context.actionId()).orElseThrow().getStatus().name()).isEqualTo("COMPLETED");
+    }
+
+    @Test void acceptedHttpWithoutVerifiedExternalStateIsUnverifiedNotCompleted() {
+        var context = authorizedAction("req-lying-200");
+        when(remediationGateway.execute(any(), anyString())).thenReturn(new RemediationResult("req-lying-200", "PENDING_VERIFICATION", 200, "op-lie"));
+        when(remediationGateway.verify("req-lying-200", "op-lie")).thenReturn(new VerificationResult("req-lying-200", "UNVERIFIED", "ACTIVE"));
+
+        var result = service.executeRemediation(context.incidentId(), context.actionId());
+
+        assertThat(result.state()).isEqualTo("UNVERIFIED");
+        assertThat(result.failureCode()).isEqualTo("EXTERNAL_STATE_NOT_VERIFIED");
+        verify(remediationGateway, times(1)).execute(any(), anyString());
+    }
+
+    @Test void ambiguousExecutionOutcomeIsPersistedAndNeverAutomaticallyRetried() {
+        var context = authorizedAction("req-timeout");
+        when(remediationGateway.execute(any(), anyString())).thenThrow(new GatewayUnavailableException("timeout after send"));
+
+        var first = service.executeRemediation(context.incidentId(), context.actionId());
+        var second = service.executeRemediation(context.incidentId(), context.actionId());
+
+        assertThat(first.state()).isEqualTo("UNVERIFIED");
+        assertThat(first.failureCode()).isEqualTo("EXECUTION_RESULT_UNKNOWN");
+        assertThat(second.state()).isEqualTo("UNVERIFIED");
+        verify(remediationGateway, times(1)).execute(any(), anyString());
+    }
+
+    @Test void verificationOutageDoesNotTriggerSecondEgressAndCanBeRechecked() {
+        var context = authorizedAction("req-verification-outage");
+        when(remediationGateway.execute(any(), anyString())).thenReturn(new RemediationResult("req-verification-outage", "PENDING_VERIFICATION", 202, "op-outage"));
+        when(remediationGateway.verify("req-verification-outage", "op-outage"))
+            .thenThrow(new GatewayUnavailableException("verification offline"))
+            .thenReturn(new VerificationResult("req-verification-outage", "VERIFIED", "REVOKED"));
+
+        var first = service.executeRemediation(context.incidentId(), context.actionId());
+        var second = service.verifyRemediation(context.incidentId(), context.actionId());
+
+        assertThat(first.state()).isEqualTo("UNVERIFIED");
+        assertThat(second.state()).isEqualTo("COMPLETED");
+        assertThat(second.verificationAttempts()).isEqualTo(2);
+        verify(remediationGateway, times(1)).execute(any(), anyString());
+        verify(remediationGateway, times(2)).verify("req-verification-outage", "op-outage");
     }
 
     @Test void gatewayUnavailableFailsClosedWithoutPersistingDecision() {
@@ -125,12 +199,23 @@ class IncidentServiceTest {
         verify(remediationGateway, times(0)).execute(any(), anyString());
     }
 
-    @Test void mismatchedRemediationResponseRequestIdFailsClosedWithoutPersistence() {
-        var incident = createIncident("Tampered remediation"); var action = service.addAction(incident.id(), safeAction("req-8"));
-        allow("req-8"); service.evaluate(incident.id(), action.id()); service.authorizeRemediation(incident.id(), action.id());
-        when(remediationGateway.execute(any(), anyString())).thenReturn(new RemediationResult("another-request", "COMPLETED", 200, null));
-        assertThatThrownBy(() -> service.executeRemediation(incident.id(), action.id())).isInstanceOf(IllegalStateException.class).hasMessageContaining("request id mismatch");
-        assertThat(remediations.count()).isZero();
+    @Test void mismatchedExecutionRequestIdBecomesUnverifiedAndIsNotRetried() {
+        var context = authorizedAction("req-8");
+        when(remediationGateway.execute(any(), anyString())).thenReturn(new RemediationResult("another-request", "PENDING_VERIFICATION", 202, "op-8"));
+        var result = service.executeRemediation(context.incidentId(), context.actionId());
+        assertThat(result.state()).isEqualTo("UNVERIFIED");
+        assertThat(result.failureCode()).isEqualTo("REQUEST_ID_MISMATCH");
+        verify(remediationGateway, times(1)).execute(any(), anyString());
+        verify(remediationGateway, times(0)).verify(anyString(), anyString());
+    }
+
+    private AuthorizedAction authorizedAction(String requestId) {
+        var incident = createIncident("Credential");
+        var action = service.addAction(incident.id(), safeAction(requestId));
+        allow(requestId);
+        service.evaluate(incident.id(), action.id());
+        service.authorizeRemediation(incident.id(), action.id());
+        return new AuthorizedAction(incident.id(), action.id());
     }
 
     private br.com.t3privacyguard.api.ApiModels.IncidentResponse createIncident(String title) {
@@ -148,4 +233,11 @@ class IncidentServiceTest {
     private void allow(String requestId) {
         when(gateway.evaluate(any())).thenReturn(decision(requestId, DecisionType.ALLOW, "POLICY_ALLOW", List.of("incident_id", "credential_id", "reason"), List.of()));
     }
+
+    private static void await(CountDownLatch latch) {
+        try { latch.await(5, TimeUnit.SECONDS); }
+        catch (InterruptedException ex) { Thread.currentThread().interrupt(); throw new IllegalStateException(ex); }
+    }
+
+    private record AuthorizedAction(String incidentId, String actionId) {}
 }

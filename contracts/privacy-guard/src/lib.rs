@@ -3,7 +3,7 @@
 
 extern crate alloc;
 
-pub const CONTRACT_VERSION: &str = "0.2.0";
+pub const CONTRACT_VERSION: &str = "0.3.0";
 
 wit_bindgen::generate!({
     world: "privacy-guard",
@@ -27,6 +27,11 @@ impl exports::z::privacy_guard::contracts::Guest for Component {
     fn execute_remediation(req: exports::z::privacy_guard::contracts::GenericInput) -> Result<alloc::vec::Vec<u8>, alloc::string::String> {
         let input = req.input.ok_or("execute-remediation: missing input")?;
         remediation::execute_remediation(&input)
+    }
+
+    fn verify_remediation(req: exports::z::privacy_guard::contracts::GenericInput) -> Result<alloc::vec::Vec<u8>, alloc::string::String> {
+        let input = req.input.ok_or("verify-remediation: missing input")?;
+        remediation::verify_remediation(&input)
     }
 }
 

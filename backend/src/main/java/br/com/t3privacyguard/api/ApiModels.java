@@ -68,7 +68,18 @@ public final class ApiModels {
 
     public record AuditResponse(String id, String incidentId, String type, String message, Instant createdAt) {}
     public record RemediationAuthorizationResponse(String incidentId, String actionId, String requestId, String state) {}
-    public record RemediationExecutionResponse(String incidentId, String actionId, String requestId, String state, int httpCode, String operationId) {}
+    public record RemediationExecutionResponse(
+        String incidentId,
+        String actionId,
+        String requestId,
+        String state,
+        Integer httpCode,
+        String operationId,
+        int verificationAttempts,
+        String failureCode,
+        Instant startedAt,
+        Instant completedAt
+    ) {}
     public record AnalyzeAgentRequest(@NotBlank @Size(max = 4000) String prompt) {}
     public record AgentAnalysisResponse(String provider, String model, IncidentResponse incident, ActionResponse action, DecisionResponse decision) {}
 }

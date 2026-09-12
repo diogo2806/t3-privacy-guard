@@ -3,6 +3,7 @@ export type DecisionType = 'ALLOW' | 'REDACT' | 'DENY';
 export type ProposalStatus = 'PENDING' | 'EVALUATED' | 'REMEDIATION_AUTHORIZED' | 'REMEDIATED';
 export type DelegationState = 'ACTIVE' | 'REVOKED' | 'NOT_GRANTED' | 'UNKNOWN';
 export type EvidenceScenarioStatus = 'PASS' | 'FAIL' | 'NOT_RUN';
+export type RemediationState = 'EXECUTING' | 'PENDING_VERIFICATION' | 'COMPLETED' | 'UNVERIFIED' | 'FAILED';
 
 export interface Incident { id: string; title: string; severity: Severity; summary: string; source: string; status: string; createdAt: string; }
 export interface ActionProposal { id: string; incidentId: string; requestId: string; action: string; resource: string; purpose: string; host?: string | null; fields: string[]; privateRefs: string[]; status: ProposalStatus; createdAt: string; }
@@ -10,6 +11,7 @@ export interface PolicyDecision { id: string; actionProposalId: string; decision
 export interface AuditEvent { id: string; incidentId: string; type: string; message: string; createdAt: string; }
 export interface OperatorSession { authenticated: boolean; username?: string | null; }
 export interface AgentAnalysis { provider: string; model: string; incident: Incident; action: ActionProposal; decision: PolicyDecision; }
+export interface RemediationExecution { incidentId: string; actionId: string; requestId: string; state: RemediationState; httpCode?: number | null; operationId?: string | null; verificationAttempts: number; failureCode?: string | null; startedAt: string; completedAt?: string | null; }
 export interface SystemStatus {
   gatewayReachable: boolean;
   tenantAuthenticated: boolean;
@@ -86,6 +88,8 @@ export const privacyGuardApi = {
   evaluate: (incidentId: string, actionId: string) => api<PolicyDecision>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/evaluate`, { method: 'POST' }),
   getDecision: (incidentId: string, actionId: string) => api<PolicyDecision>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/decision`),
   authorizeRemediation: (incidentId: string, actionId: string) => api<{ incidentId: string; actionId: string; requestId: string; state: ProposalStatus }>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/authorize-remediation`, { method: 'POST' }),
-  executeRemediation: (incidentId: string, actionId: string) => api<{ incidentId: string; actionId: string; requestId: string; state: ProposalStatus; httpCode: number; operationId?: string | null }>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/execute-remediation`, { method: 'POST' }),
+  getRemediation: (incidentId: string, actionId: string) => api<RemediationExecution>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/remediation`),
+  executeRemediation: (incidentId: string, actionId: string) => api<RemediationExecution>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/execute-remediation`, { method: 'POST' }),
+  verifyRemediation: (incidentId: string, actionId: string) => api<RemediationExecution>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/verify-remediation`, { method: 'POST' }),
   history: (incidentId: string) => api<AuditEvent[]>(`/api/incidents/${encodeURIComponent(incidentId)}/history`),
 };

@@ -91,12 +91,14 @@ test('capture submission material only from live testnet evidence', async ({ pag
   await expect(page.getByRole('button', { name: 'Execute protected remediation' })).toBeVisible();
   files.push(await screenshot(page, '05-human-authorization.png'));
 
-  let remediationExecuted = false;
+  let remediationVerified = false;
   if (allowRemediation) {
     await page.getByRole('button', { name: 'Execute protected remediation' }).click();
-    await expect(page.getByText(/Protected remediation completed/i)).toBeVisible();
-    remediationExecuted = true;
-    files.push(await screenshot(page, '06-remediation-completed.png'));
+    await expect(page.getByText(/Independent read-back verified the expected external state/i)).toBeVisible();
+    await expect(page.getByText('VERIFIED', { exact: true })).toBeVisible();
+    await expect(page.getByText('COMPLETED', { exact: true })).toBeVisible();
+    remediationVerified = true;
+    files.push(await screenshot(page, '06-remediation-verified.png'));
   }
 
   await page.getByRole('button', { name: 'Evidence', exact: true }).click();
@@ -118,7 +120,7 @@ test('capture submission material only from live testnet evidence', async ({ pag
     wasmSha256,
     tenantDid,
     agentDid,
-    remediationExecuted,
+    remediationVerified,
     screenshots: files,
     video: videoName,
   };

@@ -19,6 +19,18 @@ const wasmPath = resolve(process.env.T3N_CONTRACT_WASM_PATH ?? resolve(repositor
 const manifestPath = resolve(process.env.EVIDENCE_DEPLOYMENT_MANIFEST ?? resolve(evidenceDir, 'deployment-manifest.json'));
 const testnetPath = resolve(process.env.EVIDENCE_OUTPUT ?? resolve(evidenceDir, 'testnet-run.json'));
 
+function configuredEgressHosts(): string[] {
+  const configured = [process.env.SECURITY_API_URL, process.env.SECURITY_VERIFICATION_URL]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value));
+  if (configured.length === 0) return ['postman-echo.com'];
+  return [...new Set(configured.map((value) => {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'https:') throw new Error('Evidence egress endpoints must use HTTPS');
+    return parsed.hostname;
+  }))];
+}
+
 const config = readGatewayConfig();
 if (config.network !== 'testnet' && process.env.EVIDENCE_ALLOW_PRODUCTION !== 'true') {
   throw new Error('Live evidence orchestration is restricted to testnet unless EVIDENCE_ALLOW_PRODUCTION=true');
@@ -73,13 +85,28 @@ const manifest: DeploymentManifest = {
 assertManifestIdentity(manifest);
 if (manifest.contractVersion !== config.contractVersion) throw new Error('Deployment manifest contract version differs from configured version');
 
+const sensitiveValues = [
+  config.apiKey,
+  config.agentApiKey,
+  process.env.SECURITY_API_KEY,
+  process.env.EVIDENCE_SENTINEL_SECRET,
+  process.env.AI_API_KEY,
+  config.gatewayServiceToken,
+  config.remediationCapabilityKey,
+];
 const serializedManifest = `${JSON.stringify(manifest, null, 2)}\n`;
-assertNoSecretLeak(serializedManifest, [config.apiKey, config.agentApiKey, process.env.SECURITY_API_KEY, process.env.EVIDENCE_SENTINEL_SECRET]);
+assertNoSecretLeak(serializedManifest, sensitiveValues);
 await mkdir(dirname(manifestPath), { recursive: true });
 await writeFile(manifestPath, serializedManifest, 'utf8');
 
 if (process.env.EVIDENCE_PREPARE_EGRESS === 'true') {
   if (!numericContractId) throw new Error('T3N_CONTRACT_NUMERIC_ID is required to prepare the private remediation map for an existing contract');
+  if (!process.env.SECURITY_API_URL?.startsWith('https://')) {
+    throw new Error('SECURITY_API_URL is required when preparing verifiable remediation evidence');
+  }
+  if (!process.env.SECURITY_VERIFICATION_URL?.startsWith('https://')) {
+    throw new Error('SECURITY_VERIFICATION_URL is required when preparing verifiable remediation evidence');
+  }
   const setup = spawnSync('npm', ['run', 'contract:setup-remediation'], {
     cwd: gatewayRoot,
     env: { ...process.env, T3N_CONTRACT_NUMERIC_ID: String(numericContractId) },
@@ -91,9 +118,9 @@ if (process.env.EVIDENCE_PREPARE_EGRESS === 'true') {
 await delegation.grant({
   contractId,
   versionReq: contractVersion,
-  functions: ['evaluate-action', 'execute-remediation'],
+  functions: ['evaluate-action', 'execute-remediation', 'verify-remediation'],
   scopes: ['incident_id', 'credential_id', 'reason'],
-  allowedHosts: ['postman-echo.com'],
+  allowedHosts: configuredEgressHosts(),
 });
 
 const run = spawnSync('npm', ['run', 'evidence:testnet'], {
@@ -108,5 +135,5 @@ assertEvidenceMatchesDeployment(manifest, evidence);
 if (evidence.scenarios?.some((scenario) => scenario.status === 'FAIL')) throw new Error('T3N testnet evidence contains FAIL scenarios');
 
 const finalSerialized = await readFile(testnetPath, 'utf8');
-assertNoSecretLeak(finalSerialized, [config.apiKey, config.agentApiKey, process.env.SECURITY_API_KEY, process.env.EVIDENCE_SENTINEL_SECRET]);
+assertNoSecretLeak(finalSerialized, sensitiveValues);
 console.info(JSON.stringify({ manifestPath, testnetPath, contractId, contractVersion, wasmSha256, evidenceLinked: true }, null, 2));

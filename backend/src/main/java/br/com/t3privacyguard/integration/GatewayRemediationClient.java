@@ -32,10 +32,30 @@ public class GatewayRemediationClient {
                 .body(request)
                 .retrieve()
                 .body(RemediationResult.class);
-            if (result == null || !"COMPLETED".equals(result.status())) throw new GatewayUnavailableException("Gateway returned an invalid remediation result");
+            if (result == null || !"PENDING_VERIFICATION".equals(result.status())) {
+                throw new GatewayUnavailableException("Gateway returned an invalid remediation acceptance result");
+            }
             return result;
         } catch (RestClientException ex) {
-            throw new GatewayUnavailableException("Protected remediation is unavailable", ex);
+            throw new GatewayUnavailableException("Protected remediation acceptance is unavailable", ex);
+        }
+    }
+
+    public VerificationResult verify(String requestId, String operationId) {
+        if (operationId == null || operationId.isBlank()) throw new IllegalArgumentException("operationId is required for verification");
+        try {
+            VerificationResult result = restClient.post()
+                .uri("/internal/contracts/privacy-guard/verify-remediation")
+                .header("X-Gateway-Service-Token", serviceToken)
+                .body(new VerificationRequest(requestId, operationId, "REVOKED"))
+                .retrieve()
+                .body(VerificationResult.class);
+            if (result == null || !("VERIFIED".equals(result.status()) || "UNVERIFIED".equals(result.status()))) {
+                throw new GatewayUnavailableException("Gateway returned an invalid verification result");
+            }
+            return result;
+        } catch (RestClientException ex) {
+            throw new GatewayUnavailableException("External remediation verification is unavailable", ex);
         }
     }
 
@@ -56,5 +76,17 @@ public class GatewayRemediationClient {
         String status,
         @JsonProperty("http_code") int httpCode,
         @JsonProperty("operation_id") String operationId
+    ) {}
+
+    public record VerificationRequest(
+        @JsonProperty("request_id") String requestId,
+        @JsonProperty("operation_id") String operationId,
+        @JsonProperty("expected_state") String expectedState
+    ) {}
+
+    public record VerificationResult(
+        @JsonProperty("request_id") String requestId,
+        String status,
+        @JsonProperty("observed_state") String observedState
     ) {}
 }

@@ -8,7 +8,9 @@ The structured proposal is persisted and sent to the independent Terminal 3 Rust
 
 For private profile data, the application carries only a category such as `verified_email`. The Rust/WASM contract maps that closed reference to the supported T3N marker `{{profile.verified_contacts.email.value}}`; the real value can be resolved only by T3N during protected egress and is not returned to React, Java, the model or gateway responses.
 
-The project reports only verifiable state: `NOT_RUN` never becomes `PASS`, simulated output is not labelled live, profile-placeholder resolution is not labelled proved live until a compatible testnet profile actually executes it, and hardware attestation is not claimed without a concrete artifact.
+Protected execution is also fail-safe under retries. Spring creates a persistent atomic claim before egress. The TEE sends `requestId` as the stable idempotency key, but a 2xx only produces `PENDING_VERIFICATION`. A distinct T3N `verify-remediation` read-back must observe the matching `operation_id` and the closed expected state `REVOKED` before the business state becomes `COMPLETED`. Ambiguous outcomes become `UNVERIFIED`; they may be re-verified but are never automatically executed again.
+
+The project reports only verifiable state: `NOT_RUN` never becomes `PASS`, simulated output is not labelled live, profile-placeholder resolution is not labelled proved live until a compatible testnet profile actually executes it, external execution is not labelled completed from HTTP acceptance alone, and hardware attestation is not claimed without a concrete artifact.
 
 ## Judge quick path
 
@@ -19,12 +21,13 @@ The project reports only verifiable state: `NOT_RUN` never becomes `PASS`, simul
 4. Click Run attack scenario
 5. Inspect the real model's structured Agent proposal
 6. Observe independent T3N TEE DENY
-7. Submit a legitimate prompt that can request only logical private categories
-8. Observe the private-data panel: agent NO plaintext / Java NO plaintext / T3N egress resolution only
-9. Observe T3N ALLOW or REDACT according to minimum scope
-10. Record explicit human authorization only after ALLOW
-11. Execute protected remediation when the required synthetic/testnet context exists
-12. Open Evidence and confirm T3N_TESTNET metadata/results
+7. Submit a legitimate prompt or prepare the minimum safe action
+8. Observe T3N ALLOW/REDACT and the logical private-data boundary
+9. Record explicit human authorization only after ALLOW
+10. Execute protected remediation when synthetic egress/read-back is configured
+11. Observe PENDING_VERIFICATION or the verification transition
+12. Accept COMPLETED only when independent read-back shows VERIFIED
+13. Open Evidence and confirm T3N_TESTNET metadata/results
 ```
 
 ## Architecture and trust boundaries
@@ -50,12 +53,16 @@ T3N / Rust WASM policy
                     |
              one-time capability
                     |
-                    v
-        closed logical-ref mapping
-      verified_email -> profile marker
+             atomic DB claim
                     |
-                    v
-        T3N resolves plaintext at egress
+             execute-remediation
+                    |
+             PENDING_VERIFICATION
+                    |
+              verify-remediation
+                    |
+          VERIFIED -> COMPLETED
+          otherwise -> UNVERIFIED
 ```
 
 Trust model:
@@ -66,10 +73,11 @@ Trust model:
 - **Private data is referenced, not copied.** The model/application may request `verified_email`; only Rust/WASM can convert it to the official T3N profile marker.
 - **T3N identities are server-derived.** Agent DID comes from the authenticated agent session; tenant `pii_did` from the authenticated tenant session.
 - **Rust/WASM owns policy and private-reference mapping.** The model cannot manufacture `ALLOW` or select arbitrary profile namespaces.
-- **Spring Boot owns durable business authorization.** It persists only logical references and creates an execution capability only after persisted `ALLOW` plus explicit human authorization.
-- **Gateway owns T3N sessions and privileged execution.** It requires service authentication and validates/consumes the one-time capability before remediation.
-- **Private KV owns remediation credentials.** The protected credential is never returned to browser, Java or the model.
-- **T3N protected egress is the only intended profile-resolution point.** The allowed external service can receive the resolved value; the contract reduces the response to non-sensitive operation metadata.
+- **Spring Boot owns durable business authorization and execution state.** It persists logical refs, the human authorization transition and the remediation state machine.
+- **Gateway owns T3N sessions and privileged execution.** It requires service authentication and validates/consumes the one-time capability before execution.
+- **Private KV owns remediation credentials/endpoints.** The protected credential, action URL and verification URL are not browser inputs.
+- **T3N protected egress is the profile-resolution and remediation boundary.** Responses are minimized before returning to application layers.
+- **HTTP acceptance is not truth.** Completion is derived from an independent closed read-back, not from the original response code.
 
 ## Security claims matrix
 
@@ -88,8 +96,14 @@ Trust model:
 | Agent uses separate credential/DID | PROVED LOCAL | agent/tenant session separation |
 | Delegated calls bind `pii_did` to tenant DID | PROVED LOCAL | gateway contract tests |
 | Protected remediation requires service auth + signed human capability | PROVED LOCAL | gateway authorization boundary/tests |
+| Concurrent requests acquire at most one local execution claim | PROVED LOCAL | pessimistic claim + concurrency tests |
+| HTTP 2xx cannot directly produce `COMPLETED` | PROVED LOCAL | Rust contract + Java state-machine tests |
+| `COMPLETED` requires independent read-back of matching operation/state | PROVED LOCAL | Rust/Java verification tests |
+| Timeout/ambiguous ACK does not automatically re-execute | PROVED LOCAL | `IncidentServiceTest` |
+| Reload reads persisted execution state without egress/reverification | PROVED LOCAL | `RemediationQueryServiceTest` + frontend API flow |
 | Real model attack -> T3N DENY on live testnet | NOT CLAIMED | only after matching public capture/evidence run |
 | T3N profile placeholder resolves verified email on live testnet | NOT RUN | requires compatible profile/user context and matching evidence |
+| Verified external remediation on live testnet | NOT CLAIMED | only after execute + independent verify scenario passes |
 | Revoked delegation blocks protected egress on live testnet | NOT CLAIMED | only after matching live evidence |
 | Hardware attestation for this execution | NOT CLAIMED | no explicit attestation artifact yet |
 
@@ -108,7 +122,7 @@ The forced tool shape is:
 }
 ```
 
-`private_refs` contains domain-level categories only. The model cannot submit `{{profile...}}`, `profile.*`, plaintext email or a new private namespace. Provider failure, invalid JSON, missing/multiple tool calls, extra keys or unsafe authority fields fail closed.
+`private_refs` contains domain-level categories only. The model cannot submit `{{profile...}}`, `profile.*`, a private value or a new private namespace. Provider failure, invalid JSON, missing/multiple tool calls, extra keys or unsafe authority fields fail closed.
 
 ## Structural private-data flow
 
@@ -137,10 +151,10 @@ Rust/WASM maps verified_email
 T3N resolves only in protected egress
         |
         v
-External service receives value
+External service receives intended value
         |
         v
-Contract returns only status / operation_id
+Contract returns minimized operation metadata
 ```
 
 Plaintext visibility contract:
@@ -155,7 +169,7 @@ Plaintext visibility contract:
 
 If the profile field is unavailable, user context is missing, placeholder is denied, delegation is revoked or the destination host is not authorized, execution fails closed. Error text never returns the resolved value.
 
-## Privileged remediation flow
+## Verified remediation flow
 
 ```text
 T3N TEE ALLOW
@@ -166,14 +180,35 @@ Spring checks persisted action + ALLOW
       |
 HMAC capability binds fields + private refs
       |
-Gateway verifies service token + signature + exact body + expiry
+Atomic pessimistic claim creates EXECUTING
       |
-Gateway consumes persistent nonce
+Gateway verifies service token + capability
       |
 T3N execute-remediation
+      | requestId -> Idempotency-Key
+      v
+PENDING_VERIFICATION + operation_id
+      |
+T3N verify-remediation
+      | expected_state = REVOKED only
+      v
+VERIFIED (same operation + REVOKED)
+      |
+Spring marks COMPLETED + action REMEDIATED
 ```
 
-`DENY` and `REDACT` do not produce a valid privileged execution path.
+Failure semantics:
+
+- another caller sees the existing claim and does not initiate a second egress;
+- a fresh `EXECUTING` claim is treated as in progress, not as recovery failure;
+- a stale/recovered execution with no verifiable operation id becomes `UNVERIFIED`;
+- an execution timeout after the request may have reached the provider becomes `UNVERIFIED`, not retryable `FAILED`;
+- missing/mismatched operation id or request id becomes `UNVERIFIED`;
+- verification outage or contradictory state becomes `UNVERIFIED`;
+- `UNVERIFIED` with an operation id can invoke **Verify external state**, which performs read-back only;
+- a reload fetches persisted remediation state through a read-only endpoint and does not execute/verify anything.
+
+`requestId` is a stable logical idempotency key. The application prevents duplicate local initiation through its durable claim. It does **not** claim exactly-once or provider-level at-most-once unless the external provider explicitly honors the idempotency key.
 
 ## Terminal 3 integration findings
 
@@ -185,6 +220,9 @@ Every delegated execution derives `pii_did` internally from `tenantSession.getTe
 
 ### Profile placeholders
 The application never lets the LLM/browser choose a raw placeholder. `verified_email` is mapped inside the TEE contract to the documented `profile.verified_contacts.email.value` marker, limiting the public application contract to an auditable domain vocabulary.
+
+### Remediation verification
+The contract exposes separate `execute-remediation` and `verify-remediation` functions. Live delegation includes both only when required. Evidence orchestration derives the allowed HTTPS hosts from the configured remediation and verification endpoints rather than broadening the grant arbitrarily.
 
 ## Post-challenge operation and handover
 
@@ -203,6 +241,18 @@ WASM bytes -> SHA-256 -> deployment-manifest.json
 
 `PASS` means observed result matched expectation. `FAIL` means it did not. `NOT_RUN` means the scenario was not executed and is never counted as success. The profile-placeholder execution scenario remains `NOT_RUN` until a compatible profile/user context exists; local tests do not upgrade that claim to live proof.
 
+The live remediation scenario is stricter:
+
+```text
+attack DENY
+   -> execute-remediation PENDING_VERIFICATION
+   -> operation_id present
+   -> verify-remediation VERIFIED
+   -> observed_state REVOKED
+```
+
+Anything less is not a successful completion proof.
+
 ### Local controls
 
 ```bash
@@ -217,7 +267,7 @@ npm install
 npm run evidence:live
 ```
 
-The capture harness requires real T3N evidence before final capture. Generated metadata is leak-scanned for operator credentials, T3N keys, AI provider key, service token, capability signing key, remediation key and configured sentinel.
+When preparing egress evidence, configure `SECURITY_API_URL` and the separate `SECURITY_VERIFICATION_URL`. Both are sealed into the private map, and the delegation host allowlist is derived from those HTTPS endpoints. Generated metadata is leak-scanned for operator credentials, T3N keys, AI provider key, service token, capability signing key, remediation key and configured sentinel.
 
 ## Screenshot shot list
 
@@ -227,9 +277,9 @@ The capture harness requires real T3N evidence before final capture. Generated m
 4. Private-reference panel showing `Verified email`, Agent plaintext `NO`, Java plaintext `NO`, T3N egress resolution boundary.
 5. Legitimate proposal/minimum remediation + `ALLOW`.
 6. Human authorization separate from execution.
-7. One-time authorization state without token/signature/nonce.
-8. Protected result only when synthetic/profile egress actually succeeds.
-9. Evidence Center with T3N_TESTNET metadata/results and profile scenario honestly PASS/FAIL/NOT RUN.
+7. Execution/verification panel showing the state machine.
+8. Verified remediation screenshot only after `Verification = VERIFIED` and `Final state = COMPLETED`.
+9. Evidence Center with T3N_TESTNET metadata/results and optional scenarios honestly PASS/FAIL/NOT RUN.
 
 Never capture passwords, cookies, T3N keys, provider key, service/capability keys, remediation secret, resolved profile PII, `.env` or raw logs.
 
@@ -241,9 +291,9 @@ Never capture passwords, cookies, T3N keys, provider key, service/capability key
 35–60s   Attack prompt -> real provider -> structured Agent proposal
 60–80s   Independent T3N TEE DENY
 80–105s  Show logical private reference instead of private value
-105–125s T3N ALLOW/REDACT and explain placeholder resolves only at egress
-125–145s Human authorization -> one-time bound proof
-145–165s Protected execution when matching test context exists
+105–125s T3N ALLOW/REDACT and explicit human authorization
+125–150s Execute -> accepted/PENDING_VERIFICATION
+150–165s Independent read-back -> VERIFIED/COMPLETED when available
 165–180s Evidence Center -> exact live proof status
 ```
 
@@ -256,10 +306,13 @@ Never capture passwords, cookies, T3N keys, provider key, service/capability key
 - **resolved**: contract id/version were resolved;
 - **delegated**: an active member grant was observed;
 - **authorized**: human business authorization was persisted;
+- **accepted / pending verification**: the execution endpoint acknowledged the operation; final state is not yet proven;
+- **verified**: independent read-back matched the closed expected state;
+- **completed**: Spring persisted completion only after verified read-back;
+- **unverified**: outcome is ambiguous/not confirmed and no automatic re-execution occurs;
 - **execution proof**: short-lived server-to-gateway capability, not hardware attestation;
-- **executed**: operation actually ran;
 - **proved live**: matching live evidence/capture exists.
 
-Do not say “guarantees GDPR compliance”, “hardware verified” or “profile resolution proved live” without corresponding evidence.
+Do not say “guarantees GDPR compliance”, “hardware verified”, “exactly once”, “at most once”, “profile resolution proved live” or “completed from HTTP 2xx” without corresponding evidence/contract.
 
 This file is the repository source of truth for the public submission narrative and handover model.

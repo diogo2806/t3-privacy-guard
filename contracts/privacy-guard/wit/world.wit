@@ -1,4 +1,4 @@
-package z:privacy-guard@0.2.0;
+package z:privacy-guard@0.3.0;
 
 world privacy-guard {
     import host:tenant/tenant-context@1.0.0;
@@ -17,4 +17,5 @@ interface contracts {
 
     evaluate-action: func(req: generic-input) -> result<list<u8>, string>;
     execute-remediation: func(req: generic-input) -> result<list<u8>, string>;
+    verify-remediation: func(req: generic-input) -> result<list<u8>, string>;
 }

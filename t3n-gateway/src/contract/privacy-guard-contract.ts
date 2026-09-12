@@ -29,9 +29,21 @@ export interface PolicyDecision {
 
 export interface RemediationResult {
   readonly request_id: string;
-  readonly status: 'COMPLETED';
+  readonly status: 'PENDING_VERIFICATION';
   readonly http_code: number;
   readonly operation_id?: string | null;
+}
+
+export interface RemediationVerificationRequest {
+  readonly request_id: string;
+  readonly operation_id: string;
+  readonly expected_state: 'REVOKED';
+}
+
+export interface RemediationVerificationResult {
+  readonly request_id: string;
+  readonly status: 'VERIFIED' | 'UNVERIFIED';
+  readonly observed_state?: string | null;
 }
 
 export interface ContractIdentity { readonly contractId: string; readonly contractVersion: string; }
@@ -58,7 +70,17 @@ function isDecision(value: unknown): value is PolicyDecision {
 function isRemediation(value: unknown): value is RemediationResult {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<RemediationResult>;
-  return typeof candidate.request_id === 'string' && candidate.status === 'COMPLETED' && typeof candidate.http_code === 'number';
+  return typeof candidate.request_id === 'string'
+    && candidate.status === 'PENDING_VERIFICATION'
+    && typeof candidate.http_code === 'number';
+}
+
+function isVerification(value: unknown): value is RemediationVerificationResult {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<RemediationVerificationResult>;
+  return typeof candidate.request_id === 'string'
+    && (candidate.status === 'VERIFIED' || candidate.status === 'UNVERIFIED')
+    && (candidate.observed_state == null || typeof candidate.observed_state === 'string');
 }
 
 export class PrivacyGuardContractService {
@@ -94,6 +116,16 @@ export class PrivacyGuardContractService {
       { ...request, private_refs: request.private_refs ?? [], agent_did: this.agentSession.getAgentDid() },
     ));
     if (!isRemediation(result)) throw new Error('T3N contract returned an invalid remediation result');
+    return result;
+  }
+  async verifyRemediation(request: RemediationVerificationRequest): Promise<RemediationVerificationResult> {
+    await this.agentSession.connect();
+    const contractId = await this.canonicalContractId();
+    const contractVersion = await this.currentVersion(contractId);
+    const result = await this.agentSession.getClient().executeAndDecode(buildDelegatedExecutionRequest(
+      this.tenantSession.getTenantDid(), contractId, contractVersion, 'verify-remediation', request,
+    ));
+    if (!isVerification(result)) throw new Error('T3N contract returned an invalid remediation verification result');
     return result;
   }
 }

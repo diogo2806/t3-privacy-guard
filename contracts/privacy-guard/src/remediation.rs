@@ -24,6 +24,20 @@ pub struct RemediationResult {
     pub operation_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RemediationVerificationRequest {
+    pub request_id: String,
+    pub operation_id: String,
+    pub expected_state: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RemediationVerificationResult {
+    pub request_id: String,
+    pub status: String,
+    pub observed_state: Option<String>,
+}
+
 pub fn execute_remediation(input: &[u8]) -> Result<Vec<u8>, String> {
     let request: RemediationExecutionRequest = serde_json::from_slice(input)
         .map_err(|_| "execute-remediation: invalid JSON input".to_string())?;
@@ -42,6 +56,35 @@ pub fn execute_remediation(input: &[u8]) -> Result<Vec<u8>, String> {
     }
 }
 
+pub fn verify_remediation(input: &[u8]) -> Result<Vec<u8>, String> {
+    let request: RemediationVerificationRequest = serde_json::from_slice(input)
+        .map_err(|_| "verify-remediation: invalid JSON input".to_string())?;
+    validate_verification_request(&request)?;
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        let result = verify_wasm(request)?;
+        return serde_json::to_vec(&result)
+            .map_err(|_| "verify-remediation: failed to encode result".to_string());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = request;
+        Err("verify-remediation is only implemented on the wasm32 target".to_string())
+    }
+}
+
+fn validate_verification_request(request: &RemediationVerificationRequest) -> Result<(), String> {
+    if request.request_id.trim().is_empty() || request.operation_id.trim().is_empty() {
+        return Err("verification identifiers are required".to_string());
+    }
+    if request.expected_state != "REVOKED" {
+        return Err("verification expected_state is not supported".to_string());
+    }
+    Ok(())
+}
+
 fn profile_marker(logical_ref: &str) -> Result<&'static str, String> {
     match logical_ref {
         "verified_email" => Ok(VERIFIED_EMAIL_MARKER),
@@ -53,6 +96,24 @@ fn extract_operation_id(payload: &[u8]) -> Option<String> {
     serde_json::from_slice::<serde_json::Value>(payload)
         .ok()
         .and_then(|value| value.get("operation_id").and_then(|entry| entry.as_str()).map(str::to_string))
+}
+
+fn verification_from_payload(request: &RemediationVerificationRequest, payload: &[u8]) -> RemediationVerificationResult {
+    let parsed = serde_json::from_slice::<serde_json::Value>(payload).ok();
+    let observed_operation = parsed.as_ref()
+        .and_then(|value| value.get("operation_id"))
+        .and_then(|value| value.as_str());
+    let observed_state = parsed.as_ref()
+        .and_then(|value| value.get("state"))
+        .and_then(|value| value.as_str())
+        .map(str::to_string);
+    let verified = observed_operation == Some(request.operation_id.as_str())
+        && observed_state.as_deref() == Some(request.expected_state.as_str());
+    RemediationVerificationResult {
+        request_id: request.request_id.clone(),
+        status: if verified { "VERIFIED" } else { "UNVERIFIED" }.to_string(),
+        observed_state,
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -92,15 +153,13 @@ fn execute_wasm(request: RemediationExecutionRequest) -> Result<RemediationResul
         for logical_ref in &request.private_refs {
             let marker = profile_marker(logical_ref)?;
             match logical_ref.as_str() {
-                "verified_email" => {
-                    object.insert("recipient".to_string(), serde_json::Value::String(marker.to_string()));
-                }
+                "verified_email" => { object.insert("recipient".to_string(), serde_json::Value::String(marker.to_string())); }
                 _ => return Err("private-data reference has no output mapping".to_string()),
             }
         }
     }
 
-    let _ = logging::info("Executing approved privacy-guard remediation with protected references");
+    let _ = logging::info("Executing approved privacy-guard remediation with stable idempotency key");
     let response = hwp::call(&hwp::Request {
         method: hwp::Verb::Post,
         url: api_url,
@@ -108,6 +167,7 @@ fn execute_wasm(request: RemediationExecutionRequest) -> Result<RemediationResul
             ("Authorization".to_string(), alloc::format!("Bearer {api_key}")),
             ("Accept".to_string(), "application/json".to_string()),
             ("Content-Type".to_string(), "application/json".to_string()),
+            ("Idempotency-Key".to_string(), policy_request.request_id.clone()),
         ]),
         payload: Some(serde_json::to_vec(&body).map_err(|_| "failed to encode remediation request".to_string())?),
     })
@@ -119,10 +179,38 @@ fn execute_wasm(request: RemediationExecutionRequest) -> Result<RemediationResul
 
     Ok(RemediationResult {
         request_id: policy_request.request_id,
-        status: "COMPLETED".to_string(),
+        status: "PENDING_VERIFICATION".to_string(),
         http_code: response.code,
         operation_id: extract_operation_id(&response.payload),
     })
+}
+
+#[cfg(target_arch = "wasm32")]
+fn verify_wasm(request: RemediationVerificationRequest) -> Result<RemediationVerificationResult, String> {
+    let verification_url = read_secret("security_verification_url")?;
+    let api_key = read_secret("security_api_key")?;
+    let _ = extract_https_host(&verification_url)?;
+    let body = serde_json::json!({
+        "request_id": request.request_id,
+        "operation_id": request.operation_id,
+        "expected_state": request.expected_state
+    });
+    let _ = logging::info("Verifying privacy-guard remediation through independent read-back");
+    let response = hwp::call(&hwp::Request {
+        method: hwp::Verb::Post,
+        url: verification_url,
+        headers: Some(vec![
+            ("Authorization".to_string(), alloc::format!("Bearer {api_key}")),
+            ("Accept".to_string(), "application/json".to_string()),
+            ("Content-Type".to_string(), "application/json".to_string()),
+        ]),
+        payload: Some(serde_json::to_vec(&body).map_err(|_| "failed to encode verification request".to_string())?),
+    }).map_err(format_http_error)?;
+
+    if !(200..300).contains(&response.code) {
+        return Err(alloc::format!("verification upstream returned HTTP {}", response.code));
+    }
+    Ok(verification_from_payload(&request, &response.payload))
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -137,10 +225,10 @@ fn read_secret(key: &str) -> Result<String, String> {
 
 #[cfg(target_arch = "wasm32")]
 fn extract_https_host(url: &str) -> Result<&str, String> {
-    let rest = url.strip_prefix("https://").ok_or("security_api_url must use https")?;
+    let rest = url.strip_prefix("https://").ok_or("security endpoint must use https")?;
     let host = rest.split('/').next().unwrap_or("");
     if host.is_empty() || host.contains('@') || host.contains(':') {
-        return Err("security_api_url contains an invalid host".to_string());
+        return Err("security endpoint contains an invalid host".to_string());
     }
     Ok(host)
 }
@@ -152,7 +240,7 @@ fn format_http_error(error: hwp::HttpError) -> String {
         hwp::HttpError::PlaceholderDenied(marker) => alloc::format!("placeholder not permitted: {marker}"),
         hwp::HttpError::PlaceholderUnknown(field) => alloc::format!("profile field unavailable: {field}"),
         hwp::HttpError::PlaceholderNoUserContext => "no user context for placeholder resolution".to_string(),
-        hwp::HttpError::UpstreamError(_) => "remediation upstream transport failed".to_string(),
+        hwp::HttpError::UpstreamError(_) => "upstream transport failed".to_string(),
     }
 }
 
@@ -165,6 +253,24 @@ mod tests {
         assert_eq!(profile_marker("verified_email").unwrap(), VERIFIED_EMAIL_MARKER);
         assert!(profile_marker("{{profile.verified_contacts.email.value}}").is_err());
         assert!(profile_marker("unknown_private_value").is_err());
+    }
+
+    #[test]
+    fn verification_requires_closed_expected_state() {
+        let valid = RemediationVerificationRequest { request_id: "r1".into(), operation_id: "op-1".into(), expected_state: "REVOKED".into() };
+        assert!(validate_verification_request(&valid).is_ok());
+        let invalid = RemediationVerificationRequest { expected_state: "anything.*".into(), ..valid };
+        assert!(validate_verification_request(&invalid).is_err());
+    }
+
+    #[test]
+    fn independent_readback_must_match_operation_and_state() {
+        let request = RemediationVerificationRequest { request_id: "r1".into(), operation_id: "op-1".into(), expected_state: "REVOKED".into() };
+        let verified = verification_from_payload(&request, br#"{"operation_id":"op-1","state":"REVOKED","secret":"do-not-return"}"#);
+        assert_eq!(verified.status, "VERIFIED");
+        assert_eq!(verified.observed_state.as_deref(), Some("REVOKED"));
+        let wrong = verification_from_payload(&request, br#"{"operation_id":"op-1","state":"ACTIVE"}"#);
+        assert_eq!(wrong.status, "UNVERIFIED");
     }
 
     #[test]
@@ -184,7 +290,7 @@ mod tests {
         let sentinel = "SYNTHETIC_REFLECTED_PRIVATE_VALUE";
         let payload = serde_json::json!({ "operation_id": "operation-123", "headers": { "authorization": sentinel }, "body": sentinel, "recipient": sentinel });
         let result = RemediationResult {
-            request_id: "r2".into(), status: "COMPLETED".into(), http_code: 200,
+            request_id: "r2".into(), status: "PENDING_VERIFICATION".into(), http_code: 200,
             operation_id: extract_operation_id(&serde_json::to_vec(&payload).unwrap()),
         };
         let serialized = serde_json::to_string(&result).unwrap();
