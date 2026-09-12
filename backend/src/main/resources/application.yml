@@ -1,6 +1,15 @@
 spring:
   application:
     name: t3-privacy-guard-backend
+  datasource:
+    url: ${DATABASE_URL:jdbc:h2:file:/data/privacyguard;AUTO_SERVER=TRUE}
+    username: ${DATABASE_USERNAME:sa}
+    password: ${DATABASE_PASSWORD:}
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
 management:
   endpoints:
     web:
@@ -10,3 +19,6 @@ management:
     health:
       probes:
         enabled: true
+privacy-guard:
+  gateway:
+    base-url: ${T3N_GATEWAY_URL:http://t3n-gateway:3001}
