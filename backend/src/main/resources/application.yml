@@ -34,3 +34,6 @@ privacy-guard:
     username: ${OPERATOR_USERNAME:}
     password: ${OPERATOR_PASSWORD:}
     cookie-secure: ${SESSION_COOKIE_SECURE:false}
+  evidence:
+    manifest-path: ${EVIDENCE_MANIFEST_PATH:../docs/evidence/deployment-manifest.json}
+    testnet-path: ${EVIDENCE_TESTNET_PATH:../docs/evidence/testnet-run.json}

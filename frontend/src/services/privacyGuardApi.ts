@@ -1,13 +1,14 @@
 export type Severity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 export type DecisionType = 'ALLOW' | 'REDACT' | 'DENY';
 export type ProposalStatus = 'PENDING' | 'EVALUATED' | 'REMEDIATION_AUTHORIZED' | 'REMEDIATED';
+export type DelegationState = 'ACTIVE' | 'REVOKED' | 'NOT_GRANTED' | 'UNKNOWN';
+export type EvidenceScenarioStatus = 'PASS' | 'FAIL' | 'NOT_RUN';
 
 export interface Incident { id: string; title: string; severity: Severity; summary: string; source: string; status: string; createdAt: string; }
 export interface ActionProposal { id: string; incidentId: string; requestId: string; action: string; resource: string; purpose: string; host?: string | null; fields: string[]; status: ProposalStatus; createdAt: string; }
 export interface PolicyDecision { id: string; actionProposalId: string; decision: DecisionType; reasonCode: string; reason: string; allowedFields: string[]; redactedFields: string[]; evaluatedAt: string; }
 export interface AuditEvent { id: string; incidentId: string; type: string; message: string; createdAt: string; }
 export interface OperatorSession { authenticated: boolean; username?: string | null; }
-export type DelegationState = 'ACTIVE' | 'REVOKED' | 'NOT_GRANTED' | 'UNKNOWN';
 export interface SystemStatus {
   gatewayReachable: boolean;
   tenantAuthenticated: boolean;
@@ -24,15 +25,15 @@ export interface SystemStatus {
   allowedHosts: string[];
   message: string;
 }
+export interface EvidenceMetadata { source: 'T3N_TESTNET'; generatedAt: string; network: string; sdkVersion: string; tenantDid: string; agentDid: string; contractId: string; contractVersion: string; wasmSha256: string; }
+export interface EvidenceScenario { id: string; expected: string; actual?: string | null; status: EvidenceScenarioStatus; detail?: string | null; }
+export interface EvidenceBundle { metadata: EvidenceMetadata; scenarios: EvidenceScenario[]; totals: { pass: number; fail: number; notRun: number }; }
 
 interface CsrfState { token: string; headerName: string; }
 let csrfState: CsrfState | null = null;
 
 export class PrivacyGuardApiError extends Error {
-  constructor(message: string, readonly status: number) {
-    super(message);
-    this.name = 'PrivacyGuardApiError';
-  }
+  constructor(message: string, readonly status: number) { super(message); this.name = 'PrivacyGuardApiError'; }
 }
 
 async function readProblem(response: Response): Promise<string> {
@@ -40,9 +41,7 @@ async function readProblem(response: Response): Promise<string> {
   try {
     const problem = await response.json() as { detail?: string; title?: string };
     message = problem.detail || problem.title || message;
-  } catch {
-    // Keep the sanitized generic status message when no JSON problem body exists.
-  }
+  } catch { /* Keep sanitized generic status message. */ }
   return message;
 }
 
@@ -73,13 +72,10 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const privacyGuardApi = {
   session: () => api<OperatorSession>('/api/auth/session'),
-  login: async (input: { username: string; password: string }) => {
-    const session = await api<OperatorSession>('/api/auth/login', { method: 'POST', body: JSON.stringify(input) });
-    csrfState = null;
-    return session;
-  },
+  login: async (input: { username: string; password: string }) => { const session = await api<OperatorSession>('/api/auth/login', { method: 'POST', body: JSON.stringify(input) }); csrfState = null; return session; },
   logout: async () => { await api<void>('/api/auth/logout', { method: 'POST' }); csrfState = null; },
   systemStatus: () => api<SystemStatus>('/api/system/status'),
+  latestEvidence: () => api<EvidenceBundle>('/api/evidence/latest'),
   listIncidents: () => api<Incident[]>('/api/incidents'),
   getIncident: (id: string) => api<Incident>(`/api/incidents/${encodeURIComponent(id)}`),
   createIncident: (input: { title: string; severity: Severity; summary: string; source: string }) => api<Incident>('/api/incidents', { method: 'POST', body: JSON.stringify(input) }),
