@@ -11,6 +11,7 @@ import { createContractRouter } from './http/contract-router.js';
 import { createStatusRouter } from './http/status-router.js';
 import { RemediationAuthorizationVerifier } from './security/remediation-authorization.js';
 import { sanitizeError } from './security/sanitize.js';
+import { requireServiceToken } from './security/service-auth.js';
 import { T3nSession } from './t3n/session.js';
 
 const config = readGatewayConfig();
@@ -28,6 +29,7 @@ const app = express();
 app.disable('x-powered-by');
 app.use(express.json({ limit: '256kb' }));
 app.get('/health', (_request, response) => response.json({ status: 'UP', service: 't3n-gateway' }));
+app.use('/internal', requireServiceToken(config.gatewayServiceToken));
 app.use('/internal/t3n', createStatusRouter(tenantSession));
 app.use('/internal/agent', createAgentRouter(agentSession, delegationService, config.gatewayServiceToken));
 app.use('/internal/ai-agent', createAiAgentRouter(aiAgentService, config.gatewayServiceToken));
