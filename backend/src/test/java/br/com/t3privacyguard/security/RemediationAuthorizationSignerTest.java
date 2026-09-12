@@ -15,17 +15,12 @@ class RemediationAuthorizationSignerTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
-    void capabilityIsSignedAndBoundToAction() throws Exception {
+    void capabilityIsSignedAndBoundToActionAndPrivateReferences() throws Exception {
         var signer = new RemediationAuthorizationSigner(mapper, KEY, 60);
         String token = signer.issue(
-            "incident-1",
-            "action-1",
-            "request-1",
-            "decision-1",
-            "revoke-credential",
-            "credential:test",
-            "incident-remediation",
-            List.of("reason", "incident_id", "credential_id")
+            "incident-1", "action-1", "request-1", "decision-1",
+            "notify-security", "incident:test", "incident-notification",
+            List.of("summary", "incident_id", "severity"), List.of("verified_email")
         );
 
         String[] parts = token.split("\\.");
@@ -33,6 +28,8 @@ class RemediationAuthorizationSignerTest {
         var claims = mapper.readTree(Base64.getUrlDecoder().decode(parts[0]));
         assertThat(claims.get("incidentId").asText()).isEqualTo("incident-1");
         assertThat(claims.get("decisionId").asText()).isEqualTo("decision-1");
+        assertThat(claims.get("fieldsHash").asText()).hasSize(64);
+        assertThat(claims.get("privateRefsHash").asText()).hasSize(64);
         assertThat(claims.get("nonce").asText()).isNotBlank();
         assertThat(claims.get("expiresAt").asLong()).isGreaterThan(claims.get("authorizedAt").asLong());
 

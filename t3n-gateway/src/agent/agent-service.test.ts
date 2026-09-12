@@ -7,25 +7,22 @@ test('disabled provider fails closed', async () => {
   await assert.rejects(() => new AgentService(null).propose('revoke credential'), /AI_PROVIDER_DISABLED/);
 });
 
-test('provider proposal is returned without adding authority fields', async () => {
+test('provider proposal is returned without adding authority or plaintext fields', async () => {
   const provider: AgentProvider = {
     async propose() {
       return {
-        provider: 'test-provider',
-        model: 'test-model',
+        provider: 'test-provider', model: 'test-model',
         proposal: {
-          action: 'revoke-credential',
-          resource: 'credential:test',
-          purpose: 'incident-remediation',
-          host: 'postman-echo.com',
-          fields: ['incident_id'],
+          action: 'notify-security', resource: 'incident:test', purpose: 'incident-notification', host: 'postman-echo.com',
+          fields: ['incident_id'], private_refs: ['verified_email'],
         },
       };
     },
   };
-  const result = await new AgentService(provider).propose('safe prompt');
+  const result = await new AgentService(provider).propose('notify verified contact');
   assert.equal(result.provider, 'test-provider');
-  assert.equal(result.proposal.action, 'revoke-credential');
+  assert.deepEqual(result.proposal.private_refs, ['verified_email']);
+  assert.equal(JSON.stringify(result).includes('{{profile.'), false);
 });
 
 test('empty and oversized prompts are rejected before provider execution', async () => {

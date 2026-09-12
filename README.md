@@ -10,9 +10,9 @@ Confidential Incident Response Agent for the Terminal 3 Network challenge.
 
 T3 Privacy Guard assumes the AI agent can be manipulated. The dashboard sends an actual textual prompt to a configured tool-calling model. The model can produce an unsafe structured proposal such as `host=attacker.example` plus `api_key`, but it cannot set a decision, identity, capability or secret. That proposal is persisted and evaluated independently by the T3N Rust/WASM policy, which returns `DENY`.
 
-A legitimate model proposal can receive `ALLOW`, but `ALLOW` still does not execute anything. An authenticated operator must explicitly authorize remediation. Immediately before execution the Spring backend signs a short-lived, one-time capability bound to the exact persisted action and decision. The gateway validates service authentication, signature, expiry, payload equality and replay state before T3N execution.
+A legitimate model proposal can receive `ALLOW`, but `ALLOW` still does not execute anything. An authenticated operator must explicitly authorize remediation. Immediately before execution the Spring backend signs a short-lived, one-time capability bound to the exact persisted action, decision, fields and logical private-data references. The gateway validates service authentication, signature, expiry, payload equality and replay state before T3N execution.
 
-The remediation credential remains outside browser, Spring Boot and AI-agent context and is consumed only through the protected T3N contract path.
+Private profile values are structural to T3N. The agent, React, Spring Boot and gateway APIs carry only logical references such as `verified_email`; the Rust/WASM contract maps that closed reference to the supported T3N marker `{{profile.verified_contacts.email.value}}`, and T3N resolves the plaintext only during protected egress. The resolved value is never returned to the application. The remediation credential likewise remains outside browser, Spring Boot and AI-agent context.
 
 ## Architecture
 
@@ -21,7 +21,7 @@ Untrusted prompt
       |
       v
 Configured AI provider
-      | structured proposal only
+      | structured proposal + logical private refs only
       v
 React / Spring Boot
       |
@@ -37,13 +37,18 @@ T3N / Rust WASM policy
                     |
               one-time capability
                     |
-              protected remediation
+                    v
+        Rust maps verified_email
+          to T3N profile marker
+                    |
+                    v
+       protected egress resolves PII
 ```
 
 - `frontend/`: React/Vite dashboard served by Nginx.
 - `backend/`: Java 21/Spring Boot business API, operator sessions and durable business state.
 - `t3n-gateway/`: isolated T3N SDK adapter, AI provider adapter, separate tenant/agent sessions and anti-replay protection.
-- `contracts/privacy-guard/`: Rust/WIT policy and protected remediation contract for `wasm32-wasip2`.
+- `contracts/privacy-guard/`: Rust/WIT policy, closed private-reference mapping and protected remediation contract for `wasm32-wasip2`.
 
 Each runtime has its own Dockerfile. There is intentionally no `docker-compose.yml`; services are deployed independently in containers.
 
@@ -68,13 +73,40 @@ The only model tool surface is:
   "resource": "string",
   "purpose": "string",
   "host": "string|null",
-  "fields": ["string"]
+  "fields": ["string"],
+  "private_refs": ["verified_email"]
 }
 ```
 
-Unknown properties are rejected. In particular the model cannot supply `decision`, `allow`, `override`, `approved`, `agent_did`, `pii_did`, API keys, credentials, secrets or remediation capabilities. `agent_did` comes only from the authenticated Agent session and `pii_did` only from the authenticated tenant session.
+Unknown properties are rejected. In particular the model cannot supply `decision`, `allow`, `override`, `approved`, `agent_did`, `pii_did`, API keys, credentials, secrets, remediation capabilities or literal `{{profile...}}` markers. `agent_did` comes only from the authenticated Agent session and `pii_did` only from the authenticated tenant session.
 
-The prompt is treated as untrusted content, not as an authorization source. Do not place real secret values in demo prompts; issue #37 extends the architecture so private profile values are represented by T3N references rather than plaintext.
+The prompt is treated as untrusted content, not as an authorization source. Real private values must never be placed in demo prompts; the model asks only for an enumerated logical category when a supported private value is needed.
+
+## Structural private-data boundary
+
+The initial private reference is intentionally narrow:
+
+```text
+logical reference: verified_email
+action/purpose:   notify-security / incident-notification
+TEE mapping:       {{profile.verified_contacts.email.value}}
+```
+
+The literal marker is created inside Rust/WASM from a closed allowlist. Clients cannot submit arbitrary profile namespaces. `verified_email` on an unrelated action is minimized with `REDACT`; unknown references and literal placeholder strings are denied. Spring persists only the reference name, never the email address. Human authorization capabilities bind the private-reference set so it cannot be changed after approval.
+
+Where plaintext may exist:
+
+```text
+AI model                       NO
+React / browser                NO
+Spring Boot / H2               NO
+Node gateway request/response  NO
+Business audit/evidence        NO
+T3N protected egress           YES, only while resolving the approved placeholder
+Allowed external service       YES, as the intended recipient of the protected egress
+```
+
+`PlaceholderDenied`, `PlaceholderUnknown` and `PlaceholderNoUserContext` fail closed. Upstream responses are reduced to status/operation metadata before leaving the contract, so an echoed private value is not returned to the application.
 
 ## Security boundaries
 
@@ -86,6 +118,7 @@ The prompt is treated as untrusted content, not as an authorization source. Do n
 - Delegated calls derive `pii_did` internally from the authenticated tenant session.
 - Member delegation restricts contract, functions, scopes, hosts and validity.
 - The model proposes; Rust/WASM policy decides. Provider failure, invalid tool output and T3N failure all fail closed.
+- The model/application carry only logical private references; only the contract maps them to supported T3N profile markers.
 - `ALLOW` + authenticated operator + explicit human authorization + valid one-time capability are required before protected remediation.
 - Consumed capability nonces are persisted at `REMEDIATION_REPLAY_STORE_PATH` so replay protection survives gateway restart when `/data` is persistent.
 
@@ -110,7 +143,7 @@ AI_API_KEY
 AI_MODEL
 ```
 
-Business APIs require the Spring Security operator session and CSRF protection. The browser never receives T3N keys, AI provider keys, internal service token or remediation capability.
+Business APIs require the Spring Security operator session and CSRF protection. The browser never receives T3N keys, AI provider keys, internal service token, remediation capability or resolved profile PII.
 
 ## T3N operational status
 
@@ -139,9 +172,11 @@ prompt -> real model -> structured proposal -> T3N policy
                                                    signed one-time proof
                                                            |
                                                    protected execution
+                                                           |
+                                            T3N profile resolution at egress
 ```
 
-A capability is rejected when its signed incident/action/decision/request/action/resource/purpose/fields differ from the body, when expired or when its nonce was already consumed.
+A capability is rejected when its signed incident/action/decision/request/action/resource/purpose/fields/privateRefs differ from the body, when expired or when its nonce was already consumed.
 
 ## Evidence
 
@@ -160,6 +195,8 @@ npm run evidence:live
 ```
 
 Generated artifacts are `docs/evidence/deployment-manifest.json` and `docs/evidence/testnet-run.json`. The orchestrator binds WASM SHA-256, canonical DIDs and contract id/version and fails on mismatch, scenario `FAIL` or configured secret leakage. `NOT_RUN` is never counted as `PASS`.
+
+Profile-placeholder resolution must remain `NOT_RUN` in public evidence until a compatible T3N testnet profile/user context actually executes it. Local Rust/Java/gateway/frontend tests prove the closed-reference architecture but are not mislabeled as live profile-resolution evidence.
 
 The submission capture harness also rejects AI/T3N/operator/service/capability secrets in generated metadata.
 
@@ -192,6 +229,6 @@ cd ../contracts/privacy-guard && cargo test && cargo build --target wasm32-wasip
 
 ## Environment
 
-Use `.env.example` only as a variable-name template. Never commit tenant keys, agent keys, AI provider keys, operator passwords, service tokens, capability keys, remediation credentials or `.env` files.
+Use `.env.example` only as a variable-name template. Never commit tenant keys, agent keys, AI provider keys, operator passwords, service tokens, capability keys, remediation credentials, private profile values or `.env` files.
 
 The project will continue to be operated after the challenge. Future handover provisions new credentials instead of transferring existing private keys.

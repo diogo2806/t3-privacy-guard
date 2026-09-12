@@ -25,61 +25,41 @@ public class RemediationAuthorizationSigner {
         @Value("${privacy-guard.remediation-capability.key}") String key,
         @Value("${privacy-guard.remediation-capability.ttl-seconds:60}") long ttlSeconds
     ) {
-        if (key == null || key.length() < 32) {
-            throw new IllegalStateException("REMEDIATION_CAPABILITY_KEY must contain at least 32 characters");
-        }
-        if (ttlSeconds < 10 || ttlSeconds > 300) {
-            throw new IllegalStateException("REMEDIATION_CAPABILITY_TTL_SECONDS must be between 10 and 300");
-        }
+        if (key == null || key.length() < 32) throw new IllegalStateException("REMEDIATION_CAPABILITY_KEY must contain at least 32 characters");
+        if (ttlSeconds < 10 || ttlSeconds > 300) throw new IllegalStateException("REMEDIATION_CAPABILITY_TTL_SECONDS must be between 10 and 300");
         this.mapper = mapper;
         this.key = key.getBytes(StandardCharsets.UTF_8);
         this.ttl = Duration.ofSeconds(ttlSeconds);
     }
 
     public String issue(
-        String incidentId,
-        String actionId,
-        String requestId,
-        String decisionId,
-        String action,
-        String resource,
-        String purpose,
-        List<String> fields
+        String incidentId, String actionId, String requestId, String decisionId, String action,
+        String resource, String purpose, List<String> fields, List<String> privateRefs
     ) {
         Instant now = Instant.now();
         Claims claims = new Claims(
-            incidentId,
-            actionId,
-            requestId,
-            decisionId,
-            action,
-            resource,
-            purpose,
-            fieldsHash(fields),
-            now.toEpochMilli(),
-            now.plus(ttl).toEpochMilli(),
-            UUID.randomUUID().toString()
+            incidentId, actionId, requestId, decisionId, action, resource, purpose,
+            listHash(fields), listHash(privateRefs), now.toEpochMilli(), now.plus(ttl).toEpochMilli(), UUID.randomUUID().toString()
         );
         try {
             byte[] payload = mapper.writeValueAsBytes(claims);
             String encodedPayload = Base64.getUrlEncoder().withoutPadding().encodeToString(payload);
             Mac mac = Mac.getInstance("HmacSHA256");
             mac.init(new SecretKeySpec(key, "HmacSHA256"));
-            String signature = Base64.getUrlEncoder().withoutPadding()
-                .encodeToString(mac.doFinal(encodedPayload.getBytes(StandardCharsets.US_ASCII)));
+            String signature = Base64.getUrlEncoder().withoutPadding().encodeToString(mac.doFinal(encodedPayload.getBytes(StandardCharsets.US_ASCII)));
             return encodedPayload + "." + signature;
         } catch (Exception ex) {
             throw new IllegalStateException("Unable to issue remediation authorization proof", ex);
         }
     }
 
-    private String fieldsHash(List<String> fields) {
+    private String listHash(List<String> values) {
         try {
-            List<String> canonical = fields == null ? List.of() : fields.stream().sorted().toList();
+            List<String> canonical = values == null ? List.of() : values.stream().map(String::trim).sorted().toList();
             byte[] json = mapper.writeValueAsBytes(canonical);
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(json));
         } catch (Exception ex) {
-            throw new IllegalStateException("Unable to hash remediation fields", ex);
+            throw new IllegalStateException("Unable to hash remediation metadata", ex);
         }
     }
 
@@ -92,6 +72,7 @@ public class RemediationAuthorizationSigner {
         String resource,
         String purpose,
         String fieldsHash,
+        String privateRefsHash,
         long authorizedAt,
         long expiresAt,
         String nonce
