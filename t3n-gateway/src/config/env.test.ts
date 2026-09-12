@@ -20,7 +20,7 @@ test('defaults to testnet, disabled AI and current contract version', () => {
   assert.equal(config.network, 'testnet');
   assert.equal(config.port, 3001);
   assert.equal(config.agentApiKey, null);
-  assert.equal(config.contractVersion, '0.2.0');
+  assert.equal(config.contractVersion, '0.3.0');
   assert.equal(config.remediationReplayStorePath, '/data/remediation-capability-nonces.json');
   assert.equal(config.aiProvider, 'disabled');
   assert.equal(config.aiApiKey, null);
