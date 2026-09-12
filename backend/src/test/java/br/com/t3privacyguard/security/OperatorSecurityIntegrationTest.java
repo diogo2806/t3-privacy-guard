@@ -1,9 +1,11 @@
 package br.com.t3privacyguard.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.matchesPattern;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -58,9 +60,37 @@ class OperatorSecurityIntegrationTest {
         mvc.perform(post("/api/auth/login")
                 .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"username\":\"test-operator\",\"password\":\"wrong-password\"}"))
+                .content("{\"username\":\"single-failure-user\",\"password\":\"wrong-password\"}"))
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.detail").value("Invalid operator credentials."));
+    }
+
+    @Test
+    void repeatedFailuresReturn429WithRetryAfterWithoutUserEnumeration() throws Exception {
+        String body = "{\"username\":\"rate-limit-target\",\"password\":\"wrong-password\"}";
+        for (int attempt = 1; attempt < OperatorLoginAttemptGuard.FAILURE_THRESHOLD; attempt++) {
+            mvc.perform(post("/api/auth/login")
+                    .with(csrf())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(body))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.detail").value("Invalid operator credentials."));
+        }
+
+        mvc.perform(post("/api/auth/login")
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+            .andExpect(status().isTooManyRequests())
+            .andExpect(header().string("Retry-After", matchesPattern("[1-9][0-9]*")))
+            .andExpect(jsonPath("$.detail").value("Too many failed attempts. Try again after the cooldown."));
+
+        mvc.perform(post("/api/auth/login")
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+            .andExpect(status().isTooManyRequests())
+            .andExpect(jsonPath("$.detail").value("Too many failed attempts. Try again after the cooldown."));
     }
 
     @Test
