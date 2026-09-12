@@ -89,11 +89,24 @@ describe('TrustFlowSummary', () => {
     expect(screen.getByText(/Policy blocked the proposal before protected egress. No execution is claimed./i)).toBeInTheDocument();
   });
 
+  it('shows REDACT as minimization required without execution', () => {
+    renderSummary({ selectedAction: ACTION, decision: decision('REDACT') });
+    expect(screen.getByText('REDACT')).toBeInTheDocument();
+    expect(screen.getByText(/requires data minimization/i)).toBeInTheDocument();
+    expect(screen.getAllByText('NOT STARTED')).toHaveLength(2);
+  });
+
   it('keeps ALLOW separate from human authorization and execution', () => {
     renderSummary({ selectedAction: ACTION, decision: decision('ALLOW') });
     expect(screen.getByText('ALLOW')).toBeInTheDocument();
     expect(screen.getByText('REQUIRED')).toBeInTheDocument();
     expect(screen.getByText(/blocked until a human authorizes it/i)).toBeInTheDocument();
+  });
+
+  it('shows human authorization without claiming execution', () => {
+    renderSummary({ selectedAction: { ...ACTION, status: 'REMEDIATION_AUTHORIZED' }, decision: decision('ALLOW') });
+    expect(screen.getByText('AUTHORIZED')).toBeInTheDocument();
+    expect(screen.getByText(/No protected execution has been claimed yet/i)).toBeInTheDocument();
   });
 
   it('shows accepted execution as pending verification rather than completed', () => {
@@ -107,6 +120,26 @@ describe('TrustFlowSummary', () => {
     expect(screen.getByText(/Completion is pending independent verification/i)).toBeInTheDocument();
   });
 
+  it('keeps UNVERIFIED explicit and never claims completion', () => {
+    renderSummary({
+      selectedAction: { ...ACTION, status: 'REMEDIATION_AUTHORIZED' },
+      decision: decision('ALLOW'),
+      remediationExecution: execution('UNVERIFIED'),
+    });
+    expect(screen.getAllByText('UNVERIFIED')).toHaveLength(2);
+    expect(screen.getByText(/does not claim completion/i)).toBeInTheDocument();
+  });
+
+  it('keeps FAILED explicit and never claims verified completion', () => {
+    renderSummary({
+      selectedAction: { ...ACTION, status: 'REMEDIATION_AUTHORIZED' },
+      decision: decision('ALLOW'),
+      remediationExecution: execution('FAILED'),
+    });
+    expect(screen.getByText('FAILED')).toBeInTheDocument();
+    expect(screen.getByText(/No verified completion is claimed/i)).toBeInTheDocument();
+  });
+
   it('shows COMPLETED only when independent verification is completed', () => {
     renderSummary({
       selectedAction: { ...ACTION, status: 'REMEDIATED' },
@@ -117,9 +150,18 @@ describe('TrustFlowSummary', () => {
     expect(screen.getByText(/remediation is COMPLETED/i)).toBeInTheDocument();
   });
 
-  it('makes unavailable T3N controls explicit', () => {
-    renderSummary({ systemStatus: { ...READY_STATUS, gatewayReachable: false } });
+  it('makes unavailable T3N controls explicit instead of green success', () => {
+    const { container } = render(<TrustFlowSummary
+      agentAnalysis={null}
+      decision={null}
+      selectedAction={null}
+      remediationExecution={null}
+      systemStatus={{ ...READY_STATUS, gatewayReachable: false }}
+      statusLoading={false}
+    />);
     expect(screen.getByText('T3N controls unavailable')).toBeInTheDocument();
     expect(screen.getByText(/cannot be proven until live status recovers/i)).toBeInTheDocument();
+    expect(container.querySelector('.trust-readiness-unavailable')).toBeInTheDocument();
+    expect(container.querySelector('.trust-readiness-ready')).not.toBeInTheDocument();
   });
 });
