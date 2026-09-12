@@ -139,6 +139,33 @@ Business endpoints:
 
 A remediation requires a persisted `ALLOW`, explicit authorization and then TEE execution. The TEE evaluates policy again immediately before egress, so Java cannot transform a previous `DENY` into a protected outbound call.
 
+## Adversarial evidence
+
+The repository includes a reproducible security-evidence layer instead of relying only on screenshots or claims:
+
+- `contracts/privacy-guard/tests/adversarial.rs` exercises policy abuse, exfiltration, purpose abuse, host abuse, minimization and fail-closed cases;
+- `IncidentServiceTest` covers replay, idempotency, unavailable T3N/gateway, tampered responses and authorization gates;
+- gateway tests cover delegation, revocation and canonical tenant `pii_did` binding;
+- the remediation regression test proves a reflected upstream secret/header cannot cross the contract result boundary;
+- the evidence leak detector rejects serialized artifacts containing configured secret/sentinel values;
+- `docs/evidence/scenario-matrix.md` maps each control to its executable assertion;
+- `npm run evidence:testnet` creates live T3N evidence only when valid credentials/credits are available. Unexecuted live scenarios remain `NOT_RUN`, never fabricated as `PASS`.
+
+Local regression evidence:
+
+```bash
+bash scripts/run-local-evidence.sh
+```
+
+Live testnet evidence after contract registration/delegation:
+
+```bash
+cd t3n-gateway
+npm run evidence:testnet
+```
+
+Protected egress negative and attack-then-remediation scenarios require the private synthetic-secret map to be seeded first. See `docs/evidence/README.md` for the exact flags and safety rules.
+
 ## Local builds
 
 ```bash
