@@ -17,4 +17,5 @@ interface contracts {
 
     evaluate-action: func(req: generic-input) -> result<list<u8>, string>;
     execute-remediation: func(req: generic-input) -> result<list<u8>, string>;
+    verify-remediation: func(req: generic-input) -> result<list<u8>, string>;
 }
