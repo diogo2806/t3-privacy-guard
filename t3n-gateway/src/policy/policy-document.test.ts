@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canonicalizeOperationalPolicy } from './policy-document.js';
+import { assertPolicyVersionImmutable, canonicalizeOperationalPolicy } from './policy-document.js';
 
 const baseline = {
   version: '2026-09-12.1',
@@ -44,6 +44,36 @@ test('changing an operational rule changes the hash', () => {
     },
   });
   assert.notEqual(first.hash, changed.hash);
+});
+
+test('same version cannot be republished with different canonical content', () => {
+  const current = canonicalizeOperationalPolicy(baseline);
+  const same = canonicalizeOperationalPolicy({
+    ...baseline,
+    actions: {
+      'revoke-credential': {
+        ...baseline.actions['revoke-credential'],
+        allowed_fields: ['credential_id', 'incident_id', 'reason'],
+      },
+    },
+  });
+  const changed = canonicalizeOperationalPolicy({
+    ...baseline,
+    actions: {
+      'revoke-credential': {
+        ...baseline.actions['revoke-credential'],
+        allowed_hosts: ['security-api.internal'],
+      },
+    },
+  });
+  assert.doesNotThrow(() => assertPolicyVersionImmutable(current, same));
+  assert.throws(() => assertPolicyVersionImmutable(current, changed), /publish a new version/i);
+});
+
+test('new version may intentionally reuse or change policy content', () => {
+  const current = canonicalizeOperationalPolicy(baseline);
+  const next = canonicalizeOperationalPolicy({ ...baseline, version: '2026-09-12.2' });
+  assert.doesNotThrow(() => assertPolicyVersionImmutable(current, next));
 });
 
 test('policy cannot externalize contract-forbidden secrets or unknown private refs', () => {
