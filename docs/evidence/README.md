@@ -10,7 +10,9 @@ From the repository root:
 bash scripts/run-local-evidence.sh
 ```
 
-This executes Rust policy/remediation/verification tests, Java replay/authorization/distributed-idempotency tests, gateway delegation/`pii_did`/leak tests and React accessibility/decision/remediation-state tests. Raw runtime logs are gitignored.
+This executes Rust policy/remediation/verification tests, including dev-only `proptest` suites that generate hundreds of policy/parser combinations, Java replay/authorization/distributed-idempotency tests, gateway delegation/`pii_did`/leak tests plus deterministic generated agent-schema invariants, and React accessibility/decision/remediation-state tests. Raw runtime logs are gitignored.
+
+Property tests are classified as **local invariant evidence**. A failing Rust property reports a reproducible proptest counterexample/seed; the gateway generator uses fixed documented seeds. Generated case counts are not represented as coverage percentage and never count as live T3N execution.
 
 Optional sentinel scan:
 
@@ -124,6 +126,6 @@ The policy-level logical-reference scenario can run independently. Actual `verif
 
 ## What is not live evidence
 
-Mocks, unit tests, screenshots, docs and unexecuted commands are not T3N testnet proof. The generated deployment manifest plus matching successful `testnet-run.json` are the live evidence source of truth. A screenshot of a 2xx response is not remediation completion proof; the matching verification state is required.
+Mocks, unit tests, property tests, generated cases, screenshots, docs and unexecuted commands are not T3N testnet proof. The generated deployment manifest plus matching successful `testnet-run.json` are the live evidence source of truth. A screenshot of a 2xx response is not remediation completion proof; the matching verification state is required.
 
 See `scenario-matrix.md` for the security-scenario mapping.
