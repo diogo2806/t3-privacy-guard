@@ -20,6 +20,9 @@ contracts/**/target/
 # Generated local evidence logs (review live JSON before committing it)
 docs/evidence/runtime/
 
+# Generated submission capture artifacts
+artifacts/submission-capture/
+
 # IDE / OS
 .idea/
 .vscode/

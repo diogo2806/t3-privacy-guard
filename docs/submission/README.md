@@ -10,8 +10,6 @@ The project prioritizes verifiable state over presentation claims: authenticated
 
 ## Judge quick path
 
-Recommended evaluation order:
-
 ```text
 1. Sign in as the application operator
 2. Confirm Gateway / Tenant / Agent / Contract / Delegation separately
@@ -24,8 +22,6 @@ Recommended evaluation order:
 9. Open Evidence
 10. Confirm source=T3N_TESTNET, contract/version, DIDs, WASM SHA-256 and scenario results
 ```
-
-The visual demo should take only a few minutes. For technical reproduction, use the commands under **Reproduction** below.
 
 ## Architecture and trust boundaries
 
@@ -143,8 +139,6 @@ The implementation is structured so operation can later be handed to Terminal 3 
 
 ## Handover runbook
 
-A handover must provision new secrets rather than copying the current operator's private material.
-
 1. Provision a new tenant credential and a separate agent credential.
 2. Rotate/revoke prior credentials according to the account/network controls available at handover time.
 3. Configure runtime variable names documented in `.env.example`; never commit values.
@@ -162,8 +156,6 @@ No handover step requires publishing or sending an existing T3N private key thro
 
 ## Evidence model
 
-Live proof is a linked pair:
-
 ```text
 WASM bytes
    | SHA-256
@@ -174,7 +166,7 @@ docs/evidence/deployment-manifest.json
 docs/evidence/testnet-run.json
 ```
 
-The Evidence Center reads an allowlisted projection of those files through the authenticated Spring API. It does not execute T3N and never reads raw runtime logs or `.env`.
+The Evidence Center reads an allowlisted projection through the authenticated Spring API. It does not execute T3N and never reads raw runtime logs or `.env`.
 
 States:
 
@@ -207,7 +199,7 @@ npm install
 npm run evidence:live
 ```
 
-Full synthetic protected-egress proof, after the numeric contract id/private-map prerequisites are available:
+Full synthetic protected-egress proof:
 
 ```bash
 EVIDENCE_PREPARE_EGRESS=true \
@@ -224,16 +216,60 @@ The command must fail on scenario `FAIL`, identity/version/hash mismatch or dete
 Capture only real application states, in this order:
 
 1. **Operational status:** tenant/agent authenticated, contract resolved, delegation ACTIVE.
-2. **Attack proposal:** destination `attacker.example` and secret-bearing field request visible as metadata only.
-3. **DENY:** policy reason visible.
-4. **REDACT:** Evidence Center scenario showing data minimization when live evidence includes it.
-5. **Safe remediation ALLOW:** minimum request, before execution.
-6. **Human authorization:** state showing that ALLOW and execution are separate steps.
-7. **Protected remediation completed:** only when synthetic egress is enabled and actually succeeds.
-8. **Evidence Center:** source T3N_TESTNET, contract/version/hash, DIDs, PASS/FAIL/NOT RUN totals.
-9. **Delegation negative evidence:** revoked/function-restricted result when that live scenario was executed.
+2. **Attack proposal + DENY:** destination `attacker.example` and blocked policy result.
+3. **REDACT:** Evidence Center live data-minimization scenario.
+4. **Safe remediation ALLOW:** minimum request before execution.
+5. **Human authorization:** ALLOW and execution shown as separate steps.
+6. **Protected remediation completed:** only when synthetic egress is enabled and actually succeeds.
+7. **Evidence Center:** source T3N_TESTNET, contract/version/hash, DIDs, PASS/FAIL/NOT RUN totals.
 
-Do not capture operator passwords, cookies, T3N private keys, remediation keys, `.env`, raw logs or a simulated/local screen labelled as live.
+Never capture operator passwords, cookies, T3N private keys, remediation keys, `.env`, raw logs or a simulated/local screen labelled live.
+
+## Automated capture harness
+
+The repository includes a local Playwright harness that captures the real deployed application only after validating the live evidence/status preconditions.
+
+Install Chromium once for the pinned Playwright version, then run from `frontend/`:
+
+```bash
+npm install
+npx playwright install chromium
+
+CAPTURE_BASE_URL='https://your-live-app.example' \
+CAPTURE_OPERATOR_USERNAME='operator-name' \
+CAPTURE_OPERATOR_PASSWORD='runtime-password' \
+npm run capture:submission
+```
+
+The operator credentials are supplied only through the local process environment. The harness authenticates through the API **before navigating the page**, so the password field is never shown in screenshots or the recorded browser video.
+
+Final capture is refused unless:
+
+- operational status shows authenticated tenant/agent, resolved contract and ACTIVE delegation;
+- Evidence source is `T3N_TESTNET`;
+- Evidence has `0 FAIL`;
+- tenant and agent DIDs differ;
+- WASM SHA-256 has the expected format.
+
+By default the harness records the human-authorization state but does **not** click protected remediation. To enable the synthetic protected-remediation scene explicitly:
+
+```bash
+CAPTURE_ALLOW_REMEDIATION=true \
+CAPTURE_BASE_URL='https://your-live-app.example' \
+CAPTURE_OPERATOR_USERNAME='operator-name' \
+CAPTURE_OPERATOR_PASSWORD='runtime-password' \
+npm run capture:submission
+```
+
+Only use that flag when the displayed action is the documented synthetic `postman-echo.com` path and the live evidence prerequisites are satisfied.
+
+Generated files are local and gitignored under `artifacts/submission-capture/`:
+
+- numbered PNG screenshots;
+- `submission-demo.webm`;
+- `capture-metadata.json` containing only sanitized URL/evidence metadata, contract/version/hash/DIDs and filenames.
+
+The metadata is passed through the existing evidence leak detector before it is written. It must not contain the operator password, T3N keys, remediation key or configured sentinel.
 
 ## Demo video storyboard
 
@@ -243,7 +279,7 @@ Target narrative: approximately 90–180 seconds.
 0–15s    Problem: an AI incident agent can be prompt-injected
 15–35s   Show separate live tenant/agent/contract/delegation status
 35–55s   Run malicious exfiltration proposal -> DENY
-55–75s   Explain REDACT/data minimization evidence
+55–75s   Explain REDACT/data-minimization evidence
 75–100s  Prepare legitimate minimum remediation -> ALLOW
 100–125s Show explicit human authorization as a separate gate
 125–150s Execute synthetic protected remediation when enabled
@@ -271,7 +307,7 @@ The external challenge submission should point to:
 
 - public GitHub repository;
 - public submission document derived from this guide;
-- screenshots generated from real states listed above;
+- screenshots generated from the live capture harness;
 - short demo video;
 - Terminal 3 findings reproduced above;
 - live evidence artifacts once generated.
