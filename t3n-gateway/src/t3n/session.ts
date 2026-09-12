@@ -1,14 +1,7 @@
-import {
-  T3nClient,
-  createEthAuthInput,
-  eth_get_address,
-  fetchTrustedManifest,
-  loadWasmComponent,
-  metamask_sign,
-  setEnvironment,
-} from '@terminal3/t3n-sdk';
+import { T3nClient } from '@terminal3/t3n-sdk';
 import type { GatewayConfig } from '../config/env.js';
 import { sanitizeError, type SanitizedError } from '../security/sanitize.js';
+import { authenticatePrincipal } from './authenticated-client.js';
 
 export interface T3nSessionStatus {
   readonly connected: boolean;
@@ -51,12 +44,8 @@ export class T3nSession {
   }
 
   async connect(): Promise<void> {
-    if (this.getStatus().ready) {
-      return;
-    }
-    if (this.connecting) {
-      return this.connecting;
-    }
+    if (this.getStatus().ready) return;
+    if (this.connecting) return this.connecting;
 
     this.connecting = this.connectInternal();
     try {
@@ -68,23 +57,9 @@ export class T3nSession {
 
   private async connectInternal(): Promise<void> {
     try {
-      setEnvironment(this.config.network);
-      const wasmComponent = await loadWasmComponent();
-      const address = eth_get_address(this.config.apiKey);
-      const trustAnchor = await fetchTrustedManifest(this.config.network);
-      const client = new T3nClient({
-        trustAnchor,
-        wasmComponent,
-        handlers: {
-          EthSign: metamask_sign(address, undefined, this.config.apiKey),
-        },
-      });
-
-      await client.handshake();
-      const did = await client.authenticate(createEthAuthInput(address));
-
-      this.client = client;
-      this.tenantDid = did.value;
+      const principal = await authenticatePrincipal(this.config.apiKey, this.config.network);
+      this.client = principal.client;
+      this.tenantDid = principal.did;
       this.lastError = null;
     } catch (error) {
       this.client = null;
