@@ -15,6 +15,9 @@ serde = { version = "1.0", default-features = false, features = ["derive", "allo
 serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 hex = { version = "0.4", default-features = false, features = ["alloc"] }
 
+[dev-dependencies]
+proptest = "1.6"
+
 [profile.release]
 opt-level = "s"
 lto = true
