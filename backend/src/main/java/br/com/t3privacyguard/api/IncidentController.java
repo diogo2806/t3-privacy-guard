@@ -47,10 +47,7 @@ public class IncidentController {
 
     @PostMapping("/{incidentId}/actions")
     @ResponseStatus(HttpStatus.CREATED)
-    public ActionResponse addAction(
-        @PathVariable String incidentId,
-        @Valid @RequestBody CreateActionRequest request
-    ) {
+    public ActionResponse addAction(@PathVariable String incidentId, @Valid @RequestBody CreateActionRequest request) {
         return service.addAction(incidentId, request);
     }
 
@@ -64,19 +61,18 @@ public class IncidentController {
         return service.evaluate(incidentId, actionId);
     }
 
+    @GetMapping("/{incidentId}/actions/{actionId}/decision")
+    public DecisionResponse decision(@PathVariable String incidentId, @PathVariable String actionId) {
+        return service.getDecision(incidentId, actionId);
+    }
+
     @PostMapping("/{incidentId}/actions/{actionId}/authorize-remediation")
-    public RemediationAuthorizationResponse authorizeRemediation(
-        @PathVariable String incidentId,
-        @PathVariable String actionId
-    ) {
+    public RemediationAuthorizationResponse authorizeRemediation(@PathVariable String incidentId, @PathVariable String actionId) {
         return service.authorizeRemediation(incidentId, actionId);
     }
 
     @PostMapping("/{incidentId}/actions/{actionId}/execute-remediation")
-    public RemediationExecutionResponse executeRemediation(
-        @PathVariable String incidentId,
-        @PathVariable String actionId
-    ) {
+    public RemediationExecutionResponse executeRemediation(@PathVariable String incidentId, @PathVariable String actionId) {
         return service.executeRemediation(incidentId, actionId);
     }
 

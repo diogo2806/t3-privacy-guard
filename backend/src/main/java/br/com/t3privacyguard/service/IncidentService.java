@@ -166,6 +166,14 @@ public class IncidentService {
         return decisionResponse(entity);
     }
 
+    @Transactional(readOnly = true)
+    public DecisionResponse getDecision(String incidentId, String actionId) {
+        requireAction(incidentId, actionId);
+        PolicyDecisionEntity decision = decisions.findByActionProposalId(actionId)
+            .orElseThrow(() -> new IncidentNotFoundException("Policy decision not found"));
+        return decisionResponse(decision);
+    }
+
     @Transactional
     public RemediationAuthorizationResponse authorizeRemediation(String incidentId, String actionId) {
         ActionProposalEntity action = requireAction(incidentId, actionId);

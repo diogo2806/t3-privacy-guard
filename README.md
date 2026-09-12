@@ -2,14 +2,35 @@
 
 Confidential Incident Response Agent for the Terminal 3 Network challenge.
 
+## What the demo proves
+
+The product assumes the AI agent can be manipulated. A malicious proposal attempts to send protected credential data to `attacker.example`; the T3N contract returns `DENY`. The same incident can then produce a minimum legitimate revoke request to the delegated demo host; after an independent `ALLOW` and explicit business authorization, the TEE executes the remediation using a credential stored only in the tenant private map.
+
+The browser, Java backend and agent never receive the credential value.
+
 ## Architecture
 
-- `frontend/`: React + Vite, production build served by Nginx.
+- `frontend/`: React + Vite dashboard served by Nginx.
 - `backend/`: Java 21 + Spring Boot business API with durable incident orchestration.
 - `t3n-gateway/`: Node.js + TypeScript adapter for `@terminal3/t3n-sdk` 5.2.0.
 - `contracts/privacy-guard/`: Rust/WIT policy and secretless-remediation contract compiled to WASI Preview 2 for T3N TEE execution.
 
 Each runtime has its own Dockerfile. There is intentionally no `docker-compose.yml`; production deployment is expected to run services independently in containers.
+
+## Dashboard
+
+The React dashboard visualizes only live backend/gateway state. `GET /api/system/status` aggregates gateway reachability, authenticated tenant/agent state and the contract version resolved from T3N. An unavailable capability is displayed as unavailable rather than as successful verification.
+
+Demo flow:
+
+1. `Run attack scenario` creates a critical incident and evaluates an exfiltration proposal against the T3N contract.
+2. The expected result is `DENY`, with the policy reason visible beside the proposal.
+3. `Prepare safe remediation` creates the minimum legitimate revoke request and evaluates it separately.
+4. An `ALLOW` enables `Authorize remediation`; authorization still does not execute anything.
+5. `Execute protected remediation` invokes the TEE function, which rechecks policy, reads the credential from private KV and performs delegated egress.
+6. The sanitized audit trail records the business flow without recording the secret.
+
+The **Manual da Tela / Screen Manual** is available from the `BookOpen` button in the header. It documents the purpose of the screen, displayed information, actions, fields, rules, permissions, main flow and all decision/error states. UI components live exclusively in `frontend/src/components`. All CSS lives under `frontend/src/shared/styles`, with `index.css` as the only global style entry point.
 
 ## Security baseline
 
@@ -17,8 +38,10 @@ Each runtime has its own Dockerfile. There is intentionally no `docker-compose.y
 - Tenant and agent keys are separate credentials held only by the T3N gateway.
 - React and Java never receive T3N private keys or the remediation API credential.
 - Canonical tenant and agent DIDs come from authenticated T3N sessions (`did.value`).
-- Authorization, dependency, validation and malformed-response failures fail closed.
+- Authentication does not imply authorization; delegation scopes contract, functions, data and outbound hosts.
+- `DENY`, `REDACT`, unavailable dependencies, validation failures and malformed responses fail closed.
 - Java audit events contain sanitized operational metadata, never secret-bearing payloads.
+- Java persists unique request ids and prior decisions/remediation results to prevent duplicate execution.
 
 ## T3N identities and delegation
 
@@ -100,12 +123,14 @@ The Spring Boot API persists incidents, proposed actions, policy decisions, prot
 
 Business endpoints:
 
+- `GET /api/system/status`
 - `POST /api/incidents`
 - `GET /api/incidents`
 - `GET /api/incidents/{incidentId}`
 - `POST /api/incidents/{incidentId}/actions`
 - `GET /api/incidents/{incidentId}/actions`
 - `POST /api/incidents/{incidentId}/actions/{actionId}/evaluate`
+- `GET /api/incidents/{incidentId}/actions/{actionId}/decision`
 - `POST /api/incidents/{incidentId}/actions/{actionId}/authorize-remediation`
 - `POST /api/incidents/{incidentId}/actions/{actionId}/execute-remediation`
 - `GET /api/incidents/{incidentId}/history`
@@ -116,7 +141,7 @@ A remediation requires a persisted `ALLOW`, explicit authorization and then TEE 
 
 ```bash
 cd backend && mvn test && mvn package
-cd ../frontend && npm install && npm run build
+cd ../frontend && npm install && npm test && npm run build
 cd ../t3n-gateway && npm install && npm test && npm run typecheck && npm run build
 cd ../contracts/privacy-guard && cargo test && cargo build --target wasm32-wasip2 --release
 ```

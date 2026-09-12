@@ -31,6 +31,12 @@ export interface RemediationResult {
   readonly operation_id?: string | null;
 }
 
+export interface ContractIdentity {
+  readonly contractId: string;
+  readonly contractVersion: string;
+  readonly functions: readonly ['evaluate-action', 'execute-remediation'];
+}
+
 function isDecision(value: unknown): value is PolicyDecision {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<PolicyDecision>;
@@ -65,6 +71,16 @@ export class PrivacyGuardContractService {
 
   private async currentVersion(contractId: string): Promise<string> {
     return getContractVersion(getNodeUrl(), contractId);
+  }
+
+  async identity(): Promise<ContractIdentity> {
+    const contractId = await this.canonicalContractId();
+    const contractVersion = await this.currentVersion(contractId);
+    return {
+      contractId,
+      contractVersion,
+      functions: ['evaluate-action', 'execute-remediation'],
+    };
   }
 
   async evaluate(request: Omit<PolicyEvaluationRequest, 'agent_did'>): Promise<PolicyDecision> {

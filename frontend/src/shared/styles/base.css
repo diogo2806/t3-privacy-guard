@@ -1,0 +1,13 @@
+* { box-sizing: border-box; }
+html { min-width: 320px; background: var(--bg); }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: radial-gradient(circle at top left, rgba(34, 211, 238, 0.08), transparent 30rem), var(--bg); color: var(--text); }
+button, input, select, textarea { font: inherit; }
+button { color: inherit; }
+code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; overflow-wrap: anywhere; }
+h1, h2, h3, p { margin-top: 0; }
+h1 { margin-bottom: .35rem; font-size: clamp(1.8rem, 4vw, 2.5rem); letter-spacing: -.04em; }
+h2 { margin-bottom: .35rem; font-size: 1.12rem; }
+h3 { margin-bottom: .35rem; font-size: .98rem; }
+p { line-height: 1.6; }
+.eyebrow { margin-bottom: .32rem; color: var(--accent); font-size: .72rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+.app-shell { width: min(1480px, 100%); margin: 0 auto; padding: 30px; }
