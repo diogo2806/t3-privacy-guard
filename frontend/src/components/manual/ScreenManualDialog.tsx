@@ -98,11 +98,11 @@ export function ScreenManualDialog() {
           </section>
           <section>
             <h3>How to read the trust flow</h3>
-            <p><strong>AI proposal</strong> shows whether the model proposed an action. <strong>Policy</strong> returns DENY, REDACT or ALLOW. DENY blocks the proposal, REDACT requires minimization and ALLOW only permits the proposal to continue. <strong>ALLOW does not mean executed.</strong> Critical remediation still requires explicit human authorization. <strong>COMPLETED appears only after independent read-back verifies the expected external state.</strong></p>
+            <p><strong>AI proposal</strong> shows whether a structured action proposal is available. <strong>Policy</strong> returns DENY, REDACT or ALLOW. DENY blocks the proposal, REDACT requires minimization and ALLOW only permits the proposal to continue. <strong>ALLOW does not mean executed.</strong> Critical remediation still requires explicit human authorization. <strong>COMPLETED appears only after independent read-back verifies the expected external state.</strong></p>
           </section>
           <section>
-            <h3>Views</h3>
-            <p><strong>Protection demo</strong> contains the prompt, model proposal, policy decision, human authorization, protected execution, verification and audit trail. <strong>Proof &amp; evidence</strong> shows which testnet outcomes were actually observed. Technical T3N identifiers, contract and delegation details remain available under <strong>Show technical details</strong> without dominating the main journey.</p>
+            <h3>Views and filters</h3>
+            <p><strong>Protection demo</strong> contains the prompt, proposal, policy decision, human authorization, protected execution, verification and audit trail. <strong>Proof &amp; evidence</strong> shows which testnet outcomes were actually observed. The screen has no business-data filters; these two views organize the journey. Technical T3N identifiers, contract and delegation details remain available under <strong>Show technical details</strong> without dominating the main flow.</p>
           </section>
           <section>
             <h3>Prompt field and actions</h3>
@@ -111,6 +111,10 @@ export function ScreenManualDialog() {
           <section>
             <h3>Proposal and private-data boundary</h3>
             <p>The model may propose only the action, resource, purpose, optional host, field names and supported logical private-data references. It cannot choose trusted identities, policy decisions, approvals or execution proof. Private values remain outside the browser and model; supported logical references are resolved only inside the protected T3N execution boundary.</p>
+          </section>
+          <section>
+            <h3>T3N trust provenance</h3>
+            <p><strong>Trust anchor VERIFIED</strong> means the official signed T3N manifest established the cluster trust boundary for the authenticated sessions. <strong>Rollback floor PERSISTED</strong> means the accepted trust-manifest version is stored as a monotonic high-water mark across gateway restarts. The displayed trust-manifest version is that observed high-water version. These states are not per-request hardware attestation. Trust-manifest unavailability, rollback rejection, corrupted persisted state or a missing version fail closed and must not appear as a green success state.</p>
           </section>
           <section>
             <h3>Decision states</h3>
@@ -134,11 +138,11 @@ export function ScreenManualDialog() {
           </section>
           <section>
             <h3>Main flow</h3>
-            <p>1. Sign in. 2. Read the trust flow and confirm whether T3N controls are available. 3. Enter a non-sensitive prompt. 4. Inspect the AI proposal. 5. Observe DENY, REDACT or ALLOW. 6. For an allowed remediation, authorize it as a human operator. 7. Execute the protected action once. 8. Treat acceptance as pending verification. 9. Verify the external state. 10. Review Proof &amp; evidence, the audit trail and technical details when needed.</p>
+            <p>1. Sign in. 2. Read the trust flow and confirm whether T3N controls are available. 3. Enter a non-sensitive prompt. 4. Inspect the proposal. 5. Observe DENY, REDACT or ALLOW. 6. For an allowed remediation, authorize it as a human operator. 7. Execute the protected action once. 8. Treat acceptance as pending verification. 9. Verify the external state. 10. Review Proof &amp; evidence, the audit trail and technical details when needed.</p>
           </section>
           <section>
             <h3>Messages and error states</h3>
-            <p>Sensitive prompt content is rejected before reaching the external provider. Provider or T3N failures fail closed. Expired application sessions require sign-in again. Rate-limited sign-in follows the server retry interval. Ambiguous execution remains UNVERIFIED and is not automatically re-executed. Error messages must not expose private values, passwords, credentials, request bodies or raw headers.</p>
+            <p>Sensitive prompt content is rejected before reaching the external provider. Provider, T3N or trust-boundary failures fail closed. Expired application sessions require sign-in again. Rate-limited sign-in follows the server retry interval. Ambiguous execution remains UNVERIFIED and is not automatically re-executed. Error messages must not expose private values, passwords, credentials, request bodies or raw headers.</p>
           </section>
         </div>
       </section>
