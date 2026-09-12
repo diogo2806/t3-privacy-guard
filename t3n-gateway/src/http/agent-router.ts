@@ -14,8 +14,8 @@ export function createAgentRouter(agentSession: AgentSession, delegationService:
     try {
       await agentSession.connect();
       response.json(agentSession.getStatus());
-    } catch (error) {
-      response.status(503).json({ ...agentSession.getStatus(), error: error instanceof Error ? error.message : 'Agent connection failed' });
+    } catch {
+      response.status(503).json({ ...agentSession.getStatus(), error: 'Agent connection failed' });
     }
   });
 
@@ -24,16 +24,16 @@ export function createAgentRouter(agentSession: AgentSession, delegationService:
       const body = request.body as DelegationGrantRequest;
       await delegationService.grant(body);
       response.status(201).json(await delegationService.status(body.contractId));
-    } catch (error) {
-      response.status(400).json({ error: error instanceof Error ? error.message : 'Delegation failed' });
+    } catch {
+      response.status(400).json({ error: 'Delegation could not be applied' });
     }
   });
 
   router.get('/delegations/:contractId', async (request, response) => {
     try {
       response.json(await delegationService.status(request.params.contractId));
-    } catch (error) {
-      response.status(503).json({ error: error instanceof Error ? error.message : 'Delegation status unavailable' });
+    } catch {
+      response.status(503).json({ error: 'Delegation status is unavailable' });
     }
   });
 
@@ -41,8 +41,8 @@ export function createAgentRouter(agentSession: AgentSession, delegationService:
     try {
       const state = await delegationService.revoke(request.params.contractId);
       response.json({ state, contractId: request.params.contractId, agentDid: agentSession.getAgentDid() });
-    } catch (error) {
-      response.status(400).json({ error: error instanceof Error ? error.message : 'Delegation revocation failed' });
+    } catch {
+      response.status(400).json({ error: 'Delegation could not be revoked' });
     }
   });
 
