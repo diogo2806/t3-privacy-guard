@@ -15,6 +15,7 @@ export class OpenAiCompatibleProvider implements AgentProvider {
 
     const response = await fetch(this.config.apiUrl, {
       method: 'POST',
+      redirect: 'manual',
       headers: { Authorization: `Bearer ${this.config.apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: this.config.model,
@@ -54,6 +55,9 @@ export class OpenAiCompatibleProvider implements AgentProvider {
       signal: AbortSignal.timeout(20_000),
     }).catch(() => { throw new AgentProviderUnavailableError(); });
 
+    if (response.status >= 300 && response.status < 400) {
+      throw new AgentProviderUnavailableError('AI provider redirects are not allowed');
+    }
     if (!response.ok) throw new AgentProviderUnavailableError(`AI provider returned HTTP ${response.status}`);
     const payload = await response.json() as { choices?: Array<{ message?: { tool_calls?: Array<{ function?: { name?: string; arguments?: string } }> } }> };
     const calls = payload.choices?.[0]?.message?.tool_calls ?? [];
