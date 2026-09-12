@@ -114,13 +114,22 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
     catch (cause) { if (cause instanceof PrivacyGuardApiError && cause.status === 401) onSessionExpired(); else setDecision(null); }
   }, [onSessionExpired]);
 
+  const loadRemediation = useCallback(async (currentIncident: Incident, action: ActionProposal) => {
+    try { setRemediationExecution(await privacyGuardApi.getRemediation(currentIncident.id, action.id)); }
+    catch (cause) {
+      if (cause instanceof PrivacyGuardApiError && cause.status === 401) onSessionExpired();
+      else setRemediationExecution(null);
+    }
+  }, [onSessionExpired]);
+
   const refreshIncident = useCallback(async (currentIncident: Incident, preferredActionId?: string) => {
     const [currentActions, currentHistory] = await Promise.all([privacyGuardApi.listActions(currentIncident.id), privacyGuardApi.history(currentIncident.id)]);
     setActions(currentActions); setHistory(currentHistory);
     const selected = currentActions.find((item) => item.id === preferredActionId) ?? currentActions.at(-1) ?? null;
     setSelectedAction(selected);
-    if (selected) await loadDecision(currentIncident, selected); else setDecision(null);
-  }, [loadDecision]);
+    if (selected) await Promise.all([loadDecision(currentIncident, selected), loadRemediation(currentIncident, selected)]);
+    else { setDecision(null); setRemediationExecution(null); }
+  }, [loadDecision, loadRemediation]);
 
   useEffect(() => {
     void refreshSystem();
@@ -181,6 +190,12 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
     setRemediationExecution(result); await refreshIncident(incident, selectedAction.id); setNotice(executionNotice(result));
   });
 
+  const selectAction = (action: ActionProposal) => {
+    setSelectedAction(action);
+    if (incident) void Promise.all([loadDecision(incident, action), loadRemediation(incident, action)]);
+    else { setDecision(null); setRemediationExecution(null); }
+  };
+
   return (
     <>
       <SystemStatusBar status={systemStatus} loading={statusLoading} onRefresh={() => void refreshSystem()} />
@@ -201,7 +216,7 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
                 <button type="button" className="button button-primary" onClick={prepareSafeRemediation} disabled={busy}><ShieldCheck aria-hidden="true" />Prepare safe remediation<ArrowRight aria-hidden="true" /></button>
                 {selectedAction?.status === 'PENDING' && <button type="button" className="button button-secondary" onClick={() => void run(async () => { if (!incident || !selectedAction) return; const result = await privacyGuardApi.evaluate(incident.id, selectedAction.id); setDecision(result); await refreshIncident(incident, selectedAction.id); })} disabled={busy}>Retry T3N evaluation</button>}
               </div>
-              <div className="two-column"><ActionProposalPanel actions={actions} selectedActionId={selectedAction?.id ?? null} onSelect={(action) => { setSelectedAction(action); setRemediationExecution(null); if (incident) void loadDecision(incident, action); }} /><DecisionPanel decision={decision} /></div>
+              <div className="two-column"><ActionProposalPanel actions={actions} selectedActionId={selectedAction?.id ?? null} onSelect={selectAction} /><DecisionPanel decision={decision} /></div>
               <RemediationPanel action={selectedAction} decision={decision} execution={remediationExecution} busy={busy} onAuthorize={authorize} onExecute={execute} onVerify={verifyExternalState} />
             </>}
           </div>
