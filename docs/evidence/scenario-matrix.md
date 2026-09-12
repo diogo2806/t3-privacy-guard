@@ -29,18 +29,20 @@ This matrix distinguishes **automated local assertions** from **real T3N testnet
 | A23 | Gateway | Revoke existing grant | Only matching grant is expired, restrictions preserved | `delegation-service.test.ts` | READY_TO_RUN |
 | A24 | Gateway | Grant only one function/scope/host set | SDK update contains exactly declared restrictions | `delegation-service.test.ts` | READY_TO_RUN |
 | A25 | Evidence | Evidence contains synthetic sentinel secret | Evidence writer fails | `leak-detector.test.ts` | READY_TO_RUN |
+| A26 | Rust | External echo response reflects Authorization/secret material | Only allowlisted `operation_id` may cross the result boundary | `remediation.rs` regression test | READY_TO_RUN |
+| A27 | Evidence | Local test logs contain configured synthetic sentinel | Local evidence script aborts before summary is accepted | `scripts/run-local-evidence.sh` | READY_TO_RUN |
 | L01 | T3N testnet | Authenticate tenant and agent with separate identities | Different canonical DIDs | `npm run evidence:testnet` | NOT_RUN until valid credentials/credits |
 | L02 | T3N testnet | Secret exfiltration request against registered contract | `DENY` | testnet runner | NOT_RUN until valid credentials/credits |
 | L03 | T3N testnet | Undelegated/forbidden host | `DENY` | testnet runner | NOT_RUN until valid credentials/credits |
 | L04 | T3N testnet | Wrong purpose | `DENY` | testnet runner | NOT_RUN until valid credentials/credits |
 | L05 | T3N testnet | Excess non-secret field | `REDACT` | testnet runner | NOT_RUN until valid credentials/credits |
 | L06 | T3N testnet | Minimum legitimate policy request | `ALLOW` | testnet runner | NOT_RUN until valid credentials/credits |
-| L07 | T3N testnet | `execute-remediation` removed from active grant | Protected egress rejected | testnet runner + `EVIDENCE_RUN_EGRESS_NEGATIVES=true` | NOT_RUN until private map is seeded |
-| L08 | T3N testnet | Grant revoked before protected egress | Protected egress rejected | testnet runner + `EVIDENCE_RUN_EGRESS_NEGATIVES=true` | NOT_RUN until private map is seeded |
+| L07 | T3N testnet | `execute-remediation` removed from active grant | Protected egress rejected specifically for authorization/delegation reasons | testnet runner + `EVIDENCE_RUN_EGRESS_NEGATIVES=true` | NOT_RUN until private map is seeded |
+| L08 | T3N testnet | Grant revoked before protected egress | Protected egress rejected specifically for authorization/delegation reasons | testnet runner + `EVIDENCE_RUN_EGRESS_NEGATIVES=true` | NOT_RUN until private map is seeded |
 | L09 | T3N testnet | Attack denied, then legitimate protected remediation | `DENY -> COMPLETED` | testnet runner + `EVIDENCE_RUN_REMEDIATION=true` | NOT_RUN until private map is seeded |
 
 ## Interpretation
 
 `READY_TO_RUN` means the executable assertion exists in the repository but this document does not pretend it was executed by a particular environment. `NOT_RUN` means the scenario intentionally requires real T3N testnet state, credentials, credits and, for egress scenarios, a seeded private secrets map.
 
-The generated `docs/evidence/testnet-run.json` is the source of truth for actual live results. It is written only after the leak detector checks the serialized artifact for tenant key, agent key, remediation key and an optional synthetic sentinel.
+The generated `docs/evidence/testnet-run.json` is the source of truth for actual live results. It is written only after the leak detector checks the serialized artifact for tenant key, agent key, remediation key and an optional synthetic sentinel. Negative delegation scenarios count as `PASS` only when the returned failure is recognizably authorization/delegation related; a missing secret, transport failure or unrelated runtime exception is recorded as `FAIL`.
