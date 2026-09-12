@@ -9,6 +9,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test src/**/*.test.ts",
     "contract:register": "tsx src/scripts/register-contract.ts",
+    "contract:setup-policy": "tsx src/scripts/setup-policy.ts",
     "contract:setup-remediation": "tsx src/scripts/setup-remediation-secrets.ts",
     "evidence:testnet": "tsx src/scripts/adversarial-testnet.ts",
     "evidence:live": "tsx src/scripts/live-evidence.ts",
