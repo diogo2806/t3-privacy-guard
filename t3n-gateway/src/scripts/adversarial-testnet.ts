@@ -34,15 +34,22 @@ interface EvidenceBundle {
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDir, '../../..');
-const outputPath = resolve(process.env.EVIDENCE_OUTPUT ?? resolve(repositoryRoot, 'docs/evidence/testnet-run.json'));
+const outputPath = resolve(
+  process.env.EVIDENCE_OUTPUT ?? resolve(repositoryRoot, 'docs/evidence/testnet-run.json'),
+);
 const wasmPath = resolve(
   process.env.T3N_CONTRACT_WASM_PATH
-    ?? resolve(repositoryRoot, 'contracts/privacy-guard/target/wasm32-wasip2/release/privacy_guard_contract.wasm'),
+    ?? resolve(
+      repositoryRoot,
+      'contracts/privacy-guard/target/wasm32-wasip2/release/privacy_guard_contract.wasm',
+    ),
 );
 
 const config = readGatewayConfig();
 if (config.network !== 'testnet' && process.env.EVIDENCE_ALLOW_PRODUCTION !== 'true') {
-  throw new Error('Adversarial evidence runner is restricted to testnet unless EVIDENCE_ALLOW_PRODUCTION=true is explicitly set');
+  throw new Error(
+    'Adversarial evidence runner is restricted to testnet unless EVIDENCE_ALLOW_PRODUCTION=true is explicitly set',
+  );
 }
 if (!config.agentApiKey) throw new Error('T3N_AGENT_API_KEY is required for testnet evidence');
 
@@ -87,10 +94,21 @@ async function decisionScenario(
 ): Promise<void> {
   try {
     const result = await contract.evaluate(input);
-    record(id, expected, result.decision, result.decision === expected ? 'PASS' : 'FAIL', result.reason_code);
+    record(
+      id,
+      expected,
+      result.decision,
+      result.decision === expected ? 'PASS' : 'FAIL',
+      result.reason_code,
+    );
   } catch (error) {
     record(id, expected, null, 'FAIL', sanitizeEvidenceError(error));
   }
+}
+
+function isAuthorizationRejection(message: string): boolean {
+  return /(egress|denied|not[ -]?authori[sz]ed|authori[sz]ation|delegat|permission|function.*allow|grant)/i
+    .test(message);
 }
 
 async function expectProtectedEgressRejected(
@@ -108,7 +126,14 @@ async function expectProtectedEgressRejected(
     });
     record(id, expected, 'COMPLETED', 'FAIL', 'Protected egress unexpectedly completed');
   } catch (error) {
-    record(id, expected, 'REJECTED', 'PASS', sanitizeEvidenceError(error));
+    const detail = sanitizeEvidenceError(error);
+    record(
+      id,
+      expected,
+      'REJECTED',
+      isAuthorizationRejection(detail) ? 'PASS' : 'FAIL',
+      detail,
+    );
   }
 }
 
@@ -125,6 +150,8 @@ record(
   tenantDid !== agentDid ? 'PASS' : 'FAIL',
 );
 
+// This runner intentionally installs the known-good challenge grant before testing.
+// Negative scenarios always restore it in finally blocks.
 await grantFull(identity.contractId, identity.contractVersion);
 
 await decisionScenario('LIVE-SECRET-EXFILTRATION', 'DENY', {
@@ -173,27 +200,30 @@ await decisionScenario('LIVE-MINIMAL-ALLOW', 'ALLOW', {
 });
 
 if (process.env.EVIDENCE_RUN_EGRESS_NEGATIVES === 'true') {
-  await delegation.grant({
-    contractId: identity.contractId,
-    versionReq: identity.contractVersion,
-    functions: ['evaluate-action'],
-    scopes: ['incident_id', 'credential_id', 'reason'],
-    allowedHosts: [],
-  });
-  await expectProtectedEgressRejected(
-    'LIVE-FUNCTION-OUTSIDE-DELEGATION',
-    'protected egress rejected when execute-remediation is not granted',
-    'live-function-deny',
-  );
+  try {
+    await delegation.grant({
+      contractId: identity.contractId,
+      versionReq: identity.contractVersion,
+      functions: ['evaluate-action'],
+      scopes: ['incident_id', 'credential_id', 'reason'],
+      allowedHosts: [],
+    });
+    await expectProtectedEgressRejected(
+      'LIVE-FUNCTION-OUTSIDE-DELEGATION',
+      'protected egress rejected when execute-remediation is not granted',
+      'live-function-deny',
+    );
 
-  await grantFull(identity.contractId, identity.contractVersion);
-  await delegation.revoke(identity.contractId);
-  await expectProtectedEgressRejected(
-    'LIVE-REVOKED-AGENT',
-    'protected egress rejected after grant revocation',
-    'live-revoked-deny',
-  );
-  await grantFull(identity.contractId, identity.contractVersion);
+    await grantFull(identity.contractId, identity.contractVersion);
+    await delegation.revoke(identity.contractId);
+    await expectProtectedEgressRejected(
+      'LIVE-REVOKED-AGENT',
+      'protected egress rejected after grant revocation',
+      'live-revoked-deny',
+    );
+  } finally {
+    await grantFull(identity.contractId, identity.contractVersion);
+  }
 } else {
   record(
     'LIVE-FUNCTION-OUTSIDE-DELEGATION',
@@ -222,7 +252,12 @@ if (process.env.EVIDENCE_RUN_REMEDIATION === 'true') {
       fields: ['incident_id', 'credential_id', 'reason', 'api_key'],
     });
     if (attack.decision !== 'DENY') {
-      record('LIVE-SAFE-AFTER-ATTACK', 'attack DENY followed by remediation COMPLETED', attack.decision, 'FAIL');
+      record(
+        'LIVE-SAFE-AFTER-ATTACK',
+        'attack DENY followed by remediation COMPLETED',
+        attack.decision,
+        'FAIL',
+      );
     } else {
       const remediation = await contract.remediate({
         request_id: 'live-safe-after-attack',
@@ -239,7 +274,13 @@ if (process.env.EVIDENCE_RUN_REMEDIATION === 'true') {
       );
     }
   } catch (error) {
-    record('LIVE-SAFE-AFTER-ATTACK', 'attack DENY followed by remediation COMPLETED', null, 'FAIL', sanitizeEvidenceError(error));
+    record(
+      'LIVE-SAFE-AFTER-ATTACK',
+      'attack DENY followed by remediation COMPLETED',
+      null,
+      'FAIL',
+      sanitizeEvidenceError(error),
+    );
   }
 } else {
   record(
