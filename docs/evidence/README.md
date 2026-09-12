@@ -12,12 +12,20 @@ bash scripts/run-local-evidence.sh
 
 The script executes:
 
-- Rust unit/integration tests for policy and remediation behavior;
-- Java/Spring tests for replay, fail-closed orchestration and remediation idempotency;
+- Rust unit/integration tests for policy, minimization, fail-closed behavior and remediation response isolation;
+- Java/Spring tests for replay, fail-closed orchestration, explicit authorization and remediation idempotency;
 - Node/TypeScript gateway tests for configuration, sanitization, delegation, `pii_did` binding and leak detection;
 - React tests for decision rendering and Screen Manual accessibility.
 
-It writes runtime logs under `docs/evidence/runtime/`. These files are local execution artifacts; inspect them before publishing. The repository does not pre-populate fake PASS results.
+It writes runtime logs under `docs/evidence/runtime/`. That directory is gitignored because raw execution logs must be reviewed rather than committed automatically. The repository does not pre-populate fake PASS results.
+
+To scan the generated logs for a synthetic sentinel:
+
+```bash
+EVIDENCE_SENTINEL_SECRET='a-long-synthetic-value' bash scripts/run-local-evidence.sh
+```
+
+The script aborts if that exact sentinel appears in any captured local log.
 
 ## 2. Live T3N testnet evidence
 
@@ -26,7 +34,6 @@ Prerequisites:
 - a valid tenant `T3N_API_KEY`;
 - a separate funded `T3N_AGENT_API_KEY`;
 - the `privacy-guard` contract registered on T3N testnet;
-- member delegation configured for the agent;
 - for protected egress scenarios, the private remediation map seeded with a synthetic test credential and `SECURITY_API_URL=https://postman-echo.com/post`.
 
 From `t3n-gateway/`:
@@ -36,7 +43,9 @@ npm install
 npm run evidence:testnet
 ```
 
-This always exercises real T3N for the default live policy scenarios and writes:
+The runner authenticates the tenant and agent, resolves the live contract identity/version and installs the known-good challenge delegation before executing the default live scenarios. This means the evidence runner intentionally updates the matching agent/contract grant. It does not modify unrelated grants.
+
+It writes:
 
 ```text
 docs/evidence/testnet-run.json
@@ -61,7 +70,9 @@ Only after the private map has been seeded:
 EVIDENCE_RUN_EGRESS_NEGATIVES=true npm run evidence:testnet
 ```
 
-This temporarily narrows/revokes the agent grant, verifies protected egress is rejected, and restores the full grant afterward.
+This temporarily removes `execute-remediation` from the matching grant, verifies that protected egress is rejected, restores the full grant, then revokes the grant and verifies rejection again. A `finally` block restores the full challenge grant even when a negative scenario throws.
+
+A negative scenario is counted as `PASS` only when the failure is recognizably authorization/delegation related. Missing private configuration, transport errors or unrelated exceptions are recorded as `FAIL`, preventing false-positive security evidence.
 
 ### Full attack-then-remediation proof
 
@@ -84,7 +95,7 @@ Before writing `testnet-run.json`, the runner rejects the artifact if it contain
 - `SECURITY_API_KEY`;
 - optional `EVIDENCE_SENTINEL_SECRET`.
 
-The detector itself has a negative unit test that intentionally places a synthetic sentinel into an artifact and expects the test to fail.
+The detector itself has a negative unit test that intentionally places a synthetic sentinel into an artifact and expects rejection. The Rust remediation regression test also simulates an upstream echo response containing secret/header material and verifies that only the allowlisted `operation_id`, HTTP status and request metadata can cross the contract result boundary.
 
 ## 4. What is not evidence
 
