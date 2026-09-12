@@ -10,18 +10,29 @@ import org.springframework.web.client.RestClientException;
 @Component
 public class GatewayRemediationClient {
     private final RestClient restClient;
+    private final String serviceToken;
 
     public GatewayRemediationClient(
         RestClient.Builder builder,
-        @Value("${privacy-guard.gateway.base-url}") String baseUrl
+        @Value("${privacy-guard.gateway.base-url}") String baseUrl,
+        @Value("${privacy-guard.gateway.service-token}") String serviceToken
     ) {
+        if (serviceToken == null || serviceToken.length() < 32) {
+            throw new IllegalStateException("GATEWAY_SERVICE_TOKEN must contain at least 32 characters");
+        }
         this.restClient = builder.baseUrl(baseUrl).build();
+        this.serviceToken = serviceToken;
     }
 
-    public RemediationResult execute(RemediationRequest request) {
+    public RemediationResult execute(RemediationRequest request, String capability) {
+        if (capability == null || capability.isBlank()) {
+            throw new IllegalArgumentException("Remediation capability is required");
+        }
         try {
             RemediationResult result = restClient.post()
                 .uri("/internal/contracts/privacy-guard/remediate")
+                .header("X-Gateway-Service-Token", serviceToken)
+                .header("X-Remediation-Capability", capability)
                 .body(request)
                 .retrieve()
                 .body(RemediationResult.class);
@@ -36,6 +47,9 @@ public class GatewayRemediationClient {
     }
 
     public record RemediationRequest(
+        @JsonProperty("incident_id") String incidentId,
+        @JsonProperty("action_id") String actionId,
+        @JsonProperty("decision_id") String decisionId,
         @JsonProperty("request_id") String requestId,
         String action,
         String resource,
