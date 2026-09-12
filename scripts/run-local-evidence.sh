@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUTPUT_DIR="$ROOT_DIR/docs/evidence/runtime"
 mkdir -p "$OUTPUT_DIR"
+SENTINEL_SCAN_STATUS="NOT_CONFIGURED"
 
 run_and_capture() {
   local name="$1"
@@ -26,6 +27,7 @@ if [[ -n "${EVIDENCE_SENTINEL_SECRET:-}" ]]; then
     echo "Local evidence contains the synthetic sentinel secret" >&2
     exit 1
   fi
+  SENTINEL_SCAN_STATUS="PASS"
 fi
 
 cat > "$OUTPUT_DIR/summary.txt" <<SUMMARY
@@ -35,7 +37,7 @@ Rust contract: PASS
 Java backend: PASS
 T3N gateway local tests/typecheck: PASS
 React frontend tests/typecheck: PASS
-Secret sentinel scan: ${EVIDENCE_SENTINEL_SECRET:+PASS}${EVIDENCE_SENTINEL_SECRET:-NOT_CONFIGURED}
+Secret sentinel scan: $SENTINEL_SCAN_STATUS
 
 These are LOCAL results only. They are not T3N testnet execution evidence.
 SUMMARY
