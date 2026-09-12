@@ -9,6 +9,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -21,18 +22,12 @@ public class ExecutionTraceService {
 
     @Transactional
     public void record(ActionProposalEntity action, String stage, String state, String reasonCode, Long durationMs) {
-        traces.save(new ExecutionTraceEventEntity(
-            UUID.randomUUID().toString(),
-            action.getIncidentId(),
-            action.getId(),
-            safe(action.getRequestId(), 128),
-            safe(TraceContext.currentOrGenerate(), 64),
-            safe(stage, 64),
-            safe(state, 32),
-            blankToNull(safe(reasonCode, 80)),
-            durationMs == null ? null : Math.max(0L, durationMs),
-            Instant.now()
-        ));
+        save(action, stage, state, reasonCode, durationMs);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordFailure(ActionProposalEntity action, String stage, String state, String reasonCode, Long durationMs) {
+        save(action, stage, state, reasonCode, durationMs);
     }
 
     @Transactional(readOnly = true)
@@ -51,6 +46,21 @@ public class ExecutionTraceService {
                 event.getCreatedAt()
             ))
             .toList();
+    }
+
+    private void save(ActionProposalEntity action, String stage, String state, String reasonCode, Long durationMs) {
+        traces.save(new ExecutionTraceEventEntity(
+            UUID.randomUUID().toString(),
+            action.getIncidentId(),
+            action.getId(),
+            safe(action.getRequestId(), 128),
+            safe(TraceContext.currentOrGenerate(), 64),
+            safe(stage, 64),
+            safe(state, 32),
+            blankToNull(safe(reasonCode, 80)),
+            durationMs == null ? null : Math.max(0L, durationMs),
+            Instant.now()
+        ));
     }
 
     private static String safe(String value, int max) {
