@@ -205,7 +205,10 @@ public class IncidentService {
         }
         if (execution.getStatus() == RemediationStatus.EXECUTING && execution.getOperationId() == null) {
             RemediationExecutionEntity state = executionCoordinator.markUnverified(action.getId(), "RECOVERY_EXECUTION_OUTCOME_UNKNOWN");
-            audit(incidentId, "REMEDIATION_UNVERIFIED", "Recovered an execution claim without a verifiable operation id; no automatic retry will occur");
+            if (state.getStatus() == RemediationStatus.EXECUTING) {
+                return remediationResponse(incidentId, action.getId(), state);
+            }
+            audit(incidentId, "REMEDIATION_UNVERIFIED", "Recovered a stale execution claim without a verifiable operation id; no automatic retry will occur");
             return remediationResponse(incidentId, action.getId(), state);
         }
         return verifyPersistedRemediation(incidentId, action, execution);
