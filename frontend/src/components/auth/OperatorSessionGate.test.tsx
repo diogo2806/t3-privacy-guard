@@ -45,4 +45,23 @@ describe('OperatorSessionGate', () => {
     expect(screen.getByText('operator')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
   });
+
+  it('announces the backend cooldown and disables only sign-in submission', () => {
+    render(
+      <OperatorSessionGate
+        session={{ authenticated: false }}
+        loading={false}
+        busy={false}
+        error={null}
+        retryAfterSeconds={30}
+        onLogin={vi.fn(async () => undefined)}
+        onLogout={vi.fn(async () => undefined)}
+      />,
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Too many failed attempts. Try again in 30 seconds.');
+    expect(screen.getByRole('button', { name: 'Try again in 30s' })).toBeDisabled();
+    expect(screen.getByLabelText('Username')).not.toBeDisabled();
+    expect(screen.getByLabelText('Password')).not.toBeDisabled();
+  });
 });
