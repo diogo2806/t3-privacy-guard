@@ -16,39 +16,50 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class GatewaySystemClient {
+    private static final String SERVICE_TOKEN_HEADER = "X-Gateway-Service-Token";
+
     private final HttpClient httpClient;
     private final ObjectMapper mapper;
     private final String baseUrl;
+    private final String serviceToken;
 
-    public GatewaySystemClient(ObjectMapper mapper, @Value("${privacy-guard.gateway.base-url}") String baseUrl) {
+    public GatewaySystemClient(
+        ObjectMapper mapper,
+        @Value("${privacy-guard.gateway.base-url}") String baseUrl,
+        @Value("${privacy-guard.gateway.service-token}") String serviceToken
+    ) {
         this.mapper = mapper;
         this.baseUrl = baseUrl.replaceAll("/+$", "");
+        this.serviceToken = serviceToken;
         this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
     }
 
     public boolean health() {
-        return get("/health", HealthResponse.class).map(response -> "UP".equals(response.status())).orElse(false);
+        return get("/health", HealthResponse.class, false).map(response -> "UP".equals(response.status())).orElse(false);
     }
 
-    public Optional<TenantStatus> tenantStatus() { return get("/internal/t3n/status", TenantStatus.class); }
-    public Optional<AgentStatus> agentStatus() { return get("/internal/agent/status", AgentStatus.class); }
+    public Optional<TenantStatus> tenantStatus() { return get("/internal/t3n/status", TenantStatus.class, true); }
+    public Optional<AgentStatus> agentStatus() { return get("/internal/agent/status", AgentStatus.class, true); }
 
     public Optional<ContractIdentity> contractIdentity() {
-        return get("/internal/contracts/privacy-guard/identity", ContractIdentity.class)
+        return get("/internal/contracts/privacy-guard/identity", ContractIdentity.class, true)
             .filter(identity -> identity.contractVersion() != null && !identity.contractVersion().isBlank());
     }
 
     public Optional<DelegationStatus> delegationStatus(String contractId) {
         if (contractId == null || contractId.isBlank()) return Optional.empty();
         String encoded = URLEncoder.encode(contractId, StandardCharsets.UTF_8);
-        return get("/internal/agent/delegations/" + encoded, DelegationStatus.class);
+        return get("/internal/agent/delegations/" + encoded, DelegationStatus.class, true);
     }
 
-    private <T> Optional<T> get(String path, Class<T> type) {
+    private <T> Optional<T> get(String path, Class<T> type, boolean internal) {
         try {
-            HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path))
-                .GET().timeout(Duration.ofSeconds(5)).header("Accept", "application/json").build();
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + path))
+                .GET()
+                .timeout(Duration.ofSeconds(5))
+                .header("Accept", "application/json");
+            if (internal) builder.header(SERVICE_TOKEN_HEADER, serviceToken);
+            HttpResponse<String> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300 || response.body() == null || response.body().isBlank()) return Optional.empty();
             return Optional.of(mapper.readValue(response.body(), type));
         } catch (IOException | InterruptedException | RuntimeException ex) {
