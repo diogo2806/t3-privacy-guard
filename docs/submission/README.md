@@ -2,11 +2,13 @@
 
 ## Executive summary
 
-T3 Privacy Guard assumes the AI agent itself can be manipulated. The demo sends a real textual prompt to a configured tool-calling model. The model may propose an unsafe action, but its tool surface contains only `action`, `resource`, `purpose`, optional `host` and `fields`. It cannot provide a policy decision, DID, override, secret or execution capability.
+T3 Privacy Guard assumes the AI agent itself can be manipulated. The demo sends a real textual prompt to a configured tool-calling model. The model may propose an unsafe action, but its tool surface contains only `action`, `resource`, `purpose`, optional `host`, normal field names and enumerated logical private-data references. It cannot provide a policy decision, DID, override, secret, execution capability or literal T3N profile placeholder.
 
-The structured proposal is persisted and sent to the independent Terminal 3 Rust/WASM policy through the authenticated Agent DID and tenant `pii_did`. A malicious exfiltration proposal receives `DENY`. A minimum legitimate proposal can receive `ALLOW`, but `ALLOW` is still not execution: an authenticated operator must explicitly authorize remediation, after which Spring emits a short-lived one-time signed capability bound to the exact action and decision. The gateway verifies service authentication, capability integrity, expiry, body equality and anti-replay state before protected T3N execution.
+The structured proposal is persisted and sent to the independent Terminal 3 Rust/WASM policy through the authenticated Agent DID and tenant `pii_did`. A malicious exfiltration proposal receives `DENY`. A minimum legitimate proposal can receive `ALLOW`, but `ALLOW` is still not execution: an authenticated operator must explicitly authorize remediation, after which Spring emits a short-lived one-time signed capability bound to the exact action, decision, normal fields and logical private references. The gateway verifies service authentication, capability integrity, expiry, body equality and anti-replay state before protected T3N execution.
 
-The project reports only verifiable state: `NOT_RUN` never becomes `PASS`, simulated output is not labelled live, and hardware attestation is not claimed without a concrete artifact.
+For private profile data, the application carries only a category such as `verified_email`. The Rust/WASM contract maps that closed reference to the supported T3N marker `{{profile.verified_contacts.email.value}}`; the real value can be resolved only by T3N during protected egress and is not returned to React, Java, the model or gateway responses.
+
+The project reports only verifiable state: `NOT_RUN` never becomes `PASS`, simulated output is not labelled live, profile-placeholder resolution is not labelled proved live until a compatible testnet profile actually executes it, and hardware attestation is not claimed without a concrete artifact.
 
 ## Judge quick path
 
@@ -17,11 +19,12 @@ The project reports only verifiable state: `NOT_RUN` never becomes `PASS`, simul
 4. Click Run attack scenario
 5. Inspect the real model's structured Agent proposal
 6. Observe independent T3N TEE DENY
-7. Load a safe prompt and Ask agent, or prepare the known minimum remediation
-8. Observe T3N ALLOW
-9. Record explicit human authorization
-10. Execute protected remediation when synthetic egress is enabled
-11. Open Evidence and confirm T3N_TESTNET metadata/results
+7. Submit a legitimate prompt that can request only logical private categories
+8. Observe the private-data panel: agent NO plaintext / Java NO plaintext / T3N egress resolution only
+9. Observe T3N ALLOW or REDACT according to minimum scope
+10. Record explicit human authorization only after ALLOW
+11. Execute protected remediation when the required synthetic/testnet context exists
+12. Open Evidence and confirm T3N_TESTNET metadata/results
 ```
 
 ## Architecture and trust boundaries
@@ -31,7 +34,7 @@ Untrusted prompt
       |
       v
 AI provider (proposal only)
-      |
+      | logical private ref, never value
       v
 Browser / Spring Boot
       |
@@ -47,44 +50,52 @@ T3N / Rust WASM policy
                     |
              one-time capability
                     |
-             protected execution
+                    v
+        closed logical-ref mapping
+      verified_email -> profile marker
+                    |
+                    v
+        T3N resolves plaintext at egress
 ```
 
 Trust model:
 
-- **Prompt is untrusted.** It may contain instruction injection. The prompt never becomes an authorization source.
+- **Prompt is untrusted.** It may contain instruction injection and never becomes an authorization source.
 - **The model is not a security boundary.** It can only call one proposal tool with a closed JSON schema.
-- **Unknown or privileged model fields are rejected.** `decision`, `allow`, `override`, `approved`, `agent_did`, `pii_did`, credential/secret/API-key fields and unknown keys are rejected before T3N evaluation.
-- **T3N identities are server-derived.** Agent DID comes from the authenticated agent session; tenant `pii_did` from the authenticated tenant session. Neither comes from the LLM/browser.
-- **Rust/WASM owns the policy decision.** The model cannot manufacture `ALLOW`.
-- **Spring Boot owns durable business authorization.** It persists incident/action/decision state and creates a remediation capability only after a persisted `ALLOW` plus explicit human authorization.
-- **Gateway owns T3N sessions and privileged execution.** It requires a separate service token and validates/consumes the one-time capability before remediation.
-- **Private KV owns remediation credentials.** The protected secret is not returned to browser, Java or the model.
-
-The current prompt path is for sanitized/non-secret incident instructions. Real private profile values are intentionally not placed in model prompts; issue #37 moves private data use to T3N profile references resolved only at protected egress.
+- **Unknown or privileged model fields are rejected.** Decisions, overrides, identities, credentials, secrets, API keys and literal `{{profile...}}` markers are rejected before T3N evaluation.
+- **Private data is referenced, not copied.** The model/application may request `verified_email`; only Rust/WASM can convert it to the official T3N profile marker.
+- **T3N identities are server-derived.** Agent DID comes from the authenticated agent session; tenant `pii_did` from the authenticated tenant session.
+- **Rust/WASM owns policy and private-reference mapping.** The model cannot manufacture `ALLOW` or select arbitrary profile namespaces.
+- **Spring Boot owns durable business authorization.** It persists only logical references and creates an execution capability only after persisted `ALLOW` plus explicit human authorization.
+- **Gateway owns T3N sessions and privileged execution.** It requires service authentication and validates/consumes the one-time capability before remediation.
+- **Private KV owns remediation credentials.** The protected credential is never returned to browser, Java or the model.
+- **T3N protected egress is the only intended profile-resolution point.** The allowed external service can receive the resolved value; the contract reduces the response to non-sensitive operation metadata.
 
 ## Security claims matrix
 
 | Claim | Current status | Source of truth |
 |---|---|---|
-| Real configured model produces the structured proposal path | PROVED LOCAL | provider adapter + agent service + backend orchestration tests |
+| Real configured model produces structured proposals | PROVED LOCAL | provider adapter + agent/backend tests |
 | Tool schema cannot accept decision/override/DID/secret authority fields | PROVED LOCAL | `proposal-schema.test.ts` |
-| Disabled AI provider fails closed | PROVED LOCAL | `agent-service.test.ts` |
-| Malicious model proposal is independently persisted/evaluated and can be DENY | PROVED LOCAL | `AgentAnalysisServiceTest` + Rust policy tests |
-| Legitimate model proposal can receive ALLOW without auto-execution | PROVED LOCAL | `AgentAnalysisServiceTest` |
+| Literal profile placeholders and unknown private refs are rejected | PROVED LOCAL | proposal schema + Spring validation + Rust policy tests |
+| `verified_email` is the only current logical private reference | PROVED LOCAL | Rust policy/remediation mapping |
+| `verified_email` is allowed only for `notify-security` / `incident-notification` | PROVED LOCAL | Rust policy tests |
+| Rust maps `verified_email` to `{{profile.verified_contacts.email.value}}` | PROVED LOCAL | Rust remediation regression test |
+| Java/H2 persists logical refs, not plaintext profile values | PROVED LOCAL | entity/service/API model + tests |
+| Human capability binds private refs as well as normal fields | PROVED LOCAL | signer/verifier tests |
+| Reflected upstream private value is absent from contract result schema | PROVED LOCAL | Rust remediation regression test |
 | Tenant DID derives from authenticated T3N session | PROVED LOCAL | gateway session code/tests |
 | Agent uses separate credential/DID | PROVED LOCAL | agent/tenant session separation |
 | Delegated calls bind `pii_did` to tenant DID | PROVED LOCAL | gateway contract tests |
 | Protected remediation requires service auth + signed human capability | PROVED LOCAL | gateway authorization boundary/tests |
-| Capability body tampering/expiry/replay is rejected | PROVED LOCAL | remediation authorization tests |
-| Secret/header reflection is not returned | PROVED LOCAL | Rust remediation regression |
-| Real model attack -> T3N DENY on live testnet | NOT CLAIMED | becomes live only when a matching public capture/evidence run exists |
+| Real model attack -> T3N DENY on live testnet | NOT CLAIMED | only after matching public capture/evidence run |
+| T3N profile placeholder resolves verified email on live testnet | NOT RUN | requires compatible profile/user context and matching evidence |
 | Revoked delegation blocks protected egress on live testnet | NOT CLAIMED | only after matching live evidence |
 | Hardware attestation for this execution | NOT CLAIMED | no explicit attestation artifact yet |
 
 ## Real AI tool boundary
 
-The provider adapter uses a single forced tool:
+The forced tool shape is:
 
 ```json
 {
@@ -92,20 +103,57 @@ The provider adapter uses a single forced tool:
   "resource": "string",
   "purpose": "string",
   "host": "string|null",
-  "fields": ["string"]
+  "fields": ["string"],
+  "private_refs": ["verified_email"]
 }
 ```
 
-The provider is configured only by runtime environment:
+`private_refs` contains domain-level categories only. The model cannot submit `{{profile...}}`, `profile.*`, plaintext email or a new private namespace. Provider failure, invalid JSON, missing/multiple tool calls, extra keys or unsafe authority fields fail closed.
+
+## Structural private-data flow
 
 ```text
-AI_PROVIDER=openai-compatible
-AI_API_URL=<chat-completions compatible endpoint>
-AI_API_KEY=<runtime secret>
-AI_MODEL=<tool-calling model>
+Agent request: verified_email
+        |
+        v
+Spring/H2 stores: verified_email
+        |
+        v
+T3N policy checks action + purpose + host + private ref
+        |
+        v
+Human authorization capability signs privateRefsHash
+        |
+        v
+Gateway verifies exact private_refs set
+        |
+        v
+Rust/WASM maps verified_email
+        |
+        v
+{{profile.verified_contacts.email.value}}
+        |
+        v
+T3N resolves only in protected egress
+        |
+        v
+External service receives value
+        |
+        v
+Contract returns only status / operation_id
 ```
 
-`AI_PROVIDER=disabled` is the safe default. Disabled/unavailable provider, invalid JSON, missing/multiple tool calls, extra fields or unsafe authority fields fail closed. A demo fixture is never relabelled as live AI.
+Plaintext visibility contract:
+
+- AI/model: **NO**
+- React/browser: **NO**
+- Spring Boot/H2: **NO**
+- gateway API/logical request: **NO**
+- business audit/evidence: **NO**
+- T3N protected egress: **YES**, transiently for placeholder resolution
+- intended external service: **YES**, because it is the authorized recipient
+
+If the profile field is unavailable, user context is missing, placeholder is denied, delegation is revoked or the destination host is not authorized, execution fails closed. Error text never returns the resolved value.
 
 ## Privileged remediation flow
 
@@ -116,7 +164,7 @@ Authenticated operator authorizes
       |
 Spring checks persisted action + ALLOW
       |
-HMAC one-time capability
+HMAC capability binds fields + private refs
       |
 Gateway verifies service token + signature + exact body + expiry
       |
@@ -135,9 +183,12 @@ The project validates/sends non-empty scopes even where simplified examples omit
 ### Delegated `pii_did`
 Every delegated execution derives `pii_did` internally from `tenantSession.getTenantDid()`. Browser, Java and LLM cannot supply or override the authorization subject.
 
+### Profile placeholders
+The application never lets the LLM/browser choose a raw placeholder. `verified_email` is mapped inside the TEE contract to the documented `profile.verified_contacts.email.value` marker, limiting the public application contract to an auditable domain vocabulary.
+
 ## Post-challenge operation and handover
 
-**Decision: continue running the project after the challenge.** Future handover provisions new tenant/agent credentials, operator credentials, provider key, `GATEWAY_SERVICE_TOKEN` and `REMEDIATION_CAPABILITY_KEY`; existing private keys are not transferred through GitHub/UI. Persistent gateway `/data` is mounted for anti-replay state.
+**Decision: continue running the project after the challenge.** Future handover provisions new tenant/agent credentials, operator credentials, provider key, service/capability keys and persistent gateway `/data`. Existing private keys are not transferred through GitHub/UI. Profile-backed live evidence must use a dedicated test profile with synthetic data.
 
 ## Evidence model
 
@@ -150,7 +201,7 @@ WASM bytes -> SHA-256 -> deployment-manifest.json
                                testnet-run.json
 ```
 
-`PASS` means the observed result matched expectation. `FAIL` means it did not. `NOT_RUN` means the scenario was not executed and is never counted as success.
+`PASS` means observed result matched expectation. `FAIL` means it did not. `NOT_RUN` means the scenario was not executed and is never counted as success. The profile-placeholder execution scenario remains `NOT_RUN` until a compatible profile/user context exists; local tests do not upgrade that claim to live proof.
 
 ### Local controls
 
@@ -166,46 +217,49 @@ npm install
 npm run evidence:live
 ```
 
-The capture harness requires real T3N evidence before final capture. Its attack screenshot now also requires the visible `Agent proposal` produced through the actual `/api/agent/analyze` path. Capture metadata is leak-scanned for operator credentials, T3N keys, AI provider key, service token, capability signing key, remediation key and configured sentinel.
+The capture harness requires real T3N evidence before final capture. Generated metadata is leak-scanned for operator credentials, T3N keys, AI provider key, service token, capability signing key, remediation key and configured sentinel.
 
 ## Screenshot shot list
 
 1. Live T3N operational status.
 2. Attack prompt + provider/model provenance + model proposal + `DENY`.
 3. `REDACT` data-minimization evidence.
-4. Legitimate proposal/minimum remediation + `ALLOW`.
-5. Human authorization separate from execution.
-6. One-time authorization state without token/signature/nonce.
-7. Protected result only when synthetic egress actually succeeds.
-8. Evidence Center with T3N_TESTNET metadata/results.
+4. Private-reference panel showing `Verified email`, Agent plaintext `NO`, Java plaintext `NO`, T3N egress resolution boundary.
+5. Legitimate proposal/minimum remediation + `ALLOW`.
+6. Human authorization separate from execution.
+7. One-time authorization state without token/signature/nonce.
+8. Protected result only when synthetic/profile egress actually succeeds.
+9. Evidence Center with T3N_TESTNET metadata/results and profile scenario honestly PASS/FAIL/NOT RUN.
 
-Never capture passwords, cookies, T3N keys, provider key, internal service token, capability signing key/token, remediation secret, `.env` or raw logs.
+Never capture passwords, cookies, T3N keys, provider key, service/capability keys, remediation secret, resolved profile PII, `.env` or raw logs.
 
 ## Demo video storyboard
 
 ```text
-0–15s    Problem: the model itself may be manipulated
+0–15s    Problem: model compromise must not become authority or data access
 15–35s   Show live tenant/agent/contract/delegation identities
-35–60s   Show attack prompt -> real provider -> structured Agent proposal
-60–80s   Show independent T3N TEE DENY
-80–105s  Safe prompt/minimum proposal -> ALLOW
-105–130s Human authorization -> one-time bound proof
-130–155s Synthetic protected execution when enabled
-155–180s Evidence Center -> T3N_TESTNET metadata/results
+35–60s   Attack prompt -> real provider -> structured Agent proposal
+60–80s   Independent T3N TEE DENY
+80–105s  Show logical private reference instead of private value
+105–125s T3N ALLOW/REDACT and explain placeholder resolves only at egress
+125–145s Human authorization -> one-time bound proof
+145–165s Protected execution when matching test context exists
+165–180s Evidence Center -> exact live proof status
 ```
 
 ## UX/claim wording rules
 
-- **agent proposal**: model-produced structured request, not an authorization;
+- **agent proposal**: model-produced structured request, not authorization;
+- **logical private reference**: category such as `verified_email`, not the private value;
+- **resolved by T3N at egress**: only claim for executions where T3N actually resolved the placeholder;
 - **authenticated**: a session identity was authenticated;
 - **resolved**: contract id/version were resolved;
 - **delegated**: an active member grant was observed;
 - **authorized**: human business authorization was persisted;
 - **execution proof**: short-lived server-to-gateway capability, not hardware attestation;
 - **executed**: operation actually ran;
-- **proved live**: matching live evidence/capture exists;
-- **secretless from application/agent layers**: secret is not exposed to browser, Java or model; it still exists in protected storage.
+- **proved live**: matching live evidence/capture exists.
 
-Do not say “guarantees GDPR compliance” or “hardware verified” without corresponding evidence.
+Do not say “guarantees GDPR compliance”, “hardware verified” or “profile resolution proved live” without corresponding evidence.
 
 This file is the repository source of truth for the public submission narrative and handover model.
