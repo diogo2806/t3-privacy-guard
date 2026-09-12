@@ -24,7 +24,7 @@ Each runtime has its own Dockerfile. There is intentionally no `docker-compose.y
 
 ```bash
 cd frontend
-npm ci
+npm install
 npm run build
 ```
 
@@ -40,7 +40,7 @@ mvn package
 
 ```bash
 cd t3n-gateway
-npm ci
+npm install
 npm run typecheck
 npm run build
 ```
