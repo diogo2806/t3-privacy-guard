@@ -39,10 +39,10 @@ test('revoke expires only the matching grant and preserves its original restrict
     grants: [{
       grantee: 'did:t3n:agent-test',
       contract_id: 'z:tenant:privacy-guard',
-      version_req: '0.2.0',
-      functions: ['evaluate-action', 'execute-remediation'],
+      version_req: '0.3.0',
+      functions: ['evaluate-action', 'execute-remediation', 'verify-remediation'],
       scopes: ['incident_id', 'credential_id', 'reason'],
-      allowed_hosts: ['postman-echo.com'],
+      allowed_hosts: ['security.example', 'verification.example'],
       read_scopes: ['incident_id'],
     }],
   });
@@ -51,9 +51,9 @@ test('revoke expires only the matching grant and preserves its original restrict
   assert.equal(await service.revoke('z:tenant:privacy-guard'), 'REVOKED');
   assert.equal(updates.length, 1);
   const update = updates[0] as Record<string, unknown>;
-  assert.deepEqual(update.functions, ['evaluate-action', 'execute-remediation']);
+  assert.deepEqual(update.functions, ['evaluate-action', 'execute-remediation', 'verify-remediation']);
   assert.deepEqual(update.scopes, ['incident_id', 'credential_id', 'reason']);
-  assert.deepEqual(update.allowed_hosts, ['postman-echo.com']);
+  assert.deepEqual(update.allowed_hosts, ['security.example', 'verification.example']);
   assert.ok((update.window as { valid_until_secs: number }).valid_until_secs < Math.floor(Date.now() / 1000));
 });
 
@@ -62,21 +62,21 @@ test('grant forwards only the declared function, scope and host restrictions', a
   const service = new DelegationService(tenant, agent);
   await service.grant({
     contractId: 'z:tenant:privacy-guard',
-    versionReq: '0.2.0',
-    functions: ['evaluate-action'],
+    versionReq: '0.3.0',
+    functions: ['evaluate-action', 'verify-remediation'],
     scopes: ['incident_id'],
-    allowedHosts: ['postman-echo.com'],
+    allowedHosts: ['verification.example'],
   });
 
   assert.equal(updates.length, 1);
   assert.deepEqual(updates[0], {
     grantee: 'did:t3n:agent-test',
     contract_id: 'z:tenant:privacy-guard',
-    version_req: '0.2.0',
-    functions: ['evaluate-action'],
+    version_req: '0.3.0',
+    functions: ['evaluate-action', 'verify-remediation'],
     scopes: ['incident_id'],
     read_scopes: undefined,
-    allowed_hosts: ['postman-echo.com'],
+    allowed_hosts: ['verification.example'],
     window: undefined,
   });
 });
