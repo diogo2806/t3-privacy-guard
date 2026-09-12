@@ -12,7 +12,7 @@ function manifest(): DeploymentManifest {
     agentDid: 'did:t3n:agent',
     contractId: 'z:tenant:privacy-guard',
     numericContractId: 123,
-    contractVersion: '0.2.0',
+    contractVersion: '0.3.0',
     wasmSha256: 'a'.repeat(64),
   };
 }
@@ -42,6 +42,6 @@ test('rejects a different WASM hash or contract version', () => {
   assert.throws(() => assertEvidenceMatchesDeployment(value, {
     source: 'T3N_TESTNET', network: value.network, sdkVersion: value.sdkVersion,
     tenantDid: value.tenantDid, agentDid: value.agentDid, contractId: value.contractId,
-    contractVersion: '0.2.1', wasmSha256: 'b'.repeat(64),
+    contractVersion: '0.3.1', wasmSha256: 'b'.repeat(64),
   }), /Evidence mismatch/);
 });
