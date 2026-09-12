@@ -24,6 +24,7 @@ import br.com.t3privacyguard.persistence.PolicyDecisionEntity;
 import br.com.t3privacyguard.persistence.PolicyDecisionRepository;
 import br.com.t3privacyguard.persistence.RemediationExecutionEntity;
 import br.com.t3privacyguard.persistence.RemediationExecutionRepository;
+import br.com.t3privacyguard.security.RemediationAuthorizationSigner;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -45,6 +46,7 @@ public class IncidentService {
     private final RemediationExecutionRepository remediations;
     private final GatewayPolicyClient gateway;
     private final GatewayRemediationClient remediationGateway;
+    private final RemediationAuthorizationSigner remediationAuthorizationSigner;
     private final ObjectMapper mapper;
 
     public IncidentService(
@@ -55,6 +57,7 @@ public class IncidentService {
         RemediationExecutionRepository remediations,
         GatewayPolicyClient gateway,
         GatewayRemediationClient remediationGateway,
+        RemediationAuthorizationSigner remediationAuthorizationSigner,
         ObjectMapper mapper
     ) {
         this.incidents = incidents;
@@ -64,6 +67,7 @@ public class IncidentService {
         this.remediations = remediations;
         this.gateway = gateway;
         this.remediationGateway = remediationGateway;
+        this.remediationAuthorizationSigner = remediationAuthorizationSigner;
         this.mapper = mapper;
     }
 
@@ -195,21 +199,39 @@ public class IncidentService {
         ActionProposalEntity action = requireAction(incidentId, actionId);
         Optional<RemediationExecutionEntity> persisted = remediations.findByActionProposalId(actionId);
         if (persisted.isPresent()) {
-            RemediationExecutionEntity prior = persisted.get();
-            return remediationResponse(incidentId, actionId, prior);
+            return remediationResponse(incidentId, actionId, persisted.get());
         }
-
         if (action.getStatus() != ProposalStatus.REMEDIATION_AUTHORIZED) {
             throw new PolicyDeniedException("Remediation must be explicitly authorized before execution");
         }
 
+        PolicyDecisionEntity decision = decisions.findByActionProposalId(actionId)
+            .orElseThrow(() -> new ConflictException("A persisted policy decision is required before remediation"));
+        if (decision.getDecision() != DecisionType.ALLOW) {
+            throw new PolicyDeniedException("Remediation requires a persisted ALLOW policy decision");
+        }
+
+        List<String> fields = readList(action.getFieldsJson());
+        String capability = remediationAuthorizationSigner.issue(
+            incidentId,
+            actionId,
+            action.getRequestId(),
+            decision.getId(),
+            action.getAction(),
+            action.getResource(),
+            action.getPurpose(),
+            fields
+        );
         var result = remediationGateway.execute(new RemediationRequest(
+            incidentId,
+            actionId,
+            decision.getId(),
             action.getRequestId(),
             action.getAction(),
             action.getResource(),
             action.getPurpose(),
-            readList(action.getFieldsJson())
-        ));
+            fields
+        ), capability);
         if (!action.getRequestId().equals(result.requestId())) {
             throw new IllegalStateException("Remediation result request id mismatch");
         }
@@ -234,11 +256,7 @@ public class IncidentService {
         requireIncident(incidentId);
         return audits.findByIncidentIdOrderByCreatedAtAsc(incidentId).stream()
             .map(event -> new AuditResponse(
-                event.getId(),
-                event.getIncidentId(),
-                event.getType(),
-                event.getMessage(),
-                event.getCreatedAt()
+                event.getId(), event.getIncidentId(), event.getType(), event.getMessage(), event.getCreatedAt()
             ))
             .toList();
     }
@@ -257,68 +275,23 @@ public class IncidentService {
     }
 
     private void audit(String incidentId, String type, String message) {
-        audits.save(new AuditEventEntity(
-            UUID.randomUUID().toString(),
-            incidentId,
-            type,
-            safe(message, 600),
-            Instant.now()
-        ));
+        audits.save(new AuditEventEntity(UUID.randomUUID().toString(), incidentId, type, safe(message, 600), Instant.now()));
     }
 
     private IncidentResponse incidentResponse(IncidentEntity entity) {
-        return new IncidentResponse(
-            entity.getId(),
-            entity.getTitle(),
-            entity.getSeverity(),
-            entity.getSummary(),
-            entity.getSource(),
-            entity.getStatus(),
-            entity.getCreatedAt()
-        );
+        return new IncidentResponse(entity.getId(), entity.getTitle(), entity.getSeverity(), entity.getSummary(), entity.getSource(), entity.getStatus(), entity.getCreatedAt());
     }
 
     private ActionResponse actionResponse(ActionProposalEntity entity) {
-        return new ActionResponse(
-            entity.getId(),
-            entity.getIncidentId(),
-            entity.getRequestId(),
-            entity.getAction(),
-            entity.getResource(),
-            entity.getPurpose(),
-            entity.getHost(),
-            readList(entity.getFieldsJson()),
-            entity.getStatus(),
-            entity.getCreatedAt()
-        );
+        return new ActionResponse(entity.getId(), entity.getIncidentId(), entity.getRequestId(), entity.getAction(), entity.getResource(), entity.getPurpose(), entity.getHost(), readList(entity.getFieldsJson()), entity.getStatus(), entity.getCreatedAt());
     }
 
     private DecisionResponse decisionResponse(PolicyDecisionEntity entity) {
-        return new DecisionResponse(
-            entity.getId(),
-            entity.getActionProposalId(),
-            entity.getDecision(),
-            entity.getReasonCode(),
-            entity.getReason(),
-            readList(entity.getAllowedFieldsJson()),
-            readList(entity.getRedactedFieldsJson()),
-            entity.getEvaluatedAt()
-        );
+        return new DecisionResponse(entity.getId(), entity.getActionProposalId(), entity.getDecision(), entity.getReasonCode(), entity.getReason(), readList(entity.getAllowedFieldsJson()), readList(entity.getRedactedFieldsJson()), entity.getEvaluatedAt());
     }
 
-    private RemediationExecutionResponse remediationResponse(
-        String incidentId,
-        String actionId,
-        RemediationExecutionEntity entity
-    ) {
-        return new RemediationExecutionResponse(
-            incidentId,
-            actionId,
-            entity.getRequestId(),
-            ProposalStatus.REMEDIATED.name(),
-            entity.getHttpCode(),
-            entity.getOperationId()
-        );
+    private RemediationExecutionResponse remediationResponse(String incidentId, String actionId, RemediationExecutionEntity entity) {
+        return new RemediationExecutionResponse(incidentId, actionId, entity.getRequestId(), ProposalStatus.REMEDIATED.name(), entity.getHttpCode(), entity.getOperationId());
     }
 
     private String writeJson(Object value) {
@@ -342,10 +315,7 @@ public class IncidentService {
     }
 
     private static String safe(String value, int max) {
-        String result = value == null ? "" : value.replaceAll(
-            "(?i)(api[_-]?key|password|private[_-]?key|token)\\s*[:=]\\s*\\S+",
-            "$1=[REDACTED]"
-        );
+        String result = value == null ? "" : value.replaceAll("(?i)(api[_-]?key|password|private[_-]?key|token)\\s*[:=]\\s*\\S+", "$1=[REDACTED]");
         return result.substring(0, Math.min(result.length(), max));
     }
 
