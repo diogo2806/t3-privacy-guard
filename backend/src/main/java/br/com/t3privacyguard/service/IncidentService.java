@@ -10,10 +10,12 @@ import br.com.t3privacyguard.api.ApiModels.RemediationAuthorizationResponse;
 import br.com.t3privacyguard.api.ApiModels.RemediationExecutionResponse;
 import br.com.t3privacyguard.domain.DecisionType;
 import br.com.t3privacyguard.domain.ProposalStatus;
+import br.com.t3privacyguard.domain.RemediationStatus;
 import br.com.t3privacyguard.integration.GatewayPolicyClient;
 import br.com.t3privacyguard.integration.GatewayPolicyClient.GatewayEvaluationRequest;
 import br.com.t3privacyguard.integration.GatewayRemediationClient;
 import br.com.t3privacyguard.integration.GatewayRemediationClient.RemediationRequest;
+import br.com.t3privacyguard.integration.GatewayUnavailableException;
 import br.com.t3privacyguard.persistence.ActionProposalEntity;
 import br.com.t3privacyguard.persistence.ActionProposalRepository;
 import br.com.t3privacyguard.persistence.AuditEventEntity;
@@ -23,7 +25,6 @@ import br.com.t3privacyguard.persistence.IncidentRepository;
 import br.com.t3privacyguard.persistence.PolicyDecisionEntity;
 import br.com.t3privacyguard.persistence.PolicyDecisionRepository;
 import br.com.t3privacyguard.persistence.RemediationExecutionEntity;
-import br.com.t3privacyguard.persistence.RemediationExecutionRepository;
 import br.com.t3privacyguard.security.RemediationAuthorizationSigner;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -43,21 +44,32 @@ public class IncidentService {
     private final ActionProposalRepository actions;
     private final PolicyDecisionRepository decisions;
     private final AuditEventRepository audits;
-    private final RemediationExecutionRepository remediations;
     private final GatewayPolicyClient gateway;
     private final GatewayRemediationClient remediationGateway;
     private final RemediationAuthorizationSigner remediationAuthorizationSigner;
+    private final RemediationExecutionCoordinator executionCoordinator;
     private final ObjectMapper mapper;
 
     public IncidentService(
-        IncidentRepository incidents, ActionProposalRepository actions, PolicyDecisionRepository decisions,
-        AuditEventRepository audits, RemediationExecutionRepository remediations, GatewayPolicyClient gateway,
-        GatewayRemediationClient remediationGateway, RemediationAuthorizationSigner remediationAuthorizationSigner,
+        IncidentRepository incidents,
+        ActionProposalRepository actions,
+        PolicyDecisionRepository decisions,
+        AuditEventRepository audits,
+        GatewayPolicyClient gateway,
+        GatewayRemediationClient remediationGateway,
+        RemediationAuthorizationSigner remediationAuthorizationSigner,
+        RemediationExecutionCoordinator executionCoordinator,
         ObjectMapper mapper
     ) {
-        this.incidents = incidents; this.actions = actions; this.decisions = decisions; this.audits = audits;
-        this.remediations = remediations; this.gateway = gateway; this.remediationGateway = remediationGateway;
-        this.remediationAuthorizationSigner = remediationAuthorizationSigner; this.mapper = mapper;
+        this.incidents = incidents;
+        this.actions = actions;
+        this.decisions = decisions;
+        this.audits = audits;
+        this.gateway = gateway;
+        this.remediationGateway = remediationGateway;
+        this.remediationAuthorizationSigner = remediationAuthorizationSigner;
+        this.executionCoordinator = executionCoordinator;
+        this.mapper = mapper;
     }
 
     @Transactional
@@ -143,33 +155,91 @@ public class IncidentService {
         return new RemediationAuthorizationResponse(incidentId, actionId, action.getRequestId(), action.getStatus().name());
     }
 
-    @Transactional
     public RemediationExecutionResponse executeRemediation(String incidentId, String actionId) {
         ActionProposalEntity action = requireAction(incidentId, actionId);
-        Optional<RemediationExecutionEntity> persisted = remediations.findByActionProposalId(actionId);
-        if (persisted.isPresent()) return remediationResponse(incidentId, actionId, persisted.get());
-        if (action.getStatus() != ProposalStatus.REMEDIATION_AUTHORIZED) throw new PolicyDeniedException("Remediation must be explicitly authorized before execution");
-
-        PolicyDecisionEntity decision = decisions.findByActionProposalId(actionId).orElseThrow(() -> new ConflictException("A persisted policy decision is required before remediation"));
+        if (action.getStatus() != ProposalStatus.REMEDIATION_AUTHORIZED && action.getStatus() != ProposalStatus.REMEDIATED) {
+            throw new PolicyDeniedException("Remediation must be explicitly authorized before execution");
+        }
+        PolicyDecisionEntity decision = decisions.findByActionProposalId(actionId)
+            .orElseThrow(() -> new ConflictException("A persisted policy decision is required before remediation"));
         if (decision.getDecision() != DecisionType.ALLOW) throw new PolicyDeniedException("Remediation requires a persisted ALLOW policy decision");
+
+        RemediationExecutionCoordinator.ClaimResult claim = executionCoordinator.claim(actionId, action.getRequestId());
+        if (!claim.acquired()) return reconcileExisting(incidentId, action, claim.execution());
 
         List<String> fields = readList(action.getFieldsJson());
         List<String> privateRefs = readList(action.getPrivateRefsJson());
         String capability = remediationAuthorizationSigner.issue(
             incidentId, actionId, action.getRequestId(), decision.getId(), action.getAction(), action.getResource(), action.getPurpose(), fields, privateRefs
         );
-        var result = remediationGateway.execute(new RemediationRequest(
-            incidentId, actionId, decision.getId(), action.getRequestId(), action.getAction(), action.getResource(), action.getPurpose(), fields, privateRefs
-        ), capability);
-        if (!action.getRequestId().equals(result.requestId())) throw new IllegalStateException("Remediation result request id mismatch");
 
-        RemediationExecutionEntity saved = remediations.saveAndFlush(new RemediationExecutionEntity(
-            UUID.randomUUID().toString(), actionId, result.requestId(), result.status(), result.httpCode(), safeNullable(result.operationId(), 200), Instant.now()
-        ));
-        action.markRemediated();
-        actions.save(action);
-        audit(incidentId, "REMEDIATION_EXECUTED", "Protected remediation completed with HTTP " + saved.getHttpCode());
-        return remediationResponse(incidentId, actionId, saved);
+        try {
+            var result = remediationGateway.execute(new RemediationRequest(
+                incidentId, actionId, decision.getId(), action.getRequestId(), action.getAction(), action.getResource(), action.getPurpose(), fields, privateRefs
+            ), capability);
+            if (!action.getRequestId().equals(result.requestId())) {
+                RemediationExecutionEntity state = executionCoordinator.markUnverified(actionId, "REQUEST_ID_MISMATCH");
+                audit(incidentId, "REMEDIATION_UNVERIFIED", "Execution acknowledgement request id did not match; no automatic retry will occur");
+                return remediationResponse(incidentId, actionId, state);
+            }
+            RemediationExecutionEntity pending = executionCoordinator.markPendingVerification(actionId, result.httpCode(), safeNullable(result.operationId(), 200));
+            audit(incidentId, "REMEDIATION_ACCEPTED", "External request accepted; independent verification is required before completion");
+            return verifyPersistedRemediation(incidentId, action, pending);
+        } catch (GatewayUnavailableException ex) {
+            RemediationExecutionEntity state = executionCoordinator.markUnverified(actionId, "EXECUTION_RESULT_UNKNOWN");
+            audit(incidentId, "REMEDIATION_UNVERIFIED", "Execution outcome is ambiguous; automatic re-execution is blocked");
+            return remediationResponse(incidentId, actionId, state);
+        }
+    }
+
+    public RemediationExecutionResponse verifyRemediation(String incidentId, String actionId) {
+        ActionProposalEntity action = requireAction(incidentId, actionId);
+        RemediationExecutionEntity execution = executionCoordinator.find(actionId)
+            .orElseThrow(() -> new ConflictException("Remediation has not been started"));
+        return reconcileExisting(incidentId, action, execution);
+    }
+
+    private RemediationExecutionResponse reconcileExisting(String incidentId, ActionProposalEntity action, RemediationExecutionEntity execution) {
+        if (execution.getStatus() == RemediationStatus.COMPLETED || execution.getStatus() == RemediationStatus.FAILED) {
+            return remediationResponse(incidentId, action.getId(), execution);
+        }
+        if (execution.getStatus() == RemediationStatus.EXECUTING && execution.getOperationId() == null) {
+            RemediationExecutionEntity state = executionCoordinator.markUnverified(action.getId(), "RECOVERY_EXECUTION_OUTCOME_UNKNOWN");
+            audit(incidentId, "REMEDIATION_UNVERIFIED", "Recovered an execution claim without a verifiable operation id; no automatic retry will occur");
+            return remediationResponse(incidentId, action.getId(), state);
+        }
+        return verifyPersistedRemediation(incidentId, action, execution);
+    }
+
+    private RemediationExecutionResponse verifyPersistedRemediation(String incidentId, ActionProposalEntity action, RemediationExecutionEntity execution) {
+        if (execution.getOperationId() == null || execution.getOperationId().isBlank()) {
+            RemediationExecutionEntity state = executionCoordinator.markUnverified(action.getId(), "MISSING_OPERATION_ID");
+            audit(incidentId, "REMEDIATION_UNVERIFIED", "External acknowledgement did not provide an operation id for independent verification");
+            return remediationResponse(incidentId, action.getId(), state);
+        }
+
+        executionCoordinator.markVerificationAttempt(action.getId());
+        try {
+            var verification = remediationGateway.verify(execution.getRequestId(), execution.getOperationId());
+            if (!execution.getRequestId().equals(verification.requestId())) {
+                RemediationExecutionEntity state = executionCoordinator.markUnverified(action.getId(), "VERIFICATION_REQUEST_ID_MISMATCH");
+                return remediationResponse(incidentId, action.getId(), state);
+            }
+            if ("VERIFIED".equals(verification.status()) && "REVOKED".equals(verification.observedState())) {
+                RemediationExecutionEntity completed = executionCoordinator.markCompleted(action.getId());
+                action.markRemediated();
+                actions.save(action);
+                audit(incidentId, "REMEDIATION_VERIFIED", "Independent read-back confirmed expected external state REVOKED");
+                return remediationResponse(incidentId, action.getId(), completed);
+            }
+            RemediationExecutionEntity state = executionCoordinator.markUnverified(action.getId(), "EXTERNAL_STATE_NOT_VERIFIED");
+            audit(incidentId, "REMEDIATION_UNVERIFIED", "Independent read-back did not confirm the expected external state");
+            return remediationResponse(incidentId, action.getId(), state);
+        } catch (GatewayUnavailableException ex) {
+            RemediationExecutionEntity state = executionCoordinator.markUnverified(action.getId(), "VERIFICATION_UNAVAILABLE");
+            audit(incidentId, "REMEDIATION_UNVERIFIED", "External verification is unavailable; no automatic re-execution will occur");
+            return remediationResponse(incidentId, action.getId(), state);
+        }
     }
 
     @Transactional(readOnly = true)
@@ -218,7 +288,10 @@ public class IncidentService {
     }
 
     private RemediationExecutionResponse remediationResponse(String incidentId, String actionId, RemediationExecutionEntity entity) {
-        return new RemediationExecutionResponse(incidentId, actionId, entity.getRequestId(), ProposalStatus.REMEDIATED.name(), entity.getHttpCode(), entity.getOperationId());
+        return new RemediationExecutionResponse(
+            incidentId, actionId, entity.getRequestId(), entity.getStatus().name(), entity.getHttpCode(), entity.getOperationId(),
+            entity.getVerificationAttempts(), entity.getFailureCode(), entity.getStartedAt(), entity.getCompletedAt()
+        );
     }
 
     private String writeJson(Object value) {
