@@ -15,13 +15,34 @@ test('rejects missing tenant API key', () => {
   }), ConfigurationError);
 });
 
-test('defaults to testnet, port 3001 and current contract version', () => {
+test('defaults to testnet, disabled AI and current contract version', () => {
   const config = readGatewayConfig(baseEnv);
   assert.equal(config.network, 'testnet');
   assert.equal(config.port, 3001);
   assert.equal(config.agentApiKey, null);
   assert.equal(config.contractVersion, '0.2.0');
   assert.equal(config.remediationReplayStorePath, '/data/remediation-capability-nonces.json');
+  assert.equal(config.aiProvider, 'disabled');
+  assert.equal(config.aiApiKey, null);
+  assert.equal(config.aiModel, null);
+});
+
+test('accepts an explicitly configured OpenAI-compatible tool-calling provider', () => {
+  const config = readGatewayConfig({
+    ...baseEnv,
+    AI_PROVIDER: 'openai-compatible',
+    AI_API_URL: 'https://provider.example/v1/chat/completions',
+    AI_API_KEY: 'provider-test-key',
+    AI_MODEL: 'tool-model',
+  });
+  assert.equal(config.aiProvider, 'openai-compatible');
+  assert.equal(config.aiApiUrl, 'https://provider.example/v1/chat/completions');
+  assert.equal(config.aiModel, 'tool-model');
+});
+
+test('rejects enabled AI provider without model or key', () => {
+  assert.throws(() => readGatewayConfig({ ...baseEnv, AI_PROVIDER: 'openai-compatible' }), ConfigurationError);
+  assert.throws(() => readGatewayConfig({ ...baseEnv, AI_PROVIDER: 'unknown-provider' }), ConfigurationError);
 });
 
 test('rejects reuse of tenant key as agent key', () => {
