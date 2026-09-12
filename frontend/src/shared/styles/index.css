@@ -1,9 +1,5 @@
-:root {
-  font-family: Inter, system-ui, sans-serif;
-  color: #111827;
-  background: #f8fafc;
-}
-
-* { box-sizing: border-box; }
-body { margin: 0; }
-.app-shell { min-height: 100vh; padding: 2rem; }
+@import "./tokens.css";
+@import "./base.css";
+@import "./buttons.css";
+@import "./dashboard.css";
+@import "./modals.css";

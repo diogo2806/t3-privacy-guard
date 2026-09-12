@@ -6,12 +6,9 @@ export function createContractRouter(service: PrivacyGuardContractService): Rout
 
   router.get('/identity', async (_request, response) => {
     try {
-      response.json({
-        contractId: await service.canonicalContractId(),
-        functions: ['evaluate-action', 'execute-remediation'],
-      });
+      response.json(await service.identity());
     } catch {
-      response.status(503).json({ error: 'T3N contract identity is unavailable' });
+      response.status(503).json({ error: 'Registered T3N contract is unavailable' });
     }
   });
 
