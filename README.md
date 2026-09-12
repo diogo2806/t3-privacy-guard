@@ -16,7 +16,25 @@ Each runtime has its own Dockerfile. There is intentionally no `docker-compose.y
 - Never commit `T3N_API_KEY`, agent private keys, external service secrets, or real `.env` files.
 - The React bundle never receives T3N credentials.
 - The Java backend does not need the T3N private key.
-- Canonical DIDs must come from authenticated T3N sessions, never from hardcoded configuration.
+- Canonical DIDs come from the authenticated T3N session (`did.value`), never from hardcoded configuration.
+
+## T3N gateway authentication
+
+The gateway follows the Terminal 3 ADK 5.2.0 Quickstart sequence server-side:
+
+1. `setEnvironment(T3N_NETWORK)` selects `testnet` or `production`.
+2. `loadWasmComponent()` loads the SDK cryptographic component.
+3. `fetchTrustedManifest(network)` provides the mandatory hosted-node trust anchor.
+4. `T3nClient.handshake()` establishes the trusted connection.
+5. `authenticate(createEthAuthInput(address))` authenticates the tenant.
+6. `did.value` becomes the canonical tenant DID exposed by the internal status API.
+
+Internal operational endpoints:
+
+- `GET /internal/t3n/status`: readiness, network and canonical tenant DID. Returns HTTP 503 while unavailable.
+- `POST /internal/t3n/reconnect`: explicitly retries a failed connection without exposing credentials.
+
+Errors are classified and sanitized before being stored or logged. The gateway never returns `T3N_API_KEY` in HTTP responses.
 
 ## Local builds
 
@@ -41,6 +59,7 @@ mvn package
 ```bash
 cd t3n-gateway
 npm install
+npm test
 npm run typecheck
 npm run build
 ```
