@@ -25,12 +25,13 @@ import br.com.t3privacyguard.persistence.IncidentRepository;
 import br.com.t3privacyguard.persistence.PolicyDecisionEntity;
 import br.com.t3privacyguard.persistence.PolicyDecisionRepository;
 import br.com.t3privacyguard.persistence.RemediationExecutionEntity;
+import br.com.t3privacyguard.privacy.IncidentDataMinimizer;
+import br.com.t3privacyguard.privacy.IncidentRetentionProperties;
 import br.com.t3privacyguard.security.RemediationAuthorizationSigner;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -48,6 +49,8 @@ public class IncidentService {
     private final GatewayRemediationClient remediationGateway;
     private final RemediationAuthorizationSigner remediationAuthorizationSigner;
     private final RemediationExecutionCoordinator executionCoordinator;
+    private final IncidentDataMinimizer minimizer;
+    private final IncidentRetentionProperties retentionProperties;
     private final ObjectMapper mapper;
 
     public IncidentService(
@@ -59,6 +62,8 @@ public class IncidentService {
         GatewayRemediationClient remediationGateway,
         RemediationAuthorizationSigner remediationAuthorizationSigner,
         RemediationExecutionCoordinator executionCoordinator,
+        IncidentDataMinimizer minimizer,
+        IncidentRetentionProperties retentionProperties,
         ObjectMapper mapper
     ) {
         this.incidents = incidents;
@@ -69,14 +74,18 @@ public class IncidentService {
         this.remediationGateway = remediationGateway;
         this.remediationAuthorizationSigner = remediationAuthorizationSigner;
         this.executionCoordinator = executionCoordinator;
+        this.minimizer = minimizer;
+        this.retentionProperties = retentionProperties;
         this.mapper = mapper;
     }
 
     @Transactional
     public IncidentResponse createIncident(CreateIncidentRequest request) {
         Instant now = Instant.now();
+        var minimized = minimizer.minimize(request.title(), request.summary(), request.source());
+        Instant expiresAt = now.plus(retentionProperties.retention());
         IncidentEntity entity = incidents.save(new IncidentEntity(
-            UUID.randomUUID().toString(), request.title().trim(), request.severity(), request.summary().trim(), request.source().trim(), now
+            UUID.randomUUID().toString(), minimized.title(), request.severity(), minimized.summary(), minimized.source(), now, expiresAt
         ));
         audit(entity.getId(), "INCIDENT_CREATED", "Incident created with severity " + entity.getSeverity());
         return incidentResponse(entity);
@@ -84,7 +93,7 @@ public class IncidentService {
 
     @Transactional(readOnly = true)
     public List<IncidentResponse> listIncidents() {
-        return incidents.findAll().stream().sorted(Comparator.comparing(IncidentEntity::getCreatedAt).reversed()).map(this::incidentResponse).toList();
+        return incidents.findByExpiresAtAfterOrderByCreatedAtDesc(Instant.now()).stream().map(this::incidentResponse).toList();
     }
 
     @Transactional(readOnly = true)
@@ -252,9 +261,12 @@ public class IncidentService {
             .map(event -> new AuditResponse(event.getId(), event.getIncidentId(), event.getType(), event.getMessage(), event.getCreatedAt())).toList();
     }
 
-    private IncidentEntity requireIncident(String id) { return incidents.findById(id).orElseThrow(() -> new IncidentNotFoundException("Incident not found")); }
+    private IncidentEntity requireIncident(String id) {
+        return incidents.findByIdAndExpiresAtAfter(id, Instant.now()).orElseThrow(() -> new IncidentNotFoundException("Incident not found"));
+    }
 
     private ActionProposalEntity requireAction(String incidentId, String id) {
+        requireIncident(incidentId);
         ActionProposalEntity action = actions.findById(id).orElseThrow(() -> new IncidentNotFoundException("Action proposal not found"));
         if (!action.getIncidentId().equals(incidentId)) throw new IncidentNotFoundException("Action proposal not found for incident");
         return action;
@@ -268,11 +280,14 @@ public class IncidentService {
     }
 
     private void audit(String incidentId, String type, String message) {
-        audits.save(new AuditEventEntity(UUID.randomUUID().toString(), incidentId, type, safe(message, 600), Instant.now()));
+        audits.save(new AuditEventEntity(UUID.randomUUID().toString(), incidentId, type, minimizer.sanitizeAuditMessage(message), Instant.now()));
     }
 
     private IncidentResponse incidentResponse(IncidentEntity entity) {
-        return new IncidentResponse(entity.getId(), entity.getTitle(), entity.getSeverity(), entity.getSummary(), entity.getSource(), entity.getStatus(), entity.getCreatedAt());
+        return new IncidentResponse(
+            entity.getId(), entity.getTitle(), entity.getSeverity(), entity.getSummary(), entity.getSource(), entity.getStatus(),
+            entity.getCreatedAt(), entity.getExpiresAt(), "ACTIVE"
+        );
     }
 
     private ActionResponse actionResponse(ActionProposalEntity entity) {
