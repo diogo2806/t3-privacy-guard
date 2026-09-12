@@ -38,6 +38,10 @@ privacy-guard:
     username: ${OPERATOR_USERNAME:}
     password: ${OPERATOR_PASSWORD:}
     cookie-secure: ${SESSION_COOKIE_SECURE:false}
+  incident-retention:
+    days: ${INCIDENT_RETENTION_DAYS:7}
+    purge-initial-delay-ms: ${INCIDENT_PURGE_INITIAL_DELAY_MS:60000}
+    purge-interval-ms: ${INCIDENT_PURGE_INTERVAL_MS:900000}
   evidence:
     manifest-path: ${EVIDENCE_MANIFEST_PATH:../docs/evidence/deployment-manifest.json}
     testnet-path: ${EVIDENCE_TESTNET_PATH:../docs/evidence/testnet-run.json}
