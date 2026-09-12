@@ -37,6 +37,34 @@ export interface ContractIdentity {
   readonly functions: readonly ['evaluate-action', 'execute-remediation'];
 }
 
+export interface DelegatedExecutionRequest<TInput> {
+  readonly contract_id: string;
+  readonly contract_version: string;
+  readonly function_name: string;
+  readonly pii_did: string;
+  readonly input: TInput;
+}
+
+export function buildDelegatedExecutionRequest<TInput>(
+  tenantDid: string,
+  contractId: string,
+  contractVersion: string,
+  functionName: string,
+  input: TInput,
+): DelegatedExecutionRequest<TInput> {
+  if (!tenantDid.startsWith('did:t3n:')) {
+    throw new Error('Authenticated tenant DID is required for delegated execution');
+  }
+
+  return {
+    contract_id: contractId,
+    contract_version: contractVersion,
+    function_name: functionName,
+    pii_did: tenantDid,
+    input,
+  };
+}
+
 function isDecision(value: unknown): value is PolicyDecision {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<PolicyDecision>;
@@ -86,12 +114,16 @@ export class PrivacyGuardContractService {
   async evaluate(request: Omit<PolicyEvaluationRequest, 'agent_did'>): Promise<PolicyDecision> {
     await this.agentSession.connect();
     const contractId = await this.canonicalContractId();
-    const result = await this.agentSession.getClient().executeAndDecode({
-      contract_id: contractId,
-      contract_version: await this.currentVersion(contractId),
-      function_name: 'evaluate-action',
-      input: { ...request, agent_did: this.agentSession.getAgentDid() },
-    });
+    const contractVersion = await this.currentVersion(contractId);
+    const result = await this.agentSession.getClient().executeAndDecode(
+      buildDelegatedExecutionRequest(
+        this.tenantSession.getTenantDid(),
+        contractId,
+        contractVersion,
+        'evaluate-action',
+        { ...request, agent_did: this.agentSession.getAgentDid() },
+      ),
+    );
     if (!isDecision(result)) throw new Error('T3N contract returned an invalid policy decision');
     return result;
   }
@@ -99,12 +131,16 @@ export class PrivacyGuardContractService {
   async remediate(request: Omit<PolicyEvaluationRequest, 'agent_did' | 'host'>): Promise<RemediationResult> {
     await this.agentSession.connect();
     const contractId = await this.canonicalContractId();
-    const result = await this.agentSession.getClient().executeAndDecode({
-      contract_id: contractId,
-      contract_version: await this.currentVersion(contractId),
-      function_name: 'execute-remediation',
-      input: { ...request, agent_did: this.agentSession.getAgentDid() },
-    });
+    const contractVersion = await this.currentVersion(contractId);
+    const result = await this.agentSession.getClient().executeAndDecode(
+      buildDelegatedExecutionRequest(
+        this.tenantSession.getTenantDid(),
+        contractId,
+        contractVersion,
+        'execute-remediation',
+        { ...request, agent_did: this.agentSession.getAgentDid() },
+      ),
+    );
     if (!isRemediation(result)) throw new Error('T3N contract returned an invalid remediation result');
     return result;
   }
