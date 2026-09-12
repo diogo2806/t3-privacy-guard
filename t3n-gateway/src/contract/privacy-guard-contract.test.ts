@@ -5,7 +5,7 @@ import { buildDelegatedExecutionRequest } from './privacy-guard-contract.js';
 const tenantDid = 'did:t3n:tenant123';
 const agentDid = 'did:t3n:agent456';
 const contractId = 'z:tenant123:privacy-guard';
-const contractVersion = '0.2.0';
+const contractVersion = '0.3.0';
 
 function input() {
   return {
@@ -44,6 +44,19 @@ test('remediation execution uses the same tenant delegation subject', () => {
 
   assert.equal(request.pii_did, tenantDid);
   assert.equal(request.function_name, 'execute-remediation');
+});
+
+test('verification execution uses the same tenant delegation subject', () => {
+  const request = buildDelegatedExecutionRequest(
+    tenantDid,
+    contractId,
+    contractVersion,
+    'verify-remediation',
+    { request_id: 'req-001', operation_id: 'op-001', expected_state: 'REVOKED' },
+  );
+
+  assert.equal(request.pii_did, tenantDid);
+  assert.equal(request.function_name, 'verify-remediation');
 });
 
 test('rejects a missing or non-T3N tenant DID', () => {
