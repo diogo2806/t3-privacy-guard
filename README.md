@@ -8,58 +8,92 @@ Confidential Incident Response Agent for the Terminal 3 Network challenge.
 
 ## What the demo proves
 
-T3 Privacy Guard assumes the AI agent can be manipulated. A malicious proposal attempts to exfiltrate a protected credential to `attacker.example`; the Rust/WASM policy returns `DENY`. The same incident can produce a minimum legitimate remediation request. An `ALLOW` still does not execute anything: an authenticated application operator must explicitly authorize the remediation before protected T3N execution.
+T3 Privacy Guard assumes the AI agent can be manipulated. The dashboard sends an actual textual prompt to a configured tool-calling model. The model can produce an unsafe structured proposal such as `host=attacker.example` plus `api_key`, but it cannot set a decision, identity, capability or secret. That proposal is persisted and evaluated independently by the T3N Rust/WASM policy, which returns `DENY`.
 
-Human authorization is enforced end-to-end. Immediately before execution the Spring backend signs a short-lived, one-time capability bound to the incident, action, persisted ALLOW decision, request, purpose, resource and exact field set. The T3N gateway requires both service-to-service authentication and that capability, verifies its HMAC, rejects expiry/body mismatch and persists consumed nonces to reject replay. The capability never reaches the browser.
+A legitimate model proposal can receive `ALLOW`, but `ALLOW` still does not execute anything. An authenticated operator must explicitly authorize remediation. Immediately before execution the Spring backend signs a short-lived, one-time capability bound to the exact persisted action and decision. The gateway validates service authentication, signature, expiry, payload equality and replay state before T3N execution.
 
-The remediation credential remains outside the browser, Spring Boot backend and AI-agent context. It is consumed through the private T3N contract path.
+The remediation credential remains outside browser, Spring Boot and AI-agent context and is consumed only through the protected T3N contract path.
 
 ## Architecture
 
 ```text
-React / Nginx
-     |
-     | operator session + /api
-     v
-Java 21 / Spring Boot
-     |
-     | service auth + one-time signed remediation capability
-     v
+Untrusted prompt
+      |
+      v
+Configured AI provider
+      | structured proposal only
+      v
+React / Spring Boot
+      |
+      v
 Node / TypeScript T3N Gateway
-     |
-     | @terminal3/t3n-sdk 5.2.0
-     v
-T3N / Rust WASM / private KV
+      |
+      | authenticated Agent DID + tenant pii_did
+      v
+T3N / Rust WASM policy
+   DENY | REDACT | ALLOW
+                    |
+              human authorization
+                    |
+              one-time capability
+                    |
+              protected remediation
 ```
 
 - `frontend/`: React/Vite dashboard served by Nginx.
-- `backend/`: Java 21/Spring Boot business API, operator sessions, replay/idempotency and audit state.
-- `t3n-gateway/`: isolated T3N SDK adapter with separate tenant/agent sessions and a durable anti-replay store for privileged capabilities.
+- `backend/`: Java 21/Spring Boot business API, operator sessions and durable business state.
+- `t3n-gateway/`: isolated T3N SDK adapter, AI provider adapter, separate tenant/agent sessions and anti-replay protection.
 - `contracts/privacy-guard/`: Rust/WIT policy and protected remediation contract for `wasm32-wasip2`.
 
-Each runtime has its own Dockerfile. There is intentionally no `docker-compose.yml`; services can be deployed independently in containers.
+Each runtime has its own Dockerfile. There is intentionally no `docker-compose.yml`; services are deployed independently in containers.
+
+## Real AI agent boundary
+
+The gateway supports an optional OpenAI-compatible tool-calling provider through:
+
+```text
+AI_PROVIDER=openai-compatible
+AI_API_URL=<provider chat-completions endpoint>
+AI_API_KEY=<runtime secret>
+AI_MODEL=<tool-calling model>
+```
+
+`AI_PROVIDER=disabled` is the safe default. When disabled or unavailable, agent analysis fails closed; no fixture is promoted as live AI.
+
+The only model tool surface is:
+
+```json
+{
+  "action": "string",
+  "resource": "string",
+  "purpose": "string",
+  "host": "string|null",
+  "fields": ["string"]
+}
+```
+
+Unknown properties are rejected. In particular the model cannot supply `decision`, `allow`, `override`, `approved`, `agent_did`, `pii_did`, API keys, credentials, secrets or remediation capabilities. `agent_did` comes only from the authenticated Agent session and `pii_did` only from the authenticated tenant session.
+
+The prompt is treated as untrusted content, not as an authorization source. Do not place real secret values in demo prompts; issue #37 extends the architecture so private profile values are represented by T3N references rather than plaintext.
 
 ## Security boundaries
 
-- Operator login is an application identity, not a T3N identity.
-- `T3N_API_KEY` and `T3N_AGENT_API_KEY` are separate and gateway-only.
-- `GATEWAY_SERVICE_TOKEN` is a distinct service-to-service credential; it is never reused as a T3N key or operator password.
-- `REMEDIATION_CAPABILITY_KEY` signs one-time human authorization proofs and is distinct from every T3N/remediation credential.
+- Operator login is an application identity, not a T3N or AI-provider identity.
+- `T3N_API_KEY`, `T3N_AGENT_API_KEY` and `AI_API_KEY` are gateway-only runtime secrets and are never returned to the browser.
+- `GATEWAY_SERVICE_TOKEN` is a separate service-to-service credential.
+- `REMEDIATION_CAPABILITY_KEY` signs one-time human authorization proofs and is distinct from every T3N/provider/remediation credential.
 - Canonical tenant/agent DIDs come from authenticated T3N sessions.
 - Delegated calls derive `pii_did` internally from the authenticated tenant session.
 - Member delegation restricts contract, functions, scopes, hosts and validity.
-- `DENY`, `REDACT`, malformed responses, unavailable policy evaluation and ambiguous states fail closed.
-- Java persists unique request ids and prior results to prevent duplicate business execution.
-- `ALLOW` + authenticated operator + explicit human authorization + valid one-time capability are all required before remediation execution.
-- Privileged delegation/connect routes require internal service authentication.
-- Consumed capability nonces are persisted at `REMEDIATION_REPLAY_STORE_PATH`; mount the gateway `/data` volume persistently so replay protection survives container restarts.
-- `UNKNOWN`, `REVOKED` and `NOT_GRANTED` are never displayed as successful delegation.
+- The model proposes; Rust/WASM policy decides. Provider failure, invalid tool output and T3N failure all fail closed.
+- `ALLOW` + authenticated operator + explicit human authorization + valid one-time capability are required before protected remediation.
+- Consumed capability nonces are persisted at `REMEDIATION_REPLAY_STORE_PATH` so replay protection survives gateway restart when `/data` is persistent.
 
 See the threat model and claims matrix in [`docs/submission/README.md`](docs/submission/README.md).
 
 ## Operator authentication
 
-Required runtime variables:
+Runtime names include:
 
 ```text
 OPERATOR_USERNAME
@@ -70,9 +104,13 @@ GATEWAY_SERVICE_TOKEN
 REMEDIATION_CAPABILITY_KEY
 REMEDIATION_CAPABILITY_TTL_SECONDS
 REMEDIATION_REPLAY_STORE_PATH
+AI_PROVIDER
+AI_API_URL
+AI_API_KEY
+AI_MODEL
 ```
 
-Business APIs require the Spring Security operator session. Mutating requests require CSRF protection. The browser never receives a T3N private key, internal service token or remediation capability.
+Business APIs require the Spring Security operator session and CSRF protection. The browser never receives T3N keys, AI provider keys, internal service token or remediation capability.
 
 ## T3N operational status
 
@@ -86,31 +124,24 @@ Contract      RESOLVED / UNAVAILABLE
 Delegation    ACTIVE / REVOKED / NOT_GRANTED / UNKNOWN
 ```
 
-`RESOLVED` means contract id/version were resolved. It is not labelled hardware attestation. Delegated functions and allowed hosts come from the observed grant, not from a hardcoded live-function list.
+`RESOLVED` means contract id/version were resolved. It is not hardware attestation. Delegated functions and allowed hosts come from the observed grant.
 
 ## Policy and remediation
 
-The Rust contract exports:
-
-- `evaluate-action`: `ALLOW`, `REDACT` or `DENY`;
-- `execute-remediation`: rechecks policy and performs protected egress only when the request remains allowed.
-
-The authorization path is:
+The Rust contract exports `evaluate-action` and `execute-remediation`. The end-to-end path is:
 
 ```text
-unsafe proposal -> T3N DENY
-safe proposal   -> T3N ALLOW
-                     |
-             human authorization
-                     |
-             signed one-time proof
-                     |
-          gateway verifies + consumes nonce
-                     |
-             protected T3N execution
+prompt -> real model -> structured proposal -> T3N policy
+                                         DENY / REDACT / ALLOW
+                                                           |
+                                                   human authorization
+                                                           |
+                                                   signed one-time proof
+                                                           |
+                                                   protected execution
 ```
 
-A capability is never accepted when its signed incident/action/decision/request/action/resource/purpose/fields differ from the request body, when it is expired, or when the nonce was already consumed.
+A capability is rejected when its signed incident/action/decision/request/action/resource/purpose/fields differ from the body, when expired or when its nonce was already consumed.
 
 ## Evidence
 
@@ -120,7 +151,7 @@ Local controls:
 bash scripts/run-local-evidence.sh
 ```
 
-One-command live testnet evidence, after configuring valid rotated credentials/credits and building the WASM:
+Live T3N evidence:
 
 ```bash
 cd t3n-gateway
@@ -128,27 +159,15 @@ npm install
 npm run evidence:live
 ```
 
-Generated live artifacts:
+Generated artifacts are `docs/evidence/deployment-manifest.json` and `docs/evidence/testnet-run.json`. The orchestrator binds WASM SHA-256, canonical DIDs and contract id/version and fails on mismatch, scenario `FAIL` or configured secret leakage. `NOT_RUN` is never counted as `PASS`.
 
-```text
-docs/evidence/deployment-manifest.json
-docs/evidence/testnet-run.json
-```
-
-The orchestrator binds the WASM SHA-256, canonical DIDs and contract id/version to the testnet evidence. It fails on identity/version/hash mismatch, scenario `FAIL` or configured secret leakage. Optional scenarios that did not execute remain `NOT_RUN`, never `PASS`.
-
-The dashboard **Evidence** view is read-only and returns only an allowlisted projection of consistent live evidence through the authenticated backend.
+The submission capture harness also rejects AI/T3N/operator/service/capability secrets in generated metadata.
 
 ## Terminal 3 integration findings
 
-Two concrete findings are documented with impact/workaround in [`docs/submission/README.md`](docs/submission/README.md):
-
-1. Member Delegation examples omit `scopes` although the field reference treats it as required.
-2. Delegated calls can use the wrong authorization subject if `pii_did` is omitted; this project always derives it from the authenticated tenant session.
+The submission guide records the concrete `scopes` documentation inconsistency and the delegated `pii_did` authorization-subject gotcha. This project always sends explicit scopes and derives `pii_did` from the authenticated tenant session.
 
 ## Pinned toolchain
-
-Direct dependencies and Docker tags are explicit rather than `latest`/caret ranges:
 
 - Node: `22.20.0-alpine3.22`
 - React / React DOM: `19.3.0`
@@ -162,8 +181,6 @@ Direct dependencies and Docker tags are explicit rather than `latest`/caret rang
 - Nginx: `1.27.5-alpine3.21-slim`
 - Rust contract: `0.2.0`, target `wasm32-wasip2`
 
-Declared versions are not presented as execution proof; generated evidence is the source of truth for what actually ran.
-
 ## Local builds
 
 ```bash
@@ -175,6 +192,6 @@ cd ../contracts/privacy-guard && cargo test && cargo build --target wasm32-wasip
 
 ## Environment
 
-Use `.env.example` only as a variable-name template. Never commit real tenant keys, agent keys, operator passwords, service tokens, capability signing keys, remediation credentials or `.env` files.
+Use `.env.example` only as a variable-name template. Never commit tenant keys, agent keys, AI provider keys, operator passwords, service tokens, capability keys, remediation credentials or `.env` files.
 
-The project will continue to be operated after the challenge. A future handover process that rotates/provisions new credentials is documented in the submission guide; existing private keys are not transferred through GitHub or the UI.
+The project will continue to be operated after the challenge. Future handover provisions new credentials instead of transferring existing private keys.
