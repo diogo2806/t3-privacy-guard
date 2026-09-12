@@ -257,7 +257,7 @@ The submission guide records the concrete `scopes` documentation inconsistency a
 - Maven image: `3.9.16-eclipse-temurin-21`
 - Java runtime: `eclipse-temurin:21.0.12_8-jre`
 - Nginx: `1.27.5-alpine3.21-slim`
-- Rust contract: `0.2.0`, target `wasm32-wasip2`
+- Rust contract: `0.3.0`, target `wasm32-wasip2`
 
 ## Local builds
 
