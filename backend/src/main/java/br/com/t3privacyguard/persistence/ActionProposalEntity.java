@@ -23,6 +23,8 @@ public class ActionProposalEntity {
     private String host;
     @Column(name = "fields_json", nullable = false, length = 4000)
     private String fieldsJson;
+    @Column(name = "private_refs_json", nullable = false, length = 1000)
+    private String privateRefsJson;
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 40)
     private ProposalStatus status;
@@ -31,7 +33,10 @@ public class ActionProposalEntity {
 
     protected ActionProposalEntity() {}
 
-    public ActionProposalEntity(String id, String incidentId, String requestId, String action, String resource, String purpose, String host, String fieldsJson, Instant createdAt) {
+    public ActionProposalEntity(
+        String id, String incidentId, String requestId, String action, String resource, String purpose,
+        String host, String fieldsJson, String privateRefsJson, Instant createdAt
+    ) {
         this.id = id;
         this.incidentId = incidentId;
         this.requestId = requestId;
@@ -40,6 +45,7 @@ public class ActionProposalEntity {
         this.purpose = purpose;
         this.host = host;
         this.fieldsJson = fieldsJson;
+        this.privateRefsJson = privateRefsJson;
         this.status = ProposalStatus.PENDING;
         this.createdAt = createdAt;
     }
@@ -55,6 +61,7 @@ public class ActionProposalEntity {
     public String getPurpose() { return purpose; }
     public String getHost() { return host; }
     public String getFieldsJson() { return fieldsJson; }
+    public String getPrivateRefsJson() { return privateRefsJson; }
     public ProposalStatus getStatus() { return status; }
     public Instant getCreatedAt() { return createdAt; }
 }
