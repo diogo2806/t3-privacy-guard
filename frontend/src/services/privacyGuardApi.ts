@@ -54,6 +54,9 @@ export interface EvidenceMetadata {
   wasmSha256: string;
   policyVersion: string;
   policyHash: string;
+  trustAnchorVerified: boolean;
+  trustManifestFloorPersisted: boolean;
+  trustManifestVersion: number;
 }
 export interface EvidenceScenario { id: string; expected: string; actual?: string | null; status: EvidenceScenarioStatus; detail?: string | null; }
 export interface EvidenceBundle { metadata: EvidenceMetadata; scenarios: EvidenceScenario[]; totals: { pass: number; fail: number; notRun: number }; }
