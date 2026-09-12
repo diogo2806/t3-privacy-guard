@@ -63,6 +63,9 @@ public final class ApiModels {
         List<String> redactedFields,
         List<String> allowedPrivateRefs,
         List<String> redactedPrivateRefs,
+        String policyVersion,
+        String policyHash,
+        Boolean requiresHumanAuthorization,
         Instant evaluatedAt
     ) {}
 
