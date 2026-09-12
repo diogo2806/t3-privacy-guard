@@ -57,6 +57,8 @@ public class GatewayPolicyClient {
         @JsonProperty("allowed_fields") List<String> allowedFields,
         @JsonProperty("redacted_fields") List<String> redactedFields,
         @JsonProperty("allowed_private_refs") List<String> allowedPrivateRefs,
-        @JsonProperty("redacted_private_refs") List<String> redactedPrivateRefs
+        @JsonProperty("redacted_private_refs") List<String> redactedPrivateRefs,
+        @JsonProperty("activity_sequence") Long activitySequence,
+        @JsonProperty("activity_hash") String activityHash
     ) {}
 }
