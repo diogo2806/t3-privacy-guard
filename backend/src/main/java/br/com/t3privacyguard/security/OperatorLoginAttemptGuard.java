@@ -1,5 +1,6 @@
 package br.com.t3privacyguard.security;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -16,12 +17,21 @@ public class OperatorLoginAttemptGuard {
     static final Duration MAX_COOLDOWN = Duration.ofSeconds(60);
 
     private final Map<String, AttemptState> attempts = new LinkedHashMap<>(16, 0.75f, true);
+    private final Clock clock;
+
+    public OperatorLoginAttemptGuard() {
+        this(Clock.systemUTC());
+    }
+
+    OperatorLoginAttemptGuard(Clock clock) {
+        this.clock = clock;
+    }
 
     public synchronized void assertAllowed(String username) {
         String key = normalize(username);
         AttemptState state = attempts.get(key);
         if (state == null || state.lockedUntil == null) return;
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         if (state.lockedUntil.isAfter(now)) {
             throw new TooManyLoginAttemptsException(secondsUntil(now, state.lockedUntil));
         }
@@ -29,7 +39,7 @@ public class OperatorLoginAttemptGuard {
 
     public synchronized void recordFailure(String username) {
         String key = normalize(username);
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         AttemptState state = attempts.get(key);
         if (state == null || Duration.between(state.windowStartedAt, now).compareTo(FAILURE_WINDOW) > 0) {
             ensureCapacityFor(key);
