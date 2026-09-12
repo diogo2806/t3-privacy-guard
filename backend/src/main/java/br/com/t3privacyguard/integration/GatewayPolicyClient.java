@@ -60,5 +60,18 @@ public class GatewayPolicyClient {
         @JsonProperty("redacted_private_refs") List<String> redactedPrivateRefs,
         @JsonProperty("activity_sequence") Long activitySequence,
         @JsonProperty("activity_hash") String activityHash
-    ) {}
+    ) {
+        public GatewayDecision(
+            String requestId,
+            DecisionType decision,
+            String reasonCode,
+            String reason,
+            List<String> allowedFields,
+            List<String> redactedFields,
+            List<String> allowedPrivateRefs,
+            List<String> redactedPrivateRefs
+        ) {
+            this(requestId, decision, reasonCode, reason, allowedFields, redactedFields, allowedPrivateRefs, redactedPrivateRefs, null, null);
+        }
+    }
 }
