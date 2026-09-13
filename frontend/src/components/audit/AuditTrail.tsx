@@ -44,7 +44,7 @@ export function AuditTrail({ events }: { events: AuditEvent[] }) {
           <RefreshCw aria-hidden="true" /><span>{loading ? 'Refreshing…' : 'Refresh audit evidence'}</span>
         </button>
       </div>
-      <p className="card-copy">Local HMAC integrity and T3N network provenance are independent signals. A T3N match still requires exact sequence, hash, contract, function and its canonical actor: Proposal Agent for evaluation, Protected Executor for execution and verification.</p>
+      <p className="card-copy">Local HMAC integrity and T3N network provenance are independent signals. Human authorization is a local application event bound to the authenticated operator account. T3N matching still requires exact sequence, hash, contract, function and its canonical T3N actor: Proposal Agent for evaluation, Protected Executor for execution and verification.</p>
 
       {error && <div className="audit-provenance-note audit-provenance-note-error" role="alert">{error}</div>}
       {loading && !evidence && <p className="empty-copy" role="status">Checking local integrity and network provenance. Stored business events remain visible below.</p>}
@@ -63,7 +63,7 @@ export function AuditTrail({ events }: { events: AuditEvent[] }) {
       </>}
 
       <section className="audit-source" aria-labelledby="local-audit-title">
-        <div className="audit-source-heading"><FileClock aria-hidden="true" /><div><h3 id="local-audit-title">Sanitized business audit</h3><p>Application events persisted by the incident workflow. Integrity is reported separately above.</p></div></div>
+        <div className="audit-source-heading"><FileClock aria-hidden="true" /><div><h3 id="local-audit-title">Sanitized business audit</h3><p>Application events persisted by the incident workflow. Human approval may identify the authenticated application account here; this is not a T3N DID. Integrity is reported separately above.</p></div></div>
         {(evidence?.localEvents ?? events).length === 0 ? <p className="empty-copy">No business audit events yet.</p> : (
           <ol className="audit-list">
             {(evidence?.localEvents ?? events).map((event) => {
@@ -86,7 +86,7 @@ export function AuditTrail({ events }: { events: AuditEvent[] }) {
       </section>
 
       <section className="audit-source" aria-labelledby="t3n-activity-title">
-        <div className="audit-source-heading"><Network aria-hidden="true" /><div><h3 id="t3n-activity-title">T3N Activity Log</h3><p>Independent sanitized network metadata for this incident window, canonical contract and function-specific actor boundary.</p></div></div>
+        <div className="audit-source-heading"><Network aria-hidden="true" /><div><h3 id="t3n-activity-title">T3N Activity Log</h3><p>Independent sanitized network metadata for this incident window, canonical contract and function-specific T3N actor boundary. Application usernames are intentionally not network actors here.</p></div></div>
         {!evidence ? <p className="empty-copy">Network provenance has not been loaded yet.</p> : !evidence.provenance.t3nAvailable ? <p className="empty-copy">Network provenance was not verified. This does not change the separately reported local integrity state.</p> : evidence.t3nEvents.length === 0 ? (
           <p className="empty-copy">No relevant T3N operations were observed in this bounded incident window.</p>
         ) : (
