@@ -63,7 +63,7 @@ export function EvidenceCenter({ evidence, loading, error, onRefresh }: Props) {
           <div><dt>Rollback floor</dt><dd>{rollbackFloorState}</dd></div>
           <div><dt>Trust manifest version</dt><dd>{evidence.metadata.trustManifestVersion}</dd></div>
           <div><dt>Agent onboarding</dt><dd><span className={`status-pill ${registrationOk ? 'status-pill-ok' : 'status-pill-off'}`}>{registrationLabel(evidence.metadata.agentRegistrationState)}</span></dd></div>
-          <div><dt>Card verified</dt><dd>{new Date(evidence.metadata.agentCardVerifiedAt).toLocaleString()}</dd></div>
+          <div><dt>Card check</dt><dd>{new Date(evidence.metadata.agentCardVerifiedAt).toLocaleString()}</dd></div>
           <div><dt>Contract version</dt><dd>{evidence.metadata.contractVersion}</dd></div>
           <div><dt>Policy version</dt><dd>{evidence.metadata.policyVersion}</dd></div>
           <div className="evidence-wide"><dt>Agent Card URI</dt><dd><code>{evidence.metadata.agentCardUri ?? 'Not resolved'}</code></dd></div>
