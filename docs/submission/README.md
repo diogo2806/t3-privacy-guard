@@ -247,6 +247,8 @@ Trust model:
 | `COMPLETED` requires independent read-back of matching operation/state | PROVED LOCAL | Rust/Java verification tests |
 | Timeout/ambiguous ACK does not automatically re-execute | PROVED LOCAL | `IncidentServiceTest` |
 | Reload reads persisted execution state without egress/reverification | PROVED LOCAL | `RemediationQueryServiceTest` + frontend API flow |
+| Local audit detects storage-only row/link/tail changes when the integrity key is not compromised | PROVED LOCAL | `AuditIntegrityServiceTest` + `AuditIntegrityTamperingTest` |
+| Local HMAC integrity and T3N Activity Log provenance remain separate signals | PROVED LOCAL | `AuditEvidenceServiceTest` + `AuditTrail.test.tsx` |
 | Real model attack -> T3N DENY on live testnet | NOT CLAIMED | only after matching public capture/evidence run |
 | T3N profile placeholder resolves verified email on live testnet | NOT RUN | requires compatible profile/user context and matching evidence |
 | Verified external remediation on live testnet | NOT CLAIMED | only after execute + independent verify scenario passes |
@@ -501,3 +503,22 @@ For judging and evidence, the claims are deliberately separate:
 - **Hardware attestation**: not implied by any of the states above and not claimed without a separate execution-specific artifact.
 
 The Evidence Center exposes those sanitized states and the Manual da Tela explains the expected failure cases (`TRUST MANIFEST UNAVAILABLE`, `ROLLBACK REJECTED`, `TRUST FLOOR CORRUPTED`, `VERSION NOT EXPOSED BY SDK`) together with policy-KV fail-closed states without exposing trust-manifest contents, policy secrets or credentials.
+
+## Local audit integrity boundary
+
+The local audit now has a storage-only tamper-evidence layer that is deliberately independent from T3N Activity Log provenance. Before persistence, the business message is sanitized/minimized. Spring then creates a per-incident monotonic sequence and HMAC-SHA-256 over a versioned canonical UTF-8 payload containing `incidentId`, sequence, event type, canonical UTC timestamp, sanitized message and the previous event MAC. A per-incident head row is locked with JPA `PESSIMISTIC_WRITE`, and event persistence plus head advancement happen in the same transaction.
+
+The runtime secret is `AUDIT_INTEGRITY_KEY`. It has no known default, is required to be strong and distinct from gateway, remediation, T3N and operator credentials, is never stored in H2 and is never returned to the browser. Existing rows created before this feature remain `LEGACY_UNVERIFIED`; the application does not invent historical MACs or silently rewrite a broken chain. A restart with the same key verifies the existing chain, while the wrong key produces `BROKEN` rather than “repairing” history. Key rotation therefore requires an explicit versioned migration/operational plan.
+
+Judge-visible states are intentionally separate:
+
+```text
+Local audit integrity   VERIFIED / BROKEN / LEGACY_UNVERIFIED / NOT_AVAILABLE
+T3N provenance          MATCHED / UNMATCHED / LOCAL_ONLY / T3N_ONLY
+```
+
+`VERIFIED` means the retained chain recomputed correctly with the current key and its persisted head matched. `BROKEN` covers MAC, sequence, link or retained-tail mismatch. `LEGACY_UNVERIFIED` means at least part of retained history predates HMAC signing. `NOT_AVAILABLE` means there is no retained local audit to verify. The retention purge removes audit rows and the chain head together; the system does not keep `message` solely to preserve an integrity proof.
+
+Threat-model limit: this is **tamper-evident local audit for DB/storage-only modification**, not immutable or tamper-proof storage. An attacker that obtains both the database and `AUDIT_INTEGRITY_KEY` can generate a valid replacement chain. T3N Activity Log remains the independent network-provenance source for T3N-observed operations, so a healthy T3N signal never masks a `BROKEN` local HMAC state and vice versa.
+
+The local test suite covers a fixed known HMAC vector, one/N-event chains, concurrent appends, direct message/type/timestamp/link/MAC/sequence mutations, inserted rows, middle/tail deletion, restart with same/wrong key, legacy rows, retention purge and response serialization without the integrity key.
