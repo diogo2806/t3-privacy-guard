@@ -6,6 +6,7 @@ const TOKEN_VERSION = 'v2';
 const MAX_TOKEN_LENGTH = 8_192;
 const MAX_CAPABILITY_LIFETIME_MS = 300_000;
 const CLOCK_SKEW_MS = 5_000;
+const KEY_ID = /^[A-Za-z0-9._-]{1,32}$/;
 
 export interface RemediationBody {
   incident_id: string;
@@ -27,6 +28,7 @@ export interface RemediationBody {
 }
 
 export interface RemediationAuthorizationClaims {
+  keyId: string;
   incidentId: string;
   actionId: string;
   requestId: string;
@@ -124,10 +126,12 @@ export class RemediationAuthorizationVerifier {
 
   constructor(
     publicKeySpki: string,
+    private readonly expectedKeyId: string,
     private readonly replayStorePath: string,
     private readonly now: () => number = () => Date.now(),
   ) {
     this.publicKey = parsePublicKey(publicKeySpki);
+    if (!KEY_ID.test(expectedKeyId)) throw new Error('CAPABILITY_VERIFICATION_KEY_INVALID');
   }
 
   verifyAndConsume(token: string, body: RemediationBody): RemediationAuthorizationClaims {
@@ -141,6 +145,7 @@ export class RemediationAuthorizationVerifier {
     if (supplied.length !== 64 || !verifySignature(null, signingInput, this.publicKey, supplied)) throw new Error('CAPABILITY_INVALID');
 
     const claims = decodeClaims(payloadPart);
+    if (!KEY_ID.test(claims.keyId ?? '') || claims.keyId !== this.expectedKeyId) throw new Error('CAPABILITY_KEY_MISMATCH');
     const currentTime = this.now();
     if (!Number.isSafeInteger(claims.authorizedAt) || claims.authorizedAt <= 0
       || !Number.isSafeInteger(claims.issuedAt) || !Number.isSafeInteger(claims.expiresAt)
