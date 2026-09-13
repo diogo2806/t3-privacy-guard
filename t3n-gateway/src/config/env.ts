@@ -38,7 +38,8 @@ function requiredSecret(env: NodeJS.ProcessEnv, name: string): string {
 }
 
 function requiredKeyId(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
-  const value = env[name]?.trim() || fallback;
+  const raw = env[name];
+  const value = raw === undefined ? fallback : raw.trim();
   if (!/^[A-Za-z0-9._-]{1,32}$/.test(value)) throw new ConfigurationError(`${name} must match [A-Za-z0-9._-]{1,32}`);
   return value;
 }
