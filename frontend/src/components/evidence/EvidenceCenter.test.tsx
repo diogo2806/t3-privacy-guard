@@ -41,12 +41,14 @@ describe('EvidenceCenter', () => {
     expect(summary).toHaveTextContent('1PASS');
     expect(summary).toHaveTextContent('0FAIL');
     expect(summary).toHaveTextContent('1NOT RUN');
+    expect(screen.getByTestId('evidence-fail-total')).toHaveTextContent('0FAIL');
+    expect(screen.getByTestId('evidence-scenario-LIVE-PROPOSAL-CANNOT-EXECUTE')).toHaveTextContent('PASS');
     expect(screen.getByText('Proposal agent blocked from protected execution')).toBeInTheDocument();
     expect(screen.getByText('LIVE-PROPOSAL-CANNOT-EXECUTE')).toBeInTheDocument();
     expect(screen.getByText(/NOT RUN is not proof/i)).toBeInTheDocument();
   });
 
-  it('keeps source, identity, discoverability, contract and trust provenance available through accessible details', async () => {
+  it('keeps source, identity, discoverability, contract and trust provenance available through accessible details and stable capture hooks', async () => {
     const user = userEvent.setup();
     const evidence = evidenceWithRegistrationState('REGISTERED');
     render(<EvidenceCenter evidence={evidence} loading={false} error={null} onRefresh={vi.fn()} />);
@@ -56,9 +58,14 @@ describe('EvidenceCenter', () => {
     await user.click(screen.getByText('Identities & discoverability'));
     await user.click(screen.getByText('Contract & policy'));
 
-    expect(screen.getByText(SOURCE_COMMIT)).toBeVisible();
-    expect(screen.getByText('did:t3n:proposal-agent')).toBeVisible();
-    expect(screen.getByText('did:t3n:protected-executor')).toBeVisible();
+    expect(screen.getByTestId('evidence-source-commit')).toHaveTextContent(SOURCE_COMMIT);
+    expect(screen.getByTestId('evidence-source-tree')).toHaveTextContent('CLEAN');
+    expect(screen.getByTestId('evidence-tenant-did')).toHaveTextContent('did:t3n:tenant');
+    expect(screen.getByTestId('evidence-proposal-agent-did')).toHaveTextContent('did:t3n:proposal-agent');
+    expect(screen.getByTestId('evidence-protected-executor-did')).toHaveTextContent('did:t3n:protected-executor');
+    expect(screen.getByTestId('evidence-contract-version')).toHaveTextContent('0.4.0');
+    expect(screen.getByTestId('evidence-contract-id')).toHaveTextContent('z:tenant:privacy-guard');
+    expect(screen.getByTestId('evidence-wasm-sha256')).toHaveTextContent('a'.repeat(64));
     expect(screen.getByText('REGISTERED')).toBeVisible();
     expect(screen.getByText('OBSERVED')).toHaveClass('status-pill-ok');
     expect(screen.getByText('b'.repeat(64))).toBeVisible();
