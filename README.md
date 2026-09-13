@@ -45,6 +45,24 @@ The central product thesis is:
 > **Evidence reproduction:** [`docs/evidence/README.md`](docs/evidence/README.md)  
 > **Adversarial matrix:** [`docs/evidence/scenario-matrix.md`](docs/evidence/scenario-matrix.md)
 
+## Business outcome in 60 seconds
+
+The Protection flow now translates the same observed runtime state into a judge-first **Business Outcome** summary before the technical panels. Scenario metadata supplies only presentation context such as **Business risk**, **Protected asset**, **Business outcome** and **Success definition**. Policy decisions, requested field/private-reference counts, authorization state, approved destination, remediation state, verification attempts and final state come from the existing incident/action/decision/remediation APIs.
+
+The summary never fills future state or estimates a result. Before an observation it says `Not yet observed`; before an independently verified completion it says `Not verified yet`. `DENY` means the observed proposal was blocked before protected egress. `REDACT` means a smaller scope is required. `ALLOW` is permission to continue, not human authorization or execution. `PENDING_VERIFICATION`, `UNVERIFIED` and `FAILED` are never displayed as successful remediation. `REVOKED — VERIFIED` appears only from a `COMPLETED` remediation that follows independent read-back.
+
+The only displayed time metrics are calculated from timestamps already emitted by the system:
+
+```text
+Time to policy decision = decision.evaluatedAt - action.createdAt
+Time to verified outcome = remediation.completedAt - action.createdAt
+                           only when state == COMPLETED and completedAt exists
+```
+
+Durations below one second are shown as integer milliseconds, durations from one through sixty seconds as seconds with one decimal place, and longer durations as minutes plus seconds. The dashboard does **not** calculate money saved, breach cost avoided, risk-reduction percentages, SLA compliance or ROI because those quantities are not measured by this runtime.
+
+Until normal payload values are actually governed through protected egress, the summary deliberately says **Requested field names**, **Policy-allowed field names** and **Policy-redacted field names** rather than claiming that normal field values were filtered. Human-principal identity/timestamp is likewise not invented when it is absent from the API. The exact `Approved destination` is shown as human-approved only after the persisted action state proves authorization.
+
 ## What problem it solves
 
 Enterprise agents are often given enough context and credentials to be useful. That creates a dangerous coupling: a prompt injection, compromised model or bad instruction can become data access or a real side effect if the same component is also trusted to authorize what it proposes.
