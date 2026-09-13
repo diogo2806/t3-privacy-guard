@@ -5,7 +5,11 @@ import { fileURLToPath } from 'node:url';
 import { TenantClient, getNodeUrl } from '@terminal3/t3n-sdk';
 import { AgentCardRegistry } from '../agent/agent-card.js';
 import { AgentSession } from '../agent/agent-session.js';
-import { DelegationService } from '../agent/delegation-service.js';
+import {
+  DelegationService,
+  EXECUTOR_DELEGATION_REQUIREMENTS,
+  PROPOSAL_DELEGATION_REQUIREMENTS,
+} from '../agent/delegation-service.js';
 import { ExecutorSession } from '../agent/executor-session.js';
 import { readGatewayConfig } from '../config/env.js';
 import { PrivacyGuardContractService } from '../contract/privacy-guard-contract.js';
@@ -24,6 +28,13 @@ const policyPath = resolve(gatewayRoot, process.env.T3N_POLICY_FILE ?? 'policy/p
 const manifestPath = resolve(process.env.EVIDENCE_DEPLOYMENT_MANIFEST ?? resolve(evidenceDir, 'deployment-manifest.json'));
 const testnetPath = resolve(process.env.EVIDENCE_OUTPUT ?? resolve(evidenceDir, 'testnet-run.json'));
 
+interface EffectiveDelegationEvidence {
+  readonly memberState?: string;
+  readonly effectiveState?: string;
+  readonly checkedFunctions?: string[];
+  readonly checkedScopes?: string[];
+}
+
 function configuredEgressHosts(): string[] {
   const configured = [process.env.SECURITY_API_URL, process.env.SECURITY_VERIFICATION_URL]
     .map((value) => value?.trim())
@@ -34,6 +45,23 @@ function configuredEgressHosts(): string[] {
     if (parsed.protocol !== 'https:') throw new Error('Evidence egress endpoints must use HTTPS');
     return parsed.hostname;
   }))];
+}
+
+function assertEffectiveEvidence(
+  label: string,
+  evidence: EffectiveDelegationEvidence | undefined,
+  expectedFunctions: readonly string[],
+  expectedScopes: readonly string[],
+): void {
+  if (!evidence || evidence.memberState !== 'ACTIVE' || evidence.effectiveState !== 'ACTIVE') {
+    throw new Error(`${label} live evidence does not confirm effective T3N access`);
+  }
+  if (JSON.stringify(evidence.checkedFunctions) !== JSON.stringify(expectedFunctions)) {
+    throw new Error(`${label} live evidence checked unexpected functions`);
+  }
+  if (JSON.stringify(evidence.checkedScopes) !== JSON.stringify(expectedScopes)) {
+    throw new Error(`${label} live evidence checked unexpected scopes`);
+  }
 }
 
 const config = readGatewayConfig();
@@ -48,8 +76,8 @@ const tenantSession = new T3nSession(config, trustFloorStore);
 const agentSession = new AgentSession(config, trustFloorStore);
 const executorSession = new ExecutorSession(config, trustFloorStore);
 const agentCardRegistry = new AgentCardRegistry(agentSession);
-const proposalDelegation = new DelegationService(tenantSession, agentSession);
-const executorDelegation = new DelegationService(tenantSession, executorSession);
+const proposalDelegation = new DelegationService(tenantSession, agentSession, PROPOSAL_DELEGATION_REQUIREMENTS);
+const executorDelegation = new DelegationService(tenantSession, executorSession, EXECUTOR_DELEGATION_REQUIREMENTS);
 const contract = new PrivacyGuardContractService(config, tenantSession, agentSession, executorSession);
 await tenantSession.connect();
 await Promise.all([agentSession.connect(), executorSession.connect()]);
@@ -182,6 +210,15 @@ await executorDelegation.grant({
   allowedHosts: configuredEgressHosts(),
 });
 
+const proposalAuthorization = await proposalDelegation.status(contractId);
+const executorAuthorization = await executorDelegation.status(contractId);
+if (proposalAuthorization.memberState !== 'ACTIVE' || proposalAuthorization.effectiveState !== 'ACTIVE') {
+  throw new Error(`Proposal Agent effective T3N authorization failed: ${proposalAuthorization.memberState}/${proposalAuthorization.effectiveState}`);
+}
+if (executorAuthorization.memberState !== 'ACTIVE' || executorAuthorization.effectiveState !== 'ACTIVE') {
+  throw new Error(`Protected Executor effective T3N authorization failed: ${executorAuthorization.memberState}/${executorAuthorization.effectiveState}`);
+}
+
 const run = spawnSync('npm', ['run', 'evidence:testnet'], {
   cwd: gatewayRoot,
   env: { ...process.env, EVIDENCE_OUTPUT: testnetPath, T3N_CONTRACT_WASM_PATH: wasmPath },
@@ -189,8 +226,13 @@ const run = spawnSync('npm', ['run', 'evidence:testnet'], {
 });
 if (run.status !== 0) throw new Error('T3N testnet evidence runner reported a failure');
 
-const evidence = JSON.parse(await readFile(testnetPath, 'utf8')) as TestnetEvidenceIdentity & { scenarios?: Array<{ status?: string }> };
+const evidence = JSON.parse(await readFile(testnetPath, 'utf8')) as TestnetEvidenceIdentity & {
+  delegation?: { proposal?: EffectiveDelegationEvidence; executor?: EffectiveDelegationEvidence };
+  scenarios?: Array<{ status?: string }>;
+};
 assertEvidenceMatchesDeployment(manifest, evidence);
+assertEffectiveEvidence('Proposal Agent', evidence.delegation?.proposal, PROPOSAL_DELEGATION_REQUIREMENTS.functions, PROPOSAL_DELEGATION_REQUIREMENTS.scopes);
+assertEffectiveEvidence('Protected Executor', evidence.delegation?.executor, EXECUTOR_DELEGATION_REQUIREMENTS.functions, EXECUTOR_DELEGATION_REQUIREMENTS.scopes);
 if (evidence.scenarios?.some((scenario) => scenario.status === 'FAIL')) throw new Error('T3N testnet evidence contains FAIL scenarios');
 
 const finalSerialized = await readFile(testnetPath, 'utf8');
@@ -205,6 +247,10 @@ console.info(JSON.stringify({
   policyHash: policy.hash,
   proposalAgentDid: agentDid,
   protectedExecutorDid: executorDid,
+  proposalMemberState: proposalAuthorization.memberState,
+  proposalEffectiveState: proposalAuthorization.effectiveState,
+  executorMemberState: executorAuthorization.memberState,
+  executorEffectiveState: executorAuthorization.effectiveState,
   agentRegistrationState: agentRegistration.state,
   agentCardSha256: agentRegistration.cardSha256,
   trustManifestVersion: persistedTrustFloor.version,
