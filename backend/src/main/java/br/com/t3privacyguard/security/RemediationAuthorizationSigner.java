@@ -5,7 +5,11 @@ import br.com.t3privacyguard.persistence.ActionProposalEntity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.IDN;
 import java.nio.charset.StandardCharsets;
+import java.security.KeyFactory;
 import java.security.MessageDigest;
+import java.security.PrivateKey;
+import java.security.Signature;
+import java.security.spec.PKCS8EncodedKeySpec;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
@@ -15,16 +19,19 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
+import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 @Component
 public class RemediationAuthorizationSigner {
+    private static final Pattern KEY_ID = Pattern.compile("[A-Za-z0-9._-]{1,32}");
+    private static final String TOKEN_VERSION = "v2";
+
     private final ObjectMapper mapper;
-    private final byte[] key;
+    private final PrivateKey privateKey;
+    private final String keyId;
     private final Duration ttl;
     private final Supplier<String> executorDidSupplier;
 
@@ -32,17 +39,29 @@ public class RemediationAuthorizationSigner {
     public RemediationAuthorizationSigner(
         ObjectMapper mapper,
         GatewayRemediationClient gateway,
-        @Value("${privacy-guard.remediation-capability.key}") String key,
+        @Value("${privacy-guard.remediation-capability.private-key}") String privateKey,
+        @Value("${privacy-guard.remediation-capability.key-id:v1}") String keyId,
         @Value("${privacy-guard.remediation-capability.ttl-seconds:60}") long ttlSeconds
     ) {
-        this(mapper, key, ttlSeconds, gateway::requireExecutorDid);
+        this(mapper, privateKey, keyId, ttlSeconds, gateway::requireExecutorDid);
     }
 
-    RemediationAuthorizationSigner(ObjectMapper mapper, String key, long ttlSeconds, Supplier<String> executorDidSupplier) {
-        if (key == null || key.length() < 32) throw new IllegalStateException("REMEDIATION_CAPABILITY_KEY must contain at least 32 characters");
-        if (ttlSeconds < 10 || ttlSeconds > 300) throw new IllegalStateException("REMEDIATION_CAPABILITY_TTL_SECONDS must be between 10 and 300");
+    RemediationAuthorizationSigner(
+        ObjectMapper mapper,
+        String encodedPrivateKey,
+        String keyId,
+        long ttlSeconds,
+        Supplier<String> executorDidSupplier
+    ) {
+        if (keyId == null || !KEY_ID.matcher(keyId).matches()) {
+            throw new IllegalStateException("REMEDIATION_AUTH_KEY_ID must match [A-Za-z0-9._-]{1,32}");
+        }
+        if (ttlSeconds < 10 || ttlSeconds > 300) {
+            throw new IllegalStateException("REMEDIATION_CAPABILITY_TTL_SECONDS must be between 10 and 300");
+        }
         this.mapper = mapper;
-        this.key = key.getBytes(StandardCharsets.UTF_8);
+        this.privateKey = decodePrivateKey(encodedPrivateKey);
+        this.keyId = keyId;
         this.ttl = Duration.ofSeconds(ttlSeconds);
         this.executorDidSupplier = executorDidSupplier;
     }
@@ -66,17 +85,18 @@ public class RemediationAuthorizationSigner {
         Instant now = Instant.now();
         if (remediationAuthorizedAt.isAfter(now)) throw new IllegalArgumentException("Human authorization timestamp cannot be after capability issuance");
         Claims claims = new Claims(
-            incidentId, actionId, requestId, decisionId, action, resource, purpose, canonicalApprovedHost,
+            keyId, incidentId, actionId, requestId, decisionId, action, resource, purpose, canonicalApprovedHost,
             listHash(fields), NormalPayloadCanonicalizer.sha256(normalPayload), listHash(privateRefs), policyVersion, policyHash, executorDid,
             operatorPrincipalHash, remediationAuthorizedAt.toEpochMilli(), now.toEpochMilli(), now.plus(ttl).toEpochMilli(), UUID.randomUUID().toString()
         );
         try {
             byte[] payload = mapper.writeValueAsBytes(claims);
             String encodedPayload = Base64.getUrlEncoder().withoutPadding().encodeToString(payload);
-            Mac mac = Mac.getInstance("HmacSHA256");
-            mac.init(new SecretKeySpec(key, "HmacSHA256"));
-            String signature = Base64.getUrlEncoder().withoutPadding().encodeToString(mac.doFinal(encodedPayload.getBytes(StandardCharsets.US_ASCII)));
-            return encodedPayload + "." + signature;
+            Signature signer = Signature.getInstance("Ed25519");
+            signer.initSign(privateKey);
+            signer.update(encodedPayload.getBytes(StandardCharsets.US_ASCII));
+            String signature = Base64.getUrlEncoder().withoutPadding().encodeToString(signer.sign());
+            return TOKEN_VERSION + "." + encodedPayload + "." + signature;
         } catch (Exception ex) {
             throw new IllegalStateException("Unable to issue remediation authorization proof", ex);
         }
@@ -123,7 +143,25 @@ public class RemediationAuthorizationSigner {
         }
     }
 
+    private static PrivateKey decodePrivateKey(String encoded) {
+        if (encoded == null || encoded.isBlank()) {
+            throw new IllegalStateException("REMEDIATION_AUTH_PRIVATE_KEY is required as a Base64 PKCS#8 Ed25519 private key");
+        }
+        try {
+            byte[] der;
+            try {
+                der = Base64.getDecoder().decode(encoded.trim());
+            } catch (IllegalArgumentException ignored) {
+                der = Base64.getUrlDecoder().decode(encoded.trim());
+            }
+            return KeyFactory.getInstance("Ed25519").generatePrivate(new PKCS8EncodedKeySpec(der));
+        } catch (Exception ex) {
+            throw new IllegalStateException("REMEDIATION_AUTH_PRIVATE_KEY must be a Base64 PKCS#8 Ed25519 private key", ex);
+        }
+    }
+
     public record Claims(
+        String keyId,
         String incidentId,
         String actionId,
         String requestId,
