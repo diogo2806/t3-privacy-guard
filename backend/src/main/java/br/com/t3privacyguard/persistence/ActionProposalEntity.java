@@ -32,6 +32,10 @@ public class ActionProposalEntity {
     private ProposalStatus status;
     @Column(nullable = false)
     private Instant createdAt;
+    @Column(name = "remediation_authorized_by", length = 120)
+    private String remediationAuthorizedBy;
+    @Column(name = "remediation_authorized_at")
+    private Instant remediationAuthorizedAt;
 
     protected ActionProposalEntity() {}
 
@@ -61,7 +65,11 @@ public class ActionProposalEntity {
     }
 
     public void markEvaluated() { this.status = ProposalStatus.EVALUATED; }
-    public void authorizeRemediation() { this.status = ProposalStatus.REMEDIATION_AUTHORIZED; }
+    public void authorizeRemediation(String authorizedBy, Instant authorizedAt) {
+        this.status = ProposalStatus.REMEDIATION_AUTHORIZED;
+        this.remediationAuthorizedBy = authorizedBy;
+        this.remediationAuthorizedAt = authorizedAt;
+    }
     public void markRemediated() { this.status = ProposalStatus.REMEDIATED; }
     public String getId() { return id; }
     public String getIncidentId() { return incidentId; }
@@ -75,4 +83,6 @@ public class ActionProposalEntity {
     public String getPrivateRefsJson() { return privateRefsJson; }
     public ProposalStatus getStatus() { return status; }
     public Instant getCreatedAt() { return createdAt; }
+    public String getRemediationAuthorizedBy() { return remediationAuthorizedBy; }
+    public Instant getRemediationAuthorizedAt() { return remediationAuthorizedAt; }
 }
