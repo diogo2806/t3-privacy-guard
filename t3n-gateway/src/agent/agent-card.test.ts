@@ -34,10 +34,13 @@ test('builder advertises A2A only when the public endpoint is configured', () =>
   assert.doesNotMatch(serialized, /MCP|x402Support": true|private[_-]?key|api[_-]?key|password|token/i);
 });
 
-test('builder rejects unsafe A2A endpoints and non-canonical DID input', () => {
+test('builder rejects unsafe or non-public A2A endpoints and non-canonical DID input', () => {
   assert.throws(() => buildAgentCard('did:t3n:agent'), /canonical did:t3n identifier/);
   assert.throws(() => buildAgentCard(AGENT_DID, 'http://guard.example/a2a'), /HTTPS/);
   assert.throws(() => buildAgentCard(AGENT_DID, 'https://guard.example/not-a2a'), /public \/a2a endpoint/);
+  assert.throws(() => buildAgentCard(AGENT_DID, 'https://localhost/a2a'), /public hostname/);
+  assert.throws(() => buildAgentCard(AGENT_DID, 'https://10.0.0.2/a2a'), /public hostname/);
+  assert.throws(() => buildAgentCard(AGENT_DID, 'https://[::1]/a2a'), /public hostname/);
 });
 
 test('serialized card contains no credential-shaped metadata', () => {
