@@ -80,6 +80,12 @@ public class ActionProposalEntity {
             }
             return false;
         }
+        if (status == ProposalStatus.REMEDIATED) {
+            throw new IllegalStateException("Completed legacy remediation cannot be rebound to a new operator");
+        }
+        if (status != ProposalStatus.EVALUATED && status != ProposalStatus.REMEDIATION_AUTHORIZED) {
+            throw new IllegalStateException("Remediation authorization requires an evaluated action");
+        }
         this.remediationAuthorizedBy = principal;
         this.remediationAuthorizedAt = authorizedAt;
         this.status = ProposalStatus.REMEDIATION_AUTHORIZED;
