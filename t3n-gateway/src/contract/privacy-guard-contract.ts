@@ -38,6 +38,9 @@ export interface PolicyDecision extends ActivityAnnotated {
 }
 
 export interface RemediationExecutionRequest {
+  readonly incident_id: string;
+  readonly action_id: string;
+  readonly decision_id: string;
   readonly request_id: string;
   readonly action: string;
   readonly resource: string;
@@ -47,6 +50,7 @@ export interface RemediationExecutionRequest {
   readonly private_refs?: string[];
   readonly policy_version: string;
   readonly policy_hash: string;
+  readonly authorization_proof: string;
 }
 
 export interface RemediationResult extends ActivityAnnotated {
@@ -180,7 +184,7 @@ export class PrivacyGuardContractService {
     const proposalAgentDid = this.agentSession.getAgentDid();
     const captured = await this.capture(executorDid, contractId, 'execute-remediation', () => this.executorSession.getClient().executeAndDecode(buildDelegatedExecutionRequest(
       this.tenantSession.getTenantDid(), contractId, contractVersion, 'execute-remediation',
-      { ...request, private_refs: request.private_refs ?? [], agent_did: proposalAgentDid },
+      { ...request, private_refs: request.private_refs ?? [], agent_did: proposalAgentDid, executor_did: executorDid },
     )));
     if (!isRemediation(captured.result)) throw new Error('T3N contract returned an invalid remediation result');
     if (captured.result.policy_version !== request.policy_version || captured.result.policy_hash !== request.policy_hash) {
