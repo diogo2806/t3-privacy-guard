@@ -106,7 +106,7 @@ Protected T3N execution
 PENDING_VERIFICATION
    |
    v
-Independent read-back
+Independent external read-back
    |
    +--> expected state observed -> COMPLETED
    +--> ambiguous/mismatch      -> UNVERIFIED
@@ -163,7 +163,7 @@ T3N / Rust WASM policy
 
 - `frontend/`: React/Vite operator dashboard served by Nginx.
 - `backend/`: Java 21/Spring Boot business API, operator sessions and durable business/remediation state.
-- `t3n-gateway/`: isolated T3N SDK adapter, AI provider adapter, separate tenant/agent sessions, versioned policy provisioning and anti-replay protection.
+- `t3n-gateway/`: isolated T3N SDK adapter, AI provider adapter, separate tenant/agent sessions, versioned policy provisioning, persistent T3N trust rollback protection and anti-replay protection.
 - `contracts/privacy-guard/`: Rust/WIT policy, closed private-reference mapping, protected remediation and independent verification for `wasm32-wasip2`.
 
 Each runtime has its own Dockerfile. There is intentionally no `docker-compose.yml`; services are deployed independently in containers.
@@ -175,7 +175,7 @@ The architecture deliberately prevents the model from owning security authority.
 | Responsibility | Authority |
 |---|---|
 | Understand prompt and propose an action | AI model |
-| Authenticate tenant and agent identity | T3N sessions |
+| Authenticate tenant and agent identity | T3N sessions with verified signed trust manifest and persisted rollback floor |
 | Supply versioned operational rules | Private T3N KV policy map |
 | Enforce immutable security invariants and decide allowed action/data/host | Rust/WASM contract |
 | Approve business remediation | Authenticated operator |
@@ -261,6 +261,14 @@ T3N_POLICY_ROLLBACK_VERSION=2026-09-12.1 npm run contract:setup-policy
 
 The rollback verifies the stored snapshot, updates `current`, verifies read-back and records the previous/target version and hashes in T3N KV history. `policyVersion`/`policyHash` are provenance metadata. They identify exactly which policy produced a decision or evidence run; they are not hardware attestation.
 
+## Persistent T3N trust-manifest rollback protection
+
+Before tenant or agent authentication, the gateway verifies the official signed T3N trust manifest and persists the accepted manifest version as a monotonic high-water mark per network. `T3N_TRUST_FLOOR_STORE_PATH` defaults to `/data/t3n-trust-floor.json`; the file contains only public trust metadata (`network`, accepted version and timestamp), never API keys, cookies or session credentials.
+
+When a floor already exists, authentication requests a manifest at least as new as that floor. A lower manifest is rejected, the floor is never silently decreased, and malformed or unreadable persisted state fails closed instead of resetting rollback history. Tenant and Agent sessions share the same `TrustManifestFloorStore` instance in each runtime so they cannot establish independent floors for the same network. Atomic persistence allows the accepted floor to survive process/container restart when `/data` is persistent.
+
+Evidence uses precise wording: `Trust anchor VERIFIED` means the signed manifest established the T3N cluster trust boundary; `Rollback floor PERSISTED` means the version high-water mark was durably stored and reused across restarts. Neither claim is described as per-request hardware attestation.
+
 ## Structural private-data boundary
 
 The initial private reference is intentionally narrow:
@@ -326,14 +334,15 @@ Rules:
 - `T3N_API_KEY`, `T3N_AGENT_API_KEY` and `AI_API_KEY` are gateway-only runtime secrets and are never returned to the browser.
 - `GATEWAY_SERVICE_TOKEN` is a separate service-to-service credential and protects internal gateway calls, including policy evaluation.
 - `REMEDIATION_CAPABILITY_KEY` signs one-time human authorization proofs and is distinct from every T3N/provider/remediation credential.
-- Canonical tenant/agent DIDs come from authenticated T3N sessions.
+- Canonical tenant/agent DIDs come from authenticated T3N sessions after trust-manifest verification and rollback-floor enforcement.
 - Delegated calls derive `pii_did` internally from the authenticated tenant session.
 - Member delegation restricts contract, functions, scopes, hosts and validity.
-- The model proposes; Rust/WASM policy decides. Provider failure, invalid tool output, missing/corrupt policy and T3N failure all fail closed.
+- The model proposes; Rust/WASM policy decides. Provider failure, invalid tool output, missing/corrupt policy, T3N trust failure and T3N execution failure all fail closed.
 - The model/application carry only logical private references; only the contract maps them to supported T3N profile markers.
 - The external operational policy cannot override compiled secret prohibitions, identity/delegation rules or safe host validation.
 - `ALLOW` + authenticated operator + explicit human authorization when required + valid one-time capability are required before protected remediation.
 - Consumed capability nonces are persisted at `REMEDIATION_REPLAY_STORE_PATH` so replay protection survives gateway restart when `/data` is persistent.
+- The accepted T3N trust-manifest floor is persisted at `T3N_TRUST_FLOOR_STORE_PATH` and never silently decreased.
 
 See the threat model and claims matrix in [`docs/submission/README.md`](docs/submission/README.md).
 
@@ -345,6 +354,7 @@ Relevant names include:
 T3N_CONTRACT_VERSION
 T3N_CONTRACT_NUMERIC_ID
 T3N_POLICY_FILE
+T3N_TRUST_FLOOR_STORE_PATH
 OPERATOR_USERNAME
 OPERATOR_PASSWORD
 OPERATOR_SESSION_TIMEOUT
@@ -410,7 +420,7 @@ npm install
 npm run evidence:live
 ```
 
-Generated artifacts are `docs/evidence/deployment-manifest.json` and `docs/evidence/testnet-run.json`. The orchestrator binds WASM SHA-256, canonical DIDs, contract id/version and the provisioned operational `policyVersion`/`policyHash`, and fails on mismatch, scenario `FAIL` or configured secret leakage. `NOT_RUN` is never counted as `PASS`.
+Generated artifacts are `docs/evidence/deployment-manifest.json` and `docs/evidence/testnet-run.json`. The orchestrator binds WASM SHA-256, canonical DIDs, contract id/version, the provisioned operational `policyVersion`/`policyHash`, verified T3N trust anchor and persisted rollback floor; it fails on mismatch, scenario `FAIL` or configured secret leakage. `NOT_RUN` is never counted as `PASS`.
 
 For live remediation proof, both `SECURITY_API_URL` and `SECURITY_VERIFICATION_URL` must be configured/sealed and the delegation includes only their derived HTTPS hosts. A live remediation scenario passes only on the documented execution plus independent verification sequence. An accepted 2xx without read-back cannot become a passing completion claim.
 
