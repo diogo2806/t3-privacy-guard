@@ -68,6 +68,20 @@ class SystemStatusServiceTest {
     }
 
     @Test
+    void keepsA2aConfigurationVisibleWhenProposalAgentSessionIsUnavailable() {
+        when(gateway.agentStatus()).thenReturn(Optional.of(new AgentStatus(true, false, false, null, "testnet")));
+        when(gateway.agentRegistration()).thenReturn(Optional.of(registration("", "UNAVAILABLE")));
+
+        var result = service.status();
+
+        assertThat(result.agentAuthenticated()).isFalse();
+        assertThat(result.agentRegistrationState()).isEqualTo("UNAVAILABLE");
+        assertThat(result.a2aConfigured()).isTrue();
+        assertThat(result.a2aPublicUrl()).isEqualTo("https://guard.example/a2a");
+        assertThat(result.a2aConfigurationCheckedAt()).isEqualTo("2026-09-13T11:00:00Z");
+    }
+
+    @Test
     void memberGrantAloneNeverMakesControlsReadyWhenPlatformRejectsProposalAgent() {
         when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
             "ACTIVE", "INCOMPLETE", List.of("evaluate-action"), List.of("incident_id"), List.of()
