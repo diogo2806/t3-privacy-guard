@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom/vitest';
 import type { ComponentProps } from 'react';
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
 import type { ActionProposal, PolicyDecision, RemediationExecution, SystemStatus } from '../../services/privacyGuardApi';
 import { TrustFlowSummary } from './TrustFlowSummary';
 
@@ -62,36 +63,45 @@ function renderSummary(overrides: Partial<ComponentProps<typeof TrustFlowSummary
 }
 
 describe('TrustFlowSummary', () => {
-  it('starts with waiting states and states the Proposal Agent cannot execute', () => {
+  it('starts with a compact waiting flow and states that AI has no authority', () => {
     renderSummary();
-    expect(screen.getAllByText('WAITING')).toHaveLength(2);
-    expect(screen.getByText(/Proposal Agent has no authority to execute it/i)).toBeInTheDocument();
+    expect(screen.getAllByText('WAITING')).toHaveLength(3);
+    expect(screen.getByText(/AI can propose, but it cannot authorize or execute/i)).toBeInTheDocument();
+    expect(screen.getByText('Current result')).toBeInTheDocument();
   });
 
-  it('keeps ALLOW separate from human authorization and protected executor', () => {
+  it('keeps ALLOW separate from human authorization and protected execution', () => {
     renderSummary({ selectedAction: ACTION, decision: decision('ALLOW') });
     expect(screen.getByText('ALLOW')).toBeInTheDocument();
     expect(screen.getByText('REQUIRED')).toBeInTheDocument();
-    expect(screen.getByText(/Protected Executor remains blocked until a human authorizes it/i)).toBeInTheDocument();
+    expect(screen.getByText(/Human authorization is the next required action/i)).toBeInTheDocument();
+  });
+
+  it('keeps policy retry inside the Policy step only while pending', async () => {
+    const user = userEvent.setup();
+    const onRetryEvaluation = vi.fn();
+    renderSummary({ selectedAction: { ...ACTION, status: 'PENDING' }, onRetryEvaluation });
+    await user.click(screen.getByRole('button', { name: 'Retry T3N evaluation' }));
+    expect(onRetryEvaluation).toHaveBeenCalledTimes(1);
   });
 
   it('shows accepted execution as pending verification rather than completed', () => {
     renderSummary({ selectedAction: { ...ACTION, status: 'REMEDIATION_AUTHORIZED' }, decision: decision('ALLOW'), remediationExecution: execution('PENDING_VERIFICATION') });
     expect(screen.getByText('ACCEPTED')).toBeInTheDocument();
     expect(screen.getByText('PENDING')).toBeInTheDocument();
-    expect(screen.getByText(/Completion is pending independent verification/i)).toBeInTheDocument();
+    expect(screen.getByText(/Independent verification is the next required action/i)).toBeInTheDocument();
   });
 
   it('shows COMPLETED only after independent verification', () => {
     renderSummary({ selectedAction: { ...ACTION, status: 'REMEDIATED' }, decision: decision('ALLOW'), remediationExecution: execution('COMPLETED') });
     expect(screen.getByText('VERIFIED')).toBeInTheDocument();
-    expect(screen.getByText(/remediation is COMPLETED/i)).toBeInTheDocument();
+    expect(screen.getByText(/Remediation is COMPLETED/i)).toBeInTheDocument();
   });
 
   it('explicit Proposal denial fails closed', () => {
     const { container } = render(<TrustFlowSummary agentAnalysis={null} decision={null} selectedAction={null} remediationExecution={null} systemStatus={{ ...READY_STATUS, evaluationReady: false, protectedRemediationReady: false, delegationEffectiveState: 'DENIED' }} statusLoading={false} />);
     expect(screen.getByText('Effective access denied')).toBeInTheDocument();
-    expect(screen.getByText(/T3N denied the exact effective access required for evaluation/i)).toBeInTheDocument();
+    expect(screen.getByText(/T3N denied the effective access required for evaluation/i)).toBeInTheDocument();
     expect(container.querySelector('.trust-readiness-ready')).not.toBeInTheDocument();
   });
 
@@ -105,14 +115,14 @@ describe('TrustFlowSummary', () => {
   it('keeps evaluation ready while Executor denial blocks execution', () => {
     const { container } = render(<TrustFlowSummary agentAnalysis={null} decision={null} selectedAction={null} remediationExecution={null} systemStatus={{ ...READY_STATUS, protectedRemediationReady: false, executorDelegationEffectiveState: 'DENIED' }} statusLoading={false} />);
     expect(screen.getByText('Evaluation ready · execution blocked')).toBeInTheDocument();
-    expect(screen.getByText(/denied the Protected Executor effective access/i)).toBeInTheDocument();
+    expect(screen.getByText(/T3N denied Protected Executor access/i)).toBeInTheDocument();
     expect(container.querySelector('.trust-readiness-ready')).not.toBeInTheDocument();
   });
 
   it('keeps scheduled Proposal Member grant pending and not ready', () => {
     const { container } = render(<TrustFlowSummary agentAnalysis={null} decision={null} selectedAction={null} remediationExecution={null} systemStatus={{ ...READY_STATUS, evaluationReady: false, protectedRemediationReady: false, delegationMemberState: 'SCHEDULED', delegationEffectiveState: 'DENIED', delegationCheckedFunctions: [], delegationCheckedScopes: [] }} statusLoading={false} />);
     expect(screen.getByText('Member grant scheduled')).toBeInTheDocument();
-    expect(screen.getByText(/no effective check is treated as active/i)).toBeInTheDocument();
+    expect(screen.getByText(/Proposal Member grant is scheduled/i)).toBeInTheDocument();
     expect(container.querySelector('.trust-readiness-pending')).toBeInTheDocument();
   });
 });

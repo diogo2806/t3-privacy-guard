@@ -4,9 +4,9 @@ interface Props { active: DashboardView; onChange: (view: DashboardView) => void
 
 export function DashboardTabs({ active, onChange }: Props) {
   return (
-    <nav className="dashboard-tabs" aria-label="Dashboard views">
-      <button type="button" className={active === 'demo' ? 'dashboard-tab dashboard-tab-active' : 'dashboard-tab'} aria-current={active === 'demo' ? 'page' : undefined} onClick={() => onChange('demo')}>Protection demo</button>
-      <button type="button" className={active === 'evidence' ? 'dashboard-tab dashboard-tab-active' : 'dashboard-tab'} aria-current={active === 'evidence' ? 'page' : undefined} onClick={() => onChange('evidence')}>Proof &amp; evidence</button>
+    <nav className="dashboard-tabs" aria-label="Product areas">
+      <button type="button" className={active === 'demo' ? 'dashboard-tab dashboard-tab-active' : 'dashboard-tab'} aria-current={active === 'demo' ? 'page' : undefined} onClick={() => onChange('demo')}>Protection flow</button>
+      <button type="button" className={active === 'evidence' ? 'dashboard-tab dashboard-tab-active' : 'dashboard-tab'} aria-current={active === 'evidence' ? 'page' : undefined} onClick={() => onChange('evidence')}>Evidence</button>
     </nav>
   );
 }

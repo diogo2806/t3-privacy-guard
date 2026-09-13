@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowRight, ShieldCheck } from 'lucide-react';
 import {
   PrivacyGuardApiError,
   privacyGuardApi,
@@ -30,6 +29,7 @@ import { EnterpriseScenarioCatalog } from '../scenarios/EnterpriseScenarioCatalo
 import { DEFAULT_ENTERPRISE_SCENARIO, ENTERPRISE_SCENARIOS, type EnterpriseScenarioDefinition } from '../scenarios/scenarioDefinitions';
 import { EmptyState } from '../states/EmptyState';
 import { SystemStatusBar } from '../status/SystemStatusBar';
+import { NextRequiredAction } from '../trust/NextRequiredAction';
 import { TrustFlowSummary } from '../trust/TrustFlowSummary';
 
 function requestId(prefix: string) { return `${prefix}-${crypto.randomUUID()}`; }
@@ -176,9 +176,9 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
     const result = await privacyGuardApi.analyzeAgent(currentPrompt);
     setAgentAnalysis(result); setRemediationExecution(null); setIncident(result.incident); setSelectedAction(result.action); setDecision(result.decision);
     await refreshIncident(result.incident, result.action.id);
-    if (result.decision.decision === 'DENY') setNotice('The real AI agent produced a structured proposal, and the independent T3N TEE policy blocked it. No protected egress was executed.');
-    else if (result.decision.decision === 'REDACT') setNotice('The real AI proposal exceeded the minimum data scope. T3N requires minimization before any action can continue.');
-    else setNotice('The real AI proposal passed T3N policy. ALLOW is not execution; protected execution is available only when that action has a real executor and verification contract.');
+    if (result.decision.decision === 'DENY') setNotice('The independent T3N policy blocked the agent proposal before protected egress.');
+    else if (result.decision.decision === 'REDACT') setNotice('T3N requires data minimization before the proposal can continue.');
+    else setNotice('T3N policy allowed the proposal to continue. ALLOW is not authorization or execution.');
   });
 
   const selectScenario = (scenario: EnterpriseScenarioDefinition) => {
@@ -201,13 +201,20 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
     const safeAction = await privacyGuardApi.createAction(incident.id, { requestId: requestId('remediation'), action: 'revoke-credential', resource: 'credential:production-security-api', purpose: 'incident-remediation', host: 'postman-echo.com', fields: ['incident_id', 'credential_id', 'reason'] });
     const result = await privacyGuardApi.evaluate(incident.id, safeAction.id);
     setRemediationExecution(null); await refreshIncident(incident, safeAction.id); setDecision(result);
-    setNotice(result.decision === 'ALLOW' ? 'Minimum credential revocation request allowed. Human authorization is still required before protected execution.' : `Credential revocation received ${result.decision}; execution remains blocked.`);
+    setNotice(result.decision === 'ALLOW' ? 'Minimum-scope revocation passed policy. Human authorization is still required before protected execution.' : `Credential revocation received ${result.decision}; execution remains blocked.`);
+  });
+
+  const retryEvaluation = () => run(async () => {
+    if (!incident || !selectedAction) return;
+    const result = await privacyGuardApi.evaluate(incident.id, selectedAction.id);
+    setDecision(result);
+    await refreshIncident(incident, selectedAction.id);
   });
 
   const authorize = () => run(async () => {
     if (!incident || !selectedAction) return;
     await privacyGuardApi.authorizeRemediation(incident.id, selectedAction.id); await refreshIncident(incident, selectedAction.id);
-    setNotice('Human authorization recorded. Protected execution will require a one-time proof and stable idempotency key.');
+    setNotice('Human authorization recorded. Protected execution still requires the bound executor and one-time proof.');
   });
 
   const executionNotice = (result: RemediationExecution) => {
@@ -236,6 +243,8 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
     else { setDecision(null); setRemediationExecution(null); setExecutionTrace([]); }
   };
 
+  const showSafePath = selectedScenario.id === 'credential-compromised' && decision?.decision === 'DENY' && Boolean(incident);
+
   return (
     <>
       <TrustFlowSummary
@@ -245,7 +254,13 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
         remediationExecution={remediationExecution}
         systemStatus={systemStatus}
         statusLoading={statusLoading}
+        busy={busy}
+        onRetryEvaluation={() => void retryEvaluation()}
       />
+      <details className="readiness-disclosure">
+        <summary>System readiness details</summary>
+        <SystemStatusBar status={systemStatus} loading={statusLoading} onRefresh={() => void refreshSystem()} />
+      </details>
       <DashboardTabs active={view} onChange={setView} />
       {error && <div className="feedback feedback-error" role="alert">{error}</div>}
       {notice && <div className="feedback feedback-success" role="status">{notice}</div>}
@@ -260,19 +275,14 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
             <AgentProposalPanel analysis={agentAnalysis} />
             {!incident ? <EmptyState /> : <>
               <IncidentSummary incident={incident} />
-              <div className="scenario-actions">
-                {selectedScenario.id === 'credential-compromised' && <button type="button" className="button button-primary" onClick={prepareSafeRemediation} disabled={busy}><ShieldCheck aria-hidden="true" />Prepare minimum credential revocation<ArrowRight aria-hidden="true" /></button>}
-                {selectedAction?.status === 'PENDING' && <button type="button" className="button button-secondary" onClick={() => void run(async () => { if (!incident || !selectedAction) return; const result = await privacyGuardApi.evaluate(incident.id, selectedAction.id); setDecision(result); await refreshIncident(incident, selectedAction.id); })} disabled={busy}>Retry T3N evaluation</button>}
-              </div>
+              {showSafePath && <NextRequiredAction busy={busy} onPrepareSafePath={() => void prepareSafeRemediation()} />}
               <div className="two-column"><ActionProposalPanel actions={actions} selectedActionId={selectedAction?.id ?? null} onSelect={selectAction} /><DecisionPanel decision={decision} /></div>
               <RemediationPanel action={selectedAction} decision={decision} execution={remediationExecution} busy={busy} onAuthorize={authorize} onExecute={execute} onVerify={verifyExternalState} />
             </>}
           </div>
-          <aside className="dashboard-side"><ExecutionTrace events={executionTrace} action={selectedAction} /><AuditTrail events={history} /></aside>
+          <aside className="dashboard-side" aria-label="Live activity"><ExecutionTrace events={executionTrace} action={selectedAction} /><AuditTrail events={history} /></aside>
         </main>
       )}
-
-      <SystemStatusBar status={systemStatus} loading={statusLoading} onRefresh={() => void refreshSystem()} />
     </>
   );
 }
