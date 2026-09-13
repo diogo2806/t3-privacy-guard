@@ -130,6 +130,25 @@ async function expectProposalExecutorRejected(contractId: string, contractVersio
     record('LIVE-PROPOSAL-CANNOT-EXECUTE', 'Proposal Agent DID rejected by T3N for execute-remediation', 'REJECTED', isAuthorizationRejection(detail) ? 'PASS' : 'FAIL', detail);
   }
 }
+async function expectProposalVerificationRejected(contractId: string, contractVersion: string, tenantDid: string): Promise<void> {
+  try {
+    await agentSession.getClient().executeAndDecode(buildDelegatedExecutionRequest(
+      tenantDid,
+      contractId,
+      contractVersion,
+      'verify-remediation',
+      {
+        request_id: 'live-proposal-verify-deny',
+        operation_id: 'synthetic-operation-not-authorized-for-proposal',
+        expected_state: 'REVOKED',
+      },
+    ));
+    record('LIVE-PROPOSAL-CANNOT-VERIFY', 'Proposal Agent DID rejected by T3N for verify-remediation', 'ACCEPTED', 'FAIL', 'Proposal principal unexpectedly invoked privileged verification');
+  } catch (error) {
+    const detail = sanitizeEvidenceError(error);
+    record('LIVE-PROPOSAL-CANNOT-VERIFY', 'Proposal Agent DID rejected by T3N for verify-remediation', 'REJECTED', isAuthorizationRejection(detail) ? 'PASS' : 'FAIL', detail);
+  }
+}
 async function expectExecutorRevocationRejected(id: string, expected: string, requestId: string, executorDid: string): Promise<void> {
   if (!observedPolicyVersion || !observedPolicyHash) {
     record(id, expected, null, 'FAIL', 'Versioned policy metadata was not established before protected egress');
@@ -204,12 +223,14 @@ record(
 
 if (process.env.EVIDENCE_RUN_EGRESS_NEGATIVES === 'true') {
   await expectProposalExecutorRejected(identity.contractId, identity.contractVersion, tenantDid, agentDid);
+  await expectProposalVerificationRejected(identity.contractId, identity.contractVersion, tenantDid);
   try {
     await executorDelegation.revoke(identity.contractId);
     await expectExecutorRevocationRejected('LIVE-REVOKED-EXECUTOR', 'protected egress rejected after Executor delegation revocation', 'live-revoked-executor-deny', executorDid);
   } finally { await grantLeastPrivilege(identity.contractId, identity.contractVersion); }
 } else {
   record('LIVE-PROPOSAL-CANNOT-EXECUTE', 'Proposal Agent DID rejected by T3N for execute-remediation', null, 'NOT_RUN', 'Set EVIDENCE_RUN_EGRESS_NEGATIVES=true after the private remediation map has been seeded.');
+  record('LIVE-PROPOSAL-CANNOT-VERIFY', 'Proposal Agent DID rejected by T3N for verify-remediation', null, 'NOT_RUN', 'Set EVIDENCE_RUN_EGRESS_NEGATIVES=true after the private verification map has been seeded.');
   record('LIVE-REVOKED-EXECUTOR', 'protected egress rejected after Executor delegation revocation', null, 'NOT_RUN', 'Set EVIDENCE_RUN_EGRESS_NEGATIVES=true after the private remediation map has been seeded.');
 }
 
