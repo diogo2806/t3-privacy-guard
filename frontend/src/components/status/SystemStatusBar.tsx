@@ -1,5 +1,5 @@
 import { BadgeCheck, KeyRound, RefreshCw, Server, Shield, UserRoundCog } from 'lucide-react';
-import type { AgentRegistrationState, SystemStatus } from '../../services/privacyGuardApi';
+import type { AgentRegistrationState, DelegationState, SystemStatus } from '../../services/privacyGuardApi';
 
 interface Props { status: SystemStatus | null; loading: boolean; onRefresh: () => void; }
 type PillState = 'ok' | 'off' | 'pending';
@@ -15,6 +15,17 @@ function registrationLabel(state?: AgentRegistrationState): string {
   return 'Unavailable';
 }
 
+function delegationPillState(state?: DelegationState): PillState {
+  if (state === 'ACTIVE') return 'ok';
+  if (state === 'SCHEDULED') return 'pending';
+  return 'off';
+}
+
+function delegationLabel(state?: DelegationState): string {
+  if (state === 'SCHEDULED') return 'Scheduled';
+  return state ?? 'UNKNOWN';
+}
+
 function isReady(status: SystemStatus | null): boolean {
   return Boolean(
     status?.gatewayReachable
@@ -26,7 +37,6 @@ function isReady(status: SystemStatus | null): boolean {
 }
 
 export function SystemStatusBar({ status, loading, onRefresh }: Props) {
-  const delegationActive = status?.delegationState === 'ACTIVE';
   const registrationState = status?.agentRegistrationState;
   const ready = isReady(status);
   const overallState: PillState = loading ? 'pending' : ready ? 'ok' : 'off';
@@ -38,7 +48,7 @@ export function SystemStatusBar({ status, loading, onRefresh }: Props) {
         <div>
           <p className="eyebrow">Technical T3N status</p>
           <h2>Live control plane</h2>
-          <p>{loading ? 'Checking the controls used to evaluate and execute protected actions.' : ready ? 'Policy and protected execution controls are available.' : 'One or more T3N controls are unavailable. Decisions or execution may not be provable.'}</p>
+          <p>{loading ? 'Checking the controls used to evaluate and execute protected actions.' : ready ? 'Policy and protected execution controls are available.' : status?.delegationState === 'SCHEDULED' ? 'Delegation exists, but its authorization window has not begun.' : 'One or more T3N controls are unavailable. Decisions or execution may not be provable.'}</p>
         </div>
         <StatusPill state={overallState} label={overallLabel} />
       </div>
@@ -56,7 +66,7 @@ export function SystemStatusBar({ status, loading, onRefresh }: Props) {
           <div className="status-item"><UserRoundCog aria-hidden="true" /><div><span>Agent</span><StatusPill state={status?.agentAuthenticated ? 'ok' : 'off'} label={status?.agentAuthenticated ? 'Authenticated' : status?.agentConfigured ? 'Not authenticated' : 'Not configured'} /></div></div>
           <div className="status-item"><BadgeCheck aria-hidden="true" /><div><span>Agent onboarding</span><StatusPill state={registrationState === 'REGISTERED' ? 'ok' : 'off'} label={registrationLabel(registrationState)} /></div></div>
           <div className="status-item"><Shield aria-hidden="true" /><div><span>Contract</span><StatusPill state={status?.contractResolved ? 'ok' : 'off'} label={status?.contractResolved ? `Resolved · v${status.contractVersion}` : 'Unavailable'} /></div></div>
-          <div className="status-item"><KeyRound aria-hidden="true" /><div><span>Delegation</span><StatusPill state={delegationActive ? 'ok' : 'off'} label={status?.delegationState ?? 'UNKNOWN'} /></div></div>
+          <div className="status-item"><KeyRound aria-hidden="true" /><div><span>Delegation</span><StatusPill state={delegationPillState(status?.delegationState)} label={delegationLabel(status?.delegationState)} /></div></div>
         </div>
         <div className="status-meta">
           <div><span>Tenant DID</span><code>{status?.tenantDid ?? 'Unavailable'}</code></div>
