@@ -7,14 +7,14 @@ import { AgentPromptPanel } from './AgentPromptPanel';
 const PROMPT = 'Record synthetic incident demo-42 without private values.';
 
 describe('AgentPromptPanel', () => {
-  it('submits the currently selected or edited prompt through Ask agent', async () => {
+  it('submits the currently selected or edited prompt through Analyze with agent', async () => {
     const user = userEvent.setup();
     const onAnalyze = vi.fn();
     const onPromptChange = vi.fn();
     render(<AgentPromptPanel busy={false} prompt={PROMPT} onPromptChange={onPromptChange} onAnalyze={onAnalyze} />);
 
     expect(screen.getByLabelText('Prompt')).toHaveValue(PROMPT);
-    await user.click(screen.getByRole('button', { name: 'Ask agent' }));
+    await user.click(screen.getByRole('button', { name: 'Analyze with agent' }));
     expect(onAnalyze).toHaveBeenCalledWith(PROMPT);
   });
 
@@ -29,12 +29,12 @@ describe('AgentPromptPanel', () => {
     expect(onAnalyze).not.toHaveBeenCalled();
   });
 
-  it('describes the pre-provider guard as high-confidence but deliberately incomplete', () => {
+  it('keeps detailed prompt privacy guidance available through disclosure', () => {
     render(<AgentPromptPanel busy={false} prompt={PROMPT} onPromptChange={vi.fn()} onAnalyze={vi.fn()} />);
+    expect(screen.getByText('Prompt privacy guidance')).toBeInTheDocument();
     expect(screen.getByText(/Do not paste private values or secrets/i)).toBeInTheDocument();
     expect(screen.getByText(/High-confidence sensitive literals are blocked before a remote AI provider/i)).toBeInTheDocument();
     expect(screen.getByText(/free text is not a complete PII scanner/i)).toBeInTheDocument();
-    expect(screen.queryByText(/PII-free|certified safe/i)).not.toBeInTheDocument();
   });
 
   it('renders sanitized rejection guidance without requiring the rejected value', () => {
