@@ -1,5 +1,6 @@
 package br.com.t3privacyguard.integration;
 
+import br.com.t3privacyguard.observability.TraceContext;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,6 +30,7 @@ public class GatewayRemediationClient {
                 .uri("/internal/contracts/privacy-guard/remediate")
                 .header("X-Gateway-Service-Token", serviceToken)
                 .header("X-Remediation-Capability", capability)
+                .header(TraceContext.HEADER, TraceContext.currentOrGenerate())
                 .body(request)
                 .retrieve()
                 .body(RemediationResult.class);
@@ -47,6 +49,7 @@ public class GatewayRemediationClient {
             VerificationResult result = restClient.post()
                 .uri("/internal/contracts/privacy-guard/verify-remediation")
                 .header("X-Gateway-Service-Token", serviceToken)
+                .header(TraceContext.HEADER, TraceContext.currentOrGenerate())
                 .body(new VerificationRequest(requestId, operationId, "REVOKED"))
                 .retrieve()
                 .body(VerificationResult.class);
