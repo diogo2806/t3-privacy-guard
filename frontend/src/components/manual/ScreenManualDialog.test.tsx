@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { ScreenManualDialog } from './ScreenManualDialog';
 
 describe('ScreenManualDialog', () => {
-  it('traps focus and explains effective authorization, business outcome, A2A, privacy, local integrity and T3N provenance', async () => {
+  it('traps focus and explains effective authorization, business outcome, A2A, human proof, privacy, local integrity and T3N provenance', async () => {
     const user = userEvent.setup();
     render(<div><button type="button">Outside action</button><ScreenManualDialog /></div>);
 
@@ -31,6 +31,13 @@ describe('ScreenManualDialog', () => {
     expect(screen.getByText('Agent Card e A2A público')).toBeInTheDocument();
     expect(dialog).toHaveTextContent(/A2A.*avaliação pública/i);
     expect(dialog).toHaveTextContent(/PII-free/i);
+    expect(screen.getByText('Policy, minimização, autorização humana e execução')).toBeInTheDocument();
+    expect(dialog).toHaveTextContent(/one-time authorization proof v2.*Ed25519/i);
+    expect(dialog).toHaveTextContent(/chave privada permanece no backend.*chave pública/i);
+    expect(dialog).toHaveTextContent(/WASM verifica Ed25519.*consome o hash do nonce.*antes de ler URL\/chave de egress/i);
+    expect(dialog).toHaveTextContent(/credencial do Executor sem proof válido não basta/i);
+    expect(dialog).toHaveTextContent(/principal autenticado da própria aplicação, não uma identidade civil nem uma DID T3N do humano/i);
+    expect(dialog).toHaveTextContent(/LIVE-EXECUTOR-REQUIRES-HUMAN-PROOF/i);
     expect(screen.getByText('Integridade do audit local e T3N Activity Log')).toBeInTheDocument();
     expect(dialog).toHaveTextContent(/HMAC-SHA256/i);
     expect(dialog).toHaveTextContent(/tamper-evident/i);
