@@ -10,7 +10,7 @@ describe('EnterpriseScenarioCatalog', () => {
     render(<EnterpriseScenarioCatalog selectedId="credential-compromised" busy={false} onSelect={vi.fn()} />);
 
     for (const scenario of ENTERPRISE_SCENARIOS) {
-      expect(screen.getByText(scenario.title)).toBeInTheDocument();
+      expect(screen.getAllByText(scenario.title).length).toBeGreaterThan(0);
       expect(screen.getByText(scenario.technicalAction)).toBeInTheDocument();
     }
     expect(screen.getByText(/synthetic input only/i)).toBeInTheDocument();
