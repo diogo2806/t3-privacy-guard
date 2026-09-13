@@ -3,7 +3,11 @@ import { A2aEvaluationService } from './agent/a2a-service.js';
 import { AgentCardRegistry } from './agent/agent-card.js';
 import { AgentService } from './agent/agent-service.js';
 import { AgentSession } from './agent/agent-session.js';
-import { DelegationService } from './agent/delegation-service.js';
+import {
+  DelegationService,
+  EXECUTOR_DELEGATION_REQUIREMENTS,
+  PROPOSAL_DELEGATION_REQUIREMENTS,
+} from './agent/delegation-service.js';
 import { ExecutorSession } from './agent/executor-session.js';
 import { OpenAiCompatibleProvider } from './agent/openai-compatible-provider.js';
 import { readGatewayConfig } from './config/env.js';
@@ -29,8 +33,8 @@ const agentSession = new AgentSession(config, trustFloorStore);
 const executorSession = new ExecutorSession(config, trustFloorStore);
 const agentCardRegistry = new AgentCardRegistry(agentSession, undefined, undefined, config.a2aPublicUrl);
 const activityLogService = new ActivityLogService(tenantSession);
-const delegationService = new DelegationService(tenantSession, agentSession);
-const executorDelegationService = new DelegationService(tenantSession, executorSession);
+const delegationService = new DelegationService(tenantSession, agentSession, PROPOSAL_DELEGATION_REQUIREMENTS);
+const executorDelegationService = new DelegationService(tenantSession, executorSession, EXECUTOR_DELEGATION_REQUIREMENTS);
 const contractService = new PrivacyGuardContractService(config, tenantSession, agentSession, executorSession, activityLogService);
 const remediationVerifier = new RemediationAuthorizationVerifier(config.remediationCapabilityKey, config.remediationReplayStorePath);
 const aiProvider = config.aiProvider === 'openai-compatible' && config.aiApiUrl && config.aiApiKey && config.aiModel

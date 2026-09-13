@@ -17,36 +17,20 @@ interface Props {
 }
 
 type StepTone = 'pending' | 'info' | 'success' | 'warning' | 'danger';
+interface TrustStep { label: string; state: string; detail: string; tone: StepTone; icon: LucideIcon; }
 
-interface TrustStep {
-  label: string;
-  state: string;
-  detail: string;
-  tone: StepTone;
-  icon: LucideIcon;
-}
-
-function t3nReady(status: SystemStatus | null): boolean {
-  return Boolean(
-    status?.gatewayReachable
-      && status.tenantAuthenticated
-      && status.agentAuthenticated
-      && status.executorAuthenticated
-      && status.contractResolved
-      && status.delegationEffectiveState === 'ACTIVE'
-      && status.executorDelegationEffectiveState === 'ACTIVE',
-  );
-}
-
-function readinessState(status: SystemStatus | null, loading: boolean, ready: boolean): { className: string; label: string } {
+function readinessState(status: SystemStatus | null, loading: boolean): { className: string; label: string } {
   if (loading) return { className: 'trust-readiness-pending', label: 'Checking T3N' };
-  if (ready) return { className: 'trust-readiness-ready', label: 'T3N controls ready' };
+  if (status?.protectedRemediationReady) return { className: 'trust-readiness-ready', label: 'T3N controls ready' };
+  if (status?.evaluationReady) return { className: 'trust-readiness-pending', label: 'Evaluation ready · execution blocked' };
   if (status?.delegationMemberState === 'SCHEDULED' || status?.executorDelegationMemberState === 'SCHEDULED') {
     return { className: 'trust-readiness-pending', label: 'Member grant scheduled' };
   }
-  if ((status?.delegationMemberState === 'ACTIVE' && status.delegationEffectiveState !== 'ACTIVE')
-      || (status?.executorDelegationMemberState === 'ACTIVE' && status.executorDelegationEffectiveState !== 'ACTIVE')) {
-    return { className: 'trust-readiness-unavailable', label: 'Effective access not confirmed' };
+  if (status?.delegationEffectiveState === 'DENIED' || status?.executorDelegationEffectiveState === 'DENIED') {
+    return { className: 'trust-readiness-unavailable', label: 'Effective access denied' };
+  }
+  if (status?.delegationEffectiveState === 'UNKNOWN' || status?.executorDelegationEffectiveState === 'UNKNOWN') {
+    return { className: 'trust-readiness-unavailable', label: 'Effective access unknown' };
   }
   return { className: 'trust-readiness-unavailable', label: 'T3N controls unavailable' };
 }
@@ -55,26 +39,11 @@ function isHumanAuthorized(action: ActionProposal | null): boolean {
   return action?.status === 'REMEDIATION_AUTHORIZED' || action?.status === 'REMEDIATED';
 }
 
-function trustSteps(
-  agentAnalysis: AgentAnalysis | null,
-  decision: PolicyDecision | null,
-  selectedAction: ActionProposal | null,
-  execution: RemediationExecution | null,
-): TrustStep[] {
+function trustSteps(agentAnalysis: AgentAnalysis | null, decision: PolicyDecision | null, selectedAction: ActionProposal | null, execution: RemediationExecution | null): TrustStep[] {
   const proposalReceived = Boolean(agentAnalysis || selectedAction);
   const authorized = isHumanAuthorized(selectedAction);
-
-  const policyTone: StepTone = !decision
-    ? 'pending'
-    : decision.decision === 'ALLOW'
-      ? 'success'
-      : decision.decision === 'REDACT'
-        ? 'warning'
-        : 'danger';
-
-  const humanState = decision?.decision === 'ALLOW'
-    ? authorized ? 'AUTHORIZED' : 'REQUIRED'
-    : 'NOT REQUIRED YET';
+  const policyTone: StepTone = !decision ? 'pending' : decision.decision === 'ALLOW' ? 'success' : decision.decision === 'REDACT' ? 'warning' : 'danger';
+  const humanState = decision?.decision === 'ALLOW' ? authorized ? 'AUTHORIZED' : 'REQUIRED' : 'NOT REQUIRED YET';
   const humanTone: StepTone = humanState === 'AUTHORIZED' ? 'success' : humanState === 'REQUIRED' ? 'warning' : 'pending';
 
   let executionState = 'NOT STARTED';
@@ -92,67 +61,23 @@ function trustSteps(
   if (execution?.state === 'UNVERIFIED' || execution?.state === 'FAILED') { verificationState = 'UNVERIFIED'; verificationTone = 'danger'; }
 
   return [
-    {
-      label: 'AI proposal',
-      state: proposalReceived ? 'RECEIVED' : 'WAITING',
-      detail: proposalReceived ? 'A structured action proposal is available. The Proposal Agent can evaluate policy but has no T3N grant for protected execution.' : 'Waiting for an agent proposal.',
-      tone: proposalReceived ? 'info' : 'pending',
-      icon: BrainCircuit,
-    },
-    {
-      label: 'Policy',
-      state: decision?.decision ?? 'WAITING',
-      detail: !decision ? 'T3N policy has not produced a decision yet.' : decision.decision === 'ALLOW' ? 'Policy allows the proposal to continue, not to execute automatically.' : decision.decision === 'REDACT' ? 'The proposal must be minimized before it may continue.' : 'Policy blocked the proposal before protected egress.',
-      tone: policyTone,
-      icon: ShieldCheck,
-    },
-    {
-      label: 'Human authorization',
-      state: humanState,
-      detail: humanState === 'AUTHORIZED' ? 'Business authorization is recorded and bound to the current Protected Executor DID.' : humanState === 'REQUIRED' ? 'A human must authorize before the Protected Executor may be invoked.' : 'Human authorization applies only after an ALLOW decision.',
-      tone: humanTone,
-      icon: UserCheck,
-    },
-    {
-      label: 'Protected execution',
-      state: executionState,
-      detail: executionState === 'NOT STARTED' ? 'No protected side effect is claimed. Execution uses a T3N principal separate from the Proposal Agent.' : executionState === 'EXECUTING' ? 'The Protected Executor has durably claimed execution and it is in progress.' : executionState === 'ACCEPTED' ? 'The external action was accepted by the Protected Executor; acceptance is not completion.' : executionState === 'UNVERIFIED' ? 'The external outcome is ambiguous and will not be reported as completed.' : 'Execution failed without verified completion.',
-      tone: executionTone,
-      icon: ServerCog,
-    },
-    {
-      label: 'Independent verification',
-      state: verificationState,
-      detail: verificationState === 'VERIFIED' ? 'The Protected Executor performed independent read-back and confirmed the expected external state.' : verificationState === 'PENDING' ? 'Completion is waiting for independent read-back.' : verificationState === 'UNVERIFIED' ? 'Independent verification did not prove completion.' : 'No verified completion is claimed yet.',
-      tone: verificationTone,
-      icon: BadgeCheck,
-    },
+    { label: 'AI proposal', state: proposalReceived ? 'RECEIVED' : 'WAITING', detail: proposalReceived ? 'A structured action proposal is available. The Proposal Agent may evaluate policy but has no T3N grant for protected execution.' : 'Waiting for an agent proposal.', tone: proposalReceived ? 'info' : 'pending', icon: BrainCircuit },
+    { label: 'Policy', state: decision?.decision ?? 'WAITING', detail: !decision ? 'T3N policy has not produced a decision yet.' : decision.decision === 'ALLOW' ? 'Policy allows the proposal to continue, not to execute automatically.' : decision.decision === 'REDACT' ? 'The proposal must be minimized before it may continue.' : 'Policy blocked the proposal before protected egress.', tone: policyTone, icon: ShieldCheck },
+    { label: 'Human authorization', state: humanState, detail: humanState === 'AUTHORIZED' ? 'Business authorization is recorded and bound to the current Protected Executor DID.' : humanState === 'REQUIRED' ? 'A human must authorize before the Protected Executor may be invoked.' : 'Human authorization applies only after an ALLOW decision.', tone: humanTone, icon: UserCheck },
+    { label: 'Protected execution', state: executionState, detail: executionState === 'NOT STARTED' ? 'No protected side effect is claimed. Execution uses a T3N principal separate from the Proposal Agent.' : executionState === 'EXECUTING' ? 'The Protected Executor has durably claimed execution and it is in progress.' : executionState === 'ACCEPTED' ? 'The external action was accepted; acceptance is not completion.' : executionState === 'UNVERIFIED' ? 'The external outcome is ambiguous and will not be reported as completed.' : 'Execution failed without verified completion.', tone: executionTone, icon: ServerCog },
+    { label: 'Independent verification', state: verificationState, detail: verificationState === 'VERIFIED' ? 'The Protected Executor performed independent read-back and confirmed the expected external state.' : verificationState === 'PENDING' ? 'Completion is waiting for independent read-back.' : verificationState === 'UNVERIFIED' ? 'Independent verification did not prove completion.' : 'No verified completion is claimed yet.', tone: verificationTone, icon: BadgeCheck },
   ];
 }
 
-function resultMessage(
-  decision: PolicyDecision | null,
-  selectedAction: ActionProposal | null,
-  execution: RemediationExecution | null,
-  ready: boolean,
-  statusLoading: boolean,
-  proposalReceived: boolean,
-  systemStatus: SystemStatus | null,
-): string {
-  if (!statusLoading && (systemStatus?.delegationMemberState === 'SCHEDULED' || systemStatus?.executorDelegationMemberState === 'SCHEDULED')) {
-    return 'A T3N Member grant is scheduled, but its authorization window has not begun. Effective access is not active, so proposal evaluation or protected execution is not reported as ready.';
+function resultMessage(decision: PolicyDecision | null, selectedAction: ActionProposal | null, execution: RemediationExecution | null, statusLoading: boolean, proposalReceived: boolean, status: SystemStatus | null): string {
+  if (!statusLoading && status?.delegationMemberState === 'SCHEDULED') return 'The Proposal Member grant is scheduled, so no effective check is treated as active and policy evaluation is not ready.';
+  if (!statusLoading && status?.delegationEffectiveState === 'DENIED') return 'The Proposal Member grant may exist, but T3N denied the exact effective access required for evaluation. The system fails closed.';
+  if (!statusLoading && status?.delegationEffectiveState === 'UNKNOWN') return 'Proposal effective T3N access could not be confirmed. The system fails closed and does not report policy evaluation as ready.';
+  if (!statusLoading && status?.evaluationReady && !status.protectedRemediationReady) {
+    if (status.executorDelegationEffectiveState === 'DENIED') return 'Policy evaluation is ready, but T3N denied the Protected Executor effective access required for execution and verification.';
+    return 'Policy evaluation is ready, but Protected Executor effective access is not confirmed. Protected remediation remains blocked.';
   }
-  if (!statusLoading && systemStatus?.delegationMemberState === 'ACTIVE' && systemStatus.delegationEffectiveState === 'INCOMPLETE') {
-    return 'The Proposal Agent Member grant is active, but T3N checkDelegation did not authorize effective access. Proposal evaluation is not reported as ready.';
-  }
-  if (!statusLoading && systemStatus?.executorDelegationMemberState === 'ACTIVE' && systemStatus.executorDelegationEffectiveState === 'INCOMPLETE') {
-    return 'The Protected Executor Member grant is active, but T3N checkDelegation did not authorize effective access. Protected execution is not reported as ready.';
-  }
-  if (!statusLoading && ((systemStatus?.delegationMemberState === 'ACTIVE' && systemStatus.delegationEffectiveState === 'UNKNOWN')
-      || (systemStatus?.executorDelegationMemberState === 'ACTIVE' && systemStatus.executorDelegationEffectiveState === 'UNKNOWN'))) {
-    return 'A Member grant is active, but the T3N effective delegation verdict is unavailable. The system fails closed and does not report protected operations as ready.';
-  }
-  if (!statusLoading && !ready) return 'T3N controls are unavailable or incomplete. Proposal evaluation or protected execution cannot be proven until both principals have T3N-confirmed effective access.';
+  if (!statusLoading && !status?.evaluationReady) return 'T3N controls are unavailable or incomplete. A Member grant alone is never treated as effective authorization.';
   if (!proposalReceived) return 'Start with a prompt. The AI may propose an action, but the Proposal Agent has no authority to execute it.';
   if (!decision) return 'An action proposal is available. T3N policy has not produced a decision yet.';
   if (decision.decision === 'DENY') return 'Policy blocked the proposal before protected egress. No execution is claimed.';
@@ -168,40 +93,26 @@ function resultMessage(
 
 export function TrustFlowSummary({ agentAnalysis, decision, selectedAction, remediationExecution, systemStatus, statusLoading }: Props) {
   const steps = trustSteps(agentAnalysis, decision, selectedAction, remediationExecution);
-  const ready = t3nReady(systemStatus);
   const proposalReceived = Boolean(agentAnalysis || selectedAction);
-  const readiness = readinessState(systemStatus, statusLoading, ready);
+  const readiness = readinessState(systemStatus, statusLoading);
 
   return (
     <section className="trust-flow card" aria-labelledby="trust-flow-title">
       <div className="trust-flow-heading">
-        <div>
-          <p className="eyebrow">Trust flow</p>
-          <h2 id="trust-flow-title">AI proposes. Humans authorize. A separate T3N executor performs protected actions.</h2>
-        </div>
-        <span className={`trust-readiness ${readiness.className}`}>
-          {readiness.label}
-        </span>
+        <div><p className="eyebrow">Trust flow</p><h2 id="trust-flow-title">AI proposes. Humans authorize. A separate T3N executor performs protected actions.</h2></div>
+        <span className={`trust-readiness ${readiness.className}`}>{readiness.label}</span>
       </div>
-
       <ol className="trust-flow-steps">
         {steps.map((step, index) => {
           const Icon = step.icon;
-          return (
-            <li key={step.label} className={`trust-step trust-step-${step.tone}`}>
-              <div className="trust-step-icon"><Icon aria-hidden="true" /></div>
-              <div className="trust-step-copy">
-                <span>{step.label}</span>
-                <strong>{step.state}</strong>
-                <small>{step.detail}</small>
-              </div>
-              {index < steps.length - 1 && <ArrowRight className="trust-step-arrow" aria-hidden="true" />}
-            </li>
-          );
+          return <li key={step.label} className={`trust-step trust-step-${step.tone}`}>
+            <div className="trust-step-icon"><Icon aria-hidden="true" /></div>
+            <div className="trust-step-copy"><span>{step.label}</span><strong>{step.state}</strong><small>{step.detail}</small></div>
+            {index < steps.length - 1 && <ArrowRight className="trust-step-arrow" aria-hidden="true" />}
+          </li>;
         })}
       </ol>
-
-      <p className="trust-result" aria-live="polite"><strong>Result:</strong> {resultMessage(decision, selectedAction, remediationExecution, ready, statusLoading, proposalReceived, systemStatus)}</p>
+      <p className="trust-result" aria-live="polite"><strong>Result:</strong> {resultMessage(decision, selectedAction, remediationExecution, statusLoading, proposalReceived, systemStatus)}</p>
     </section>
   );
 }

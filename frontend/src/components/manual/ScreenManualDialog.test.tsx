@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { ScreenManualDialog } from './ScreenManualDialog';
 
 describe('ScreenManualDialog', () => {
-  it('traps focus and explains identity, policy, execution, audit and evidence without conflating onboarding with authorization', async () => {
+  it('traps focus and explains fixed effective authorization, A2A, privacy and evidence provenance', async () => {
     const user = userEvent.setup();
     render(<div><button type="button">Outside action</button><ScreenManualDialog /></div>);
 
@@ -17,15 +17,18 @@ describe('ScreenManualDialog', () => {
     const dialog = screen.getByRole('dialog', { name: 'Incident Response Dashboard' });
     const closeButton = screen.getByRole('button', { name: 'Close Screen Manual' });
     expect(dialog).toHaveAttribute('aria-modal', 'true');
-    expect(screen.getByText('Identidade, onboarding e autorização')).toBeInTheDocument();
-    expect(screen.getByText(/Agent Card serve para descoberta pública e não concede autoridade sobre o contrato/i)).toBeInTheDocument();
-    expect(screen.getByText('Policy e decisão')).toBeInTheDocument();
-    expect(screen.getByText('Dados privados e retenção')).toBeInTheDocument();
-    expect(screen.getByText('Audit provenance e T3N Activity Log')).toBeInTheDocument();
+    expect(screen.getByText('Identidade, Member grant e autorização efetiva')).toBeInTheDocument();
+    expect(dialog).toHaveTextContent(/checkDelegation.*cliente autenticado do próprio principal/i);
+    expect(dialog).toHaveTextContent(/evaluate-action.*execute-remediation.*verify-remediation/i);
+    expect(dialog).toHaveTextContent(/Confirmed.*Denied.*Unknown/i);
+    expect(screen.getByText('Readiness')).toBeInTheDocument();
+    expect(dialog).toHaveTextContent(/Proposal evaluation.*Protected remediation/i);
+    expect(screen.getByText('Agent Card e A2A público')).toBeInTheDocument();
+    expect(dialog).toHaveTextContent(/A2A.*avaliação pública/i);
+    expect(dialog).toHaveTextContent(/PII-free/i);
     expect(screen.getByText('Proof & evidence')).toBeInTheDocument();
-    expect(screen.getByText(/Source commit/i)).toBeInTheDocument();
-    expect(screen.getByText(/árvore Git estava sem alterações quando a geração começou/i)).toBeInTheDocument();
-    expect(screen.getByText(/COMPLETED/i)).toBeInTheDocument();
+    expect(dialog).toHaveTextContent(/Source commit.*Source tree/i);
+    expect(dialog).toHaveTextContent(/COMPLETED/i);
     expect(closeButton).toHaveFocus();
 
     await user.tab();
