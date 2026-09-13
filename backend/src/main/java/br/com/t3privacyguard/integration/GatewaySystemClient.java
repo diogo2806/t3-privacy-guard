@@ -87,7 +87,6 @@ public class GatewaySystemClient {
         String callerType,
         String actorDid,
         String onBehalfOfDid,
-        String orgDid,
         String contractId,
         String function,
         String outcome,
