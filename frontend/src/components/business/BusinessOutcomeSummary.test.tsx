@@ -116,6 +116,12 @@ describe('BusinessOutcomeSummary', () => {
     expect(section('T3N control outcome').getByText(/1 · employee_department/)).toBeInTheDocument();
   });
 
+  it('shows actual requested private reference counts without exposing a value', () => {
+    const action = { ...THREAT_ACTION, privateRefs: ['verified_email'] };
+    renderSummary({ incident: INCIDENT, selectedAction: action, decision: policyDecision(action, 'ALLOW') });
+    expect(section('Threat observed').getByText('1 · verified_email')).toBeInTheDocument();
+  });
+
   it('shows ALLOW as requiring human authorization before protected execution', () => {
     const allow = policyDecision(SAFE_ACTION, 'ALLOW', '2026-09-13T15:00:01.420Z');
     renderSummary({ incident: INCIDENT, selectedAction: SAFE_ACTION, decision: allow });
