@@ -57,4 +57,15 @@ class IncidentControllerTest {
             .hasMessageContaining("Authenticated operator principal");
         verifyNoInteractions(service);
     }
+
+    @Test
+    void remediationAuthorizationFailsClosedForBlankAuthenticatedPrincipal() {
+        when(authentication.isAuthenticated()).thenReturn(true);
+        when(authentication.getName()).thenReturn("   ");
+
+        assertThatThrownBy(() -> controller.authorizeRemediation("incident-1", "action-1", authentication))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Authenticated operator principal");
+        verifyNoInteractions(service);
+    }
 }
