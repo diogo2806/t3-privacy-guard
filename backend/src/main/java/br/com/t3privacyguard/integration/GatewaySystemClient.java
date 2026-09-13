@@ -81,7 +81,23 @@ public class GatewaySystemClient {
     public record AgentStatus(boolean configured, boolean connected, boolean ready, String agentDid, String network) {}
     public record AgentRegistrationStatus(String agentDid, String state, String cardUri, String cardSha256, String verifiedAt, List<String> services) {}
     public record ContractIdentity(String contractId, String contractVersion) {}
-    public record DelegationStatus(String state, List<String> functions, List<String> allowedHosts) {}
+    public record DelegationStatus(
+        String state,
+        String memberState,
+        List<String> functions,
+        List<String> scopes,
+        List<String> allowedHosts,
+        List<String> satisfied,
+        List<String> missing
+    ) {
+        public DelegationStatus {
+            functions = functions == null ? List.of() : List.copyOf(functions);
+            scopes = scopes == null ? List.of() : List.copyOf(scopes);
+            allowedHosts = allowedHosts == null ? List.of() : List.copyOf(allowedHosts);
+            satisfied = satisfied == null ? List.of() : List.copyOf(satisfied);
+            missing = missing == null ? List.of() : List.copyOf(missing);
+        }
+    }
     public record ActivityEvent(
         long sequence,
         String hash,
