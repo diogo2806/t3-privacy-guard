@@ -57,6 +57,8 @@ function execution(state: RemediationExecution['state']): RemediationExecution {
 const systemStatus = {
   protectedRemediationReady: true,
   evaluationReady: true,
+  enterpriseIntegrationState: 'READY',
+  enterpriseIntegrationReady: true,
   agentDid: 'did:t3n:testnet:proposal-agent-123456789',
   executorDid: 'did:t3n:testnet:protected-executor-987654321',
   delegationEffectiveState: 'ACTIVE',
@@ -152,7 +154,7 @@ describe('ExecutiveDemoView', () => {
     expect(screen.getByTestId('executive-step-verify')).toHaveTextContent(verification);
   });
 
-  it('shows compact proof only from a valid evidence bundle and keeps identity/delegation claims explicit', () => {
+  it('shows compact proof only from a valid evidence bundle and keeps runtime readiness claims explicit', () => {
     renderExecutive({ evidence });
 
     expect(screen.getByTestId('executive-readiness')).toHaveTextContent('T3N LIVE / READY');
@@ -162,6 +164,7 @@ describe('ExecutiveDemoView', () => {
     expect(screen.getByTestId('executive-proof')).toHaveTextContent('0.4.0');
     expect(screen.getByTestId('executive-proof')).toHaveTextContent('SEPARATE');
     expect(screen.getByTestId('executive-proof')).toHaveTextContent('CONFIRMED');
+    expect(screen.getByTestId('executive-proof')).toHaveTextContent('READY');
     expect(screen.getByTestId('executive-proof')).toHaveTextContent('REGISTERED');
     expect(screen.getByTestId('executive-proof')).toHaveTextContent(/NOT RUN is not proof/i);
   });
@@ -171,6 +174,16 @@ describe('ExecutiveDemoView', () => {
 
     expect(screen.getByTestId('executive-readiness')).toHaveTextContent('INCOMPLETE');
     expect(screen.getByTestId('executive-proof')).toHaveTextContent('11 PASS / 1 FAIL / 1 NOT RUN');
+  });
+
+  it('does not label runtime ready when enterprise integration is incomplete', () => {
+    renderExecutive({
+      evidence,
+      systemStatus: { ...systemStatus, enterpriseIntegrationState: 'INCOMPLETE', enterpriseIntegrationReady: false } as SystemStatus,
+    });
+
+    expect(screen.getByTestId('executive-readiness')).toHaveTextContent('INCOMPLETE');
+    expect(screen.getByTestId('executive-proof')).toHaveTextContent('INCOMPLETE');
   });
 
   it('navigates only to technical evidence and keeps the Screen Manual accessible', async () => {
