@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.IDN;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.text.Normalizer;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
@@ -22,6 +23,8 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class RemediationAuthorizationSigner {
+    private static final int OPERATOR_PRINCIPAL_MAX_LENGTH = 120;
+
     private final ObjectMapper mapper;
     private final byte[] key;
     private final Duration ttl;
@@ -49,21 +52,26 @@ public class RemediationAuthorizationSigner {
     public String issue(
         String incidentId, String actionId, String requestId, String decisionId, String action,
         String resource, String purpose, String approvedHost, List<String> fields, Map<String, String> normalPayload,
-        List<String> privateRefs, String policyVersion, String policyHash
+        List<String> privateRefs, String policyVersion, String policyHash, String authorizedBy, Instant authorizedAt
     ) {
         if (policyVersion == null || policyVersion.isBlank() || policyHash == null || !policyHash.matches("[a-f0-9]{64}")) {
             throw new IllegalArgumentException("Versioned policy metadata is required for remediation authorization");
         }
+        if (authorizedAt == null) throw new IllegalArgumentException("Human authorization timestamp is required for remediation authorization");
+        String operatorPrincipalHash = operatorPrincipalHash(authorizedBy);
         String canonicalApprovedHost = canonicalizeHost(approvedHost);
         String executorDid = executorDidSupplier.get();
         if (executorDid == null || !executorDid.startsWith("did:t3n:")) {
             throw new IllegalStateException("Authenticated protected executor DID is required for remediation authorization");
         }
         Instant now = Instant.now();
+        if (authorizedAt.isAfter(now.plusSeconds(5))) {
+            throw new IllegalArgumentException("Human authorization timestamp cannot be in the future");
+        }
         Claims claims = new Claims(
             incidentId, actionId, requestId, decisionId, action, resource, purpose, canonicalApprovedHost,
             listHash(fields), NormalPayloadCanonicalizer.sha256(normalPayload), listHash(privateRefs), policyVersion, policyHash, executorDid,
-            now.toEpochMilli(), now.plus(ttl).toEpochMilli(), UUID.randomUUID().toString()
+            operatorPrincipalHash, authorizedAt.toEpochMilli(), now.toEpochMilli(), now.plus(ttl).toEpochMilli(), UUID.randomUUID().toString()
         );
         try {
             byte[] payload = mapper.writeValueAsBytes(claims);
@@ -74,6 +82,29 @@ public class RemediationAuthorizationSigner {
             return encodedPayload + "." + signature;
         } catch (Exception ex) {
             throw new IllegalStateException("Unable to issue remediation authorization proof", ex);
+        }
+    }
+
+    public static String canonicalizeOperatorPrincipal(String value) {
+        if (value == null) throw new IllegalArgumentException("Authenticated operator principal is required");
+        String canonical = Normalizer.normalize(value.strip(), Normalizer.Form.NFKC);
+        if (canonical.isBlank() || canonical.length() > OPERATOR_PRINCIPAL_MAX_LENGTH) {
+            throw new IllegalArgumentException("Authenticated operator principal is invalid");
+        }
+        if (canonical.chars().anyMatch(Character::isISOControl)) {
+            throw new IllegalArgumentException("Authenticated operator principal is invalid");
+        }
+        return canonical;
+    }
+
+    public static String operatorPrincipalHash(String value) {
+        try {
+            String canonical = canonicalizeOperatorPrincipal(value);
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(canonical.getBytes(StandardCharsets.UTF_8)));
+        } catch (IllegalArgumentException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new IllegalStateException("Unable to hash authenticated operator principal", ex);
         }
     }
 
@@ -124,7 +155,9 @@ public class RemediationAuthorizationSigner {
         String policyVersion,
         String policyHash,
         String executorDid,
+        String operatorPrincipalHash,
         long authorizedAt,
+        long issuedAt,
         long expiresAt,
         String nonce
     ) {}
