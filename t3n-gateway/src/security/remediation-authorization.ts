@@ -107,7 +107,12 @@ export class RemediationAuthorizationVerifier {
     const supplied = Buffer.from(signaturePart, 'base64url');
     if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) throw new Error('CAPABILITY_INVALID');
 
-    const claims = JSON.parse(Buffer.from(payloadPart, 'base64url').toString('utf8')) as Claims;
+    let claims: Claims;
+    try {
+      claims = JSON.parse(Buffer.from(payloadPart, 'base64url').toString('utf8')) as Claims;
+    } catch {
+      throw new Error('CAPABILITY_INVALID');
+    }
     const currentTime = this.now();
     if (!claims.nonce || !claims.expiresAt || claims.expiresAt <= currentTime) throw new Error('CAPABILITY_EXPIRED');
     if (!Number.isFinite(claims.authorizedAt) || claims.authorizedAt <= 0
