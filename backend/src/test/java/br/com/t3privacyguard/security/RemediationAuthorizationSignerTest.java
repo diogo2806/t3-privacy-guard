@@ -5,41 +5,41 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
+import java.security.KeyFactory;
+import java.security.Signature;
+import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 import org.junit.jupiter.api.Test;
 
 class RemediationAuthorizationSignerTest {
-    private static final String KEY = "test-remediation-capability-key-1234567890";
+    private static final String PRIVATE_KEY_PKCS8 = "MC4CAQAwBQYDK2VwBCIEIAv4OIfbF/R/i9uL6wgRalq2gperSKNx+Ig9BuS9L4qS";
+    private static final String PUBLIC_KEY_SPKI = "MCowBQYDK2VwAyEAW3EwSatHmT/ZSgrqu/G3ecXJrTviA5SjAoCwIfwau6A=";
     private static final String POLICY_VERSION = "2026-09-12.1";
     private static final String POLICY_HASH = "a".repeat(64);
     private static final String EXECUTOR_DID = "did:t3n:protected-executor-test";
-    private static final String OPERATOR = "ops-reviewer";
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
-    void capabilityIsSignedAndBoundToActionPrivateReferencesPolicyDestinationPayloadExecutorAndHumanApproval() throws Exception {
-        var signer = new RemediationAuthorizationSigner(mapper, KEY, 60, () -> EXECUTOR_DID);
+    void capabilityV2IsSignedAndBoundToActionPrivateReferencesPolicyDestinationPayloadAndExecutor() throws Exception {
+        var signer = new RemediationAuthorizationSigner(mapper, PRIVATE_KEY_PKCS8, 60, () -> EXECUTOR_DID);
         Map<String, String> normalPayload = Map.of(
             "incident_id", "inc-demo-001",
             "reason", "suspected compromise",
             "credential_id", "cred-demo-001"
         );
-        Instant authorizedAt = Instant.now().minusSeconds(2);
         String token = signer.issue(
             "incident-1", "action-1", "request-1", "decision-1",
             "notify-security", "incident:test", "incident-notification", "Security-A.Example",
             List.of("summary", "incident_id", "severity"), normalPayload, List.of("verified_email"),
-            POLICY_VERSION, POLICY_HASH, OPERATOR, authorizedAt
+            POLICY_VERSION, POLICY_HASH
         );
 
         String[] parts = token.split("\\.");
-        assertThat(parts).hasSize(2);
-        var claims = mapper.readTree(Base64.getUrlDecoder().decode(parts[0]));
+        assertThat(parts).hasSize(3);
+        assertThat(parts[0]).isEqualTo("v2");
+        var claims = mapper.readTree(Base64.getUrlDecoder().decode(parts[1]));
         assertThat(claims.get("incidentId").asText()).isEqualTo("incident-1");
         assertThat(claims.get("decisionId").asText()).isEqualTo("decision-1");
         assertThat(claims.get("approvedHost").asText()).isEqualTo("security-a.example");
@@ -49,33 +49,24 @@ class RemediationAuthorizationSignerTest {
         assertThat(claims.get("policyVersion").asText()).isEqualTo(POLICY_VERSION);
         assertThat(claims.get("policyHash").asText()).isEqualTo(POLICY_HASH);
         assertThat(claims.get("executorDid").asText()).isEqualTo(EXECUTOR_DID);
-        assertThat(claims.get("operatorPrincipalHash").asText()).isEqualTo(RemediationAuthorizationSigner.operatorPrincipalHash(OPERATOR));
-        assertThat(claims.get("authorizedAt").asLong()).isEqualTo(authorizedAt.toEpochMilli());
-        assertThat(claims.get("issuedAt").asLong()).isGreaterThanOrEqualTo(claims.get("authorizedAt").asLong());
         assertThat(claims.get("nonce").asText()).isNotBlank();
         assertThat(claims.get("expiresAt").asLong()).isGreaterThan(claims.get("issuedAt").asLong());
+        assertThat(claims.has("authorizedAt")).isFalse();
 
-        Mac mac = Mac.getInstance("HmacSHA256");
-        mac.init(new SecretKeySpec(KEY.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
-        String expected = Base64.getUrlEncoder().withoutPadding()
-            .encodeToString(mac.doFinal(parts[0].getBytes(StandardCharsets.US_ASCII)));
-        assertThat(parts[1]).isEqualTo(expected);
+        var publicKey = KeyFactory.getInstance("Ed25519")
+            .generatePublic(new X509EncodedKeySpec(Base64.getDecoder().decode(PUBLIC_KEY_SPKI)));
+        Signature verifier = Signature.getInstance("Ed25519");
+        verifier.initVerify(publicKey);
+        verifier.update((parts[0] + "." + parts[1]).getBytes(StandardCharsets.US_ASCII));
+        assertThat(verifier.verify(Base64.getUrlDecoder().decode(parts[2]))).isTrue();
     }
 
     @Test
-    void rejectsMissingOrFutureHumanAuthorizationProvenance() {
-        var signer = new RemediationAuthorizationSigner(mapper, KEY, 60, () -> EXECUTOR_DID);
-        Map<String, String> normalPayload = Map.of("incident_id", "inc", "credential_id", "cred", "reason", "test");
-
-        assertThatThrownBy(() -> signer.issue(
-            "incident-1", "action-1", "request-1", "decision-1", "revoke-credential", "credential:test", "incident-remediation",
-            "postman-echo.com", List.of("incident_id", "credential_id", "reason"), normalPayload, List.of(), POLICY_VERSION, POLICY_HASH, " ", Instant.now()
-        )).isInstanceOf(IllegalArgumentException.class);
-
-        assertThatThrownBy(() -> signer.issue(
-            "incident-1", "action-1", "request-1", "decision-1", "revoke-credential", "credential:test", "incident-remediation",
-            "postman-echo.com", List.of("incident_id", "credential_id", "reason"), normalPayload, List.of(), POLICY_VERSION, POLICY_HASH, OPERATOR, Instant.now().plusSeconds(30)
-        )).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("cannot be after capability issuance");
+    void rejectsLegacySharedSecretInsteadOfEd25519PrivateKey() {
+        assertThatThrownBy(() -> new RemediationAuthorizationSigner(
+            mapper, "test-remediation-capability-key-1234567890", 60, () -> EXECUTOR_DID
+        )).isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("REMEDIATION_AUTH_PRIVATE_KEY_PKCS8");
     }
 
     @Test

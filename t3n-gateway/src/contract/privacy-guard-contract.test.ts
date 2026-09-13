@@ -4,6 +4,7 @@ import { buildDelegatedExecutionRequest } from './privacy-guard-contract.js';
 
 const tenantDid = 'did:t3n:tenant123';
 const agentDid = 'did:t3n:agent456';
+const executorDid = 'did:t3n:executor789';
 const contractId = 'z:tenant123:privacy-guard';
 const contractVersion = '0.4.0';
 const policyVersion = '2026-09-12.1';
@@ -38,13 +39,24 @@ test('evaluation execution is bound to the authenticated tenant DID', () => {
   assert.notEqual(request.pii_did, request.input.agent_did);
 });
 
-test('remediation execution uses tenant delegation subject, exact policy provenance, approved destination and trusted payload', () => {
+test('remediation execution carries exact proof, policy provenance, executor, destination and trusted payload into T3N', () => {
   const request = buildDelegatedExecutionRequest(
     tenantDid,
     contractId,
     contractVersion,
     'execute-remediation',
-    { ...input(), approved_host: approvedHost, normal_payload: normalPayload, policy_version: policyVersion, policy_hash: policyHash },
+    {
+      ...input(),
+      incident_id: 'incident-1',
+      action_id: 'action-1',
+      decision_id: 'decision-1',
+      executor_did: executorDid,
+      authorization_proof: 'v2.payload.signature',
+      approved_host: approvedHost,
+      normal_payload: normalPayload,
+      policy_version: policyVersion,
+      policy_hash: policyHash,
+    },
   );
 
   assert.equal(request.pii_did, tenantDid);
@@ -53,6 +65,8 @@ test('remediation execution uses tenant delegation subject, exact policy provena
   assert.deepEqual(request.input.normal_payload, normalPayload);
   assert.equal(request.input.policy_version, policyVersion);
   assert.equal(request.input.policy_hash, policyHash);
+  assert.equal(request.input.executor_did, executorDid);
+  assert.equal(request.input.authorization_proof, 'v2.payload.signature');
 });
 
 test('verification execution uses the same tenant delegation subject', () => {
