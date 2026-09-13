@@ -1,4 +1,5 @@
 import express from 'express';
+import { A2aEvaluationService } from './agent/a2a-service.js';
 import { AgentCardRegistry } from './agent/agent-card.js';
 import { AgentService } from './agent/agent-service.js';
 import { AgentSession } from './agent/agent-session.js';
@@ -7,6 +8,7 @@ import { ExecutorSession } from './agent/executor-session.js';
 import { OpenAiCompatibleProvider } from './agent/openai-compatible-provider.js';
 import { readGatewayConfig } from './config/env.js';
 import { PrivacyGuardContractService } from './contract/privacy-guard-contract.js';
+import { createA2aRouter } from './http/a2a-router.js';
 import { createActivityRouter } from './http/activity-router.js';
 import { createAgentRouter } from './http/agent-router.js';
 import { createAiAgentRouter } from './http/ai-agent-router.js';
@@ -25,7 +27,7 @@ const trustFloorStore = new TrustManifestFloorStore(config.trustManifestFloorSto
 const tenantSession = new T3nSession(config, trustFloorStore);
 const agentSession = new AgentSession(config, trustFloorStore);
 const executorSession = new ExecutorSession(config, trustFloorStore);
-const agentCardRegistry = new AgentCardRegistry(agentSession);
+const agentCardRegistry = new AgentCardRegistry(agentSession, undefined, undefined, config.a2aPublicUrl);
 const activityLogService = new ActivityLogService(tenantSession);
 const delegationService = new DelegationService(tenantSession, agentSession);
 const executorDelegationService = new DelegationService(tenantSession, executorSession);
@@ -35,9 +37,11 @@ const aiProvider = config.aiProvider === 'openai-compatible' && config.aiApiUrl 
   ? new OpenAiCompatibleProvider({ apiUrl: config.aiApiUrl, apiKey: config.aiApiKey, model: config.aiModel })
   : null;
 const aiAgentService = new AgentService(aiProvider);
+const a2aEvaluationService = new A2aEvaluationService(aiAgentService, contractService, agentSession);
 const app = express();
 
 app.disable('x-powered-by');
+if (config.a2aPublicUrl) app.use(createA2aRouter(a2aEvaluationService, config.a2aPublicUrl));
 app.use(express.json({ limit: '256kb' }));
 app.get('/health', (_request, response) => response.json({ status: 'UP', service: 't3n-gateway' }));
 app.use('/internal', requireServiceToken(config.gatewayServiceToken));
