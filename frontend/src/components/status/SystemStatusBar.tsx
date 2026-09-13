@@ -1,5 +1,5 @@
-import { KeyRound, RefreshCw, Server, Shield, UserRoundCog } from 'lucide-react';
-import type { SystemStatus } from '../../services/privacyGuardApi';
+import { Globe2, KeyRound, RefreshCw, Server, Shield, UserRoundCog } from 'lucide-react';
+import type { AgentRegistrationState, SystemStatus } from '../../services/privacyGuardApi';
 
 interface Props { status: SystemStatus | null; loading: boolean; onRefresh: () => void; }
 type PillState = 'ok' | 'off' | 'pending';
@@ -18,8 +18,17 @@ function isReady(status: SystemStatus | null): boolean {
   );
 }
 
+function registrationLabel(state?: AgentRegistrationState): string {
+  if (state === 'REGISTERED') return 'Registered';
+  if (state === 'NOT_REGISTERED') return 'Not registered';
+  if (state === 'MISMATCH') return 'Card mismatch';
+  return 'Unavailable';
+}
+
 export function SystemStatusBar({ status, loading, onRefresh }: Props) {
   const delegationActive = status?.delegationState === 'ACTIVE';
+  const registrationState = status?.agentRegistrationState ?? 'UNAVAILABLE';
+  const registrationOk = registrationState === 'REGISTERED';
   const ready = isReady(status);
   const overallState: PillState = loading ? 'pending' : ready ? 'ok' : 'off';
   const overallLabel = loading ? 'Checking live status' : ready ? 'Operational' : 'Unavailable / incomplete';
@@ -45,13 +54,19 @@ export function SystemStatusBar({ status, loading, onRefresh }: Props) {
         <div className="status-grid">
           <div className="status-item"><Server aria-hidden="true" /><div><span>Gateway</span><StatusPill state={status?.gatewayReachable ? 'ok' : 'off'} label={status?.gatewayReachable ? 'Online' : 'Unavailable'} /></div></div>
           <div className="status-item"><Shield aria-hidden="true" /><div><span>Tenant</span><StatusPill state={status?.tenantAuthenticated ? 'ok' : 'off'} label={status?.tenantAuthenticated ? `Authenticated · ${status.network ?? 'network'}` : 'Not authenticated'} /></div></div>
-          <div className="status-item"><UserRoundCog aria-hidden="true" /><div><span>Agent</span><StatusPill state={status?.agentAuthenticated ? 'ok' : 'off'} label={status?.agentAuthenticated ? 'Authenticated' : status?.agentConfigured ? 'Not authenticated' : 'Not configured'} /></div></div>
+          <div className="status-item"><UserRoundCog aria-hidden="true" /><div><span>Agent identity</span><StatusPill state={status?.agentAuthenticated ? 'ok' : 'off'} label={status?.agentAuthenticated ? 'Authenticated' : status?.agentConfigured ? 'Not authenticated' : 'Not configured'} /></div></div>
+          <div className="status-item"><Globe2 aria-hidden="true" /><div><span>Public onboarding</span><StatusPill state={registrationOk ? 'ok' : 'off'} label={registrationLabel(registrationState)} /></div></div>
           <div className="status-item"><Shield aria-hidden="true" /><div><span>Contract</span><StatusPill state={status?.contractResolved ? 'ok' : 'off'} label={status?.contractResolved ? `Resolved · v${status.contractVersion}` : 'Unavailable'} /></div></div>
           <div className="status-item"><KeyRound aria-hidden="true" /><div><span>Delegation</span><StatusPill state={delegationActive ? 'ok' : 'off'} label={status?.delegationState ?? 'UNKNOWN'} /></div></div>
         </div>
+        <p className="evidence-disclaimer">Authenticated proves the runtime Agent DID. Registered proves the public Agent Card currently resolves to that same DID. Delegated is a separate authorization state; public registration grants no contract permission.</p>
         <div className="status-meta">
           <div><span>Tenant DID</span><code>{status?.tenantDid ?? 'Unavailable'}</code></div>
           <div><span>Agent DID</span><code>{status?.agentDid ?? 'Unavailable'}</code></div>
+          <div><span>Agent Card URI</span><code>{status?.agentCardUri ?? 'Unavailable'}</code></div>
+          <div><span>Agent Card SHA-256</span><code>{status?.agentCardSha256 ?? 'Unavailable'}</code></div>
+          <div><span>Agent Card verified</span><code>{status?.agentCardVerifiedAt ?? 'Unavailable'}</code></div>
+          <div><span>Advertised services</span><code>{status?.agentCardServices?.length ? status.agentCardServices.join(', ') : 'None verified'}</code></div>
           <div><span>Contract</span><code>{status?.contractId ?? 'Unavailable'}</code></div>
           <div><span>Delegated functions</span><code>{status?.delegatedFunctions.length ? status.delegatedFunctions.join(', ') : 'None observed'}</code></div>
           <div><span>Allowed hosts</span><code>{status?.allowedHosts.length ? status.allowedHosts.join(', ') : 'None observed'}</code></div>
