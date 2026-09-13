@@ -33,6 +33,7 @@ privacy-guard:
     service-token: ${GATEWAY_SERVICE_TOKEN:}
   remediation-capability:
     private-key-pkcs8: ${REMEDIATION_AUTH_PRIVATE_KEY_PKCS8:}
+    key-id: ${REMEDIATION_AUTH_KEY_ID:primary}
     ttl-seconds: ${REMEDIATION_CAPABILITY_TTL_SECONDS:60}
   audit-integrity:
     key: ${AUDIT_INTEGRITY_KEY:}
