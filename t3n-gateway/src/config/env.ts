@@ -17,6 +17,7 @@ export interface GatewayConfig {
   readonly aiApiUrl: string | null;
   readonly aiApiKey: string | null;
   readonly aiModel: string | null;
+  readonly a2aPublicUrl: string | null;
 }
 
 export class ConfigurationError extends Error {
@@ -54,6 +55,19 @@ export function validateAiProviderUrl(parsed: URL): URL {
   const loopback = hostname === 'localhost' || hostname === '[::1]' || isIpv4Loopback(hostname);
   if (!loopback) throw new ConfigurationError('AI_API_URL must use https for remote providers; http is allowed only on loopback');
   return parsed;
+}
+
+export function validateA2aPublicUrl(value: string): string {
+  let parsed: URL;
+  try { parsed = new URL(value); } catch { throw new ConfigurationError('A2A_PUBLIC_URL must be a valid absolute URL'); }
+  if (parsed.protocol !== 'https:') throw new ConfigurationError('A2A_PUBLIC_URL must use HTTPS');
+  if (parsed.username || parsed.password) throw new ConfigurationError('A2A_PUBLIC_URL must not contain embedded credentials');
+  if (parsed.search || parsed.hash) throw new ConfigurationError('A2A_PUBLIC_URL must not contain query parameters or fragments');
+  if (!parsed.hostname) throw new ConfigurationError('A2A_PUBLIC_URL must contain a public hostname');
+  const normalizedPath = parsed.pathname.replace(/\/+$/, '');
+  if (!normalizedPath.endsWith('/a2a')) throw new ConfigurationError('A2A_PUBLIC_URL must point to the public /a2a endpoint');
+  parsed.pathname = normalizedPath;
+  return parsed.toString();
 }
 
 export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig {
@@ -94,6 +108,9 @@ export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): Gateway
     validateAiProviderUrl(parsed);
   }
 
+  const a2aPublicUrlRaw = env.A2A_PUBLIC_URL?.trim() || null;
+  const a2aPublicUrl = a2aPublicUrlRaw ? validateA2aPublicUrl(a2aPublicUrlRaw) : null;
+
   return {
     apiKey,
     agentApiKey,
@@ -110,5 +127,6 @@ export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): Gateway
     aiApiUrl,
     aiApiKey,
     aiModel,
+    a2aPublicUrl,
   };
 }
