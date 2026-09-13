@@ -163,7 +163,7 @@ export function BusinessOutcomeSummary({ scenario, incident, selectedAction, dec
         <section className="business-outcome-section" aria-labelledby="t3n-control-title">
           <div className="business-outcome-section-heading"><ShieldCheck aria-hidden="true" /><h3 id="t3n-control-title">T3N control outcome</h3></div>
           <dl className="business-outcome-grid">
-            <div><dt>Policy decision</dt><dd>{threatDecision?.decision ?? 'NOT OBSERVED'}</dd></div>
+            <div><dt>Policy decision</dt><dd>{threatDecision?.decision ?? NOT_OBSERVED}</dd></div>
             <div><dt>Reason code</dt><dd>{threatDecision?.reasonCode ?? NOT_OBSERVED}</dd></div>
             <div><dt>Destination</dt><dd>{policyDestination(threatAction, threatDecision)}</dd></div>
             <div><dt>Policy-allowed field names</dt><dd>{threatDecision ? `${threatDecision.allowedFields.length} · ${list(threatDecision.allowedFields)}` : NOT_OBSERVED}</dd></div>
