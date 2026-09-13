@@ -25,7 +25,7 @@ test('rejects missing tenant API key', () => {
   }), ConfigurationError);
 });
 
-test('defaults to testnet, disabled AI, persistent trust floor and current contract version', () => {
+test('defaults to testnet, disabled AI, no public A2A, persistent trust floor and current contract version', () => {
   const config = readGatewayConfig(baseEnv);
   assert.equal(config.network, 'testnet');
   assert.equal(config.port, 3001);
@@ -37,6 +37,7 @@ test('defaults to testnet, disabled AI, persistent trust floor and current contr
   assert.equal(config.aiProvider, 'disabled');
   assert.equal(config.aiApiKey, null);
   assert.equal(config.aiModel, null);
+  assert.equal(config.a2aPublicUrl, null);
 });
 
 test('accepts distinct tenant proposal-agent and executor credentials', () => {
@@ -47,6 +48,24 @@ test('accepts distinct tenant proposal-agent and executor credentials', () => {
   });
   assert.equal(config.agentApiKey, 'proposal-agent-secret');
   assert.equal(config.executorApiKey, 'protected-executor-secret');
+});
+
+test('accepts and normalizes an HTTPS public A2A endpoint', () => {
+  const config = readGatewayConfig({ ...baseEnv, A2A_PUBLIC_URL: 'https://guard.example/a2a/' });
+  assert.equal(config.a2aPublicUrl, 'https://guard.example/a2a');
+});
+
+test('rejects unsafe or non-A2A public endpoints', () => {
+  for (const url of [
+    'http://guard.example/a2a',
+    'https://user:password@guard.example/a2a',
+    'https://guard.example/a2a?redirect=https://evil.example',
+    'https://guard.example/a2a#fragment',
+    'https://guard.example/not-a2a',
+    'javascript:alert(1)',
+  ]) {
+    assert.throws(() => readGatewayConfig({ ...baseEnv, A2A_PUBLIC_URL: url }), ConfigurationError, url);
+  }
 });
 
 test('accepts a custom persistent trust manifest floor path', () => {
