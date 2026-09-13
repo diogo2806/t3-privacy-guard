@@ -3,8 +3,10 @@ package br.com.t3privacyguard.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
@@ -12,6 +14,7 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class EvidenceService {
+    private static final List<String> REGISTRATION_STATES = List.of("REGISTERED", "NOT_REGISTERED", "MISMATCH", "UNAVAILABLE");
     private final ObjectMapper mapper;
     private final Path manifestPath;
     private final Path testnetPath;
@@ -43,6 +46,11 @@ public class EvidenceService {
                 required(manifest, "sdkVersion"),
                 required(manifest, "tenantDid"),
                 required(manifest, "agentDid"),
+                required(manifest, "agentRegistrationState"),
+                nullableText(manifest, "agentCardUri"),
+                nullableText(manifest, "agentCardSha256"),
+                required(manifest, "agentCardVerifiedAt"),
+                textArray(manifest, "agentCardServices"),
                 required(manifest, "contractId"),
                 required(manifest, "contractVersion"),
                 required(manifest, "wasmSha256"),
@@ -96,6 +104,13 @@ public class EvidenceService {
         if (value.tenantDid().equals(value.agentDid())) throw new IllegalStateException("Evidence tenant and agent DIDs must differ");
         if (!value.wasmSha256().matches("[a-f0-9]{64}")) throw new IllegalStateException("Evidence WASM SHA-256 is invalid");
         if (value.policyVersion().isBlank() || !value.policyHash().matches("[a-f0-9]{64}")) throw new IllegalStateException("Evidence policy provenance is invalid");
+        if (!REGISTRATION_STATES.contains(value.agentRegistrationState())) throw new IllegalStateException("Evidence Agent registration state is invalid");
+        try { Instant.parse(value.agentCardVerifiedAt()); } catch (RuntimeException ex) { throw new IllegalStateException("Evidence Agent Card verification timestamp is invalid", ex); }
+        if ("REGISTERED".equals(value.agentRegistrationState())) {
+            if (value.agentCardUri() == null || !"https".equalsIgnoreCase(URI.create(value.agentCardUri()).getScheme())) throw new IllegalStateException("Registered Agent evidence requires an HTTPS card URI");
+            if (value.agentCardSha256() == null || !value.agentCardSha256().matches("[a-f0-9]{64}")) throw new IllegalStateException("Registered Agent evidence requires a valid card SHA-256");
+            if (!value.agentCardServices().equals(List.of("DID"))) throw new IllegalStateException("Registered Agent evidence must advertise only the DID service");
+        }
         if (!value.trustAnchorVerified()) throw new IllegalStateException("Evidence trust anchor is not verified");
         if (!value.trustManifestFloorPersisted()) throw new IllegalStateException("Evidence trust manifest rollback floor is not persisted");
         if (value.trustManifestVersion() < 1) throw new IllegalStateException("Evidence trust manifest version is invalid");
@@ -126,6 +141,17 @@ public class EvidenceService {
         return value == null || value.isNull() ? null : value.asText();
     }
 
+    private static List<String> textArray(JsonNode node, String field) {
+        JsonNode value = node.get(field);
+        if (value == null || !value.isArray()) throw new IllegalStateException("Missing evidence array: " + field);
+        List<String> result = new ArrayList<>();
+        for (JsonNode item : value) {
+            if (!item.isTextual() || item.asText().isBlank()) throw new IllegalStateException("Invalid evidence array value: " + field);
+            result.add(item.asText());
+        }
+        return List.copyOf(result);
+    }
+
     private static void assertSame(JsonNode node, String field, String expected) {
         if (!expected.equals(required(node, field))) throw new IllegalStateException("Evidence mismatch for " + field);
     }
@@ -138,6 +164,11 @@ public class EvidenceService {
         String sdkVersion,
         String tenantDid,
         String agentDid,
+        String agentRegistrationState,
+        String agentCardUri,
+        String agentCardSha256,
+        String agentCardVerifiedAt,
+        List<String> agentCardServices,
         String contractId,
         String contractVersion,
         String wasmSha256,

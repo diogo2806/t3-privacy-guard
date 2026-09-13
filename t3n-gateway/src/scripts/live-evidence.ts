@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TenantClient, getNodeUrl } from '@terminal3/t3n-sdk';
+import { AgentCardRegistry } from '../agent/agent-card.js';
 import { AgentSession } from '../agent/agent-session.js';
 import { DelegationService } from '../agent/delegation-service.js';
 import { readGatewayConfig } from '../config/env.js';
@@ -43,6 +44,7 @@ if (!config.agentApiKey) throw new Error('T3N_AGENT_API_KEY is required for live
 const trustFloorStore = new TrustManifestFloorStore(config.trustManifestFloorStorePath);
 const tenantSession = new T3nSession(config, trustFloorStore);
 const agentSession = new AgentSession(config, trustFloorStore);
+const agentCardRegistry = new AgentCardRegistry(agentSession);
 const delegation = new DelegationService(tenantSession, agentSession);
 const contract = new PrivacyGuardContractService(config, tenantSession, agentSession);
 await tenantSession.connect();
@@ -66,6 +68,8 @@ if (
 const tenantDid = tenantSession.getTenantDid();
 const agentDid = agentSession.getAgentDid();
 if (tenantDid === agentDid) throw new Error('Tenant DID and agent DID must be different');
+const agentRegistration = await agentCardRegistry.verify();
+if (agentRegistration.agentDid && agentRegistration.agentDid !== agentDid) throw new Error('Agent Card verification DID differs from the authenticated Agent DID');
 const wasmSha256 = await sha256File(wasmPath);
 const policySource = JSON.parse(await readFile(policyPath, 'utf8')) as unknown;
 const policy = canonicalizeOperationalPolicy(policySource);
@@ -82,7 +86,7 @@ try {
   }
   const configuredNumeric = Number(process.env.T3N_CONTRACT_NUMERIC_ID);
   numericContractId = Number.isInteger(configuredNumeric) && configuredNumeric > 0 ? configuredNumeric : null;
-} catch (error) {
+} catch {
   const tenant = new TenantClient({ t3n: tenantSession.getClient(), baseUrl: getNodeUrl(), tenantDid });
   const result = await tenant.contracts.register({ tail: config.contractTail, version: config.contractVersion, wasm: await readFile(wasmPath) });
   numericContractId = result.contract_id;
@@ -106,6 +110,11 @@ const manifest: DeploymentManifest = {
   sdkVersion: '5.2.0',
   tenantDid,
   agentDid,
+  agentRegistrationState: agentRegistration.state,
+  agentCardUri: agentRegistration.cardUri,
+  agentCardSha256: agentRegistration.cardSha256,
+  agentCardVerifiedAt: agentRegistration.verifiedAt,
+  agentCardServices: agentRegistration.services,
   contractId,
   numericContractId,
   contractVersion,
@@ -177,6 +186,8 @@ console.info(JSON.stringify({
   wasmSha256,
   policyVersion: policy.document.version,
   policyHash: policy.hash,
+  agentRegistrationState: agentRegistration.state,
+  agentCardSha256: agentRegistration.cardSha256,
   trustManifestVersion: persistedTrustFloor.version,
   trustFloorPersisted: true,
   evidenceLinked: true,

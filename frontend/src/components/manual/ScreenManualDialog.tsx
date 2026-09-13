@@ -3,12 +3,8 @@ import { createPortal } from 'react-dom';
 import { BookOpen, X } from 'lucide-react';
 
 const FOCUSABLE_SELECTOR = [
-  'a[href]',
-  'button:not([disabled])',
-  'input:not([disabled])',
-  'select:not([disabled])',
-  'textarea:not([disabled])',
-  '[tabindex]:not([tabindex="-1"])',
+  'a[href]', 'button:not([disabled])', 'input:not([disabled])', 'select:not([disabled])',
+  'textarea:not([disabled])', '[tabindex]:not([tabindex="-1"])',
 ].join(',');
 
 function focusableElements(container: HTMLElement): HTMLElement[] {
@@ -28,7 +24,6 @@ export function ScreenManualDialog() {
 
   useEffect(() => {
     if (!open) return undefined;
-
     const appRoot = document.getElementById('root');
     const previousAriaHidden = appRoot?.getAttribute('aria-hidden');
     appRoot?.setAttribute('inert', '');
@@ -41,29 +36,17 @@ export function ScreenManualDialog() {
       const focusable = focusableElements(dialog);
       (focusable[0] ?? dialog).focus();
     };
-
     const onFocusIn = (event: FocusEvent) => {
       const dialog = dialogRef.current;
       if (dialog && event.target instanceof Node && !dialog.contains(event.target)) keepFocusInside();
     };
-
     const onKeyDown = (event: KeyboardEvent) => {
       const dialog = dialogRef.current;
       if (!dialog) return;
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        close();
-        return;
-      }
+      if (event.key === 'Escape') { event.preventDefault(); close(); return; }
       if (event.key !== 'Tab') return;
-
       const focusable = focusableElements(dialog);
-      if (focusable.length === 0) {
-        event.preventDefault();
-        dialog.focus();
-        return;
-      }
-
+      if (focusable.length === 0) { event.preventDefault(); dialog.focus(); return; }
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
       const active = document.activeElement;
@@ -93,88 +76,61 @@ export function ScreenManualDialog() {
         </div>
         <div className="manual-content">
           <section>
-            <h3>What this screen is for</h3>
-            <p id="screen-manual-purpose">This dashboard demonstrates a simple enterprise rule: AI may propose an action, but it cannot authorize itself, rewrite the active operational policy, retrieve protected profile values directly or declare a critical action complete. You can choose a safe enterprise scenario, inspect or edit its synthetic prompt, observe the real AI proposal and independent T3N policy decision with exact policy provenance, and use protected execution only where a matching executor and independent verifier actually exist.</p>
+            <h3>Finalidade</h3>
+            <p id="screen-manual-purpose">Esta tela demonstra resposta a incidentes com separação explícita entre proposta de IA, identidade T3N, onboarding público do agente, autorização por delegação, policy executada no contrato e ação protegida. A IA pode propor, mas não pode conceder permissão a si mesma, alterar a policy ativa, obter valores privados diretamente nem declarar uma remediação crítica como concluída.</p>
           </section>
           <section>
-            <h3>How to read the trust flow</h3>
-            <p><strong>AI proposal</strong> shows whether a structured action proposal is available. <strong>Policy</strong> returns DENY, REDACT or ALLOW under an exact policy version/hash. DENY blocks the proposal, REDACT requires minimization and ALLOW only permits the proposal to continue. <strong>ALLOW does not mean executed.</strong> Critical remediation still requires explicit human authorization and a supported executor. <strong>COMPLETED appears only after independent read-back verifies the expected external state.</strong></p>
+            <h3>Áreas da tela</h3>
+            <p><strong>Protection demo</strong> contém cenários, prompt, proposta, decisão, autorização humana, execução, retenção, Execution Trace e audit provenance. <strong>Proof &amp; evidence</strong> mostra somente resultados observados e metadados verificáveis. <strong>Show technical details</strong> expõe DIDs, contrato, onboarding, delegation, hosts e funções sem misturar esses dados com a jornada principal.</p>
           </section>
           <section>
-            <h3>Views and filters</h3>
-            <p><strong>Protection demo</strong> contains the enterprise scenario catalog, prompt, proposal, policy decision, policy provenance, supported human authorization and protected execution, incident retention, the technical Execution Trace and the separate business audit with T3N Activity Log provenance. <strong>Proof &amp; evidence</strong> shows which testnet outcomes were actually observed. The scenario cards are demonstration presets, not policy filters or permissions. Technical T3N identifiers, contract, policy and delegation details remain available under <strong>Show technical details</strong> without dominating the main flow.</p>
+            <h3>Campos, cenários e ações</h3>
+            <p>Os cards de cenário carregam prompts sintéticos e não concedem permissões. O campo de prompt aceita até 4.000 caracteres e não deve receber dados privados, credenciais ou segredos. <strong>Ask agent</strong> envia o prompt ao provedor configurado. <strong>Refresh status</strong>, <strong>Refresh evidence</strong> e <strong>Refresh provenance</strong> são leituras e não repetem uma remediação. Os controles de autorização e execução aparecem apenas quando existe executor suportado e decisão compatível.</p>
           </section>
           <section>
-            <h3>Enterprise scenarios</h3>
-            <p><strong>Credential compromised</strong> exercises <code>revoke-credential</code> and can demonstrate both adversarial denial and the complete protected revocation/read-back flow. <strong>Account takeover</strong> prepares <code>isolate-account</code>. <strong>Record security incident</strong> prepares <code>create-incident</code> without outbound network access. <strong>Notify security contact</strong> prepares <code>notify-security</code> using only the logical <code>verified_email</code> reference, never a plaintext email or raw T3N placeholder. The latter three are policy-evaluation demonstrations in the current build; the interface does not pretend that a verified completion executor exists for them.</p>
+            <h3>Identidade, onboarding e autorização</h3>
+            <p><strong>Authenticated</strong> significa que a sessão T3N provou a identidade da chave e forneceu a DID canônica. <strong>Registered</strong> significa que um Agent Card público válido foi resolvido para exatamente a mesma Agent DID. <strong>Delegated</strong> significa que o tenant concedeu funções, escopos e hosts por Member Delegation. São controles independentes: registrar o Agent Card aumenta descoberta pública, mas não concede acesso ao contrato.</p>
+            <p>O card público anuncia somente o serviço <strong>DID</strong> realmente suportado. Ele não contém API key, private key, token, endpoint interno, A2A, MCP ou x402. Os estados <strong>NOT REGISTERED</strong>, <strong>CARD/DID MISMATCH</strong> e <strong>UNAVAILABLE</strong> nunca são apresentados como sucesso. Um card divergente ou inválido não é aceito apenas por responder HTTP 200.</p>
           </section>
           <section>
-            <h3>Prompt field and actions</h3>
-            <p>Selecting a scenario loads a synthetic prompt and clears the prior scenario result so evidence from one scenario is not presented as another. Selection itself does not call an API. The prompt accepts up to 4,000 characters and remains editable. Do not paste literal private values, credentials or secrets. <strong>Ask agent</strong> sends the current prompt to the configured provider; the resulting structured proposal, not the selected card, is what T3N evaluates.</p>
+            <h3>Policy e decisão</h3>
+            <p><strong>DENY</strong> bloqueia. <strong>REDACT</strong> exige escopo menor. <strong>ALLOW</strong> permite continuar, mas não equivale a autorização humana nem execução. <strong>Policy version</strong> identifica o documento operacional versionado no T3N KV e <strong>Policy hash</strong> é o SHA-256 determinístico do documento canônico utilizado. Falha de leitura ou validação da policy fecha o fluxo em segurança.</p>
           </section>
           <section>
-            <h3>Proposal and private-data boundary</h3>
-            <p>The model may propose only the action, resource, purpose, optional host, field names and supported logical private-data references. It cannot choose trusted identities, policy decisions, approvals, policy documents or execution proof. Private values remain outside the browser and model; supported logical references are resolved only inside the protected T3N execution boundary. Incident free text follows the separate minimization and retention rule below and is not claimed to be anonymous.</p>
+            <h3>Invariantes que a policy não pode relaxar</h3>
+            <p>Regras críticas permanecem compiladas no WASM: limites de schema/tamanho, fail-closed, identidade T3N autenticada, classes de segredo proibidas, vocabulário de referências privadas e validação de hosts. O documento operacional não pode tornar API keys, tokens, senhas ou private keys válidos para egress nem contornar delegation.</p>
           </section>
           <section>
-            <h3>Incident storage and retention</h3>
-            <p>Incident title, summary and source are normalized on the server before persistence. High-confidence email, valid CPF, credential/token, bearer token, JWT, private-key, password and payment-card candidates are rejected before the database write. Accepted operational text is capped to smaller local limits and remains potentially identifying data; minimization is not anonymization. Every incident receives a server-controlled <strong>expiresAt</strong> calculated from its creation time. The default retention is 7 days and configuration is limited to 1–30 days. Expired incidents stop being returned by incident APIs immediately, then a scheduled transactional purge hard-deletes execution-trace events, remediation executions, policy decisions, action proposals, audit events and the incident. Existing rows without an expiration are backfilled on startup from their original creation time.</p>
+            <h3>Dados privados e retenção</h3>
+            <p>A proposta contém somente ação, recurso, finalidade, host opcional, nomes de campos e referências privadas lógicas suportadas. Valores privados não passam pelo navegador nem pelo modelo. Título, resumo e origem do incidente são minimizados no servidor; literais sensíveis de alta confiança são rejeitados antes da persistência. Cada incidente recebe <strong>expiresAt</strong> controlado pelo servidor. Após expirar, deixa de ser retornado e o purge remove os registros relacionados na ordem segura.</p>
           </section>
           <section>
-            <h3>T3N trust provenance</h3>
-            <p><strong>Trust anchor VERIFIED</strong> means the official signed T3N manifest established the cluster trust boundary for the authenticated sessions. <strong>Rollback floor PERSISTED</strong> means the accepted trust-manifest version is stored as a monotonic high-water mark across gateway restarts. The displayed trust-manifest version is that observed high-water version. These states are not per-request hardware attestation. Trust-manifest unavailability, rollback rejection, corrupted persisted state or a missing version fail closed and must not appear as a green success state.</p>
+            <h3>Autorização humana e execução protegida</h3>
+            <p>O fluxo completo atual é <code>revoke-credential</code>. <strong>Authorize credential revocation</strong> registra a decisão humana vinculada à decisão persistida e à policy version/hash. <strong>Execute protected credential revocation</strong> usa capability de uso único e revalida a policy antes do egress. Aceitação externa gera estado pendente; <strong>Verify external state</strong> faz read-back independente. <strong>COMPLETED</strong> só aparece após confirmação do estado esperado. Resultado ambíguo permanece <strong>UNVERIFIED</strong> e não é reenviado automaticamente.</p>
           </section>
           <section>
-            <h3>Execution trace</h3>
-            <p><strong>Trace</strong> identifies one technical HTTP attempt; <strong>Request</strong> identifies the logical operation and remains stable for idempotency. The browser creates a fresh safe trace for each API attempt, the backend validates or replaces it, returns it in <strong>X-Trace-Id</strong>, and propagates the same trace through authenticated gateway calls. The selected action timeline can therefore contain multiple trace IDs for the same Request when the operator retries or advances the flow. Typical states are <strong>RECEIVED</strong>, <strong>SENT</strong>, <strong>ACCEPTED</strong>, <strong>AUTHORIZED</strong>, <strong>VERIFIED</strong>, <strong>DENIED</strong>, <strong>REDACTED</strong>, <strong>FAILED</strong> and <strong>UNAVAILABLE</strong>. The timeline contains only bounded identifiers, stage/state, timestamp, reason code and same-process duration when available. It never exposes raw request/response bodies, headers, capabilities, keys, passwords, private values or resolved T3N placeholders. A T3N request or receipt identifier is shown only if the platform actually returns one; the application does not invent one.</p>
+            <h3>Execution Trace</h3>
+            <p><strong>Trace ID</strong> identifica uma tentativa HTTP e <strong>Request ID</strong> identifica a operação lógica idempotente. Retentativas recebem novo Trace ID sem mudar o Request ID. A linha do tempo guarda somente identificadores limitados, etapa, estado, motivo, timestamp e duração quando disponível; nunca guarda body bruto, headers, capabilities, chaves ou valores privados.</p>
           </section>
           <section>
-            <h3>Audit provenance</h3>
-            <p><strong>Sanitized business audit</strong> contains application events persisted by the incident workflow. <strong>T3N Activity Log</strong> contains sanitized network metadata read by the authenticated gateway; the browser never talks directly to T3N. <strong>Matched</strong> requires exact sequence, hash, canonical contract, agent and function identifiers. <strong>Unmatched</strong> means a business event expected T3N provenance but no exact reference was verified; it is an evidence state, not a business failure. <strong>Local only</strong> is expected for application-only events. <strong>T3N only</strong> means a relevant network event exists without a bound local audit event. <strong>Refresh provenance</strong> is read-only and never repeats policy evaluation or remediation. The view is bounded and ordered by T3N sequence rather than timestamp. Raw call payloads, secrets and private values are never displayed or persisted as Activity Log evidence. This source is independent from the Execution Trace and from Proof &amp; evidence.</p>
+            <h3>Audit provenance e T3N Activity Log</h3>
+            <p>O audit local registra eventos de negócio sanitizados. O T3N Activity Log é uma segunda fonte read-only de provenance de rede. <strong>MATCHED</strong> exige correspondência exata de sequence/hash e identidade técnica esperada. <strong>UNMATCHED</strong> significa que havia provenance esperada sem confirmação exata. <strong>LOCAL ONLY</strong> é normal para eventos apenas da aplicação. <strong>T3N ONLY</strong> indica evento T3N relevante sem vínculo local. Uma janela truncada nunca é apresentada como prova de ausência.</p>
           </section>
           <section>
-            <h3>Decision states</h3>
-            <p><strong>DENY</strong> blocks the proposal before protected egress. <strong>REDACT</strong> requires a smaller data scope before the action may continue. <strong>ALLOW</strong> means the active policy permits the proposal, but it is not human approval, execution or completion.</p>
+            <h3>Proof &amp; evidence</h3>
+            <p><strong>PASS</strong> significa resultado observado compatível com o esperado. <strong>FAIL</strong> é divergência observada. <strong>NOT RUN</strong> não conta como prova. O bundle identifica rede, SDK, tenant DID, Agent DID, Agent Card URI/hash/status, contrato, WASM SHA-256, policy version/hash e trust-manifest provenance. Agent Card prova onboarding público, não autorização nem attestation de hardware.</p>
           </section>
           <section>
-            <h3>Policy version and hash</h3>
-            <p><strong>Policy version</strong> identifies the operational rule set loaded by Rust/WASM from the private T3N KV map. <strong>Policy hash</strong> is the deterministic SHA-256 of the canonical policy document used for the decision. They provide policy provenance, not hardware attestation. The policy document may configure enabled actions, purpose, allowed hosts, allowed normal fields, supported logical private references, host requirement and whether human authorization is required.</p>
+            <h3>Permissões e regras</h3>
+            <p>Login na aplicação não concede autoridade T3N. A Agent DID vem da sessão autenticada, nunca de valor hardcoded. O Agent Card não concede funções. Member Delegation continua sendo a fonte de autorização. Rotas internas usam service token. A interface não promove DENY/REDACT para execução, não inventa receipt T3N e não transforma indisponibilidade em sucesso.</p>
           </section>
           <section>
-            <h3>Immutable policy invariants</h3>
-            <p>Critical security rules stay compiled in WASM and cannot be relaxed by the private KV document: schema and size limits, fail-closed behavior, authenticated T3N identity boundaries, forbidden secret classes, private-reference vocabulary and safe host validation. A policy cannot make API keys, tokens, passwords or private keys valid outbound data and cannot bypass delegation or identity checks. Missing, corrupt or invalid policy data fails closed.</p>
+            <h3>Fluxo principal</h3>
+            <p>1. Entre na aplicação. 2. Confira status de tenant e agente. 3. Diferencie Agent onboarding de Delegation. 4. Escolha um cenário e revise o prompt. 5. Use Ask agent. 6. Inspecione a proposta real. 7. Leia a decisão T3N e sua policy version/hash. 8. Se houver ALLOW para revogação suportada, registre autorização humana. 9. Execute uma vez. 10. Verifique o estado externo. 11. Consulte Execution Trace e audit provenance. 12. Consulte Proof &amp; evidence e, quando necessário, os detalhes técnicos.</p>
           </section>
           <section>
-            <h3>Policy publication and rollback</h3>
-            <p>Published policies are stored as immutable version snapshots plus a current pointer. Reusing an existing version with different canonical content is rejected. Rollback is explicit and may select only a version already persisted in the private T3N KV map. The AI model and browser cannot publish or roll back policy.</p>
-          </section>
-          <section>
-            <h3>Human authorization and protected execution</h3>
-            <p>The current complete executor/read-back contract is for <code>revoke-credential</code>. <strong>Authorize credential revocation</strong> records the human business decision for an allowed revocation and binds the exact policy version/hash. <strong>Execute protected credential revocation</strong> claims the approved action before sending the side effect and uses a replay-resistant one-time capability bound to the persisted action and policy provenance. The T3N execution path rechecks that the active policy still matches the approved version/hash. <strong>Verify external state</strong> performs an independent read-back and never sends the side effect again. Other scenario actions remain visible for genuine T3N policy evaluation without unsupported execution controls.</p>
-          </section>
-          <section>
-            <h3>Execution and verification states</h3>
-            <p><strong>EXECUTING</strong> means execution is in progress. <strong>PENDING_VERIFICATION</strong> means the external action was accepted but completion is not proven. <strong>COMPLETED</strong> requires independent verification of the expected state. <strong>UNVERIFIED</strong> means the result is ambiguous, policy binding could not be confirmed or the observed state does not match. <strong>FAILED</strong> means a known failure. An HTTP success response alone is never enough to display COMPLETED.</p>
-          </section>
-          <section>
-            <h3>Retry rule</h3>
-            <p>A retry keeps the same logical Request ID but receives a new Trace ID, so idempotency and observability stay independent. Repeating execution for an already claimed action reconciles persisted state instead of intentionally sending a second side effect. An ambiguous outcome remains UNVERIFIED and can be read back only when a verifiable operation ID exists.</p>
-          </section>
-          <section>
-            <h3>Evidence states</h3>
-            <p><strong>PASS</strong> is an observed result that matched the expected security outcome. <strong>FAIL</strong> is an observed mismatch. <strong>NOT RUN</strong> means the scenario was not executed and is never counted as proof. Evidence metadata identifies the exact contract, WASM, policy version/hash and T3N trust provenance for the run.</p>
-          </section>
-          <section>
-            <h3>Rules and permissions</h3>
-            <p>Application sign-in does not grant T3N authority, and selecting an enterprise scenario grants nothing. The agent needs the exact delegated contract functions, scopes and hosts. Operational policy is read by the TEE from private T3N KV, not supplied by React, Java or the model. DENY and REDACT cannot be promoted to execution by the interface. Where protected execution is implemented, critical remediation additionally requires human authorization, matching policy provenance and runtime controls, and completion requires independent read-back. Activity Log reads are read-only, bounded and service-authenticated between Spring and the gateway; they never alter policy or remediation state. A Trace ID is correlation metadata only; it grants no authority and cannot be used to access another incident or action. Incident retention is controlled by the server, not by browser input, and expired incident content cannot be retrieved through the incident API.</p>
-          </section>
-          <section>
-            <h3>Main flow</h3>
-            <p>1. Sign in. 2. Read the trust flow and confirm whether T3N controls are available. 3. Choose an enterprise scenario. 4. Review or edit the synthetic prompt without adding private values. 5. Select Ask agent. 6. Inspect the actual proposal. 7. Observe DENY, REDACT or ALLOW together with policy version/hash from T3N. 8. Inspect the current incident and its automatic expiration date. 9. If the actual action is credential revocation and ALLOW, optionally prepare the minimum revocation path and record human authorization. 10. Execute it once through the protected executor; the approved policy provenance is rechecked before egress. 11. Treat acceptance as pending verification. 12. Verify the external state. 13. Review the Execution Trace for technical correlation, the sanitized business audit for persisted business events and the T3N Activity Log for independent network provenance. 14. Review Proof &amp; evidence. 15. Open technical details when contract, policy, delegation or trust-provenance metadata is needed. Expired incident data is removed by the server retention process.</p>
-          </section>
-          <section>
-            <h3>Messages and error states</h3>
-            <p>Sensitive prompt content is rejected before reaching the external provider. Incident content containing a high-confidence sensitive literal is rejected with HTTP 422 before persistence and the response does not echo that literal. Provider, T3N, policy-KV or trust-boundary failures fail closed. A missing or corrupt policy returns DENY without fabricated provenance. If Activity Log retrieval is unavailable, the business audit remains available and network provenance is explicitly marked as not verified. A bounded or truncated activity window never turns an unmatched item into proof of absence. Expired application sessions require sign-in again. Rate-limited sign-in follows the server retry interval. Switching scenarios clears prior scenario results. Unsupported actions show policy-evaluation-only guidance instead of execution controls. A policy change after authorization blocks protected execution. Ambiguous execution remains UNVERIFIED and is not automatically re-executed. Error messages, trace metadata and Activity Log metadata must not expose private values, passwords, credentials, capabilities, request bodies or raw headers.</p>
+            <h3>Mensagens e estados de erro</h3>
+            <p>Conteúdo sensível é rejeitado sem ecoar o literal. Falha de provedor, T3N, Agent Card, policy KV ou trust boundary não é apresentada como sucesso. Card ausente gera <strong>NOT REGISTERED</strong>; divergência de DID/schema gera <strong>CARD/DID MISMATCH</strong>; indisponibilidade de resolução gera <strong>UNAVAILABLE</strong>. Falha no Activity Log mantém o audit local disponível e marca a provenance de rede como não verificada. Mudança de policy após autorização bloqueia execução protegida. Sessão expirada exige novo login.</p>
           </section>
         </div>
       </section>

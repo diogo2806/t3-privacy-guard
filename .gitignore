@@ -13,6 +13,7 @@ frontend/node_modules/
 frontend/dist/
 t3n-gateway/node_modules/
 t3n-gateway/dist/
+t3n-gateway/agent-card.json
 
 # Rust
 contracts/**/target/

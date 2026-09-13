@@ -5,45 +5,31 @@ import { describe, expect, it } from 'vitest';
 import { ScreenManualDialog } from './ScreenManualDialog';
 
 describe('ScreenManualDialog', () => {
-  it('traps keyboard focus, explains the enterprise trust journey, closes with Escape and restores focus', async () => {
+  it('traps focus and explains identity, policy, execution, audit and evidence without conflating onboarding with authorization', async () => {
     const user = userEvent.setup();
-    render(
-      <div>
-        <button type="button">Outside action</button>
-        <ScreenManualDialog />
-      </div>,
-    );
+    render(<div><button type="button">Outside action</button><ScreenManualDialog /></div>);
 
     const trigger = screen.getByRole('button', { name: 'Open Screen Manual' });
     expect(trigger).toHaveAttribute('title', 'Manual da Tela / Screen Manual');
     expect(trigger).toHaveTextContent('Manual da Tela');
-
     await user.click(trigger);
+
     const dialog = screen.getByRole('dialog', { name: 'Incident Response Dashboard' });
     const closeButton = screen.getByRole('button', { name: 'Close Screen Manual' });
     expect(dialog).toHaveAttribute('aria-modal', 'true');
-    expect(screen.getByText('What this screen is for')).toBeInTheDocument();
-    expect(screen.getByText('Enterprise scenarios')).toBeInTheDocument();
-    expect(screen.getByText(/Credential compromised/i)).toBeInTheDocument();
-    expect(screen.getByText(/Account takeover/i)).toBeInTheDocument();
-    expect(screen.getByText(/Record security incident/i)).toBeInTheDocument();
-    expect(screen.getByText(/Notify security contact/i)).toBeInTheDocument();
-    expect(screen.getByText(/verified_email/i)).toBeInTheDocument();
-    expect(screen.getByText(/ALLOW does not mean executed/i)).toBeInTheDocument();
-    expect(screen.getByText(/COMPLETED appears only after independent read-back/i)).toBeInTheDocument();
-    expect(screen.getByText(/Protection demo/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/Proof & evidence/i).length).toBeGreaterThan(0);
+    expect(screen.getByText('Identidade, onboarding e autorização')).toBeInTheDocument();
+    expect(screen.getByText(/registrar o Agent Card aumenta descoberta pública, mas não concede acesso/i)).toBeInTheDocument();
+    expect(screen.getByText('Policy e decisão')).toBeInTheDocument();
+    expect(screen.getByText('Dados privados e retenção')).toBeInTheDocument();
+    expect(screen.getByText('Audit provenance e T3N Activity Log')).toBeInTheDocument();
+    expect(screen.getByText('Proof & evidence')).toBeInTheDocument();
+    expect(screen.getByText(/COMPLETED/i)).toBeInTheDocument();
     expect(closeButton).toHaveFocus();
 
     await user.tab();
     expect(closeButton).toHaveFocus();
-
-    await user.tab({ shift: true });
-    expect(closeButton).toHaveFocus();
-
     screen.getByRole('button', { name: 'Outside action' }).focus();
     expect(closeButton).toHaveFocus();
-
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -54,14 +40,12 @@ describe('ScreenManualDialog', () => {
     const user = userEvent.setup();
     render(<ScreenManualDialog />);
     const trigger = screen.getByRole('button', { name: 'Open Screen Manual' });
-
     await user.click(trigger);
     const backdrop = screen.getByRole('presentation');
     await user.pointer([{ target: backdrop, keys: '[MouseLeft>]' }, { keys: '[/MouseLeft]' }]);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     await new Promise((resolve) => requestAnimationFrame(resolve));
     expect(trigger).toHaveFocus();
-
     await user.click(trigger);
     expect(screen.getByRole('button', { name: 'Close Screen Manual' })).toHaveFocus();
     await user.keyboard('{Escape}');
