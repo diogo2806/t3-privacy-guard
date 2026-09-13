@@ -15,6 +15,7 @@ interface Props {
 
 const NOT_OBSERVED = 'Not yet observed';
 const NOT_VERIFIED = 'Not verified yet';
+const REQUIRED_REMEDIATION_FIELDS = ['incident_id', 'credential_id', 'reason'];
 
 function elapsedMs(start?: string | null, end?: string | null): number | null {
   if (!start || !end) return null;
@@ -41,28 +42,55 @@ function isAuthorized(action: ActionProposal | null): boolean {
   return action?.status === 'REMEDIATION_AUTHORIZED' || action?.status === 'REMEDIATED';
 }
 
+function hasAuthorizationProvenance(action: ActionProposal | null): boolean {
+  return Boolean(action?.remediationAuthorizedBy && action?.remediationAuthorizedAt);
+}
+
+function executableRemediationDecision(action: ActionProposal | null, decision: PolicyDecision | null): boolean {
+  return Boolean(
+    action?.action === 'revoke-credential'
+    && decision
+    && decision.decision !== 'DENY'
+    && REQUIRED_REMEDIATION_FIELDS.every((field) => decision.allowedFields.includes(field)),
+  );
+}
+
 function humanAuthorization(action: ActionProposal | null, decision: PolicyDecision | null): string {
   if (!action) return NOT_OBSERVED;
-  if (isAuthorized(action)) return 'AUTHORIZED';
-  if (action.action === 'revoke-credential' && decision?.decision === 'ALLOW') return 'REQUIRED';
+  if (isAuthorized(action) && hasAuthorizationProvenance(action)) return 'AUTHORIZED — PROVENANCE BOUND';
+  if (isAuthorized(action)) return 'LEGACY — RE-AUTHORIZATION REQUIRED';
+  if (executableRemediationDecision(action, decision)) return 'REQUIRED';
   return 'NOT APPLICABLE';
+}
+
+function authorizedBy(action: ActionProposal | null): string {
+  if (!isAuthorized(action)) return NOT_OBSERVED;
+  return action?.remediationAuthorizedBy ?? 'NOT BOUND';
+}
+
+function authorizedAt(action: ActionProposal | null): string {
+  if (!isAuthorized(action)) return NOT_OBSERVED;
+  if (!action?.remediationAuthorizedAt) return 'NOT BOUND';
+  const parsed = new Date(action.remediationAuthorizedAt);
+  return Number.isNaN(parsed.getTime()) ? 'INVALID — BLOCKED' : parsed.toISOString().replace('T', ' ').replace('.000Z', 'Z');
 }
 
 function approvedDestination(action: ActionProposal | null, decision: PolicyDecision | null): string {
   if (!action) return NOT_OBSERVED;
-  if (isAuthorized(action)) return action.host ?? 'MISSING — BLOCKED';
-  if (action.action === 'revoke-credential' && decision?.decision === 'ALLOW') return action.host ? 'Not authorized yet' : 'MISSING — BLOCKED';
+  if (isAuthorized(action) && hasAuthorizationProvenance(action)) return action.host ?? 'MISSING — BLOCKED';
+  if (isAuthorized(action)) return 'RE-AUTHORIZATION REQUIRED';
+  if (executableRemediationDecision(action, decision)) return action.host ? 'Not authorized yet' : 'MISSING — BLOCKED';
   return 'NOT APPLICABLE';
 }
 
 function policyAllowedDestination(action: ActionProposal | null, decision: PolicyDecision | null): string {
   if (!action || !decision) return NOT_OBSERVED;
-  if (decision.decision !== 'ALLOW') return 'NOT ESTABLISHED';
+  if (decision.decision === 'DENY') return 'NOT ESTABLISHED';
   return action.host ?? 'No destination requested';
 }
 
 function policyAllowedAction(action: ActionProposal | null, decision: PolicyDecision | null): string {
-  if (!action || decision?.decision !== 'ALLOW') return NOT_OBSERVED;
+  if (!action || !decision || decision.decision === 'DENY') return NOT_OBSERVED;
   return action.action;
 }
 
@@ -92,8 +120,9 @@ function currentResult(
   if (execution?.state === 'UNVERIFIED') return 'The external outcome remains unverified. No successful remediation is claimed.';
   if (execution?.state === 'FAILED') return 'Execution failed without a verified external outcome.';
   if (execution?.state === 'EXECUTING') return 'Protected execution is in progress. No final outcome is claimed yet.';
-  if (isAuthorized(responseAction)) return 'Authorized. Protected execution has not started.';
-  if (responseAction?.action === 'revoke-credential' && responseDecision?.decision === 'ALLOW') return 'Policy allows the action. Human authorization is still required.';
+  if (isAuthorized(responseAction) && hasAuthorizationProvenance(responseAction)) return 'Authorized by the authenticated application account. Protected execution has not started.';
+  if (isAuthorized(responseAction)) return 'Legacy authorization is missing authenticated operator provenance and must be explicitly re-authorized.';
+  if (executableRemediationDecision(responseAction, responseDecision)) return 'Policy permits an executable minimum. Human authorization is still required.';
   if (responseDecision?.decision === 'REDACT') return 'T3N requires a smaller data scope before execution.';
   if (responseDecision?.decision === 'DENY') return 'T3N blocked the proposed action before protected egress.';
   if (threatDecision?.decision === 'DENY') return 'T3N blocked the proposed action before protected egress.';
@@ -172,7 +201,7 @@ export function BusinessOutcomeSummary({ scenario, incident, selectedAction, dec
             <div><dt>Policy-redacted private refs</dt><dd>{threatDecision ? `${threatDecision.redactedPrivateRefs.length} · ${list(threatDecision.redactedPrivateRefs)}` : NOT_OBSERVED}</dd></div>
             <div><dt>Policy decision time</dt><dd>{policyDecisionTime}</dd></div>
           </dl>
-          <p className="business-outcome-note">Field entries describe policy decisions over field names. Private refs are logical categories, not resolved private values. Neither is presented as proof that normal field values crossed or were removed from protected egress.</p>
+          <p className="business-outcome-note">Field entries describe policy decisions over field names. Private refs are logical categories, not resolved private values. Value-level egress minimization is shown separately in Protected execution.</p>
         </section>
 
         <section className="business-outcome-section" aria-labelledby="authorized-response-title">
@@ -180,6 +209,8 @@ export function BusinessOutcomeSummary({ scenario, incident, selectedAction, dec
           <dl className="business-outcome-grid">
             <div><dt>Policy-allowed action</dt><dd>{policyAllowedAction(selectedAction, decision)}</dd></div>
             <div><dt>Human authorization</dt><dd>{humanAuthorization(selectedAction, decision)}</dd></div>
+            <div><dt>Authorized by</dt><dd>{authorizedBy(selectedAction)}</dd></div>
+            <div><dt>Authorized at</dt><dd>{authorizedAt(selectedAction)}</dd></div>
             <div><dt>Policy-allowed destination</dt><dd>{policyAllowedDestination(selectedAction, decision)}</dd></div>
             <div><dt>Approved destination</dt><dd>{approvedDestination(selectedAction, decision)}</dd></div>
             <div><dt>External action</dt><dd>{externalAction(selectedAction, remediationExecution)}</dd></div>
@@ -187,6 +218,7 @@ export function BusinessOutcomeSummary({ scenario, incident, selectedAction, dec
             <div><dt>Time to verified outcome</dt><dd>{verifiedOutcomeTime}</dd></div>
             <div><dt>Verification attempts</dt><dd>{remediationExecution ? remediationExecution.verificationAttempts : NOT_OBSERVED}</dd></div>
           </dl>
+          {hasAuthorizationProvenance(selectedAction) && <p className="business-outcome-note">Authorized by is the authenticated application account recorded by the backend. It is not a T3N DID or a civil-identity assertion.</p>}
         </section>
       </div>
     </Surface>
