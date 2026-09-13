@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import type { AgentRegistrationState } from '../agent/agent-card.js';
 
 export interface DeploymentManifest {
   source: 'T3N_TESTNET';
@@ -8,6 +9,11 @@ export interface DeploymentManifest {
   sdkVersion: '5.2.0';
   tenantDid: string;
   agentDid: string;
+  agentRegistrationState: AgentRegistrationState;
+  agentCardUri: string;
+  agentCardSha256: string;
+  agentCardVerifiedAt: string;
+  agentCardServices: readonly string[];
   contractId: string;
   numericContractId: number | null;
   contractVersion: string;
@@ -42,6 +48,15 @@ export function assertManifestIdentity(manifest: DeploymentManifest): void {
   }
   if (manifest.tenantDid === manifest.agentDid) {
     throw new Error('Tenant DID and agent DID must be different');
+  }
+  if (manifest.agentRegistrationState !== 'REGISTERED') {
+    throw new Error('Deployment manifest requires a public Agent Card verified against the authenticated Agent DID');
+  }
+  if (!manifest.agentCardUri.startsWith('https://') || !/^[a-f0-9]{64}$/.test(manifest.agentCardSha256)) {
+    throw new Error('Deployment manifest contains invalid Agent Card provenance');
+  }
+  if (!manifest.agentCardVerifiedAt || manifest.agentCardServices.length !== 1 || manifest.agentCardServices[0] !== 'DID') {
+    throw new Error('Deployment manifest contains unsupported Agent Card services');
   }
   if (!/^[a-f0-9]{64}$/.test(manifest.wasmSha256)) {
     throw new Error('Deployment manifest contains an invalid WASM SHA-256');
