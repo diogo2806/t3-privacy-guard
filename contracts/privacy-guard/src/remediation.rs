@@ -40,6 +40,12 @@ pub struct RemediationResult {
     pub policy_hash: String,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct PayloadMinimizationProof {
+    pub must_egress_seen: bool,
+    pub must_not_egress_seen: bool,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RemediationVerificationRequest {
     pub request_id: String,
@@ -52,6 +58,8 @@ pub struct RemediationVerificationResult {
     pub request_id: String,
     pub status: String,
     pub observed_state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payload_proof: Option<PayloadMinimizationProof>,
 }
 
 pub fn execute_remediation(input: &[u8]) -> Result<Vec<u8>, String> {
@@ -199,6 +207,14 @@ fn extract_operation_id(payload: &[u8]) -> Option<String> {
         .and_then(|value| value.get("operation_id").and_then(|entry| entry.as_str()).map(str::to_string))
 }
 
+fn extract_payload_proof(parsed: &serde_json::Value) -> Option<PayloadMinimizationProof> {
+    let proof = parsed.get("payload_proof")?.as_object()?;
+    Some(PayloadMinimizationProof {
+        must_egress_seen: proof.get("must_egress_seen")?.as_bool()?,
+        must_not_egress_seen: proof.get("must_not_egress_seen")?.as_bool()?,
+    })
+}
+
 fn verification_from_payload(request: &RemediationVerificationRequest, payload: &[u8]) -> RemediationVerificationResult {
     let parsed = serde_json::from_slice::<serde_json::Value>(payload).ok();
     let observed_operation = parsed.as_ref()
@@ -208,12 +224,14 @@ fn verification_from_payload(request: &RemediationVerificationRequest, payload: 
         .and_then(|value| value.get("state"))
         .and_then(|value| value.as_str())
         .map(str::to_string);
+    let payload_proof = parsed.as_ref().and_then(extract_payload_proof);
     let verified = observed_operation == Some(request.operation_id.as_str())
         && observed_state.as_deref() == Some(request.expected_state.as_str());
     RemediationVerificationResult {
         request_id: request.request_id.clone(),
         status: if verified { "VERIFIED" } else { "UNVERIFIED" }.to_string(),
         observed_state,
+        payload_proof,
     }
 }
 
@@ -505,6 +523,22 @@ mod tests {
     }
 
     #[test]
+    fn bounded_payload_proof_exposes_only_booleans() {
+        let request = RemediationVerificationRequest { request_id: "r1".into(), operation_id: "op-1".into(), expected_state: "REVOKED".into() };
+        let sentinel = "SENTINEL_MUST_NOT_LEAK_BACK";
+        let payload = serde_json::json!({
+            "operation_id": "op-1",
+            "state": "REVOKED",
+            "payload_proof": { "must_egress_seen": true, "must_not_egress_seen": false },
+            "debug": sentinel
+        });
+        let result = verification_from_payload(&request, &serde_json::to_vec(&payload).unwrap());
+        assert_eq!(result.payload_proof, Some(PayloadMinimizationProof { must_egress_seen: true, must_not_egress_seen: false }));
+        let serialized = serde_json::to_string(&result).unwrap();
+        assert!(!serialized.contains(sentinel));
+    }
+
+    #[test]
     fn execution_rejects_actions_without_a_verified_completion_contract_before_egress() {
         for action in ["isolate-account", "create-incident", "notify-security"] {
             let input = serde_json::to_vec(&RemediationExecutionRequest { action: action.into(), ..execution_request() }).unwrap();
@@ -533,6 +567,7 @@ mod tests {
         let verified = verification_from_payload(&request, br#"{"operation_id":"op-1","state":"REVOKED","secret":"do-not-return"}"#);
         assert_eq!(verified.status, "VERIFIED");
         assert_eq!(verified.observed_state.as_deref(), Some("REVOKED"));
+        assert!(verified.payload_proof.is_none());
         let wrong = verification_from_payload(&request, br#"{"operation_id":"op-1","state":"ACTIVE"}"#);
         assert_eq!(wrong.status, "UNVERIFIED");
     }
