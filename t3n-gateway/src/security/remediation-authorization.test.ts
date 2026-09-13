@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
-import { createHash, createHmac } from 'node:crypto';
+import { createHash, createPrivateKey, sign } from 'node:crypto';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { canonicalNormalPayload, canonicalizeApprovedHost, normalPayloadHash, RemediationAuthorizationVerifier, type RemediationBody } from './remediation-authorization.js';
 
-const key = 'test-remediation-capability-key-1234567890';
+const privateKeyPkcs8 = 'MC4CAQAwBQYDK2VwBCIEIAv4OIfbF/R/i9uL6wgRalq2gperSKNx+Ig9BuS9L4qS';
+const publicKeySpki = 'MCowBQYDK2VwAyEAW3EwSatHmT/ZSgrqu/G3ecXJrTviA5SjAoCwIfwau6A=';
+const privateKey = createPrivateKey({ key: Buffer.from(privateKeyPkcs8, 'base64'), format: 'der', type: 'pkcs8' });
 const now = 1_800_000_000_000;
 const policyVersion = '2026-09-12.1';
 const policyHash = 'a'.repeat(64);
@@ -29,11 +31,12 @@ function token(overrides: Record<string, unknown> = {}): string {
     action: body.action, resource: body.resource, purpose: body.purpose, approvedHost: body.approved_host,
     fieldsHash: listHash(body.fields), normalPayloadHash: normalPayloadHash(body.normal_payload), privateRefsHash: listHash(body.private_refs),
     policyVersion: body.policy_version, policyHash: body.policy_hash, executorDid: body.executor_did,
-    authorizedAt: now - 1_000, expiresAt: now + 60_000, nonce: 'nonce-1', ...overrides,
+    issuedAt: now - 1_000, expiresAt: now + 60_000, nonce: 'nonce-00000001', ...overrides,
   };
   const payload = Buffer.from(JSON.stringify(claims)).toString('base64url');
-  const signature = createHmac('sha256', key).update(payload, 'ascii').digest('base64url');
-  return `${payload}.${signature}`;
+  const signingInput = `v2.${payload}`;
+  const signature = sign(null, Buffer.from(signingInput, 'ascii'), privateKey).toString('base64url');
+  return `${signingInput}.${signature}`;
 }
 
 test('normal payload canonicalization matches the Java cross-runtime vector', () => {
@@ -44,24 +47,26 @@ test('normal payload canonicalization matches the Java cross-runtime vector', ()
   assert.equal(normalPayloadHash(body.normal_payload), '39ba6c4944b8e22ae8bb5bb1ebc7d98839593f17d51acd5d5aff31c81ebaa8ae');
 });
 
-test('valid capability is consumed and persisted across verifier instances', () => {
+test('valid v2 capability is consumed without persisting the raw nonce', () => {
   const path = join(mkdtempSync(join(tmpdir(), 't3pg-cap-')), 'nonces.json');
-  new RemediationAuthorizationVerifier(key, path, () => now).verifyAndConsume(token(), body);
-  assert.match(readFileSync(path, 'utf8'), /nonce-1/);
-  assert.throws(() => new RemediationAuthorizationVerifier(key, path, () => now).verifyAndConsume(token(), body), /CAPABILITY_REPLAY/);
+  new RemediationAuthorizationVerifier(publicKeySpki, path, () => now).verifyAndConsume(token(), body);
+  const stored = readFileSync(path, 'utf8');
+  assert.doesNotMatch(stored, /nonce-00000001/);
+  assert.match(stored, /nonceHash/);
+  assert.throws(() => new RemediationAuthorizationVerifier(publicKeySpki, path, () => now).verifyAndConsume(token(), body), /CAPABILITY_REPLAY/);
 });
 
 test('tampered purpose destination payload private reference policy provenance or executor is rejected before execution', () => {
   const path = join(mkdtempSync(join(tmpdir(), 't3pg-cap-')), 'nonces.json');
-  const verifier = new RemediationAuthorizationVerifier(key, path, () => now);
+  const verifier = new RemediationAuthorizationVerifier(publicKeySpki, path, () => now);
   assert.throws(() => verifier.verifyAndConsume(token(), { ...body, purpose: 'analytics' }), /CAPABILITY_BODY_MISMATCH/);
-  assert.throws(() => verifier.verifyAndConsume(token({ nonce: 'nonce-host' }), { ...body, approved_host: 'security-b.example' }), /CAPABILITY_BODY_MISMATCH/);
-  assert.throws(() => verifier.verifyAndConsume(token({ nonce: 'nonce-value' }), { ...body, normal_payload: { ...body.normal_payload, reason: 'changed after approval' } }), /CAPABILITY_BODY_MISMATCH/);
-  assert.throws(() => verifier.verifyAndConsume(token({ nonce: 'nonce-key' }), { ...body, normal_payload: { ...body.normal_payload, employee_department: 'finance' } }), /CAPABILITY_BODY_MISMATCH/);
-  assert.throws(() => verifier.verifyAndConsume(token({ nonce: 'nonce-2' }), { ...body, private_refs: ['verified_email'] }), /CAPABILITY_BODY_MISMATCH/);
-  assert.throws(() => verifier.verifyAndConsume(token({ nonce: 'nonce-3' }), { ...body, policy_version: '2026-09-11.1' }), /CAPABILITY_BODY_MISMATCH/);
-  assert.throws(() => verifier.verifyAndConsume(token({ nonce: 'nonce-4' }), { ...body, policy_hash: 'b'.repeat(64) }), /CAPABILITY_BODY_MISMATCH/);
-  assert.throws(() => verifier.verifyAndConsume(token({ nonce: 'nonce-5' }), { ...body, executor_did: 'did:t3n:other-executor' }), /CAPABILITY_BODY_MISMATCH/);
+  assert.throws(() => verifier.verifyAndConsume(token({ nonce: 'nonce-host-0001' }), { ...body, approved_host: 'security-b.example' }), /CAPABILITY_BODY_MISMATCH/);
+  assert.throws(() => verifier.verifyAndConsume(token({ nonce: 'nonce-value-0001' }), { ...body, normal_payload: { ...body.normal_payload, reason: 'changed after approval' } }), /CAPABILITY_BODY_MISMATCH/);
+  assert.throws(() => verifier.verifyAndConsume(token({ nonce: 'nonce-key-000001' }), { ...body, normal_payload: { ...body.normal_payload, employee_department: 'finance' } }), /CAPABILITY_BODY_MISMATCH/);
+  assert.throws(() => verifier.verifyAndConsume(token({ nonce: 'nonce-private-01' }), { ...body, private_refs: ['verified_email'] }), /CAPABILITY_BODY_MISMATCH/);
+  assert.throws(() => verifier.verifyAndConsume(token({ nonce: 'nonce-policy-v1' }), { ...body, policy_version: '2026-09-11.1' }), /CAPABILITY_BODY_MISMATCH/);
+  assert.throws(() => verifier.verifyAndConsume(token({ nonce: 'nonce-policy-h1' }), { ...body, policy_hash: 'b'.repeat(64) }), /CAPABILITY_BODY_MISMATCH/);
+  assert.throws(() => verifier.verifyAndConsume(token({ nonce: 'nonce-executor1' }), { ...body, executor_did: 'did:t3n:other-executor' }), /CAPABILITY_BODY_MISMATCH/);
 });
 
 test('approved destination must be an exact canonical hostname', () => {
@@ -70,21 +75,26 @@ test('approved destination must be an exact canonical hostname', () => {
     assert.throws(() => canonicalizeApprovedHost(invalid), /CAPABILITY_INVALID/);
   }
   const path = join(mkdtempSync(join(tmpdir(), 't3pg-cap-')), 'nonces.json');
-  assert.throws(() => new RemediationAuthorizationVerifier(key, path, () => now).verifyAndConsume(token(), { ...body, approved_host: 'https://security-a.example' }), /CAPABILITY_INVALID/);
+  assert.throws(() => new RemediationAuthorizationVerifier(publicKeySpki, path, () => now).verifyAndConsume(token(), { ...body, approved_host: 'https://security-a.example' }), /CAPABILITY_INVALID/);
 });
 
 test('capability without canonical executor DID is rejected', () => {
   const path = join(mkdtempSync(join(tmpdir(), 't3pg-cap-')), 'nonces.json');
-  assert.throws(() => new RemediationAuthorizationVerifier(key, path, () => now).verifyAndConsume(token({ executorDid: 'executor-local' }), body), /CAPABILITY_INVALID/);
+  assert.throws(() => new RemediationAuthorizationVerifier(publicKeySpki, path, () => now).verifyAndConsume(token({ executorDid: 'executor-local' }), body), /CAPABILITY_INVALID/);
 });
 
 test('expired capability is rejected', () => {
   const path = join(mkdtempSync(join(tmpdir(), 't3pg-cap-')), 'nonces.json');
-  assert.throws(() => new RemediationAuthorizationVerifier(key, path, () => now).verifyAndConsume(token({ expiresAt: now - 1 }), body), /CAPABILITY_EXPIRED/);
+  assert.throws(() => new RemediationAuthorizationVerifier(publicKeySpki, path, () => now).verifyAndConsume(token({ expiresAt: now - 1 }), body), /CAPABILITY_EXPIRED/);
+});
+
+test('legacy two-part HMAC capability is rejected with no downgrade', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 't3pg-cap-')), 'nonces.json');
+  assert.throws(() => new RemediationAuthorizationVerifier(publicKeySpki, path, () => now).verifyAndConsume('legacy.payload', body), /CAPABILITY_INVALID/);
 });
 
 test('signature tampering is rejected', () => {
   const path = join(mkdtempSync(join(tmpdir(), 't3pg-cap-')), 'nonces.json');
   const valid = token();
-  assert.throws(() => new RemediationAuthorizationVerifier(key, path, () => now).verifyAndConsume(`${valid.slice(0, -1)}A`, body), /CAPABILITY_INVALID/);
+  assert.throws(() => new RemediationAuthorizationVerifier(publicKeySpki, path, () => now).verifyAndConsume(`${valid.slice(0, -1)}A`, body), /CAPABILITY_INVALID/);
 });
