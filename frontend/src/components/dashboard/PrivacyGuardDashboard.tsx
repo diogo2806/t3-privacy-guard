@@ -14,7 +14,7 @@ import {
   type SystemStatus,
 } from '../../services/privacyGuardApi';
 import { ActionProposalPanel } from '../actions/ActionProposalPanel';
-import { AgentPromptPanel, ATTACK_PROMPT } from '../agent/AgentPromptPanel';
+import { AgentPromptPanel } from '../agent/AgentPromptPanel';
 import { AgentProposalPanel } from '../agent/AgentProposalPanel';
 import { OperatorSessionGate } from '../auth/OperatorSessionGate';
 import { AuditTrail } from '../audit/AuditTrail';
@@ -24,6 +24,12 @@ import { IncidentSummary } from '../incidents/IncidentSummary';
 import { AppHeader } from '../layout/AppHeader';
 import { DecisionPanel } from '../policy/DecisionPanel';
 import { RemediationPanel } from '../remediation/RemediationPanel';
+import { EnterpriseScenarioCatalog } from '../scenarios/EnterpriseScenarioCatalog';
+import { ScenarioExecutionBoundary } from '../scenarios/ScenarioExecutionBoundary';
+import {
+  getEnterpriseScenario,
+  type EnterpriseScenarioId,
+} from '../scenarios/scenarioDefinitions';
 import { EmptyState } from '../states/EmptyState';
 import { SystemStatusBar } from '../status/SystemStatusBar';
 
@@ -78,6 +84,7 @@ export function PrivacyGuardDashboard() {
 
 function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => void }) {
   const [view, setView] = useState<DashboardView>('demo');
+  const [selectedScenarioId, setSelectedScenarioId] = useState<EnterpriseScenarioId>('credential-compromised');
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [incident, setIncident] = useState<Incident | null>(null);
   const [actions, setActions] = useState<ActionProposal[]>([]);
@@ -93,6 +100,7 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const selectedScenario = getEnterpriseScenario(selectedScenarioId);
 
   const handleError = useCallback((cause: unknown, fallback: string) => {
     if (cause instanceof PrivacyGuardApiError && cause.status === 401) { onSessionExpired(); return; }
@@ -160,17 +168,30 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
     await refreshIncident(result.incident, result.action.id);
     if (result.decision.decision === 'DENY') setNotice('The real AI agent produced a structured proposal, and the independent T3N TEE policy blocked it. No protected egress was executed.');
     else if (result.decision.decision === 'REDACT') setNotice('The real AI proposal exceeded the minimum data scope. T3N requires minimization before any action can continue.');
-    else setNotice('The real AI proposal passed T3N policy. ALLOW is not execution; explicit human authorization is still required for remediation.');
+    else setNotice('The real AI proposal passed T3N policy. ALLOW is not execution; any protected remediation still requires an explicitly supported executor and human authorization.');
   });
 
-  const runAttackScenario = () => analyzeAgentPrompt(ATTACK_PROMPT);
+  const changeScenario = (scenarioId: EnterpriseScenarioId) => {
+    if (scenarioId === selectedScenarioId) return;
+    const nextScenario = getEnterpriseScenario(scenarioId);
+    setSelectedScenarioId(scenarioId);
+    setAgentAnalysis(null);
+    setIncident(null);
+    setActions([]);
+    setSelectedAction(null);
+    setDecision(null);
+    setRemediationExecution(null);
+    setHistory([]);
+    setError(null);
+    setNotice(`Scenario “${nextScenario.title}” loaded. Previous result was cleared so it cannot be mistaken for the new scenario.`);
+  };
 
   const prepareSafeRemediation = () => run(async () => {
-    if (!incident) return;
+    if (!incident || selectedScenarioId !== 'credential-compromised') return;
     const safeAction = await privacyGuardApi.createAction(incident.id, { requestId: requestId('remediation'), action: 'revoke-credential', resource: 'credential:production-security-api', purpose: 'incident-remediation', host: 'postman-echo.com', fields: ['incident_id', 'credential_id', 'reason'] });
     const result = await privacyGuardApi.evaluate(incident.id, safeAction.id);
     setRemediationExecution(null); await refreshIncident(incident, safeAction.id); setDecision(result);
-    setNotice(result.decision === 'ALLOW' ? 'Minimum structured remediation request allowed. Human authorization is still required before execution.' : `Remediation received ${result.decision}; execution remains blocked.`);
+    setNotice(result.decision === 'ALLOW' ? 'Minimum credential-revocation request allowed. Human authorization is still required before protected execution.' : `Credential revocation received ${result.decision}; execution remains blocked.`);
   });
 
   const authorize = () => run(async () => {
@@ -205,6 +226,8 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
     else { setDecision(null); setRemediationExecution(null); }
   };
 
+  const protectedExecutionAvailable = selectedScenarioId === 'credential-compromised' && selectedAction?.action === 'revoke-credential';
+
   return (
     <>
       <SystemStatusBar status={systemStatus} loading={statusLoading} onRefresh={() => void refreshSystem()} />
@@ -217,16 +240,24 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
       ) : (
         <main className="dashboard-grid">
           <div className="dashboard-main">
-            <AgentPromptPanel busy={busy} onAnalyze={analyzeAgentPrompt} />
+            <EnterpriseScenarioCatalog selectedScenarioId={selectedScenarioId} busy={busy} onSelect={changeScenario} />
+            <AgentPromptPanel
+              busy={busy}
+              presetPrompt={selectedScenario.prompt}
+              scenarioTitle={selectedScenario.title}
+              showCredentialAttackControls={selectedScenarioId === 'credential-compromised'}
+              onAnalyze={analyzeAgentPrompt}
+            />
             <AgentProposalPanel analysis={agentAnalysis} />
-            {!incident ? <EmptyState onRun={runAttackScenario} busy={busy} /> : <>
+            {!incident ? <EmptyState /> : <>
               <IncidentSummary incident={incident} />
               <div className="scenario-actions">
-                <button type="button" className="button button-primary" onClick={prepareSafeRemediation} disabled={busy}><ShieldCheck aria-hidden="true" />Prepare safe remediation<ArrowRight aria-hidden="true" /></button>
+                {selectedScenarioId === 'credential-compromised' && <button type="button" className="button button-primary" onClick={prepareSafeRemediation} disabled={busy}><ShieldCheck aria-hidden="true" />Prepare credential revocation<ArrowRight aria-hidden="true" /></button>}
                 {selectedAction?.status === 'PENDING' && <button type="button" className="button button-secondary" onClick={() => void run(async () => { if (!incident || !selectedAction) return; const result = await privacyGuardApi.evaluate(incident.id, selectedAction.id); setDecision(result); await refreshIncident(incident, selectedAction.id); })} disabled={busy}>Retry T3N evaluation</button>}
               </div>
               <div className="two-column"><ActionProposalPanel actions={actions} selectedActionId={selectedAction?.id ?? null} onSelect={selectAction} /><DecisionPanel decision={decision} /></div>
-              <RemediationPanel action={selectedAction} decision={decision} execution={remediationExecution} busy={busy} onAuthorize={authorize} onExecute={execute} onVerify={verifyExternalState} />
+              <ScenarioExecutionBoundary scenario={selectedScenario} proposedAction={selectedAction?.action ?? agentAnalysis?.action.action ?? null} />
+              {protectedExecutionAvailable && <RemediationPanel action={selectedAction} decision={decision} execution={remediationExecution} busy={busy} onAuthorize={authorize} onExecute={execute} onVerify={verifyExternalState} />}
             </>}
           </div>
           <aside className="dashboard-side"><AuditTrail events={history} /></aside>
