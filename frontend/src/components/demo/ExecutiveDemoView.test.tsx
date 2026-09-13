@@ -70,6 +70,7 @@ const evidence = {
     sourceCommitSha: '0fe48b8aab7917788eb30b81d45e6a11821e48c2',
     sourceTreeClean: true,
     network: 'testnet',
+    contractId: 'privacy-guard-contract-testnet-123456789',
     contractVersion: '0.4.0',
     agentDid: 'did:t3n:testnet:proposal-agent-123456789',
     executorDid: 'did:t3n:testnet:protected-executor-987654321',
@@ -157,6 +158,8 @@ describe('ExecutiveDemoView', () => {
     expect(screen.getByTestId('executive-readiness')).toHaveTextContent('T3N LIVE / READY');
     expect(screen.getByTestId('executive-proof')).toHaveTextContent('12 PASS / 0 FAIL / 1 NOT RUN');
     expect(screen.getByTestId('executive-proof')).toHaveTextContent('0fe48b8a…');
+    expect(screen.getByTestId('executive-proof')).toHaveTextContent('privacy-guard-con…23456789');
+    expect(screen.getByTestId('executive-proof')).toHaveTextContent('0.4.0');
     expect(screen.getByTestId('executive-proof')).toHaveTextContent('SEPARATE');
     expect(screen.getByTestId('executive-proof')).toHaveTextContent('CONFIRMED');
     expect(screen.getByTestId('executive-proof')).toHaveTextContent('REGISTERED');
