@@ -10,6 +10,11 @@ function manifest(): DeploymentManifest {
     sdkVersion: '5.2.0',
     tenantDid: 'did:t3n:tenant',
     agentDid: 'did:t3n:agent',
+    agentRegistrationState: 'REGISTERED',
+    agentCardUri: 'https://testnet.t3n.io/api/agent-card/did%3At3n%3Aagent',
+    agentCardSha256: 'c'.repeat(64),
+    agentCardVerifiedAt: '2026-09-12T00:00:01.000Z',
+    agentCardServices: ['DID'],
     contractId: 'z:tenant:privacy-guard',
     numericContractId: 123,
     contractVersion: '0.4.0',
@@ -26,6 +31,12 @@ test('rejects same tenant and agent DID', () => {
   const value = manifest();
   value.agentDid = value.tenantDid;
   assert.throws(() => assertManifestIdentity(value), /must be different/);
+});
+
+test('requires a registered Agent Card that exposes only the DID service', () => {
+  const value = manifest();
+  value.agentRegistrationState = 'MISMATCH';
+  assert.throws(() => assertManifestIdentity(value), /public Agent Card/i);
 });
 
 test('accepts matching deployment and testnet evidence identities', () => {
