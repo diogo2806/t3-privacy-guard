@@ -31,8 +31,10 @@ function t3nReady(status: SystemStatus | null): boolean {
     status?.gatewayReachable
       && status.tenantAuthenticated
       && status.agentAuthenticated
+      && status.executorAuthenticated
       && status.contractResolved
-      && status.delegationState === 'ACTIVE',
+      && status.delegationState === 'ACTIVE'
+      && status.executorDelegationState === 'ACTIVE',
   );
 }
 
@@ -80,7 +82,7 @@ function trustSteps(
     {
       label: 'AI proposal',
       state: proposalReceived ? 'RECEIVED' : 'WAITING',
-      detail: proposalReceived ? 'A structured action proposal is available. It does not carry authorization.' : 'Waiting for an agent proposal.',
+      detail: proposalReceived ? 'A structured action proposal is available. The Proposal Agent can evaluate policy but has no T3N grant for protected execution.' : 'Waiting for an agent proposal.',
       tone: proposalReceived ? 'info' : 'pending',
       icon: BrainCircuit,
     },
@@ -94,21 +96,21 @@ function trustSteps(
     {
       label: 'Human authorization',
       state: humanState,
-      detail: humanState === 'AUTHORIZED' ? 'Business authorization is recorded.' : humanState === 'REQUIRED' ? 'A human must authorize before protected execution.' : 'Human authorization applies only after an ALLOW decision.',
+      detail: humanState === 'AUTHORIZED' ? 'Business authorization is recorded and bound to the current Protected Executor DID.' : humanState === 'REQUIRED' ? 'A human must authorize before the Protected Executor may be invoked.' : 'Human authorization applies only after an ALLOW decision.',
       tone: humanTone,
       icon: UserCheck,
     },
     {
       label: 'Protected execution',
       state: executionState,
-      detail: executionState === 'NOT STARTED' ? 'No protected side effect is claimed.' : executionState === 'EXECUTING' ? 'Execution has been durably claimed and is in progress.' : executionState === 'ACCEPTED' ? 'The external action was accepted; acceptance is not completion.' : executionState === 'UNVERIFIED' ? 'The external outcome is ambiguous and will not be reported as completed.' : 'Execution failed without verified completion.',
+      detail: executionState === 'NOT STARTED' ? 'No protected side effect is claimed. Execution uses a T3N principal separate from the Proposal Agent.' : executionState === 'EXECUTING' ? 'The Protected Executor has durably claimed execution and it is in progress.' : executionState === 'ACCEPTED' ? 'The external action was accepted by the Protected Executor; acceptance is not completion.' : executionState === 'UNVERIFIED' ? 'The external outcome is ambiguous and will not be reported as completed.' : 'Execution failed without verified completion.',
       tone: executionTone,
       icon: ServerCog,
     },
     {
       label: 'Independent verification',
       state: verificationState,
-      detail: verificationState === 'VERIFIED' ? 'Independent read-back confirmed the expected external state.' : verificationState === 'PENDING' ? 'Completion is waiting for independent read-back.' : verificationState === 'UNVERIFIED' ? 'Independent verification did not prove completion.' : 'No verified completion is claimed yet.',
+      detail: verificationState === 'VERIFIED' ? 'The Protected Executor performed independent read-back and confirmed the expected external state.' : verificationState === 'PENDING' ? 'Completion is waiting for independent read-back.' : verificationState === 'UNVERIFIED' ? 'Independent verification did not prove completion.' : 'No verified completion is claimed yet.',
       tone: verificationTone,
       icon: BadgeCheck,
     },
@@ -123,13 +125,13 @@ function resultMessage(
   statusLoading: boolean,
   proposalReceived: boolean,
 ): string {
-  if (!statusLoading && !ready) return 'T3N controls are unavailable or incomplete. Policy decisions and protected execution cannot be proven until live status recovers.';
-  if (!proposalReceived) return 'Start with a prompt. The AI may propose an action, but it has no authority to execute it.';
+  if (!statusLoading && !ready) return 'T3N controls are unavailable or incomplete. Proposal evaluation or protected execution cannot be proven until both delegated principals are ready.';
+  if (!proposalReceived) return 'Start with a prompt. The AI may propose an action, but the Proposal Agent has no authority to execute it.';
   if (!decision) return 'An action proposal is available. T3N policy has not produced a decision yet.';
   if (decision.decision === 'DENY') return 'Policy blocked the proposal before protected egress. No execution is claimed.';
   if (decision.decision === 'REDACT') return 'Policy requires data minimization before the action may continue. No execution is claimed.';
-  if (!isHumanAuthorized(selectedAction)) return 'Policy allowed the proposal, but protected execution is blocked until a human authorizes it.';
-  if (!execution) return 'Human authorization is recorded. No protected execution has been claimed yet.';
+  if (!isHumanAuthorized(selectedAction)) return 'Policy allowed the proposal, but the Protected Executor remains blocked until a human authorizes it.';
+  if (!execution) return 'Human authorization is recorded and bound to the Protected Executor. No protected execution has been claimed yet.';
   if (execution.state === 'EXECUTING') return 'Protected execution is in progress. Completion is not claimed.';
   if (execution.state === 'PENDING_VERIFICATION') return 'The external service accepted the action. Completion is pending independent verification.';
   if (execution.state === 'UNVERIFIED') return 'The external outcome is unverified. The system does not claim completion.';
@@ -147,7 +149,7 @@ export function TrustFlowSummary({ agentAnalysis, decision, selectedAction, reme
       <div className="trust-flow-heading">
         <div>
           <p className="eyebrow">Trust flow</p>
-          <h2 id="trust-flow-title">AI proposes. Independent controls decide what happens next.</h2>
+          <h2 id="trust-flow-title">AI proposes. Humans authorize. A separate T3N executor performs protected actions.</h2>
         </div>
         <span className={`trust-readiness ${statusLoading ? 'trust-readiness-pending' : ready ? 'trust-readiness-ready' : 'trust-readiness-unavailable'}`}>
           {statusLoading ? 'Checking T3N' : ready ? 'T3N controls ready' : 'T3N controls unavailable'}
