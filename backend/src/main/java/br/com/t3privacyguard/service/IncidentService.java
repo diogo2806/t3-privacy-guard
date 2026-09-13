@@ -199,7 +199,13 @@ public class IncidentService {
     }
 
     @Transactional
-    public RemediationAuthorizationResponse authorizeRemediation(String incidentId, String actionId) {
+    public RemediationAuthorizationResponse authorizeRemediation(String incidentId, String actionId, String authenticatedPrincipal) {
+        final String principal;
+        try {
+            principal = ActionProposalEntity.canonicalizeAuthenticatedPrincipal(authenticatedPrincipal);
+        } catch (IllegalArgumentException ex) {
+            throw new PolicyDeniedException("Authenticated operator principal is required for human authorization");
+        }
         ActionProposalEntity action = requireAction(incidentId, actionId);
         requireSupportedRemediationExecutor(action);
         String approvedHost = requireApprovedHost(action);
@@ -208,11 +214,30 @@ public class IncidentService {
         requireExecutableDecision(decision, normalPayload);
         requireVersionedPolicy(decision);
         auditIntegrity.assertAppendable(incidentId);
-        action.authorizeRemediation();
-        actions.save(action);
-        audit(incidentId, "REMEDIATION_AUTHORIZED", "Remediation authorized for request " + action.getRequestId() + " to approved destination " + approvedHost + " with trusted normal payload binding under policy " + decision.getPolicyVersion() + " hash " + decision.getPolicyHash());
-        traces.record(action, "HUMAN_AUTHORIZATION", "AUTHORIZED", null, null);
-        return new RemediationAuthorizationResponse(incidentId, actionId, action.getRequestId(), action.getStatus().name());
+        final boolean newlyAuthorized;
+        try {
+            newlyAuthorized = action.authorizeRemediation(principal, Instant.now());
+        } catch (IllegalStateException ex) {
+            throw new ConflictException(ex.getMessage());
+        }
+        if (newlyAuthorized) {
+            actions.save(action);
+            audit(
+                incidentId,
+                "REMEDIATION_AUTHORIZED",
+                "Remediation authorized by " + principal + " for request " + action.getRequestId() + " to approved destination " + approvedHost
+                    + " with trusted normal payload binding under policy " + decision.getPolicyVersion() + " hash " + decision.getPolicyHash()
+            );
+            traces.record(action, "HUMAN_AUTHORIZATION", "AUTHORIZED", null, null);
+        }
+        return new RemediationAuthorizationResponse(
+            incidentId,
+            actionId,
+            action.getRequestId(),
+            action.getStatus().name(),
+            action.getRemediationAuthorizedBy(),
+            action.getRemediationAuthorizedAt()
+        );
     }
 
     public RemediationExecutionResponse executeRemediation(String incidentId, String actionId) {
@@ -222,6 +247,9 @@ public class IncidentService {
         Map<String, String> normalPayload = requireNormalPayload(action);
         if (action.getStatus() != ProposalStatus.REMEDIATION_AUTHORIZED && action.getStatus() != ProposalStatus.REMEDIATED) {
             throw new PolicyDeniedException("Remediation must be explicitly authorized before execution");
+        }
+        if (action.getRemediationAuthorizedBy() == null || action.getRemediationAuthorizedAt() == null) {
+            throw new PolicyDeniedException("Human authorization provenance is not bound; re-authorize remediation before protected execution");
         }
         PolicyDecisionEntity decision = decisions.findByActionProposalId(actionId)
             .orElseThrow(() -> new ConflictException("A persisted policy decision is required before remediation"));
@@ -234,9 +262,12 @@ public class IncidentService {
 
         List<String> fields = readList(action.getFieldsJson());
         List<String> privateRefs = readList(action.getPrivateRefsJson());
+        String operatorPrincipalHash = RemediationAuthorizationSigner.operatorPrincipalHash(action.getRemediationAuthorizedBy());
+        long authorizationRecordedAt = action.getRemediationAuthorizedAt().toEpochMilli();
         String capability = remediationAuthorizationSigner.issue(
             incidentId, actionId, action.getRequestId(), decision.getId(), action.getAction(), action.getResource(), action.getPurpose(), approvedHost,
-            fields, normalPayload, privateRefs, decision.getPolicyVersion(), decision.getPolicyHash()
+            fields, normalPayload, privateRefs, decision.getPolicyVersion(), decision.getPolicyHash(),
+            action.getRemediationAuthorizedBy(), action.getRemediationAuthorizedAt()
         );
 
         traces.record(action, "PROTECTED_EGRESS", "SENT", null, null);
@@ -244,7 +275,7 @@ public class IncidentService {
         try {
             var result = remediationGateway.execute(new RemediationRequest(
                 incidentId, actionId, decision.getId(), action.getRequestId(), action.getAction(), action.getResource(), action.getPurpose(), approvedHost,
-                fields, normalPayload, privateRefs, decision.getPolicyVersion(), decision.getPolicyHash()
+                fields, normalPayload, privateRefs, decision.getPolicyVersion(), decision.getPolicyHash(), operatorPrincipalHash, authorizationRecordedAt
             ), capability);
             if (!action.getRequestId().equals(result.requestId())) {
                 RemediationExecutionEntity state = executionCoordinator.markUnverified(actionId, "REQUEST_ID_MISMATCH");
@@ -510,7 +541,8 @@ public class IncidentService {
             : readMap(entity.getNormalPayloadJson());
         return new ActionResponse(
             entity.getId(), entity.getIncidentId(), entity.getRequestId(), entity.getAction(), entity.getResource(), entity.getPurpose(), entity.getHost(),
-            readList(entity.getFieldsJson()), normalPayload, readList(entity.getPrivateRefsJson()), entity.getStatus(), entity.getCreatedAt()
+            readList(entity.getFieldsJson()), normalPayload, readList(entity.getPrivateRefsJson()), entity.getStatus(), entity.getCreatedAt(),
+            entity.getRemediationAuthorizedBy(), entity.getRemediationAuthorizedAt()
         );
     }
 
