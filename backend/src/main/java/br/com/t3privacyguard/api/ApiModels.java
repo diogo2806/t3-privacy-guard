@@ -1,5 +1,6 @@
 package br.com.t3privacyguard.api;
 
+import br.com.t3privacyguard.audit.AuditIntegrityState;
 import br.com.t3privacyguard.domain.AuditReconciliationStatus;
 import br.com.t3privacyguard.domain.DecisionType;
 import br.com.t3privacyguard.domain.ProposalStatus;
@@ -73,6 +74,13 @@ public final class ApiModels {
     ) {}
 
     public record AuditResponse(String id, String incidentId, String type, String message, Instant createdAt) {}
+    public record AuditIntegrityResponse(
+        AuditIntegrityState state,
+        int eventsChecked,
+        String head,
+        String version,
+        String detail
+    ) {}
     public record LocalAuditEvidence(
         String id,
         String incidentId,
@@ -110,6 +118,7 @@ public final class ApiModels {
         List<LocalAuditEvidence> localEvents,
         List<T3nActivityEvidence> t3nEvents,
         AuditProvenance provenance,
+        AuditIntegrityResponse integrity,
         Long nextSequence,
         int limit
     ) {}

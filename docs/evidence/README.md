@@ -10,6 +10,8 @@ The operator dashboard presents evidence in business-first order. The **Proof & 
 
 The dashboard trust flow follows the same claim boundary as the evidence bundle: `ALLOW` is not execution, accepted external execution is not completion, `REGISTERED` Agent onboarding is not delegation, an observed `ACTIVE` Member grant is not by itself effective delegated authority, and `COMPLETED` is shown only after independent read-back verifies the expected external state. T3N control-plane or trust-boundary unavailability is surfaced explicitly rather than rendered as a successful state. Operational readiness requires T3N `checkDelegation()` to confirm effective access for the authenticated Proposal Agent and Protected Executor.
 
+The dashboard also presents **local audit integrity** separately from T3N Activity Log provenance. `VERIFIED` means the retained application HMAC chain and authenticated head verified with configured key versions. It does not mean immutable storage, T3N execution proof or hardware attestation. A T3N `MATCHED` event and a local `BROKEN` chain are different signals and can coexist.
+
 ## Local automated evidence
 
 From the repository root:
@@ -18,7 +20,9 @@ From the repository root:
 bash scripts/run-local-evidence.sh
 ```
 
-This executes Rust policy/remediation/verification tests, including dev-only `proptest` suites that generate hundreds of policy/parser combinations, Java replay/authorization/distributed-idempotency/incident-retention/audit-reconciliation tests, gateway Member-grant/effective-`checkDelegation`/`pii_did`/leak/trust-floor/Agent-Card tests plus deterministic generated agent-schema invariants and trace-correlation tests, and React accessibility/decision/remediation-state/evidence-provenance/onboarding/effective-authorization/retention-state tests. Raw runtime logs are gitignored.
+This executes Rust policy/remediation/verification tests, including dev-only `proptest` suites that generate hundreds of policy/parser combinations, Java replay/authorization/distributed-idempotency/incident-retention/audit-integrity/audit-reconciliation tests, gateway Member-grant/effective-`checkDelegation`/`pii_did`/leak/trust-floor/Agent-Card tests plus deterministic generated agent-schema invariants and trace-correlation tests, and React accessibility/decision/remediation-state/evidence-provenance/local-audit-integrity/onboarding/effective-authorization/retention-state tests. Raw runtime logs are gitignored.
+
+Local audit-integrity coverage includes a fixed canonical HMAC vector, one/many-event chains, content/link/sequence/provenance tampering, missing head, retained-tail deletion, manual insertion, concurrent append linearity, key mismatch/restart, explicit key rotation, legacy history and the protected-change fail-closed guard. These are local invariant tests, not T3N testnet evidence.
 
 Property tests are classified as **local invariant evidence**. A failing Rust property reports a reproducible proptest counterexample/seed; the gateway generator uses fixed documented seeds. Generated case counts are not represented as coverage percentage and never count as live T3N execution.
 
@@ -55,17 +59,41 @@ policy decisions
 action proposals
         |
         v
+audit chain head
+        |
+        v
 audit events
         |
         v
 incident
 ```
 
-No tombstone keeps `title`, `summary` or `source`. Audit messages pass through the same high-confidence sensitive-literal guard and rejected incident input is never echoed in the HTTP error. The runtime H2 database remains file-backed at `/data/privacyguard`; retention is therefore proven by application behavior rather than by destroying the container.
+No tombstone keeps `title`, `summary` or `source`. Audit messages pass through the same high-confidence sensitive-literal guard and rejected incident input is never echoed in the HTTP error. The runtime H2 database remains file-backed at `/data/privacyguard`; retention is therefore proven by application behavior rather than by destroying the container. The chain head is not retained indefinitely merely to preserve an integrity claim after the incident data itself is purged.
 
-Local Java coverage includes the server-side expiry formula, invalid retention values, secret-sentinel rejection before persistence, audit sanitization, expired/non-expired/idempotent purge, legacy expiry backfill and a `jdbc:h2:file:` integration test that verifies `expires_at` is actually stored in a persistent H2 database. Frontend coverage verifies the visible active-retention copy; an expired incident is represented by absence from the incident API rather than by rendering purged content.
+Local Java coverage includes the server-side expiry formula, invalid retention values, secret-sentinel rejection before persistence, audit sanitization, audit-chain/head deletion, expired/non-expired/idempotent purge, legacy expiry backfill and a `jdbc:h2:file:` integration test that verifies `expires_at` is actually stored in a persistent H2 database. Frontend coverage verifies the visible active-retention copy; an expired incident is represented by absence from the incident API rather than by rendering purged content.
 
-These are local privacy controls and are not presented as live T3N evidence.
+These are local privacy/integrity controls and are not presented as live T3N evidence.
+
+## Tamper-evident local audit boundary
+
+New sanitized business-audit events are stored in a versioned HMAC-SHA-256 chain scoped to the incident. The canonical event input binds incident/event IDs, monotonic local sequence, type, canonical UTC timestamp, sanitized message, previous MAC and persisted T3N sequence/hash/function when present. A separately HMAC-authenticated chain head binds the final retained sequence/MAC and key version.
+
+Append is serialized by a pessimistic lock on the incident. Verification checks sequence continuity, previous-MAC linkage, event MACs, required key versions and the authenticated head. This detects DB-only edits, inserted rows, sequence/link changes, T3N-provenance metadata changes, missing head and retained-tail deletion when the attacker does not possess the HMAC key.
+
+Runtime key configuration is explicit:
+
+```text
+AUDIT_INTEGRITY_KEY
+AUDIT_INTEGRITY_KEY_ID
+AUDIT_INTEGRITY_PREVIOUS_KEYS
+AUDIT_INTEGRITY_ALLOW_LEGACY_BOOTSTRAP=false
+```
+
+The active key must be a separate backend-only secret. Planned rotation changes the key id and retains only the historical `keyId=secret` material still needed for retained events. Pre-HMAC events remain `LEGACY_UNVERIFIED`; normal runtime does not silently create a new trust root over legacy rows.
+
+The claim is deliberately limited. This is **tamper-evident**, not immutable/tamper-proof storage. A compromised backend that can use the key, simultaneous DB+key compromise, or restoration of an older complete internally consistent DB snapshot is outside this guarantee unless a separate monotonic external audit anchor is introduced. HMAC state is not a T3N attestation claim.
+
+Protected local changes fail closed on `BROKEN`, `KEY_MISMATCH` or otherwise unverifiable retained history. The verifier does not repair or re-MAC a broken chain automatically.
 
 ## Persistent T3N trust boundary
 
@@ -282,16 +310,16 @@ Execution-trace events are bounded operational metadata, but they are still atta
 
 The Business Audit Trail and the official T3N Activity Log are separate sources. Local audit records business events such as human authorization; T3N Activity records network-observed contract activity. The application does not replace one with the other or infer a network event solely from a local timestamp.
 
-For an incident, the authenticated backend requests a bounded Activity Log window through the gateway and keeps only events that exactly match the current tenant/agent/contract boundary and one of the supported contract functions (`evaluate-action`, `execute-remediation`, `verify-remediation`). Reconciliation uses exact T3N sequence, activity hash and function metadata persisted with network-backed local events. The time window only bounds retrieval and includes a clock-skew margin; timestamps are not used as identity.
+For an incident, the authenticated backend requests a bounded Activity Log window through the gateway and keeps only events that exactly match the current Tenant DID, resolved contract and one of the supported contract functions (`evaluate-action`, `execute-remediation`, `verify-remediation`). Reconciliation additionally requires the canonical actor for the function: Proposal Agent DID for `evaluate-action`; Protected Executor DID for `execute-remediation` and `verify-remediation`. Sequence, activity hash and function metadata persisted with network-backed local events must also match exactly. The time window only bounds retrieval and includes a clock-skew margin; timestamps are not used as identity.
 
 The API/UI exposes four independent reconciliation states:
 
-- `MATCHED`: the local network-backed event matches an observed T3N sequence/hash/function exactly;
+- `MATCHED`: the local network-backed event matches the exact T3N sequence/hash/function/actor boundary;
 - `LOCAL_ONLY`: the business event has no T3N function by design, for example a purely local step;
 - `T3N_ONLY`: a relevant T3N activity event exists without a matching local event in the bounded local result;
-- `UNMATCHED`: a local event expects T3N provenance but the exact sequence/hash/function could not be verified.
+- `UNMATCHED`: a local event expects T3N provenance but the exact required metadata/actor could not be verified.
 
-If the Activity Log is temporarily unavailable, local business history remains readable but network-backed local events are shown as unverified/unmatched and the UI states that T3N provenance was not verified. If the bounded Activity Log page is truncated, the response marks it incomplete; unmatched results are not treated as proof that no network event exists.
+If the Activity Log is temporarily unavailable, local business history remains readable and its HMAC integrity state remains independently reportable, but network-backed local events are shown as unverified/unmatched and the UI states that T3N provenance was not verified. If the bounded Activity Log page is truncated, the response marks it incomplete; unmatched results are not treated as proof that no network event exists. If a canonical Proposal/Executor identity is unavailable, affected events cannot become `MATCHED` merely because the function/sequence/hash are present.
 
 The read-only endpoint is:
 
@@ -299,7 +327,7 @@ The read-only endpoint is:
 GET /api/incidents/{incidentId}/audit-evidence?limit=100
 ```
 
-The `limit` is server-validated between 1 and 200. Activity evidence is sanitized and contains bounded provenance fields such as sequence, hash, actor/on-behalf-of DIDs, contract, function, outcome and timestamp; it never returns T3N keys, capabilities, request bodies or resolved private values. This network provenance remains subject to the incident lifecycle in the application: local incident/audit/trace data are still purged according to retention and are not kept indefinitely merely to preserve a comparison.
+The `limit` is server-validated between 1 and 200. The same response keeps `integrity` separate from `provenance`. Activity evidence is sanitized and contains bounded provenance fields such as sequence, hash, actor/on-behalf-of DIDs, contract, function, outcome and timestamp; it never returns T3N keys, audit-integrity keys, capabilities, request bodies or resolved private values. This network provenance remains subject to the incident lifecycle in the application: local incident/audit/trace data are still purged according to retention and are not kept indefinitely merely to preserve a comparison.
 
 ## Generated artifacts
 
@@ -323,7 +351,7 @@ The `limit` is server-validated between 1 and 200. Activity evidence is sanitize
 
 `testnet-run.json` contains the same `sourceCommitSha` and `sourceTreeClean` values plus live scenario outcomes including PASS/FAIL/NOT_RUN and the sanitized delegation evidence for Proposal/Executor. Missing, malformed or mismatched source provenance invalidates the bundle. Optional scenarios that were not executed stay `NOT_RUN`; they are never converted into PASS.
 
-Both artifacts pass leak detection against configured Tenant/Proposal Agent/Protected Executor keys, remediation key, AI provider key, service token, capability signing key and optional sentinel before being accepted. Neither artifact contains `.env` contents, API keys, tokens, private keys or raw Member Delegation documents.
+Both artifacts pass leak detection against configured Tenant/Proposal Agent/Protected Executor keys, remediation key, AI provider key, service token, capability signing key and optional sentinel before being accepted. Submission-capture metadata additionally treats `AUDIT_INTEGRITY_KEY` as prohibited secret material. Neither artifact contains `.env` contents, API keys, tokens, private keys, audit-integrity key material or raw Member Delegation documents.
 
 ## Trust, onboarding and authorization evidence wording
 
@@ -343,10 +371,12 @@ The UI and evidence API deliberately distinguish these concepts:
 - **Effective access ACTIVE**: `checkDelegation()` executed as the authenticated grantee returned `authorised=true` for that principal's canonical contract, Tenant DID and fixed minimum functions/scopes. Only this state may contribute to operational readiness.
 - **Effective access DENIED**: `authorised=false`, or a known non-active Member state, prevents readiness.
 - **Effective access UNKNOWN**: the Member state or platform verdict could not be validated; readiness remains false.
+- **Local audit integrity VERIFIED**: the retained HMAC chain, sequence/linkage and authenticated head validated using configured key versions. This is an application integrity signal, not T3N/hardware attestation.
+- **Local audit integrity BROKEN/KEY_MISMATCH/LEGACY_UNVERIFIED**: local history is not eligible for a positive integrity claim; protected local changes fail closed where required.
 
 These labels do not mean “hardware execution verified”. A public Agent Card hash is not authorization or attestation, a clean source tree is not a code audit, and a per-request hardware-attestation claim would require separate execution-specific evidence.
 
-If trust-manifest retrieval, rollback validation, persisted state validation, version extraction or effective-delegation verification fails, readiness remains false. Agent Card resolution has its own explicit negative states (`NOT_REGISTERED`, `MISMATCH`, `UNAVAILABLE`) and is never silently rendered as `REGISTERED`. `authorised=false` produces effective `DENIED`; a failed or malformed platform verdict produces `UNKNOWN`.
+If trust-manifest retrieval, rollback validation, persisted state validation, version extraction or effective-delegation verification fails, readiness remains false. Agent Card resolution has its own explicit negative states (`NOT_REGISTERED`, `MISMATCH`, `UNAVAILABLE`) and is never silently rendered as `REGISTERED`. `authorised=false` produces effective `DENIED`; a failed or malformed platform verdict produces `UNKNOWN`. Local audit verification failure is surfaced independently and is never auto-repaired or relabelled as T3N provenance failure.
 
 ## Profile placeholder evidence
 
@@ -354,6 +384,6 @@ The policy-level logical-reference scenario can run independently. Actual `verif
 
 ## What is not live evidence
 
-Mocks, unit tests, property tests, generated cases, screenshots, docs and unexecuted commands are not T3N testnet proof. A Git commit SHA by itself is not live proof and `CLEAN` is not a security certification; they only link a generated bundle to a source revision. A locally generated Agent Card is not proof that it was hosted; `REGISTERED` requires read-only public resolution of the authenticated DID. An observed Member grant is not proof of effective authority; runtime readiness additionally requires the authenticated principal-side T3N `checkDelegation()` verdict. The generated deployment manifest plus matching successful `testnet-run.json` are the live evidence source of truth for contract scenarios. A screenshot of a 2xx response is not remediation completion proof; the matching verification state is required. A persisted trust floor is cluster-trust rollback protection, not execution-specific hardware attestation. Activity reconciliation is provenance for T3N-observed operations, not a replacement for the local business audit.
+Mocks, unit tests, property tests, generated cases, screenshots, docs and unexecuted commands are not T3N testnet proof. A Git commit SHA by itself is not live proof and `CLEAN` is not a security certification; they only link a generated bundle to a source revision. A locally generated Agent Card is not proof that it was hosted; `REGISTERED` requires read-only public resolution of the authenticated DID. An observed Member grant is not proof of effective authority; runtime readiness additionally requires the authenticated principal-side T3N `checkDelegation()` verdict. The generated deployment manifest plus matching successful `testnet-run.json` are the live evidence source of truth for contract scenarios. A screenshot of a 2xx response is not remediation completion proof; the matching verification state is required. A persisted trust floor is cluster-trust rollback protection, not execution-specific hardware attestation. Activity reconciliation is provenance for T3N-observed operations, not a replacement for local HMAC integrity. Local HMAC integrity is not live T3N proof, immutable storage or hardware attestation.
 
 See `scenario-matrix.md` for the security-scenario mapping.

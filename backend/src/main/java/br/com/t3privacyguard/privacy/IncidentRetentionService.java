@@ -2,6 +2,7 @@ package br.com.t3privacyguard.privacy;
 
 import br.com.t3privacyguard.persistence.ActionProposalEntity;
 import br.com.t3privacyguard.persistence.ActionProposalRepository;
+import br.com.t3privacyguard.persistence.AuditChainHeadRepository;
 import br.com.t3privacyguard.persistence.AuditEventRepository;
 import br.com.t3privacyguard.persistence.ExecutionTraceEventRepository;
 import br.com.t3privacyguard.persistence.IncidentEntity;
@@ -24,6 +25,7 @@ public class IncidentRetentionService {
     private final RemediationExecutionRepository remediations;
     private final ExecutionTraceEventRepository traces;
     private final AuditEventRepository audits;
+    private final AuditChainHeadRepository auditHeads;
     private final IncidentRetentionProperties properties;
 
     public IncidentRetentionService(
@@ -33,6 +35,7 @@ public class IncidentRetentionService {
         RemediationExecutionRepository remediations,
         ExecutionTraceEventRepository traces,
         AuditEventRepository audits,
+        AuditChainHeadRepository auditHeads,
         IncidentRetentionProperties properties
     ) {
         this.incidents = incidents;
@@ -41,6 +44,7 @@ public class IncidentRetentionService {
         this.remediations = remediations;
         this.traces = traces;
         this.audits = audits;
+        this.auditHeads = auditHeads;
         this.properties = properties;
     }
 
@@ -86,6 +90,7 @@ public class IncidentRetentionService {
         }
         actions.deleteAllByIncidentId(incidentId);
         audits.deleteAllByIncidentId(incidentId);
+        auditHeads.findById(incidentId).ifPresent(auditHeads::delete);
         incidents.deleteById(incidentId);
     }
 }
