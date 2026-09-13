@@ -16,7 +16,7 @@ export function AgentPromptPanel({ busy, prompt, privacyError, onPromptChange, o
         <div><p className="eyebrow">Untrusted input</p><h2 id="agent-prompt-title">AI agent prompt</h2></div>
       </div>
       <p className="card-copy">The selected scenario only prepares synthetic demonstration text. The model may change the proposal, and T3N independently decides whether the actual proposal is allowed.</p>
-      <p className="card-copy"><strong>Do not paste private values or secrets.</strong> Use approved logical references such as “verified email”. Sensitive literals are rejected server-side before any external AI provider is called.</p>
+      <p className="card-copy"><strong>Do not paste private values or secrets.</strong> High-confidence sensitive literals are blocked before a remote AI provider, but free text is not a complete PII scanner. Use approved logical references such as “verified email”.</p>
       <label className="agent-prompt-label" htmlFor="agent-prompt">Prompt</label>
       <textarea id="agent-prompt" className="agent-prompt-input" rows={5} maxLength={4000} value={prompt} onChange={(event) => onPromptChange(event.target.value)} disabled={busy} aria-describedby={privacyError ? 'agent-prompt-privacy-error' : undefined} />
       {privacyError && <div id="agent-prompt-privacy-error" className="feedback feedback-error" role="alert" aria-live="assertive">{privacyError}</div>}
