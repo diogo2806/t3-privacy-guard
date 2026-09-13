@@ -5,9 +5,9 @@ import { resolveSourceRevision } from './source-revision.js';
 const SHA = 'a'.repeat(40);
 
 test('resolves a full commit sha and clean tree state', () => {
-  const calls: readonly string[][] = [];
+  const calls: string[][] = [];
   const revision = resolveSourceRevision('/repo', (args) => {
-    (calls as string[][]).push([...args]);
+    calls.push([...args]);
     if (args[0] === 'rev-parse') return SHA;
     return '';
   });
