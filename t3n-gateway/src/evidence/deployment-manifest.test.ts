@@ -10,6 +10,7 @@ function manifest(): DeploymentManifest {
     sdkVersion: '5.2.0',
     tenantDid: 'did:t3n:tenant',
     agentDid: 'did:t3n:0123456789abcdef0123456789abcdef01234567',
+    executorDid: 'did:t3n:protected-executor-0123456789abcdef',
     agentRegistrationState: 'REGISTERED',
     agentCardUri: 'https://node.example/api/agent-card/did:t3n:0123456789abcdef0123456789abcdef01234567',
     agentCardSha256: 'c'.repeat(64),
@@ -27,10 +28,14 @@ function manifest(): DeploymentManifest {
   };
 }
 
-test('rejects same tenant and agent DID', () => {
-  const value = manifest();
-  value.agentDid = value.tenantDid;
-  assert.throws(() => assertManifestIdentity(value), /must be different/);
+test('rejects reused tenant proposal-agent or executor DID', () => {
+  const tenantAgent = manifest();
+  tenantAgent.agentDid = tenantAgent.tenantDid;
+  assert.throws(() => assertManifestIdentity(tenantAgent), /must be different/);
+
+  const agentExecutor = manifest();
+  agentExecutor.executorDid = agentExecutor.agentDid;
+  assert.throws(() => assertManifestIdentity(agentExecutor), /must be different/);
 });
 
 test('rejects a REGISTERED claim without matching public card evidence', () => {
@@ -56,6 +61,7 @@ test('accepts matching deployment and testnet evidence identities', () => {
     sdkVersion: value.sdkVersion,
     tenantDid: value.tenantDid,
     agentDid: value.agentDid,
+    executorDid: value.executorDid,
     contractId: value.contractId,
     contractVersion: value.contractVersion,
     wasmSha256: value.wasmSha256,
@@ -64,11 +70,11 @@ test('accepts matching deployment and testnet evidence identities', () => {
   }));
 });
 
-test('rejects a different WASM contract or policy identity', () => {
+test('rejects a different executor WASM contract or policy identity', () => {
   const value = manifest();
   assert.throws(() => assertEvidenceMatchesDeployment(value, {
     source: 'T3N_TESTNET', network: value.network, sdkVersion: value.sdkVersion,
-    tenantDid: value.tenantDid, agentDid: value.agentDid, contractId: value.contractId,
+    tenantDid: value.tenantDid, agentDid: value.agentDid, executorDid: 'did:t3n:other-executor', contractId: value.contractId,
     contractVersion: '0.4.1', wasmSha256: 'd'.repeat(64),
     policyVersion: '2026-09-12.2', policyHash: 'e'.repeat(64),
   }), /Evidence mismatch/);
