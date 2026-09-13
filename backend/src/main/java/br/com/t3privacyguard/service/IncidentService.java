@@ -43,6 +43,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class IncidentService {
+    private static final String SUPPORTED_REMEDIATION_ACTION = "revoke-credential";
+
     private final IncidentRepository incidents;
     private final ActionProposalRepository actions;
     private final PolicyDecisionRepository decisions;
@@ -177,6 +179,7 @@ public class IncidentService {
     @Transactional
     public RemediationAuthorizationResponse authorizeRemediation(String incidentId, String actionId) {
         ActionProposalEntity action = requireAction(incidentId, actionId);
+        requireSupportedRemediationExecutor(action);
         PolicyDecisionEntity decision = decisions.findByActionProposalId(actionId).orElseThrow(() -> new ConflictException("Action must be evaluated before remediation"));
         if (decision.getDecision() != DecisionType.ALLOW) throw new PolicyDeniedException("Remediation requires an ALLOW policy decision");
         action.authorizeRemediation();
@@ -188,6 +191,7 @@ public class IncidentService {
 
     public RemediationExecutionResponse executeRemediation(String incidentId, String actionId) {
         ActionProposalEntity action = requireAction(incidentId, actionId);
+        requireSupportedRemediationExecutor(action);
         if (action.getStatus() != ProposalStatus.REMEDIATION_AUTHORIZED && action.getStatus() != ProposalStatus.REMEDIATED) {
             throw new PolicyDeniedException("Remediation must be explicitly authorized before execution");
         }
@@ -230,6 +234,7 @@ public class IncidentService {
 
     public RemediationExecutionResponse verifyRemediation(String incidentId, String actionId) {
         ActionProposalEntity action = requireAction(incidentId, actionId);
+        requireSupportedRemediationExecutor(action);
         RemediationExecutionEntity execution = executionCoordinator.find(actionId)
             .orElseThrow(() -> new ConflictException("Remediation has not been started"));
         return reconcileExisting(incidentId, action, execution);
@@ -252,6 +257,7 @@ public class IncidentService {
     }
 
     private RemediationExecutionResponse verifyPersistedRemediation(String incidentId, ActionProposalEntity action, RemediationExecutionEntity execution) {
+        requireSupportedRemediationExecutor(action);
         if (execution.getOperationId() == null || execution.getOperationId().isBlank()) {
             RemediationExecutionEntity state = executionCoordinator.markUnverified(action.getId(), "MISSING_OPERATION_ID");
             audit(incidentId, "REMEDIATION_UNVERIFIED", "External acknowledgement did not provide an operation id for independent verification");
@@ -310,6 +316,12 @@ public class IncidentService {
         ActionProposalEntity action = actions.findById(id).orElseThrow(() -> new IncidentNotFoundException("Action proposal not found"));
         if (!action.getIncidentId().equals(incidentId)) throw new IncidentNotFoundException("Action proposal not found for incident");
         return action;
+    }
+
+    private void requireSupportedRemediationExecutor(ActionProposalEntity action) {
+        if (!SUPPORTED_REMEDIATION_ACTION.equals(action.getAction())) {
+            throw new PolicyDeniedException("Protected remediation is not implemented for this action");
+        }
     }
 
     private void validateLogicalPrivateRefs(List<String> refs) {
