@@ -11,6 +11,7 @@ import { readGatewayConfig } from '../config/env.js';
 import { PrivacyGuardContractService } from '../contract/privacy-guard-contract.js';
 import { assertEvidenceMatchesDeployment, assertManifestIdentity, sha256File, type DeploymentManifest, type TestnetEvidenceIdentity } from '../evidence/deployment-manifest.js';
 import { assertNoSecretLeak } from '../evidence/leak-detector.js';
+import { resolveSourceRevision } from '../evidence/source-revision.js';
 import { canonicalizeOperationalPolicy } from '../policy/policy-document.js';
 import { TrustManifestFloorStore } from '../security/trust-manifest-floor-store.js';
 import { T3nSession } from '../t3n/session.js';
@@ -42,6 +43,11 @@ if (config.network !== 'testnet' && process.env.EVIDENCE_ALLOW_PRODUCTION !== 't
 }
 if (!config.agentApiKey) throw new Error('T3N_AGENT_API_KEY is required for live evidence');
 if (!config.executorApiKey) throw new Error('T3N_EXECUTOR_API_KEY is required for live evidence');
+
+const sourceRevision = resolveSourceRevision(repositoryRoot);
+if (!sourceRevision.sourceTreeClean && process.env.EVIDENCE_ALLOW_DIRTY_SOURCE !== 'true') {
+  throw new Error('Live evidence requires a clean source tree. Set EVIDENCE_ALLOW_DIRTY_SOURCE=true only to record an explicitly DIRTY non-submission run.');
+}
 
 const trustFloorStore = new TrustManifestFloorStore(config.trustManifestFloorStorePath);
 const tenantSession = new T3nSession(config, trustFloorStore);
@@ -114,6 +120,8 @@ if (policySetup.status !== 0) throw new Error('Versioned T3N operational policy 
 const manifest: DeploymentManifest = {
   source: 'T3N_TESTNET',
   generatedAt: new Date().toISOString(),
+  sourceCommitSha: sourceRevision.sourceCommitSha,
+  sourceTreeClean: sourceRevision.sourceTreeClean,
   network: config.network,
   sdkVersion: '5.2.0',
   tenantDid,
@@ -184,7 +192,13 @@ await executorDelegation.grant({
 
 const run = spawnSync('npm', ['run', 'evidence:testnet'], {
   cwd: gatewayRoot,
-  env: { ...process.env, EVIDENCE_OUTPUT: testnetPath, T3N_CONTRACT_WASM_PATH: wasmPath },
+  env: {
+    ...process.env,
+    EVIDENCE_OUTPUT: testnetPath,
+    T3N_CONTRACT_WASM_PATH: wasmPath,
+    EVIDENCE_SOURCE_COMMIT_SHA: sourceRevision.sourceCommitSha,
+    EVIDENCE_SOURCE_TREE_CLEAN: String(sourceRevision.sourceTreeClean),
+  },
   stdio: 'inherit',
 });
 if (run.status !== 0) throw new Error('T3N testnet evidence runner reported a failure');
@@ -198,6 +212,8 @@ assertNoSecretLeak(finalSerialized, sensitiveValues);
 console.info(JSON.stringify({
   manifestPath,
   testnetPath,
+  sourceCommitSha: sourceRevision.sourceCommitSha,
+  sourceTreeClean: sourceRevision.sourceTreeClean,
   contractId,
   contractVersion,
   wasmSha256,
