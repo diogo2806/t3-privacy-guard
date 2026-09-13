@@ -1,4 +1,6 @@
 spring:
+  profiles:
+    active: test
   datasource:
     url: jdbc:h2:mem:privacyguard-test;DB_CLOSE_DELAY=-1
     username: sa
@@ -19,9 +21,6 @@ privacy-guard:
   gateway:
     base-url: http://localhost:3001
     service-token: test-gateway-service-token-1234567890
-  remediation-capability:
-    key: test-remediation-capability-key-1234567890
-    ttl-seconds: 60
   audit-integrity:
     key: test-audit-integrity-key-12345678901234567890
     key-id: test-primary
