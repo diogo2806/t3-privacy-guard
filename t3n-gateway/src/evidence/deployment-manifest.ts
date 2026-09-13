@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import type { AgentRegistrationState } from '../agent/agent-card.js';
 
 export interface DeploymentManifest {
   source: 'T3N_TESTNET';
@@ -8,6 +9,11 @@ export interface DeploymentManifest {
   sdkVersion: '5.2.0';
   tenantDid: string;
   agentDid: string;
+  agentRegistrationState: AgentRegistrationState;
+  agentCardUri: string | null;
+  agentCardSha256: string | null;
+  agentCardVerifiedAt: string;
+  agentCardServices: readonly string[];
   contractId: string;
   numericContractId: number | null;
   contractVersion: string;
@@ -48,6 +54,17 @@ export function assertManifestIdentity(manifest: DeploymentManifest): void {
   }
   if (!manifest.policyVersion || !/^[a-f0-9]{64}$/.test(manifest.policyHash)) {
     throw new Error('Deployment manifest contains invalid versioned policy provenance');
+  }
+  if (!['REGISTERED', 'NOT_REGISTERED', 'MISMATCH', 'UNAVAILABLE'].includes(manifest.agentRegistrationState)) {
+    throw new Error('Deployment manifest contains an invalid Agent registration state');
+  }
+  if (!manifest.agentCardVerifiedAt || Number.isNaN(Date.parse(manifest.agentCardVerifiedAt))) {
+    throw new Error('Deployment manifest contains an invalid Agent Card verification timestamp');
+  }
+  if (manifest.agentRegistrationState === 'REGISTERED') {
+    if (!manifest.agentCardUri?.startsWith('https://')) throw new Error('Registered Agent evidence requires a public HTTPS card URI');
+    if (!manifest.agentCardSha256 || !/^[a-f0-9]{64}$/.test(manifest.agentCardSha256)) throw new Error('Registered Agent evidence requires a valid Agent Card SHA-256');
+    if (manifest.agentCardServices.length !== 1 || manifest.agentCardServices[0] !== 'DID') throw new Error('Registered Agent evidence must advertise only the supported DID service');
   }
   if (manifest.trustAnchorVerified !== true || manifest.trustManifestFloorPersisted !== true) {
     throw new Error('Deployment manifest must prove verified trust anchor and persisted rollback floor');
