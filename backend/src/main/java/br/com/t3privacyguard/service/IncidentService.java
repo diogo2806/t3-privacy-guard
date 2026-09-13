@@ -199,20 +199,48 @@ public class IncidentService {
     }
 
     @Transactional
-    public RemediationAuthorizationResponse authorizeRemediation(String incidentId, String actionId) {
+    public RemediationAuthorizationResponse authorizeRemediation(String incidentId, String actionId, String authenticatedPrincipal) {
         ActionProposalEntity action = requireAction(incidentId, actionId);
         requireSupportedRemediationExecutor(action);
+        String authorizedBy = RemediationAuthorizationSigner.canonicalizeOperatorPrincipal(authenticatedPrincipal);
         String approvedHost = requireApprovedHost(action);
         Map<String, String> normalPayload = requireNormalPayload(action);
         PolicyDecisionEntity decision = decisions.findByActionProposalId(actionId).orElseThrow(() -> new ConflictException("Action must be evaluated before remediation"));
         requireExecutableDecision(decision, normalPayload);
         requireVersionedPolicy(decision);
         auditIntegrity.assertAppendable(incidentId);
-        action.authorizeRemediation();
+
+        if (action.getRemediationAuthorizedBy() != null || action.getRemediationAuthorizedAt() != null) {
+            HumanAuthorizationProvenance existing = requireHumanAuthorizationProvenance(action);
+            if (!existing.authorizedBy().equals(authorizedBy)) {
+                throw new ConflictException("Remediation was already authorized by a different authenticated operator and cannot be overwritten");
+            }
+            return new RemediationAuthorizationResponse(
+                incidentId, actionId, action.getRequestId(), action.getStatus().name(), existing.authorizedBy(), existing.authorizedAt()
+            );
+        }
+
+        if (action.getStatus() == ProposalStatus.REMEDIATED) {
+            throw new ConflictException("This remediated action predates bound human authorization provenance and cannot be rebound");
+        }
+        if (action.getStatus() != ProposalStatus.EVALUATED && action.getStatus() != ProposalStatus.REMEDIATION_AUTHORIZED) {
+            throw new ConflictException("Action must be evaluated before human authorization");
+        }
+
+        Instant authorizedAt = Instant.now();
+        action.authorizeRemediation(authorizedBy, authorizedAt);
         actions.save(action);
-        audit(incidentId, "REMEDIATION_AUTHORIZED", "Remediation authorized for request " + action.getRequestId() + " to approved destination " + approvedHost + " with trusted normal payload binding under policy " + decision.getPolicyVersion() + " hash " + decision.getPolicyHash());
+        audit(
+            incidentId,
+            "REMEDIATION_AUTHORIZED",
+            "Remediation authorized by " + authorizedBy + " at " + authorizedAt + " for request " + action.getRequestId()
+                + " to approved destination " + approvedHost + " with trusted normal payload binding under policy "
+                + decision.getPolicyVersion() + " hash " + decision.getPolicyHash()
+        );
         traces.record(action, "HUMAN_AUTHORIZATION", "AUTHORIZED", null, null);
-        return new RemediationAuthorizationResponse(incidentId, actionId, action.getRequestId(), action.getStatus().name());
+        return new RemediationAuthorizationResponse(
+            incidentId, actionId, action.getRequestId(), action.getStatus().name(), authorizedBy, authorizedAt
+        );
     }
 
     public RemediationExecutionResponse executeRemediation(String incidentId, String actionId) {
@@ -223,6 +251,7 @@ public class IncidentService {
         if (action.getStatus() != ProposalStatus.REMEDIATION_AUTHORIZED && action.getStatus() != ProposalStatus.REMEDIATED) {
             throw new PolicyDeniedException("Remediation must be explicitly authorized before execution");
         }
+        HumanAuthorizationProvenance humanAuthorization = requireHumanAuthorizationProvenance(action);
         PolicyDecisionEntity decision = decisions.findByActionProposalId(actionId)
             .orElseThrow(() -> new ConflictException("A persisted policy decision is required before remediation"));
         requireExecutableDecision(decision, normalPayload);
@@ -236,7 +265,8 @@ public class IncidentService {
         List<String> privateRefs = readList(action.getPrivateRefsJson());
         String capability = remediationAuthorizationSigner.issue(
             incidentId, actionId, action.getRequestId(), decision.getId(), action.getAction(), action.getResource(), action.getPurpose(), approvedHost,
-            fields, normalPayload, privateRefs, decision.getPolicyVersion(), decision.getPolicyHash()
+            fields, normalPayload, privateRefs, decision.getPolicyVersion(), decision.getPolicyHash(),
+            humanAuthorization.authorizedBy(), humanAuthorization.authorizedAt()
         );
 
         traces.record(action, "PROTECTED_EGRESS", "SENT", null, null);
@@ -244,7 +274,8 @@ public class IncidentService {
         try {
             var result = remediationGateway.execute(new RemediationRequest(
                 incidentId, actionId, decision.getId(), action.getRequestId(), action.getAction(), action.getResource(), action.getPurpose(), approvedHost,
-                fields, normalPayload, privateRefs, decision.getPolicyVersion(), decision.getPolicyHash()
+                fields, normalPayload, privateRefs, decision.getPolicyVersion(), decision.getPolicyHash(),
+                humanAuthorization.operatorPrincipalHash(), humanAuthorization.authorizedAt().toEpochMilli()
             ), capability);
             if (!action.getRequestId().equals(result.requestId())) {
                 RemediationExecutionEntity state = executionCoordinator.markUnverified(actionId, "REQUEST_ID_MISMATCH");
@@ -427,6 +458,24 @@ public class IncidentService {
         }
     }
 
+    private HumanAuthorizationProvenance requireHumanAuthorizationProvenance(ActionProposalEntity action) {
+        String authorizedBy = action.getRemediationAuthorizedBy();
+        Instant authorizedAt = action.getRemediationAuthorizedAt();
+        if (authorizedBy == null || authorizedAt == null) {
+            throw new ConflictException("This action predates bound human authorization provenance; explicitly authorize it again before execution");
+        }
+        final String canonical;
+        try {
+            canonical = RemediationAuthorizationSigner.canonicalizeOperatorPrincipal(authorizedBy);
+        } catch (IllegalArgumentException ex) {
+            throw new ConflictException("Stored human authorization principal is invalid; create and authorize a new action");
+        }
+        if (!canonical.equals(authorizedBy) || authorizedAt.isBefore(action.getCreatedAt()) || authorizedAt.isAfter(Instant.now().plusSeconds(5))) {
+            throw new ConflictException("Stored human authorization provenance is inconsistent; create and authorize a new action");
+        }
+        return new HumanAuthorizationProvenance(canonical, authorizedAt, RemediationAuthorizationSigner.operatorPrincipalHash(canonical));
+    }
+
     private Map<String, String> requireNormalPayload(ActionProposalEntity action) {
         if (action.getNormalPayloadJson() == null || action.getNormalPayloadJson().isBlank()) {
             throw new ConflictException("This action predates trusted normal payload binding and cannot authorize remediation; create and evaluate a new action");
@@ -510,7 +559,8 @@ public class IncidentService {
             : readMap(entity.getNormalPayloadJson());
         return new ActionResponse(
             entity.getId(), entity.getIncidentId(), entity.getRequestId(), entity.getAction(), entity.getResource(), entity.getPurpose(), entity.getHost(),
-            readList(entity.getFieldsJson()), normalPayload, readList(entity.getPrivateRefsJson()), entity.getStatus(), entity.getCreatedAt()
+            readList(entity.getFieldsJson()), normalPayload, readList(entity.getPrivateRefsJson()), entity.getStatus(), entity.getCreatedAt(),
+            entity.getRemediationAuthorizedBy(), entity.getRemediationAuthorizedAt()
         );
     }
 
@@ -563,4 +613,6 @@ public class IncidentService {
         return result.substring(0, Math.min(result.length(), max));
     }
     private static String safeNullable(String value, int max) { return value == null ? null : safe(value, max); }
+
+    private record HumanAuthorizationProvenance(String authorizedBy, Instant authorizedAt, String operatorPrincipalHash) {}
 }
