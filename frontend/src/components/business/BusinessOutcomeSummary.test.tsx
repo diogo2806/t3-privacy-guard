@@ -26,6 +26,7 @@ const THREAT_ACTION: ActionProposal = {
   purpose: 'incident-remediation',
   host: 'attacker.example',
   fields: ['incident_id', 'credential_id', 'api_key'],
+  normalPayload: { incident_id: 'inc-demo-001', credential_id: 'cred-demo-001' },
   privateRefs: [],
   status: 'EVALUATED',
   createdAt: '2026-09-13T15:00:00.000Z',
@@ -37,6 +38,7 @@ const SAFE_ACTION: ActionProposal = {
   requestId: 'request-safe',
   host: 'postman-echo.com',
   fields: ['incident_id', 'credential_id', 'reason'],
+  normalPayload: { incident_id: 'inc-demo-001', credential_id: 'cred-demo-001', reason: 'suspected compromise' },
   createdAt: '2026-09-13T15:00:01.000Z',
 };
 
@@ -51,7 +53,7 @@ function policyDecision(action: ActionProposal, value: PolicyDecision['decision'
     redactedFields: value === 'REDACT' ? ['employee_department'] : [],
     allowedPrivateRefs: [],
     redactedPrivateRefs: [],
-    requiresHumanAuthorization: value === 'ALLOW',
+    requiresHumanAuthorization: value !== 'DENY',
     evaluatedAt,
   };
 }
@@ -70,6 +72,15 @@ function execution(state: RemediationExecution['state'], completedAt: string | n
     verificationAttempts: state === 'COMPLETED' ? 2 : 1,
     startedAt: '2026-09-13T15:00:02.000Z',
     completedAt,
+  };
+}
+
+function authorizedAction(status: 'REMEDIATION_AUTHORIZED' | 'REMEDIATED' = 'REMEDIATION_AUTHORIZED'): ActionProposal {
+  return {
+    ...SAFE_ACTION,
+    status,
+    remediationAuthorizedBy: 'ops-reviewer',
+    remediationAuthorizedAt: '2026-09-13T15:00:01.500Z',
   };
 }
 
@@ -103,6 +114,8 @@ describe('BusinessOutcomeSummary', () => {
     expectValue('Policy decision', 'Not yet observed');
     expectValue('Requested destination', 'Not yet observed');
     expectValue('Human authorization', 'Not yet observed');
+    expectValue('Authorized by', 'Not yet observed');
+    expectValue('Authorized at', 'Not yet observed');
     expectValue('Approved destination', 'Not yet observed');
     expectValue('External action', 'Not yet observed');
     expectValue('Verification attempts', 'Not yet observed');
@@ -118,11 +131,21 @@ describe('BusinessOutcomeSummary', () => {
     expect(section('Authorized response').getByText('NOT VERIFIED')).toBeInTheDocument();
   });
 
-  it('shows REDACT as minimization required rather than successful execution', () => {
+  it('shows REDACT as minimization required when the trusted executable minimum is incomplete', () => {
     renderSummary({ incident: INCIDENT, selectedAction: THREAT_ACTION, decision: policyDecision(THREAT_ACTION, 'REDACT') });
     expect(screen.getByRole('status')).toHaveTextContent('requires a smaller data scope');
     expect(section('T3N control outcome').getByText('REDACT')).toBeInTheDocument();
     expect(section('T3N control outcome').getByText(/1 · employee_department/)).toBeInTheDocument();
+    expectValue('Human authorization', 'NOT APPLICABLE');
+  });
+
+  it('shows executable REDACT as requiring human authorization when required trusted values survive', () => {
+    const redacted = { ...SAFE_ACTION, fields: [...SAFE_ACTION.fields, 'employee_department'], normalPayload: { ...SAFE_ACTION.normalPayload, employee_department: 'finance' } };
+    const decision = policyDecision(redacted, 'REDACT', '2026-09-13T15:00:01.420Z');
+    renderSummary({ incident: INCIDENT, selectedAction: redacted, decision });
+    expect(screen.getByRole('status')).toHaveTextContent('executable minimum');
+    expectValue('Human authorization', 'REQUIRED');
+    expectValue('Approved destination', 'Not authorized yet');
   });
 
   it('shows actual requested private reference counts without exposing a value', () => {
@@ -155,8 +178,29 @@ describe('BusinessOutcomeSummary', () => {
     expectValue('Policy-allowed action', 'revoke-credential');
   });
 
+  it('shows persisted authenticated application account and authorization time only after binding', () => {
+    const authorized = authorizedAction();
+    renderSummary({ incident: INCIDENT, selectedAction: authorized, decision: policyDecision(authorized, 'ALLOW') });
+    expect(screen.getByRole('status')).toHaveTextContent('Authorized by the authenticated application account');
+    expectValue('Human authorization', 'AUTHORIZED — PROVENANCE BOUND');
+    expectValue('Authorized by', 'ops-reviewer');
+    expectValue('Authorized at', '2026-09-13 15:00:01.500Z');
+    expectValue('Approved destination', 'postman-echo.com');
+    expect(screen.getByText(/not a T3N DID or a civil-identity assertion/i)).toBeInTheDocument();
+  });
+
+  it('marks legacy authorization without provenance as requiring explicit re-authorization', () => {
+    const legacy = { ...SAFE_ACTION, status: 'REMEDIATION_AUTHORIZED' as const };
+    renderSummary({ incident: INCIDENT, selectedAction: legacy, decision: policyDecision(legacy, 'ALLOW') });
+    expect(screen.getByRole('status')).toHaveTextContent('Legacy authorization is missing authenticated operator provenance');
+    expectValue('Human authorization', 'LEGACY — RE-AUTHORIZATION REQUIRED');
+    expectValue('Authorized by', 'NOT BOUND');
+    expectValue('Authorized at', 'NOT BOUND');
+    expectValue('Approved destination', 'RE-AUTHORIZATION REQUIRED');
+  });
+
   it('keeps accepted execution pending until independent verification completes', () => {
-    const authorized = { ...SAFE_ACTION, status: 'REMEDIATION_AUTHORIZED' as const };
+    const authorized = authorizedAction();
     renderSummary({ incident: INCIDENT, selectedAction: authorized, decision: policyDecision(authorized, 'ALLOW'), remediationExecution: execution('PENDING_VERIFICATION'), agentAnalysis: analysis('DENY') });
     expect(screen.getByRole('status')).toHaveTextContent('Completion is not yet verified');
     expect(section('Authorized response').getByText('ACCEPTED — VERIFICATION PENDING')).toBeInTheDocument();
@@ -165,7 +209,7 @@ describe('BusinessOutcomeSummary', () => {
   });
 
   it('shows verified final state and measured duration only after COMPLETED', () => {
-    const remediated = { ...SAFE_ACTION, status: 'REMEDIATED' as const };
+    const remediated = authorizedAction('REMEDIATED');
     renderSummary({ incident: INCIDENT, selectedAction: remediated, decision: policyDecision(remediated, 'ALLOW'), remediationExecution: execution('COMPLETED', '2026-09-13T15:00:05.850Z'), agentAnalysis: analysis('DENY') });
     expect(screen.getByRole('heading', { name: 'Credential compromise contained' })).toBeInTheDocument();
     expect(section('Authorized response').getByText('REVOKED — VERIFIED')).toBeInTheDocument();
@@ -174,7 +218,7 @@ describe('BusinessOutcomeSummary', () => {
   });
 
   it('does not estimate time to verified outcome when completedAt is absent', () => {
-    const remediated = { ...SAFE_ACTION, status: 'REMEDIATED' as const };
+    const remediated = authorizedAction('REMEDIATED');
     renderSummary({ incident: INCIDENT, selectedAction: remediated, decision: policyDecision(remediated, 'ALLOW'), remediationExecution: execution('COMPLETED', null) });
     expect(section('Authorized response').getByText('Not verified yet')).toBeInTheDocument();
   });
