@@ -38,6 +38,9 @@ export interface PolicyDecision extends ActivityAnnotated {
 }
 
 export interface RemediationExecutionRequest {
+  readonly incident_id: string;
+  readonly action_id: string;
+  readonly decision_id: string;
   readonly request_id: string;
   readonly action: string;
   readonly resource: string;
@@ -48,6 +51,8 @@ export interface RemediationExecutionRequest {
   readonly private_refs?: string[];
   readonly policy_version: string;
   readonly policy_hash: string;
+  readonly executor_did: string;
+  readonly authorization_proof: string;
 }
 
 export interface RemediationResult extends ActivityAnnotated {
@@ -187,7 +192,7 @@ export class PrivacyGuardContractService {
   async remediate(request: RemediationExecutionRequest, authorizedExecutorDid: string): Promise<RemediationResult> {
     await Promise.all([this.agentSession.connect(), this.executorSession.connect()]);
     const executorDid = this.executorSession.getExecutorDid();
-    if (authorizedExecutorDid !== executorDid) throw new Error('CAPABILITY_EXECUTOR_MISMATCH');
+    if (authorizedExecutorDid !== executorDid || request.executor_did !== executorDid) throw new Error('CAPABILITY_EXECUTOR_MISMATCH');
     const contractId = await this.canonicalContractId();
     const contractVersion = await this.currentVersion(contractId);
     const proposalAgentDid = this.agentSession.getAgentDid();
