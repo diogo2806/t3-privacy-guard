@@ -28,6 +28,12 @@ function executableDecision(decision: PolicyDecision | null): boolean {
     && REQUIRED_REMEDIATION_FIELDS.every((field) => decision.allowedFields.includes(field)));
 }
 
+function formatAuthorizationTime(value?: string | null): string {
+  if (!value) return 'NOT RECORDED';
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? 'INVALID — BLOCKED' : parsed.toISOString().replace('T', ' ').replace('.000Z', 'Z');
+}
+
 export function RemediationPanel({ action, decision, execution, busy, onAuthorize, onExecute, onVerify }: Props) {
   const hasVerifiedExecutor = action?.action === 'revoke-credential';
   const hasApprovedDestination = Boolean(action?.host);
@@ -36,8 +42,16 @@ export function RemediationPanel({ action, decision, execution, busy, onAuthoriz
   const allowedPayloadEntries = payloadEntries.filter(([field]) => decision?.allowedFields.includes(field));
   const removedPayloadEntries = payloadEntries.filter(([field]) => decision?.redactedFields.includes(field));
   const decisionCanExecute = executableDecision(decision) && REQUIRED_REMEDIATION_FIELDS.every((field) => field in normalPayload);
-  const canAuthorize = Boolean(hasVerifiedExecutor && hasApprovedDestination && action && decisionCanExecute && action.status === 'EVALUATED');
-  const canExecute = Boolean(hasVerifiedExecutor && hasApprovedDestination && action && decisionCanExecute && action.status === 'REMEDIATION_AUTHORIZED' && !execution);
+  const hasAuthorizationProvenance = Boolean(action?.remediationAuthorizedBy && action?.remediationAuthorizedAt);
+  const isLegacyUnboundAuthorization = Boolean(action?.status === 'REMEDIATION_AUTHORIZED' && !hasAuthorizationProvenance);
+  const canAuthorize = Boolean(
+    hasVerifiedExecutor && hasApprovedDestination && action && decisionCanExecute
+    && (action.status === 'EVALUATED' || isLegacyUnboundAuthorization),
+  );
+  const canExecute = Boolean(
+    hasVerifiedExecutor && hasApprovedDestination && action && decisionCanExecute
+    && action.status === 'REMEDIATION_AUTHORIZED' && hasAuthorizationProvenance && !execution,
+  );
   const canVerify = Boolean(hasVerifiedExecutor && execution && (execution.state === 'PENDING_VERIFICATION' || execution.state === 'UNVERIFIED') && execution.operationId);
   const destinationChanged = execution?.failureCode === 'EXECUTION_DESTINATION_CHANGED';
   const state = stateCopy(execution);
@@ -65,19 +79,23 @@ export function RemediationPanel({ action, decision, execution, busy, onAuthoriz
         <div className="remediation-state-panel" role="region" aria-label="Approved remediation destination and authorization status">
           <div><span>Policy decision</span><strong>{decision?.decision}</strong></div>
           <div><span>Approved destination</span><strong>{action.host || 'MISSING — BLOCKED'}</strong></div>
-          <div><span>Human authorization</span><strong>{action.status === 'REMEDIATION_AUTHORIZED' || action.status === 'REMEDIATED' ? 'AUTHORIZED' : 'NOT AUTHORIZED'}</strong></div>
+          <div><span>Human authorization</span><strong>{hasAuthorizationProvenance ? 'AUTHORIZED — PROVENANCE BOUND' : isLegacyUnboundAuthorization ? 'LEGACY — RE-AUTHORIZATION REQUIRED' : 'NOT AUTHORIZED'}</strong></div>
+          {hasAuthorizationProvenance && <div><span>Authorized by</span><strong>{action.remediationAuthorizedBy}</strong></div>}
+          {hasAuthorizationProvenance && <div><span>Authorized at</span><strong><time dateTime={action.remediationAuthorizedAt ?? undefined}>{formatAuthorizationTime(action.remediationAuthorizedAt)}</time></strong></div>}
         </div>
       )}
+      {hasAuthorizationProvenance && <p className="inline-notice">Authorized by identifies the authenticated application account that approved this action. It is not a T3N DID or a claim about the operator's civil identity.</p>}
       {hasVerifiedExecutor && action && decisionCanExecute && !action.host && <div className="feedback feedback-error remediation-status-message" role="alert"><CircleAlert aria-hidden="true" /><span>Execution is blocked because this action has no approved destination. Create and evaluate a new action before authorizing remediation.</span></div>}
-      {canAuthorize && <button className="button button-primary" type="button" onClick={onAuthorize} disabled={busy}><ShieldCheck aria-hidden="true" />Authorize credential revocation</button>}
+      {isLegacyUnboundAuthorization && <div className="feedback feedback-error remediation-status-message" role="alert"><CircleAlert aria-hidden="true" /><span>This legacy authorization has no authenticated operator provenance. Explicitly re-authorize it with the current signed-in application account before execution.</span></div>}
+      {canAuthorize && <button className="button button-primary" type="button" onClick={onAuthorize} disabled={busy}><ShieldCheck aria-hidden="true" />{isLegacyUnboundAuthorization ? 'Re-authorize legacy approval' : 'Authorize credential revocation'}</button>}
       {canExecute && <>
-        <div className="success-state"><ShieldCheck aria-hidden="true" /><span>Human authorization binds the exact destination and trusted payload. T3N will serialize only the policy-allowed subset shown above.</span></div>
+        <div className="success-state"><ShieldCheck aria-hidden="true" /><span>Human authorization is bound to the authenticated application account, timestamp, exact destination and trusted payload. T3N will serialize only the policy-allowed subset shown above.</span></div>
         <button className="button button-primary" type="button" onClick={onExecute} disabled={busy}><PlayCircle aria-hidden="true" />Execute protected credential revocation</button>
       </>}
 
       {hasVerifiedExecutor && (execution || action?.status === 'REMEDIATION_AUTHORIZED' || action?.status === 'REMEDIATED') && (
         <div className="remediation-state-panel" role="region" aria-label="Remediation execution and verification status">
-          <div><span>Authorization</span><strong>{action?.status === 'REMEDIATION_AUTHORIZED' || action?.status === 'REMEDIATED' ? 'AUTHORIZED' : 'NOT AUTHORIZED'}</strong></div>
+          <div><span>Authorization</span><strong>{hasAuthorizationProvenance ? 'AUTHORIZED — PROVENANCE BOUND' : 'NOT EXECUTABLE'}</strong></div>
           <div><span>Execution</span><strong>{state.execution}</strong></div>
           <div><span>Verification</span><strong>{state.verification}</strong></div>
           <div><span>Final state</span><strong>{state.final}</strong></div>
