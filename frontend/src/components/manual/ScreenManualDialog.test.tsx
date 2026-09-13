@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { ScreenManualDialog } from './ScreenManualDialog';
 
 describe('ScreenManualDialog', () => {
-  it('traps focus and explains fixed effective authorization, A2A, privacy and evidence provenance', async () => {
+  it('traps focus and explains effective authorization, A2A, privacy, local integrity and T3N provenance', async () => {
     const user = userEvent.setup();
     render(<div><button type="button">Outside action</button><ScreenManualDialog /></div>);
 
@@ -26,6 +26,12 @@ describe('ScreenManualDialog', () => {
     expect(screen.getByText('Agent Card e A2A público')).toBeInTheDocument();
     expect(dialog).toHaveTextContent(/A2A.*avaliação pública/i);
     expect(dialog).toHaveTextContent(/PII-free/i);
+    expect(screen.getByText('Integridade do audit local e T3N Activity Log')).toBeInTheDocument();
+    expect(dialog).toHaveTextContent(/HMAC-SHA256/i);
+    expect(dialog).toHaveTextContent(/tamper-evident/i);
+    expect(dialog).toHaveTextContent(/VERIFIED.*BROKEN.*KEY_MISMATCH.*LEGACY_UNVERIFIED/i);
+    expect(dialog).toHaveTextContent(/snapshot antigo internamente consistente/i);
+    expect(dialog).toHaveTextContent(/evaluate-action.*Proposal Agent.*execute-remediation.*verify-remediation.*Protected Executor/i);
     expect(screen.getByText('Proof & evidence')).toBeInTheDocument();
     expect(dialog).toHaveTextContent(/Source commit.*Source tree/i);
     expect(dialog).toHaveTextContent(/COMPLETED/i);
