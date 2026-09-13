@@ -9,6 +9,7 @@ import br.com.t3privacyguard.api.ApiModels.ExecutionTraceResponse;
 import br.com.t3privacyguard.api.ApiModels.IncidentResponse;
 import br.com.t3privacyguard.api.ApiModels.RemediationAuthorizationResponse;
 import br.com.t3privacyguard.api.ApiModels.RemediationExecutionResponse;
+import br.com.t3privacyguard.audit.AuditIntegrityService;
 import br.com.t3privacyguard.domain.DecisionType;
 import br.com.t3privacyguard.domain.ProposalStatus;
 import br.com.t3privacyguard.domain.RemediationStatus;
@@ -19,7 +20,6 @@ import br.com.t3privacyguard.integration.GatewayRemediationClient.RemediationReq
 import br.com.t3privacyguard.integration.GatewayUnavailableException;
 import br.com.t3privacyguard.persistence.ActionProposalEntity;
 import br.com.t3privacyguard.persistence.ActionProposalRepository;
-import br.com.t3privacyguard.persistence.AuditEventEntity;
 import br.com.t3privacyguard.persistence.AuditEventRepository;
 import br.com.t3privacyguard.persistence.IncidentEntity;
 import br.com.t3privacyguard.persistence.IncidentRepository;
@@ -49,6 +49,7 @@ public class IncidentService {
     private final ActionProposalRepository actions;
     private final PolicyDecisionRepository decisions;
     private final AuditEventRepository audits;
+    private final AuditIntegrityService auditIntegrity;
     private final GatewayPolicyClient gateway;
     private final GatewayRemediationClient remediationGateway;
     private final RemediationAuthorizationSigner remediationAuthorizationSigner;
@@ -63,6 +64,7 @@ public class IncidentService {
         ActionProposalRepository actions,
         PolicyDecisionRepository decisions,
         AuditEventRepository audits,
+        AuditIntegrityService auditIntegrity,
         GatewayPolicyClient gateway,
         GatewayRemediationClient remediationGateway,
         RemediationAuthorizationSigner remediationAuthorizationSigner,
@@ -76,6 +78,7 @@ public class IncidentService {
         this.actions = actions;
         this.decisions = decisions;
         this.audits = audits;
+        this.auditIntegrity = auditIntegrity;
         this.gateway = gateway;
         this.remediationGateway = remediationGateway;
         this.remediationAuthorizationSigner = remediationAuthorizationSigner;
@@ -422,19 +425,7 @@ public class IncidentService {
     }
 
     private void audit(String incidentId, String type, String message, Long t3nSequence, String t3nHash, String t3nFunction) {
-        Long sequence = t3nSequence != null && t3nSequence >= 0 ? t3nSequence : null;
-        String function = safeNullable(t3nFunction, 120);
-        String hash = sequence == null ? null : safeNullable(t3nHash, 128);
-        audits.save(new AuditEventEntity(
-            UUID.randomUUID().toString(),
-            incidentId,
-            type,
-            minimizer.sanitizeAuditMessage(message),
-            Instant.now(),
-            sequence,
-            hash,
-            function
-        ));
+        auditIntegrity.append(incidentId, type, message, t3nSequence, t3nHash, t3nFunction);
     }
 
     private IncidentResponse incidentResponse(IncidentEntity entity) {
