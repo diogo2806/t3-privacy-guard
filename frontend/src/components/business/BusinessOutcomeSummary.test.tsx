@@ -100,7 +100,7 @@ describe('BusinessOutcomeSummary', () => {
   it('does not invent an observed threat or successful result before analysis', () => {
     renderSummary();
     expect(screen.getByRole('status')).toHaveTextContent('No threat has been analyzed yet.');
-    expect(section('T3N control outcome').getByText('NOT OBSERVED')).toBeInTheDocument();
+    expectValue('Policy decision', 'Not yet observed');
     expectValue('Requested destination', 'Not yet observed');
     expectValue('Human authorization', 'Not yet observed');
     expectValue('Approved destination', 'Not yet observed');
