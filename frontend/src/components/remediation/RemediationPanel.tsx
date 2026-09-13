@@ -45,7 +45,7 @@ export function RemediationPanel({ action, decision, execution, busy, onAuthoriz
       {hasVerifiedExecutor && action && decision?.decision === 'ALLOW' && !action.host && <div className="feedback feedback-error remediation-status-message" role="alert"><CircleAlert aria-hidden="true" /><span>Execution is blocked because this action has no approved destination. Create and evaluate a new action before authorizing remediation.</span></div>}
       {canAuthorize && <button className="button button-primary" type="button" onClick={onAuthorize} disabled={busy}><ShieldCheck aria-hidden="true" />Authorize credential revocation</button>}
       {canExecute && <>
-        <div className="success-state"><ShieldCheck aria-hidden="true" /><span>Human authorization is recorded for the exact destination shown above. Changing the protected destination requires a new evaluation and authorization.</span></div>
+        <div className="success-state"><ShieldCheck aria-hidden="true" /><span>Human authorization is recorded for the exact destination shown above. Changing the protected destination requires a new action, policy evaluation and authorization.</span></div>
         <button className="button button-primary" type="button" onClick={onExecute} disabled={busy}><PlayCircle aria-hidden="true" />Execute protected credential revocation</button>
       </>}
 
@@ -60,7 +60,7 @@ export function RemediationPanel({ action, decision, execution, busy, onAuthoriz
 
       {hasVerifiedExecutor && execution?.state === 'PENDING_VERIFICATION' && <div className="inline-notice remediation-status-message"><Clock3 aria-hidden="true" /><span>The side effect was accepted, but completion still depends on independent verification.</span></div>}
       {hasVerifiedExecutor && execution?.state === 'UNVERIFIED' && <div className="inline-notice remediation-status-message"><CircleAlert aria-hidden="true" /><span>The outcome is ambiguous or the external state was not confirmed. The system will not send the side effect again automatically.</span></div>}
-      {hasVerifiedExecutor && destinationChanged && <div className="feedback feedback-error remediation-status-message" role="alert"><CircleAlert aria-hidden="true" /><span>Destination changed. The configured protected destination no longer matches the destination that was approved. Re-evaluate and authorize the action again.</span></div>}
+      {hasVerifiedExecutor && destinationChanged && <div className="feedback feedback-error remediation-status-message" role="alert"><CircleAlert aria-hidden="true" /><span>Destination changed. The protected configuration no longer matches the destination that was approved. Create a new action, evaluate the intended destination, and authorize it before executing again.</span></div>}
       {hasVerifiedExecutor && execution?.state === 'FAILED' && !destinationChanged && <div className="feedback feedback-error remediation-status-message"><CircleAlert aria-hidden="true" /><span>Execution failed before a verified completion state. Review the audit trail before any new action.</span></div>}
       {hasVerifiedExecutor && execution?.state === 'COMPLETED' && <div className="success-state"><CheckCircle2 aria-hidden="true" /><span>Independent read-back verified the expected external state. This remediation is now COMPLETED.</span></div>}
 
