@@ -20,13 +20,13 @@ public final class AuditIntegrityKeyring {
         @Value("${privacy-guard.audit-integrity.key-id:primary}") String currentKeyId,
         @Value("${privacy-guard.audit-integrity.previous-keys:}") String previousKeys,
         @Value("${privacy-guard.gateway.service-token:}") String gatewayServiceToken,
-        @Value("${privacy-guard.remediation-capability.key:}") String remediationCapabilityKey,
+        @Value("${privacy-guard.remediation-authorization.private-key:}") String remediationAuthorizationPrivateKey,
         @Value("${privacy-guard.operator.password:}") String operatorPassword
     ) {
         validateKeyId(currentKeyId, "AUDIT_INTEGRITY_KEY_ID");
         validateSecret(currentKey, "AUDIT_INTEGRITY_KEY");
         rejectReuse(currentKey, gatewayServiceToken, "GATEWAY_SERVICE_TOKEN");
-        rejectReuse(currentKey, remediationCapabilityKey, "REMEDIATION_CAPABILITY_KEY");
+        rejectReuse(currentKey, remediationAuthorizationPrivateKey, "REMEDIATION_AUTH_PRIVATE_KEY");
         rejectReuse(currentKey, operatorPassword, "OPERATOR_PASSWORD");
 
         Map<String, byte[]> configured = new LinkedHashMap<>();
