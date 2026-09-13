@@ -39,6 +39,12 @@
 .detail-grid div { min-width: 0; padding: .7rem; border-radius: var(--radius-sm); background: var(--surface-soft); }
 .detail-grid dt { color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .07em; }
 .detail-grid dd { margin: .35rem 0 0; overflow-wrap: anywhere; font-size: .86rem; }
+.retention-panel { margin-top: .8rem; padding: .8rem; border: 1px solid rgba(34, 211, 238, .28); border-radius: var(--radius-sm); background: rgba(34, 211, 238, .05); }
+.retention-heading { display: flex; align-items: flex-start; gap: .65rem; }
+.retention-heading > svg { width: 19px; flex: 0 0 auto; color: var(--accent); }
+.retention-heading .eyebrow { margin: 0 0 .22rem; }
+.retention-heading strong { font-size: .86rem; }
+.retention-copy { margin: .55rem 0 0; color: var(--muted); font-size: .8rem; line-height: 1.5; }
 .scenario-actions { display: flex; flex-wrap: wrap; gap: .65rem; }
 .two-column { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; }
 .action-list { display: grid; gap: .55rem; }
