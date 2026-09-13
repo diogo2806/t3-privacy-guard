@@ -14,6 +14,9 @@ function manifest(): DeploymentManifest {
     numericContractId: 123,
     contractVersion: '0.3.0',
     wasmSha256: 'a'.repeat(64),
+    trustAnchorVerified: true,
+    trustManifestFloorPersisted: true,
+    trustManifestVersion: 1,
   };
 }
 
