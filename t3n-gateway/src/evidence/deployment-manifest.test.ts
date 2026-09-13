@@ -16,6 +16,9 @@ function manifest(): DeploymentManifest {
     wasmSha256: 'a'.repeat(64),
     policyVersion: '2026-09-12.1',
     policyHash: 'b'.repeat(64),
+    trustAnchorVerified: true,
+    trustManifestFloorPersisted: true,
+    trustManifestVersion: 42,
   };
 }
 
@@ -49,4 +52,10 @@ test('rejects a different WASM contract or policy identity', () => {
     contractVersion: '0.4.1', wasmSha256: 'c'.repeat(64),
     policyVersion: '2026-09-12.2', policyHash: 'd'.repeat(64),
   }), /Evidence mismatch/);
+});
+
+test('rejects missing trust provenance in deployment manifest', () => {
+  const value = manifest();
+  value.trustManifestFloorPersisted = false as true;
+  assert.throws(() => assertManifestIdentity(value), /trust anchor and persisted rollback floor/i);
 });
