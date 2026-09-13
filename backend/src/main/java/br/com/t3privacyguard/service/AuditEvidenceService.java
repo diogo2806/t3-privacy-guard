@@ -28,10 +28,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class AuditEvidenceService {
     private static final int MAX_LIMIT = 200;
     private static final long CLOCK_SKEW_MARGIN_SECONDS = 300;
+    private static final String EVALUATE_ACTION = "evaluate-action";
+    private static final String EXECUTE_REMEDIATION = "execute-remediation";
+    private static final String VERIFY_REMEDIATION = "verify-remediation";
     private static final Set<String> PRIVACY_GUARD_FUNCTIONS = Set.of(
-        "evaluate-action",
-        "execute-remediation",
-        "verify-remediation"
+        EVALUATE_ACTION,
+        EXECUTE_REMEDIATION,
+        VERIFY_REMEDIATION
     );
 
     private final IncidentRepository incidents;
@@ -53,27 +56,34 @@ public class AuditEvidenceService {
 
         Optional<GatewaySystemClient.TenantStatus> tenant = gateway.tenantStatus();
         Optional<GatewaySystemClient.AgentStatus> agent = gateway.agentStatus();
+        Optional<GatewaySystemClient.ExecutorStatus> executor = gateway.executorStatus();
         Optional<GatewaySystemClient.ContractIdentity> contract = gateway.contractIdentity();
         long fromMs = incident.getCreatedAt().minusSeconds(CLOCK_SKEW_MARGIN_SECONDS).toEpochMilli();
         long toMs = Instant.now().plusSeconds(CLOCK_SKEW_MARGIN_SECONDS).toEpochMilli();
         Optional<ActivityPage> activity = tenant.filter(GatewaySystemClient.TenantStatus::ready)
-            .flatMap(ignored -> agent.filter(GatewaySystemClient.AgentStatus::ready))
             .flatMap(ignored -> contract)
             .flatMap(ignored -> gateway.activity(fromMs, toMs, requestedLimit));
 
-        if (activity.isEmpty() || tenant.isEmpty() || agent.isEmpty() || contract.isEmpty()) {
+        if (activity.isEmpty() || tenant.isEmpty() || contract.isEmpty()) {
             return degraded(local, requestedLimit);
         }
 
         String tenantDid = tenant.get().tenantDid();
-        String agentDid = agent.get().agentDid();
         String contractId = contract.get().contractId();
-        if (blank(tenantDid) || blank(agentDid) || blank(contractId)) return degraded(local, requestedLimit);
+        if (blank(tenantDid) || blank(contractId)) return degraded(local, requestedLimit);
+
+        Optional<String> proposalAgentDid = agent
+            .filter(GatewaySystemClient.AgentStatus::ready)
+            .map(GatewaySystemClient.AgentStatus::agentDid)
+            .filter(did -> !blank(did));
+        Optional<String> protectedExecutorDid = executor
+            .filter(GatewaySystemClient.ExecutorStatus::ready)
+            .map(GatewaySystemClient.ExecutorStatus::executorDid)
+            .filter(did -> !blank(did));
 
         ActivityPage page = activity.get();
         List<ActivityEvent> relevant = page.events().stream()
             .filter(event -> "agent".equals(event.callerType()))
-            .filter(event -> agentDid.equals(event.actorDid()))
             .filter(event -> tenantDid.equals(event.onBehalfOfDid()))
             .filter(event -> contractId.equals(event.contractId()))
             .filter(event -> PRIVACY_GUARD_FUNCTIONS.contains(event.function()))
@@ -99,7 +109,10 @@ public class AuditEvidenceService {
                 boolean exact = candidate != null
                     && event.getT3nFunction().equals(candidate.function())
                     && event.getT3nHash() != null
-                    && event.getT3nHash().equals(candidate.hash());
+                    && event.getT3nHash().equals(candidate.hash())
+                    && expectedActorDid(event.getT3nFunction(), proposalAgentDid, protectedExecutorDid)
+                        .map(expectedDid -> expectedDid.equals(candidate.actorDid()))
+                        .orElse(false);
                 if (exact) {
                     status = AuditReconciliationStatus.MATCHED;
                     matched += 1;
@@ -120,11 +133,35 @@ public class AuditEvidenceService {
             .toList();
         int t3nOnly = (int) t3nEvidence.stream().filter(event -> event.status() == AuditReconciliationStatus.T3N_ONLY).count();
 
-        String message = page.complete()
-            ? "T3N activity is available. Reconciliation requires exact sequence, hash, contract, agent and function identifiers."
-            : "T3N activity is available, but the bounded activity window was truncated. Unmatched evidence is not proof that no network event exists.";
+        String message = provenanceMessage(page.complete(), proposalAgentDid.isPresent(), protectedExecutorDid.isPresent());
         AuditProvenance provenance = new AuditProvenance(true, true, page.complete(), matched, unmatched, localOnly, t3nOnly, message);
         return new AuditEvidenceResponse(localEvidence, t3nEvidence, provenance, page.nextSequence(), requestedLimit);
+    }
+
+    private static Optional<String> expectedActorDid(
+        String function,
+        Optional<String> proposalAgentDid,
+        Optional<String> protectedExecutorDid
+    ) {
+        return switch (function) {
+            case EVALUATE_ACTION -> proposalAgentDid;
+            case EXECUTE_REMEDIATION, VERIFY_REMEDIATION -> protectedExecutorDid;
+            default -> Optional.empty();
+        };
+    }
+
+    private static String provenanceMessage(boolean complete, boolean proposalAgentAvailable, boolean protectedExecutorAvailable) {
+        boolean principalsAvailable = proposalAgentAvailable && protectedExecutorAvailable;
+        if (!complete && !principalsAvailable) {
+            return "T3N activity is available, but the bounded activity window was truncated and one or more canonical principal identities are unavailable. Affected operations cannot be matched, and unmatched evidence is not proof that no network event exists.";
+        }
+        if (!complete) {
+            return "T3N activity is available, but the bounded activity window was truncated. Unmatched evidence is not proof that no network event exists.";
+        }
+        if (!principalsAvailable) {
+            return "T3N activity is available, but one or more canonical principal identities are unavailable. Events remain visible, but affected operations cannot be matched.";
+        }
+        return "T3N activity is available. Reconciliation requires exact sequence, hash, contract, function and the canonical actor for that function.";
     }
 
     private AuditEvidenceResponse degraded(List<AuditEventEntity> local, int limit) {
