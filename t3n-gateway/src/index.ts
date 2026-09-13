@@ -36,7 +36,11 @@ const activityLogService = new ActivityLogService(tenantSession);
 const delegationService = new DelegationService(tenantSession, agentSession, PROPOSAL_DELEGATION_REQUIREMENTS);
 const executorDelegationService = new DelegationService(tenantSession, executorSession, EXECUTOR_DELEGATION_REQUIREMENTS);
 const contractService = new PrivacyGuardContractService(config, tenantSession, agentSession, executorSession, activityLogService);
-const remediationVerifier = new RemediationAuthorizationVerifier(config.remediationAuthorizationPublicKeySpki, config.remediationReplayStorePath);
+const remediationVerifier = new RemediationAuthorizationVerifier(
+  config.remediationAuthorizationPublicKeySpki,
+  config.remediationAuthorizationKeyId,
+  config.remediationReplayStorePath,
+);
 const aiProvider = config.aiProvider === 'openai-compatible' && config.aiApiUrl && config.aiApiKey && config.aiModel
   ? new OpenAiCompatibleProvider({ apiUrl: config.aiApiUrl, apiKey: config.aiApiKey, model: config.aiModel })
   : null;
