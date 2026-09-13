@@ -11,12 +11,16 @@ const now = 1_800_000_000_000;
 const policyVersion = '2026-09-12.1';
 const policyHash = 'a'.repeat(64);
 const executorDid = 'did:t3n:protected-executor-test';
+const operatorPrincipalHash = createHash('sha256').update('ops-reviewer', 'utf8').digest('hex');
+const authorizedAt = now - 10_000;
+const issuedAt = now - 1_000;
 const body: RemediationBody = {
   incident_id: 'incident-1', action_id: 'action-1', decision_id: 'decision-1', request_id: 'request-1',
   action: 'revoke-credential', resource: 'credential:test', purpose: 'incident-remediation', approved_host: 'security-a.example',
   fields: ['incident_id', 'credential_id', 'reason'],
   normal_payload: { incident_id: 'inc-demo-001', credential_id: 'cred-demo-001', reason: 'suspected compromise' },
-  private_refs: [], policy_version: policyVersion, policy_hash: policyHash, executor_did: executorDid,
+  private_refs: [], policy_version: policyVersion, policy_hash: policyHash,
+  operator_principal_hash: operatorPrincipalHash, authorized_at: authorizedAt, executor_did: executorDid,
 };
 
 function listHash(values: string[]): string {
@@ -29,7 +33,8 @@ function token(overrides: Record<string, unknown> = {}): string {
     action: body.action, resource: body.resource, purpose: body.purpose, approvedHost: body.approved_host,
     fieldsHash: listHash(body.fields), normalPayloadHash: normalPayloadHash(body.normal_payload), privateRefsHash: listHash(body.private_refs),
     policyVersion: body.policy_version, policyHash: body.policy_hash, executorDid: body.executor_did,
-    authorizedAt: now - 1_000, expiresAt: now + 60_000, nonce: 'nonce-1', ...overrides,
+    operatorPrincipalHash: body.operator_principal_hash, authorizedAt: body.authorized_at,
+    issuedAt, expiresAt: now + 60_000, nonce: 'nonce-1', ...overrides,
   };
   const payload = Buffer.from(JSON.stringify(claims)).toString('base64url');
   const signature = createHmac('sha256', key).update(payload, 'ascii').digest('base64url');
@@ -46,22 +51,39 @@ test('normal payload canonicalization matches the Java cross-runtime vector', ()
 
 test('valid capability is consumed and persisted across verifier instances', () => {
   const path = join(mkdtempSync(join(tmpdir(), 't3pg-cap-')), 'nonces.json');
-  new RemediationAuthorizationVerifier(key, path, () => now).verifyAndConsume(token(), body);
+  const claims = new RemediationAuthorizationVerifier(key, path, () => now).verifyAndConsume(token(), body);
+  assert.equal(claims.operatorPrincipalHash, operatorPrincipalHash);
+  assert.equal(claims.authorizedAt, authorizedAt);
+  assert.equal(claims.issuedAt, issuedAt);
   assert.match(readFileSync(path, 'utf8'), /nonce-1/);
   assert.throws(() => new RemediationAuthorizationVerifier(key, path, () => now).verifyAndConsume(token(), body), /CAPABILITY_REPLAY/);
 });
 
-test('tampered purpose destination payload private reference policy provenance or executor is rejected before execution', () => {
+test('tampered purpose destination payload human provenance private reference policy provenance or executor is rejected before execution', () => {
   const path = join(mkdtempSync(join(tmpdir(), 't3pg-cap-')), 'nonces.json');
   const verifier = new RemediationAuthorizationVerifier(key, path, () => now);
   assert.throws(() => verifier.verifyAndConsume(token(), { ...body, purpose: 'analytics' }), /CAPABILITY_BODY_MISMATCH/);
   assert.throws(() => verifier.verifyAndConsume(token({ nonce: 'nonce-host' }), { ...body, approved_host: 'security-b.example' }), /CAPABILITY_BODY_MISMATCH/);
   assert.throws(() => verifier.verifyAndConsume(token({ nonce: 'nonce-value' }), { ...body, normal_payload: { ...body.normal_payload, reason: 'changed after approval' } }), /CAPABILITY_BODY_MISMATCH/);
   assert.throws(() => verifier.verifyAndConsume(token({ nonce: 'nonce-key' }), { ...body, normal_payload: { ...body.normal_payload, employee_department: 'finance' } }), /CAPABILITY_BODY_MISMATCH/);
+  assert.throws(() => verifier.verifyAndConsume(token({ nonce: 'nonce-human' }), { ...body, operator_principal_hash: 'b'.repeat(64) }), /CAPABILITY_BODY_MISMATCH/);
+  assert.throws(() => verifier.verifyAndConsume(token({ nonce: 'nonce-time' }), { ...body, authorized_at: authorizedAt - 1 }), /CAPABILITY_BODY_MISMATCH/);
   assert.throws(() => verifier.verifyAndConsume(token({ nonce: 'nonce-2' }), { ...body, private_refs: ['verified_email'] }), /CAPABILITY_BODY_MISMATCH/);
   assert.throws(() => verifier.verifyAndConsume(token({ nonce: 'nonce-3' }), { ...body, policy_version: '2026-09-11.1' }), /CAPABILITY_BODY_MISMATCH/);
   assert.throws(() => verifier.verifyAndConsume(token({ nonce: 'nonce-4' }), { ...body, policy_hash: 'b'.repeat(64) }), /CAPABILITY_BODY_MISMATCH/);
   assert.throws(() => verifier.verifyAndConsume(token({ nonce: 'nonce-5' }), { ...body, executor_did: 'did:t3n:other-executor' }), /CAPABILITY_BODY_MISMATCH/);
+});
+
+test('human authorization provenance must use canonical bounded claims', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 't3pg-cap-')), 'nonces.json');
+  const verifier = new RemediationAuthorizationVerifier(key, path, () => now);
+  assert.throws(() => verifier.verifyAndConsume(token({ operatorPrincipalHash: 'bad', nonce: 'bad-hash' }), body), /CAPABILITY_INVALID/);
+  assert.throws(() => verifier.verifyAndConsume(token({ authorizedAt: issuedAt + 1, nonce: 'after-issue' }), body), /CAPABILITY_INVALID/);
+  assert.throws(() => verifier.verifyAndConsume(token({ issuedAt: now + 5_001, nonce: 'future-issue' }), body), /CAPABILITY_INVALID/);
+  assert.throws(() => verifier.verifyAndConsume(token({ issuedAt: 0, nonce: 'missing-issue' }), body), /CAPABILITY_INVALID/);
+  assert.throws(() => verifier.verifyAndConsume(token({ expiresAt: issuedAt + 300_001, nonce: 'ttl-too-long' }), body), /CAPABILITY_INVALID/);
+  assert.throws(() => verifier.verifyAndConsume(token({ nonce: 'bad-body-hash' }), { ...body, operator_principal_hash: 'invalid' }), /CAPABILITY_INVALID/);
+  assert.throws(() => verifier.verifyAndConsume(token({ nonce: 'bad-body-time' }), { ...body, authorized_at: 0 }), /CAPABILITY_INVALID/);
 });
 
 test('approved destination must be an exact canonical hostname', () => {
