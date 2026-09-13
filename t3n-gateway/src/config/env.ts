@@ -20,6 +20,7 @@ export interface GatewayConfig {
   readonly aiApiKey: string | null;
   readonly aiModel: string | null;
   readonly a2aPublicUrl: string | null;
+  readonly remediationCapabilityKey?: undefined;
 }
 
 export class ConfigurationError extends Error {
