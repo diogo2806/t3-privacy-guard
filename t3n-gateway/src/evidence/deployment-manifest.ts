@@ -14,6 +14,9 @@ export interface DeploymentManifest {
   wasmSha256: string;
   policyVersion: string;
   policyHash: string;
+  trustAnchorVerified: true;
+  trustManifestFloorPersisted: true;
+  trustManifestVersion: number;
 }
 
 export interface TestnetEvidenceIdentity {
@@ -45,6 +48,12 @@ export function assertManifestIdentity(manifest: DeploymentManifest): void {
   }
   if (!manifest.policyVersion || !/^[a-f0-9]{64}$/.test(manifest.policyHash)) {
     throw new Error('Deployment manifest contains invalid versioned policy provenance');
+  }
+  if (manifest.trustAnchorVerified !== true || manifest.trustManifestFloorPersisted !== true) {
+    throw new Error('Deployment manifest must prove verified trust anchor and persisted rollback floor');
+  }
+  if (!Number.isSafeInteger(manifest.trustManifestVersion) || manifest.trustManifestVersion < 1) {
+    throw new Error('Deployment manifest contains an invalid trust manifest version');
   }
 }
 
