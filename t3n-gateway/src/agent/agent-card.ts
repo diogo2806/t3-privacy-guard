@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { getNodeUrl } from '@terminal3/t3n-sdk';
+import { validateA2aPublicUrl } from '../config/env.js';
 import type { AgentSession } from './agent-session.js';
 
 const AGENT_CARD_TYPE = 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1';
@@ -75,11 +76,8 @@ function assertNoSensitiveMetadata(value: unknown, path = 'card'): void {
 }
 
 function a2aDiscoveryEndpoint(a2aPublicUrl: string): string {
-  let endpoint: URL;
-  try { endpoint = new URL(a2aPublicUrl); } catch { throw new Error('A2A public URL must be an absolute HTTPS URL'); }
-  if (endpoint.protocol !== 'https:') throw new Error('A2A public URL must use HTTPS');
-  if (endpoint.username || endpoint.password || endpoint.search || endpoint.hash) throw new Error('A2A public URL must not contain credentials, query parameters or fragments');
-  if (!endpoint.pathname.replace(/\/+$/, '').endsWith('/a2a')) throw new Error('A2A public URL must point to the public /a2a endpoint');
+  const validatedPublicUrl = validateA2aPublicUrl(a2aPublicUrl);
+  const endpoint = new URL(validatedPublicUrl);
   return new URL('/.well-known/agent-card.json', endpoint.origin).toString();
 }
 
