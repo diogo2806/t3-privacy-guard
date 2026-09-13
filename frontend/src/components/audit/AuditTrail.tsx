@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { FileClock, Network, RefreshCw } from 'lucide-react';
-import { privacyGuardApi, type AuditEvent, type AuditEvidence, type AuditReconciliationStatus } from '../../services/privacyGuardApi';
+import { privacyGuardApi, type AuditEvent, type AuditEvidence, type AuditIntegrityState, type AuditReconciliationStatus } from '../../services/privacyGuardApi';
 
 function statusLabel(status: AuditReconciliationStatus, t3nAvailable: boolean) {
   if (!t3nAvailable && status === 'UNMATCHED') return 'T3N unavailable';
@@ -15,6 +15,20 @@ function statusClass(status: AuditReconciliationStatus, t3nAvailable: boolean) {
   return `audit-status-${status.toLowerCase().replace('_', '-')}`;
 }
 
+function integrityLabel(state: AuditIntegrityState) {
+  if (state === 'VERIFIED') return 'Integrity verified';
+  if (state === 'BROKEN') return 'Integrity broken';
+  if (state === 'LEGACY_UNVERIFIED') return 'Legacy events not integrity verified';
+  if (state === 'PURGED') return 'Not available after retention purge';
+  return 'Integrity not available';
+}
+
+function integrityNoteClass(state: AuditIntegrityState) {
+  if (state === 'BROKEN') return 'audit-provenance-note-error';
+  if (state === 'LEGACY_UNVERIFIED' || state === 'PURGED' || state === 'NOT_AVAILABLE') return 'audit-provenance-note-warning';
+  return '';
+}
+
 export function AuditTrail({ events }: { events: AuditEvent[] }) {
   const incidentId = events[0]?.incidentId ?? null;
   const auditVersion = events.at(-1)?.id ?? '';
@@ -27,7 +41,7 @@ export function AuditTrail({ events }: { events: AuditEvent[] }) {
     setLoading(true); setError(null);
     try { setEvidence(await privacyGuardApi.auditEvidence(incidentId)); }
     catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'T3N provenance could not be loaded. Local business audit remains available.');
+      setError(cause instanceof Error ? cause.message : 'Audit evidence could not be loaded. Local business events remain visible without an integrity claim.');
     } finally { setLoading(false); }
   }, [incidentId]);
 
@@ -43,14 +57,21 @@ export function AuditTrail({ events }: { events: AuditEvent[] }) {
           <RefreshCw aria-hidden="true" /><span>{loading ? 'Refreshing…' : 'Refresh provenance'}</span>
         </button>
       </div>
-      <p className="card-copy">Business events and independent T3N metadata remain separate. A match requires exact sequence, hash, contract, agent and function identifiers.</p>
+      <p className="card-copy">Local HMAC integrity and independent T3N Activity Log provenance are separate signals. A verified local chain detects storage-only modification with the configured audit key; it does not make the database immutable.</p>
 
       {error && <div className="audit-provenance-note audit-provenance-note-error" role="alert">{error}</div>}
-      {loading && !evidence && <p className="empty-copy" role="status">Loading network provenance. Local business audit remains available below.</p>}
+      {loading && !evidence && <p className="empty-copy" role="status">Checking local integrity and network provenance. Business events remain available below.</p>}
 
       {evidence && <>
+        <div className={`audit-provenance-note ${integrityNoteClass(evidence.integrity.state)}`} role={evidence.integrity.state === 'BROKEN' ? 'alert' : 'status'}>
+          <strong>Local audit integrity · {integrityLabel(evidence.integrity.state)}</strong>
+          <p>{evidence.integrity.message}</p>
+          <small>Checked events: {evidence.integrity.eventsChecked}{evidence.integrity.version ? ` · ${evidence.integrity.version}` : ''}</small>
+          {evidence.integrity.head && <small>Chain head: <code>{evidence.integrity.head}</code></small>}
+        </div>
         <div className={`audit-provenance-note ${evidence.provenance.t3nAvailable ? '' : 'audit-provenance-note-warning'}`} role={evidence.provenance.t3nAvailable ? 'status' : 'alert'}>
-          {evidence.provenance.message}
+          <strong>T3N provenance</strong>
+          <p>{evidence.provenance.message}</p>
         </div>
         <div className="audit-summary-grid" aria-label="Audit reconciliation summary">
           <div><span>Matched</span><strong>{evidence.provenance.matched}</strong></div>
