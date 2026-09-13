@@ -157,7 +157,18 @@ No model-controlled override.
 ### 2. Legitimate-remediation scenario
 
 ```text
-AI proposes minimum valid action + destination A
+Minimum-scope remediation prompt
+   |
+   v
+Same configured AI provider is called again
+inside the same incident
+   |
+   v
+AI produces a second independent proposal
+for the minimum action + destination A
+   |
+   v
+Spring persists trusted synthetic normal values separately
    |
    v
 Proposal effective access CONFIRMED
@@ -194,11 +205,15 @@ Independent external read-back
    +--> ambiguous/mismatch      -> UNVERIFIED
 ```
 
+The application never manufactures a safe second action after the first `DENY`. `POST /api/incidents/{incidentId}/agent-proposals` accepts only a new prompt, reuses the same configured provider, persists the model's second proposal in the existing incident and evaluates that exact output through T3N. If the second output is `DENY`, `REDACT` that cannot form an executable minimum, or another action without a protected executor, the flow stops without fallback.
+
 This is why `ALLOW` is not the same thing as execution, an observed grant is not the same thing as effective authorization, a policy-allowed destination is not automatically the human-approved destination, a `REDACT` field-name decision is not by itself proof of value-level filtering, and HTTP `2xx` is not the same thing as completion.
 
 ## What the demo proves
 
 T3 Privacy Guard assumes the AI agent can be manipulated. The dashboard sends an actual textual prompt to a configured tool-calling model. The model can produce an unsafe structured proposal such as `host=attacker.example` plus `api_key`, but it cannot set a decision, identity, capability, trusted normal payload or secret. That proposal is persisted and evaluated independently by the T3N Rust/WASM policy, which returns `DENY`.
+
+After that denial, the credential-compromise demo can send a separate minimum-scope prompt through `POST /api/incidents/{incidentId}/agent-proposals`. The endpoint accepts only the prompt, reuses the same `GatewayAgentClient`, keeps the original incident, persists another independent `ActionProposal`, records sanitized provider/model provenance in the authenticated local audit chain and submits the model output unchanged to T3N. The browser cannot provide the action, decision, DID, capability, policy result, trusted normal values or executor authority through this route.
 
 The Proposal Agent uses its own authenticated T3N credential/DID and is restricted to `evaluate-action`. Before evaluation is considered ready, the gateway requires both an active Proposal Member grant and a principal-side `checkDelegation` result with `authorised=true` for the exact contract, tenant DID and minimum scopes. The tenant session is never used as a substitute for that delegated-principal check.
 
@@ -423,7 +438,7 @@ The Protection demo exposes those four policy actions as business-readable, synt
 
 | Scenario | Proposed action | What the demo proves |
 |---|---|---|
-| Credential compromised | `revoke-credential` | Prompt-injection denial plus a separate minimum-scope revocation path with value-level minimization, human authorization, destination binding, protected execution and independent read-back. |
+| Credential compromised | `revoke-credential` | A malicious real-model proposal can be denied; the same configured provider is then asked for a second minimum-scope proposal in the same incident. T3N evaluates that output independently before value-level minimization, human authorization, destination binding, protected execution and read-back. No application-authored safe fallback exists. |
 | Account takeover | `isolate-account` | The model can propose isolation with synthetic identifiers while T3N independently evaluates action, fields, purpose and destination. |
 | Record security incident | `create-incident` | Incident recording can be evaluated without outbound egress; adding an unexpected destination remains subject to T3N policy. |
 | Notify security contact | `notify-security` | The model requests only logical `verified_email`; no plaintext email or raw `{{profile.*}}` placeholder belongs in browser/model input. |
@@ -503,6 +518,8 @@ Rules:
 
 Spring stores each sanitized business-audit event in an HMAC-SHA-256 chain scoped to its incident. The versioned canonical payload authenticates the incident/event identifiers, monotonic local sequence, event type, canonical UTC timestamp, sanitized message, persisted T3N sequence/hash/function when present, and the previous event MAC. A separately authenticated per-incident chain head binds the retained tail, so direct content changes, sequence/link changes, inserted rows, missing head and tail deletion are detectable when the verifier runs.
 
+Agent-generated proposals also add a sanitized `AGENT_PROPOSAL_SOURCE` event after persistence and before policy evaluation. It binds the proposal/action id to bounded provider/model labels without storing the prompt, provider credential, trusted payload values or private values. This makes the malicious proposal and the later same-provider remediation proposal distinguishable in retained local history.
+
 `AUDIT_INTEGRITY_KEY` is a backend-only runtime secret and must remain distinct from T3N credentials, `GATEWAY_SERVICE_TOKEN`, `REMEDIATION_CAPABILITY_KEY` and operator credentials. `AUDIT_INTEGRITY_KEY_ID` identifies the active key version. Planned rotation keeps explicitly versioned historical material in `AUDIT_INTEGRITY_PREVIOUS_KEYS` only while retained events still require it. Events created before this protection remain `LEGACY_UNVERIFIED`; automatic legacy bootstrap is disabled by default instead of inventing historical authenticity.
 
 This control is **tamper-evident, not immutable or tamper-proof**. Its threat model is DB/storage-only modification by an actor that does not possess the HMAC key. A compromise that obtains both database and key, a compromised backend capable of producing valid new MACs, or restoration of a complete older internally consistent database snapshot is outside this claim unless an independent monotonic external anchor is added.
@@ -523,6 +540,7 @@ Local audit integrity and T3N Activity Log provenance are independent signals. A
 - Member Delegation restricts contract, functions, scopes, hosts and validity but is not treated as sufficient proof of effective authorization.
 - Effective authorization is confirmed only by principal-side T3N `checkDelegation` for exact least-privilege restrictions; DENIED/UNKNOWN fail closed.
 - The model proposes field names; it cannot provide trusted `normal_payload` values, identities, decisions or capabilities.
+- A denied proposal does not authorize the application to invent a replacement; a follow-up remediation proposal must come from the configured provider again and is independently evaluated.
 - Spring owns the bounded trusted synthetic normal values used by the current demo; the capability binds their canonical hash and Rust controls the outbound subset.
 - The model/application carry only logical private references; only the contract maps them to supported T3N profile markers.
 - exact policy provenance + exact approved destination + trusted payload hash + authenticated operator + explicit human authorization + valid one-time capability + confirmed Protected Executor effective access are required before protected remediation.
@@ -634,6 +652,8 @@ npm run evidence:live
 
 Generated artifacts are `docs/evidence/deployment-manifest.json` and `docs/evidence/testnet-run.json`. The orchestrator binds WASM SHA-256, canonical tenant/Proposal/Executor DIDs, contract id/version and policy version/hash. It provisions least-privilege Member grants, performs principal-side `checkDelegation` for Proposal and Executor, aborts unless both are effectively `ACTIVE`, and fails on mismatch, scenario `FAIL` or configured secret leakage. The deployment manifest also records the observed Agent Card registration state and, when a card is resolved, its public URI, SHA-256, verification time and service names. `NOT_RUN` is never counted as `PASS`.
 
+When `AI_PROVIDER=openai-compatible`, the testnet runner also executes `LIVE-AI-MINIMUM-REMEDIATION`. It constructs the same runtime provider/service, sends a minimum credential-remediation prompt, records only bounded provider/model/proposal metadata and evaluates that exact model output through T3N. The scenario passes only when the configured provider produces the expected minimum `revoke-credential` proposal for the protected host and T3N returns `ALLOW`. With AI disabled it remains `NOT_RUN`; deterministic `LIVE-MINIMAL-ALLOW` stays separate policy evidence and is never relabelled as live-model evidence.
+
 `testnet-run.json` records a sanitized `delegation` object for Proposal Agent and Protected Executor containing only `memberState`, `effectiveState`, `checkedFunctions` and `checkedScopes`. It never persists the full Member Delegation document, SDK `satisfied`/`missing` payloads, private keys, API keys, tokens or trusted normal-payload values.
 
 Agent Card metadata proves only what was observed during public resolution. `REGISTERED` means the resolved card matched the authenticated Proposal Agent DID and supported service schema; it does not prove Member grant, effective T3N access, policy authorization, TEE execution or hardware attestation.
@@ -646,7 +666,7 @@ The optional `LIVE-NORMAL-PAYLOAD-MINIMIZATION` testnet scenario requires contro
 
 Profile-placeholder resolution must remain `NOT_RUN` in public evidence until a compatible T3N testnet profile/user context actually executes it. Local Rust/Java/gateway/frontend tests prove the closed-reference architecture but are not mislabeled as live profile-resolution evidence.
 
-The submission capture harness rejects AI/T3N/operator/service/capability/audit-integrity secrets in generated metadata and captures a remediation success only after the UI shows independently verified `COMPLETED`. Local audit integrity is rendered as a separate application signal from T3N Activity Log reconciliation and is not upgraded into live T3N proof.
+The submission capture harness rejects AI/T3N/operator/service/capability/audit-integrity secrets in generated metadata, requires `LIVE-AI-MINIMUM-REMEDIATION` to be `PASS` for the live-agent recovery capture, and captures remediation success only after the UI shows independently verified `COMPLETED`. Local audit integrity is rendered as a separate application signal from T3N Activity Log reconciliation and is not upgraded into live T3N proof.
 
 ## Terminal 3 integration findings
 
