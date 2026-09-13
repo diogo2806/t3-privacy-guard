@@ -66,6 +66,7 @@ This matrix distinguishes **automated local assertions**, **property-generated l
 | L09 | T3N testnet | Attack denied, protected execution accepted, independent read-back verifies expected state | `DENY -> PENDING_VERIFICATION -> VERIFIED (REVOKED)` | testnet runner + `EVIDENCE_RUN_REMEDIATION=true` | NOT_RUN until remediation + verification endpoints are seeded |
 | L10 | T3N testnet | `verified_email` logical reference evaluated for notification | `ALLOW` by policy | testnet runner | NOT_RUN until valid credentials/credits |
 | L11 | T3N testnet | T3N resolves verified-email profile placeholder during egress | Resolved only inside protected egress | testnet runner | NOT_RUN until compatible synthetic profile/user context exists |
+| L12 | T3N testnet | Proposal Agent directly calls `verify-remediation` with its own authenticated session | T3N rejects the privileged function because Proposal delegation contains only `evaluate-action` | testnet runner + `EVIDENCE_RUN_EGRESS_NEGATIVES=true` | NOT_RUN until private verification map is seeded |
 
 ## Interpretation
 
@@ -73,7 +74,7 @@ This matrix distinguishes **automated local assertions**, **property-generated l
 
 For Member Delegation status, `ACTIVE` means the observed grant is currently inside its validity window. A grant whose `valid_from_secs` is in the future is `SCHEDULED` and does not make the control plane ready. Expired grants are `REVOKED`; malformed, non-numeric or inverted validity windows are `UNKNOWN` and fail closed. Proposal and Executor delegations are evaluated independently under the same temporal semantics.
 
-The Proposal Agent receives only `evaluate-action` and no protected-egress hosts. The Protected Executor uses a different authenticated T3N credential/DID and receives only `execute-remediation` and `verify-remediation` plus the minimum required egress hosts. A human remediation capability remains required at the application/gateway boundary and is bound to the authenticated Executor DID, so replacing the executor after authorization invalidates execution.
+The Proposal Agent receives only `evaluate-action` and no protected-egress hosts. The Protected Executor uses a different authenticated T3N credential/DID and receives only `execute-remediation` and `verify-remediation` plus the minimum required egress hosts. The live negative evidence separately attempts both privileged functions with the Proposal Agent session, so either unexpected permission is a failure. A human remediation capability remains required at the application/gateway boundary and is bound to the authenticated Executor DID, so replacing the executor after authorization invalidates execution.
 
 `ALLOW` is a policy result, not proof that an execution capability exists for that action. The current protected executor and independent completion contract are intentionally closed to `revoke-credential`, whose final verified state is `REVOKED`. `isolate-account`, `create-incident` and `notify-security` remain valid policy-evaluation actions, but both Spring authorization and Rust `execute-remediation` fail closed before side effects if one of those actions is sent to the current remediation executor.
 
