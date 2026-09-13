@@ -8,7 +8,8 @@ const analysis: AgentAnalysis = {
   provider: 'openai-compatible',
   model: 'tool-model',
   incident: {
-    id: 'incident-1', title: 'Private notification', severity: 'HIGH', summary: 'Synthetic incident', source: 'test', status: 'OPEN', createdAt: '2026-09-12T00:00:00Z',
+    id: 'incident-1', title: 'Private notification', severity: 'HIGH', summary: 'Synthetic incident', source: 'test', status: 'OPEN',
+    createdAt: '2026-09-12T00:00:00Z', expiresAt: '2026-09-19T00:00:00Z', retentionState: 'ACTIVE',
   },
   action: {
     id: 'action-1', incidentId: 'incident-1', requestId: 'request-1', action: 'notify-security', resource: 'incident:42', purpose: 'incident-notification', host: 'postman-echo.com',
@@ -21,6 +22,15 @@ const analysis: AgentAnalysis = {
 };
 
 describe('AgentProposalPanel', () => {
+  it('renders the latest provider proposal without confusing it with the selected persisted action', () => {
+    render(<AgentProposalPanel analysis={analysis} />);
+
+    expect(screen.getByRole('heading', { name: 'Latest agent proposal' })).toBeInTheDocument();
+    expect(screen.getByText(/most recent provider response/i)).toBeInTheDocument();
+    expect(screen.getByText(/Action proposals below/i)).toBeInTheDocument();
+    expect(screen.getByText('openai-compatible · tool-model')).toBeInTheDocument();
+  });
+
   it('renders only the logical private-data category and explains the T3N boundary', () => {
     render(<AgentProposalPanel analysis={analysis} />);
 
