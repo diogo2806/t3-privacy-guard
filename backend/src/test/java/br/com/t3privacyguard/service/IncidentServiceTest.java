@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -37,6 +36,9 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 @SpringBootTest
 class IncidentServiceTest {
+    private static final String POLICY_VERSION = "2026-09-12.1";
+    private static final String POLICY_HASH = "a".repeat(64);
+
     @Autowired IncidentService service;
     @Autowired IncidentRepository incidents;
     @Autowired ActionProposalRepository actions;
@@ -74,11 +76,14 @@ class IncidentServiceTest {
         ));
         when(gateway.evaluate(any())).thenReturn(new GatewayDecision(
             "private-1", DecisionType.ALLOW, "POLICY_ALLOW", "Allowed",
-            List.of("incident_id", "severity", "summary"), List.of(), List.of("verified_email"), List.of()
+            List.of("incident_id", "severity", "summary"), List.of(), List.of("verified_email"), List.of(),
+            POLICY_VERSION, POLICY_HASH, true
         ));
         var decision = service.evaluate(incident.id(), action.id());
         assertThat(service.listActions(incident.id()).get(0).privateRefs()).containsExactly("verified_email");
         assertThat(decision.allowedPrivateRefs()).containsExactly("verified_email");
+        assertThat(decision.policyVersion()).isEqualTo(POLICY_VERSION);
+        assertThat(decision.policyHash()).isEqualTo(POLICY_HASH);
     }
 
     @Test void denyCannotAuthorizeRemediation() {
@@ -111,7 +116,7 @@ class IncidentServiceTest {
             var action = service.addAction(incident.id(), input);
             when(gateway.evaluate(any())).thenReturn(new GatewayDecision(
                 input.requestId(), DecisionType.ALLOW, "POLICY_ALLOW", "Allowed",
-                input.fields(), List.of(), input.privateRefs(), List.of()
+                input.fields(), List.of(), input.privateRefs(), List.of(), POLICY_VERSION, POLICY_HASH, true
             ));
 
             assertThat(service.evaluate(incident.id(), action.id()).decision()).isEqualTo(DecisionType.ALLOW);
@@ -128,7 +133,7 @@ class IncidentServiceTest {
 
     @Test void completedRequiresIndependentReadBackAndReplayDoesNotReexecute() {
         var context = authorizedAction("req-4");
-        when(remediationGateway.execute(any(), anyString())).thenReturn(new RemediationResult("req-4", "PENDING_VERIFICATION", 202, "op-1"));
+        when(remediationGateway.execute(any(), anyString())).thenReturn(remediation("req-4", 202, "op-1"));
         when(remediationGateway.verify("req-4", "op-1")).thenReturn(new VerificationResult("req-4", "VERIFIED", "REVOKED"));
 
         var first = service.executeRemediation(context.incidentId(), context.actionId());
@@ -144,7 +149,7 @@ class IncidentServiceTest {
 
     @Test void concurrentRequestsProduceOnlyOneExternalExecution() throws Exception {
         var context = authorizedAction("req-concurrent");
-        when(remediationGateway.execute(any(), anyString())).thenReturn(new RemediationResult("req-concurrent", "PENDING_VERIFICATION", 202, "op-concurrent"));
+        when(remediationGateway.execute(any(), anyString())).thenReturn(remediation("req-concurrent", 202, "op-concurrent"));
         when(remediationGateway.verify("req-concurrent", "op-concurrent")).thenReturn(new VerificationResult("req-concurrent", "VERIFIED", "REVOKED"));
         CountDownLatch start = new CountDownLatch(1);
 
@@ -164,7 +169,7 @@ class IncidentServiceTest {
 
     @Test void acceptedHttpWithoutVerifiedExternalStateIsUnverifiedNotCompleted() {
         var context = authorizedAction("req-lying-200");
-        when(remediationGateway.execute(any(), anyString())).thenReturn(new RemediationResult("req-lying-200", "PENDING_VERIFICATION", 200, "op-lie"));
+        when(remediationGateway.execute(any(), anyString())).thenReturn(remediation("req-lying-200", 200, "op-lie"));
         when(remediationGateway.verify("req-lying-200", "op-lie")).thenReturn(new VerificationResult("req-lying-200", "UNVERIFIED", "ACTIVE"));
 
         var result = service.executeRemediation(context.incidentId(), context.actionId());
@@ -189,7 +194,7 @@ class IncidentServiceTest {
 
     @Test void verificationOutageDoesNotTriggerSecondEgressAndCanBeRechecked() {
         var context = authorizedAction("req-verification-outage");
-        when(remediationGateway.execute(any(), anyString())).thenReturn(new RemediationResult("req-verification-outage", "PENDING_VERIFICATION", 202, "op-outage"));
+        when(remediationGateway.execute(any(), anyString())).thenReturn(remediation("req-verification-outage", 202, "op-outage"));
         when(remediationGateway.verify("req-verification-outage", "op-outage"))
             .thenThrow(new GatewayUnavailableException("verification offline"))
             .thenReturn(new VerificationResult("req-verification-outage", "VERIFIED", "REVOKED"));
@@ -228,7 +233,7 @@ class IncidentServiceTest {
 
     @Test void mismatchedExecutionRequestIdBecomesUnverifiedAndIsNotRetried() {
         var context = authorizedAction("req-8");
-        when(remediationGateway.execute(any(), anyString())).thenReturn(new RemediationResult("another-request", "PENDING_VERIFICATION", 202, "op-8"));
+        when(remediationGateway.execute(any(), anyString())).thenReturn(remediation("another-request", 202, "op-8"));
         var result = service.executeRemediation(context.incidentId(), context.actionId());
         assertThat(result.state()).isEqualTo("UNVERIFIED");
         assertThat(result.failureCode()).isEqualTo("REQUEST_ID_MISMATCH");
@@ -254,7 +259,14 @@ class IncidentServiceTest {
     }
 
     private GatewayDecision decision(String requestId, DecisionType type, String code, List<String> allowed, List<String> redacted) {
-        return new GatewayDecision(requestId, type, code, type == DecisionType.ALLOW ? "Allowed" : "Denied", allowed, redacted, List.of(), List.of());
+        return new GatewayDecision(
+            requestId, type, code, type == DecisionType.ALLOW ? "Allowed" : "Denied", allowed, redacted, List.of(), List.of(),
+            POLICY_VERSION, POLICY_HASH, true
+        );
+    }
+
+    private RemediationResult remediation(String requestId, int httpCode, String operationId) {
+        return new RemediationResult(requestId, "PENDING_VERIFICATION", httpCode, operationId, POLICY_VERSION, POLICY_HASH);
     }
 
     private void allow(String requestId) {
