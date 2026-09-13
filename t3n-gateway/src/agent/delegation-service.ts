@@ -12,16 +12,31 @@ export interface DelegationGrantRequest {
   readonly validUntilSecs?: number;
 }
 
+export interface DelegationCheckRequirements {
+  readonly functions: readonly string[];
+  readonly scopes: readonly string[];
+}
+
+export const PROPOSAL_DELEGATION_REQUIREMENTS: DelegationCheckRequirements = Object.freeze({
+  functions: Object.freeze(['evaluate-action']),
+  scopes: Object.freeze(['incident_id', 'credential_id', 'reason']),
+});
+
+export const EXECUTOR_DELEGATION_REQUIREMENTS: DelegationCheckRequirements = Object.freeze({
+  functions: Object.freeze(['execute-remediation', 'verify-remediation']),
+  scopes: Object.freeze(['incident_id', 'credential_id', 'reason']),
+});
+
 export type DelegationState = 'ACTIVE' | 'SCHEDULED' | 'REVOKED' | 'NOT_GRANTED' | 'UNKNOWN';
-export type EffectiveDelegationState = 'ACTIVE' | 'INCOMPLETE' | 'UNKNOWN';
+export type EffectiveDelegationState = 'ACTIVE' | 'DENIED' | 'UNKNOWN';
 export interface DelegationStatus {
   readonly memberState: DelegationState;
   readonly effectiveState: EffectiveDelegationState;
   readonly functions: string[];
   readonly scopes: string[];
   readonly allowedHosts: string[];
-  readonly satisfied: string[];
-  readonly missing: string[];
+  readonly checkedFunctions: string[];
+  readonly checkedScopes: string[];
 }
 
 interface GrantRecord {
@@ -35,8 +50,11 @@ interface GrantRecord {
   window?: unknown;
 }
 
-function assertNonEmpty(values: string[], field: string): void {
-  if (!Array.isArray(values) || values.length === 0 || values.some((value) => !value.trim())) throw new Error(`${field} must contain at least one non-empty value`);
+function assertRestrictions(values: readonly string[], field: string): void {
+  if (!Array.isArray(values) || values.length === 0 || values.some((value) => !value.trim())) {
+    throw new Error(`${field} must contain at least one non-empty value`);
+  }
+  if (values.some((value) => value.trim() === '*')) throw new Error(`${field} must not contain wildcard grants`);
 }
 
 function extractGrants(value: unknown, depth = 0): GrantRecord[] {
@@ -52,20 +70,6 @@ function extractGrants(value: unknown, depth = 0): GrantRecord[] {
 
 function asStrings(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
-}
-
-function delegationLabels(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  const labels = value.flatMap((entry) => {
-    if (typeof entry === 'string') return [entry];
-    if (!entry || typeof entry !== 'object') return [];
-    const object = entry as Record<string, unknown>;
-    for (const key of ['type', 'kind', 'source', 'edge']) {
-      if (typeof object[key] === 'string') return [object[key] as string];
-    }
-    return [];
-  });
-  return [...new Set(labels.map((label) => label.trim()).filter(Boolean))].slice(0, 16);
 }
 
 function optionalFiniteNumber(object: Record<string, unknown>, key: string): number | null | undefined {
@@ -90,12 +94,25 @@ export function interpretDelegationWindow(window: unknown, nowSecs: number): Del
 }
 
 export class DelegationService {
-  constructor(private readonly tenantSession: T3nSession, private readonly agentSession: AgentSession) {}
+  private readonly requirements: DelegationCheckRequirements;
+
+  constructor(
+    private readonly tenantSession: T3nSession,
+    private readonly agentSession: AgentSession,
+    requirements: DelegationCheckRequirements,
+  ) {
+    assertRestrictions(requirements.functions, 'check functions');
+    assertRestrictions(requirements.scopes, 'check scopes');
+    this.requirements = {
+      functions: [...requirements.functions],
+      scopes: [...requirements.scopes],
+    };
+  }
 
   async grant(request: DelegationGrantRequest): Promise<void> {
     if (!request.contractId.trim()) throw new Error('contractId is required');
-    assertNonEmpty(request.functions, 'functions');
-    assertNonEmpty(request.scopes, 'scopes');
+    assertRestrictions(request.functions, 'functions');
+    assertRestrictions(request.scopes, 'scopes');
     await this.ensureSessions();
     await this.tenantSession.getClient().updateMemberDelegation({
       grantee: this.agentSession.getAgentDid(), contract_id: request.contractId, version_req: request.versionReq,
@@ -131,62 +148,49 @@ export class DelegationService {
     await this.ensureSessions();
     const policy = await this.tenantSession.getClient().getMemberDelegation();
     const grant = this.findAgentGrant(policy, contractId);
-    if (!grant) return this.statusWithoutEffectiveAccess('NOT_GRANTED');
+    const functions = grant ? asStrings(grant.functions) : [];
+    const scopes = grant ? asStrings(grant.scopes) : [];
+    const allowedHosts = grant ? asStrings(grant.allowed_hosts) : [];
+    let memberState: DelegationState;
+    if (!grant) memberState = 'NOT_GRANTED';
+    else if (functions.length === 0 || scopes.length === 0) memberState = 'UNKNOWN';
+    else memberState = interpretDelegationWindow(grant.window, Math.floor(Date.now() / 1000));
 
-    const functions = asStrings(grant.functions);
-    const scopes = asStrings(grant.scopes);
-    const allowedHosts = asStrings(grant.allowed_hosts);
-    if (functions.length === 0 || scopes.length === 0) {
-      return { memberState: 'UNKNOWN', effectiveState: 'UNKNOWN', functions, scopes, allowedHosts, satisfied: [], missing: [] };
-    }
-
-    const memberState = interpretDelegationWindow(grant.window, Math.floor(Date.now() / 1000));
     if (memberState !== 'ACTIVE') {
       return {
         memberState,
-        effectiveState: memberState === 'UNKNOWN' ? 'UNKNOWN' : 'INCOMPLETE',
+        effectiveState: memberState === 'UNKNOWN' ? 'UNKNOWN' : 'DENIED',
         functions,
         scopes,
         allowedHosts,
-        satisfied: [],
-        missing: [],
+        checkedFunctions: [],
+        checkedScopes: [],
       };
     }
 
+    const checkedFunctions = [...this.requirements.functions];
+    const checkedScopes = [...this.requirements.scopes];
+    const effectiveState = await this.checkEffectiveAccess(contractId, checkedFunctions, checkedScopes);
+    return { memberState, effectiveState, functions, scopes, allowedHosts, checkedFunctions, checkedScopes };
+  }
+
+  private async checkEffectiveAccess(
+    contractId: string,
+    functions: string[],
+    scopes: string[],
+  ): Promise<EffectiveDelegationState> {
     try {
-      const verdict = await this.agentSession.getClient().checkDelegation({
+      const result = await this.agentSession.getClient().checkDelegation({
         contract: contractId,
         pii_did: this.tenantSession.getTenantDid(),
         functions,
         scopes,
-      });
-      if (!verdict || typeof verdict.authorised !== 'boolean') {
-        return { memberState, effectiveState: 'UNKNOWN', functions, scopes, allowedHosts, satisfied: [], missing: [] };
-      }
-      return {
-        memberState,
-        effectiveState: verdict.authorised ? 'ACTIVE' : 'INCOMPLETE',
-        functions,
-        scopes,
-        allowedHosts,
-        satisfied: delegationLabels(verdict.satisfied),
-        missing: delegationLabels(verdict.missing),
-      };
+      }) as unknown;
+      if (!result || typeof result !== 'object' || typeof (result as Record<string, unknown>).authorised !== 'boolean') return 'UNKNOWN';
+      return (result as { authorised: boolean }).authorised ? 'ACTIVE' : 'DENIED';
     } catch {
-      return { memberState, effectiveState: 'UNKNOWN', functions, scopes, allowedHosts, satisfied: [], missing: [] };
+      return 'UNKNOWN';
     }
-  }
-
-  private statusWithoutEffectiveAccess(memberState: DelegationState): DelegationStatus {
-    return {
-      memberState,
-      effectiveState: memberState === 'UNKNOWN' ? 'UNKNOWN' : 'INCOMPLETE',
-      functions: [],
-      scopes: [],
-      allowedHosts: [],
-      satisfied: [],
-      missing: [],
-    };
   }
 
   private findAgentGrant(policy: unknown, contractId: string): GrantRecord | undefined {
