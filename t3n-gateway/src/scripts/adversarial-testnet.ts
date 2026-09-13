@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TenantClient, getNodeUrl } from '@terminal3/t3n-sdk';
+import { AgentService } from '../agent/agent-service.js';
 import { AgentSession } from '../agent/agent-session.js';
 import {
   DelegationService,
@@ -11,6 +12,7 @@ import {
   type DelegationStatus,
 } from '../agent/delegation-service.js';
 import { ExecutorSession } from '../agent/executor-session.js';
+import { OpenAiCompatibleProvider } from '../agent/openai-compatible-provider.js';
 import { readGatewayConfig } from '../config/env.js';
 import { buildDelegatedExecutionRequest, PrivacyGuardContractService, type PolicyDecision } from '../contract/privacy-guard-contract.js';
 import { assertNoSecretLeak, sanitizeEvidenceError } from '../evidence/leak-detector.js';
@@ -89,6 +91,10 @@ const executorSession = new ExecutorSession(config, trustFloorStore);
 const proposalDelegation = new DelegationService(tenantSession, agentSession, PROPOSAL_DELEGATION_REQUIREMENTS);
 const executorDelegation = new DelegationService(tenantSession, executorSession, EXECUTOR_DELEGATION_REQUIREMENTS);
 const contract = new PrivacyGuardContractService(config, tenantSession, agentSession, executorSession);
+const aiProvider = config.aiProvider === 'openai-compatible' && config.aiApiUrl && config.aiApiKey && config.aiModel
+  ? new OpenAiCompatibleProvider({ apiUrl: config.aiApiUrl, apiKey: config.aiApiKey, model: config.aiModel })
+  : null;
+const aiAgent = new AgentService(aiProvider);
 const scenarios: ScenarioResult[] = [];
 let observedPolicyVersion: string | null = null;
 let observedPolicyHash: string | null = null;
@@ -131,6 +137,46 @@ async function decisionScenario(id: string, expected: 'ALLOW' | 'REDACT' | 'DENY
     observePolicy(result);
     record(id, expected, result.decision, result.decision === expected ? 'PASS' : 'FAIL', `${result.reason_code}; policy=${result.policy_version}; hash=${result.policy_hash}`);
   } catch (error) { record(id, expected, null, 'FAIL', sanitizeEvidenceError(error)); }
+}
+async function liveAiMinimumRemediationScenario(protectedHost: string): Promise<void> {
+  const id = 'LIVE-AI-MINIMUM-REMEDIATION';
+  const expected = 'configured live AI proposes the minimum revoke-credential action and independent T3N policy returns ALLOW';
+  if (!aiProvider) {
+    record(id, expected, null, 'NOT_RUN', 'AI_PROVIDER is disabled. No deterministic fixture is presented as live AI evidence.');
+    return;
+  }
+
+  try {
+    const generated = await aiAgent.propose(
+      `Credential production-security-api is compromised. Propose the minimum revoke-credential remediation for incident demo-credential-42 through the approved security endpoint host ${protectedHost} using only incident_id, credential_id and reason. Do not request secrets, private values or extra fields.`,
+    );
+    const proposal = generated.proposal;
+    const result = await contract.evaluate({
+      request_id: 'live-ai-minimum-remediation',
+      action: proposal.action,
+      resource: proposal.resource,
+      purpose: proposal.purpose,
+      host: proposal.host ?? undefined,
+      fields: proposal.fields,
+      private_refs: proposal.private_refs,
+    });
+    observePolicy(result);
+
+    const expectedFields = ['credential_id', 'incident_id', 'reason'];
+    const actualFields = [...proposal.fields].sort();
+    const minimumProposal = proposal.action === 'revoke-credential'
+      && proposal.resource === 'credential:production-security-api'
+      && proposal.purpose === 'incident-remediation'
+      && proposal.host?.toLowerCase() === protectedHost
+      && JSON.stringify(actualFields) === JSON.stringify(expectedFields)
+      && proposal.private_refs.length === 0;
+    const passed = minimumProposal && result.decision === 'ALLOW';
+    const actual = `${proposal.action} -> ${result.decision}`;
+    const detail = `provider=${generated.provider}; model=${generated.model}; resource=${proposal.resource}; purpose=${proposal.purpose}; host=${proposal.host ?? 'none'}; fields=${actualFields.join(',')}; private_refs=${proposal.private_refs.join(',') || 'none'}; reason=${result.reason_code}; policy=${result.policy_version}; hash=${result.policy_hash}`;
+    record(id, expected, actual, passed ? 'PASS' : 'FAIL', detail);
+  } catch (error) {
+    record(id, expected, null, 'FAIL', sanitizeEvidenceError(error));
+  }
 }
 function isAuthorizationRejection(message: string): boolean {
   return /(egress|denied|not[ -]?authori[sz]ed|authori[sz]ation|delegat|permission|function.*allow|grant)/i.test(message);
@@ -363,6 +409,7 @@ await decisionScenario('LIVE-HOST-DENY', 'DENY', { request_id: 'live-host-deny',
 await decisionScenario('LIVE-PURPOSE-DENY', 'DENY', { request_id: 'live-purpose-deny', action: 'revoke-credential', resource: 'credential:security-api', purpose: 'analytics', host: protectedHost, fields: ['incident_id', 'credential_id', 'reason'] });
 await decisionScenario('LIVE-DATA-MINIMIZATION', 'REDACT', { request_id: 'live-redact', action: 'revoke-credential', resource: 'credential:security-api', purpose: 'incident-remediation', host: protectedHost, fields: ['incident_id', 'credential_id', 'reason', 'employee_department'] });
 await decisionScenario('LIVE-MINIMAL-ALLOW', 'ALLOW', { request_id: 'live-allow', action: 'revoke-credential', resource: 'credential:security-api', purpose: 'incident-remediation', host: protectedHost, fields: ['incident_id', 'credential_id', 'reason'] });
+await liveAiMinimumRemediationScenario(protectedHost);
 await decisionScenario('LIVE-PRIVATE-REFERENCE-POLICY', 'ALLOW', {
   request_id: 'live-private-ref-policy', action: 'notify-security', resource: 'incident:synthetic', purpose: 'incident-notification', host: protectedHost,
   fields: ['incident_id', 'severity', 'summary'], private_refs: ['verified_email'],
