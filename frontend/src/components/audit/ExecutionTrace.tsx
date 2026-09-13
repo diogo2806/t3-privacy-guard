@@ -1,5 +1,7 @@
 import { Activity } from 'lucide-react';
 import type { ActionProposal, ExecutionTraceEvent } from '../../services/privacyGuardApi';
+import { SectionHeader } from '../ui/SectionHeader';
+import { Surface } from '../ui/Surface';
 
 function label(value: string) {
   return value.replaceAll('_', ' ').toLowerCase().replace(/(^|\s)\S/g, (letter) => letter.toUpperCase());
@@ -7,11 +9,8 @@ function label(value: string) {
 
 export function ExecutionTrace({ events, action }: { events: ExecutionTraceEvent[]; action: ActionProposal | null }) {
   return (
-    <section className="card execution-trace-card" aria-labelledby="execution-trace-title">
-      <div className="card-heading compact">
-        <div className="section-icon"><Activity aria-hidden="true" /></div>
-        <div><p className="eyebrow">Technical correlation</p><h2 id="execution-trace-title">Execution trace</h2></div>
-      </div>
+    <Surface className="execution-trace-card" aria-labelledby="execution-trace-title">
+      <SectionHeader eyebrow="Technical correlation" title="Execution trace" titleId="execution-trace-title" icon={<Activity aria-hidden="true" />} />
       {!action ? (
         <p className="empty-copy">Select an action to inspect its technical execution trace.</p>
       ) : (
@@ -37,6 +36,6 @@ export function ExecutionTrace({ events, action }: { events: ExecutionTraceEvent
           )}
         </>
       )}
-    </section>
+    </Surface>
   );
 }

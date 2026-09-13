@@ -1,11 +1,14 @@
-.button, .icon-button { border: 1px solid transparent; border-radius: var(--radius-sm); cursor: pointer; transition: border-color .2s ease, background .2s ease, transform .2s ease, opacity .2s ease; }
-.button { display: inline-flex; align-items: center; justify-content: center; gap: .55rem; min-height: 42px; padding: .68rem 1rem; font-weight: 750; }
+.button, .icon-button { border: 1px solid transparent; border-radius: var(--radius-sm); cursor: pointer; transition: border-color var(--motion-default) var(--ease-standard), background var(--motion-default) var(--ease-standard), transform var(--motion-default) var(--ease-standard), opacity var(--motion-default) var(--ease-standard); }
+.button { display: inline-flex; align-items: center; justify-content: center; gap: .55rem; min-height: 42px; padding: .68rem 1rem; font-weight: var(--font-weight-strong); }
 .button svg, .icon-button svg { width: 18px; height: 18px; }
 .button:hover:not(:disabled), .icon-button:hover:not(:disabled) { transform: translateY(-1px); }
-.button:focus-visible, .icon-button:focus-visible, .action-row:focus-visible { outline: 3px solid rgba(103, 232, 249, .35); outline-offset: 2px; }
-.button:disabled { cursor: not-allowed; opacity: .5; }
-.button-primary { background: var(--accent-strong); color: #03131d; }
-.button-secondary { background: var(--surface-strong); border-color: var(--border-strong); }
+.button:focus-visible, .icon-button:focus-visible, .action-row:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.button:disabled, .icon-button:disabled { cursor: not-allowed; opacity: .5; }
+.button-primary { background: var(--brand-strong); color: var(--text-inverse); }
+.button-secondary { background: var(--surface-2); border-color: var(--border-strong); }
 .button-danger { background: var(--danger); color: #25070d; }
-.button-ghost { background: transparent; border-color: var(--border); color: var(--muted); }
-.icon-button { display: grid; width: 40px; height: 40px; place-items: center; background: var(--surface-strong); border-color: var(--border); }
+.button-ghost { background: transparent; border-color: var(--border-subtle); color: var(--text-secondary); }
+.icon-button { display: grid; width: 40px; height: 40px; place-items: center; background: var(--interactive-surface); border-color: var(--border-default); }
+@media (prefers-reduced-motion: reduce) {
+  .button:hover:not(:disabled), .icon-button:hover:not(:disabled) { transform: none; }
+}

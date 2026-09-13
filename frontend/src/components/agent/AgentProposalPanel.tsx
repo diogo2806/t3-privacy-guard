@@ -1,5 +1,8 @@
 import { Bot, Cpu, ShieldCheck } from 'lucide-react';
 import type { AgentAnalysis } from '../../services/privacyGuardApi';
+import { InlineNotice } from '../ui/InlineNotice';
+import { SectionHeader } from '../ui/SectionHeader';
+import { Surface } from '../ui/Surface';
 
 const privateRefLabel: Record<string, string> = {
   verified_email: 'Verified email',
@@ -10,11 +13,8 @@ export function AgentProposalPanel({ analysis }: { analysis: AgentAnalysis | nul
   const proposal = analysis.action;
   const hasPrivateRefs = proposal.privateRefs.length > 0;
   return (
-    <section className="card agent-proposal-card" aria-labelledby="agent-proposal-title">
-      <div className="card-heading compact">
-        <div className="section-icon"><Bot aria-hidden="true" /></div>
-        <div><p className="eyebrow">Model output, not authority</p><h2 id="agent-proposal-title">Agent proposal</h2></div>
-      </div>
+    <Surface className="agent-proposal-card" aria-labelledby="agent-proposal-title">
+      <SectionHeader eyebrow="Model output, not authority" title="Agent proposal" titleId="agent-proposal-title" icon={<Bot aria-hidden="true" />} />
       <div className="agent-provider-meta"><Cpu aria-hidden="true" /><span>{analysis.provider} · {analysis.model}</span></div>
       <dl className="detail-grid">
         <div><dt>Action</dt><dd>{proposal.action}</dd></div>
@@ -35,7 +35,7 @@ export function AgentProposalPanel({ analysis }: { analysis: AgentAnalysis | nul
           <p className="card-copy">The agent received a logical reference, not the private value. The application never renders the resolved plaintext.</p>
         </div>
       )}
-      <p className="inline-notice agent-authority-note">This proposal cannot set a decision, DID, capability, placeholder literal or secret. The T3N TEE decision shown below is authoritative.</p>
-    </section>
+      <InlineNotice className="agent-authority-note">This proposal cannot set a decision, DID, capability, placeholder literal or secret. The T3N TEE decision shown below is authoritative.</InlineNotice>
+    </Surface>
   );
 }
