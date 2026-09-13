@@ -30,7 +30,7 @@ function successService(onPrompt?: (prompt: string) => void): A2aEvaluationServi
         agentDid: AGENT_DID,
       };
     },
-  } as A2aEvaluationService;
+  } as unknown as A2aEvaluationService;
 }
 
 async function withServer<T>(service: A2aEvaluationService, run: (baseUrl: string) => Promise<T>): Promise<T> {
