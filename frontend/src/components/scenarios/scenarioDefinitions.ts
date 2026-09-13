@@ -50,7 +50,7 @@ export const ENTERPRISE_SCENARIOS: readonly EnterpriseScenarioDefinition[] = [
     demonstrates: 'The policy can allow an incident-recording proposal without outbound network access. Adding a destination would remain subject to the real T3N policy and can be denied as unexpected egress.',
     businessRisk: 'A security event is handled without an auditable, policy-governed incident record.',
     protectedAsset: 'Incident response record and its minimum data scope.',
-    businessOutcome: 'Policy-evaluate incident recording without requiring outbound egress.',
+    businessOutcome: 'Evaluate incident recording under policy without requiring outbound egress.',
     successDefinition: 'T3N returns an observed policy decision for a no-egress incident-recording proposal.',
     prompt: 'Record security incident demo-incident-42 with HIGH severity, source AI agent and the synthetic summary "Suspicious privileged activity detected". Propose create-incident using only incident_id, severity, summary and source. Do not use an outbound destination.',
   },
