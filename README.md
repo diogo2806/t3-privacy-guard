@@ -176,13 +176,14 @@ The architecture deliberately prevents the model from owning security authority.
 |---|---|
 | Understand prompt and propose an action | AI model |
 | Authenticate tenant and agent identity | T3N sessions |
+| Publish/verify public agent identity metadata | Authenticated Agent session + T3N public Agent Card resolver |
 | Decide allowed action/data/host | Rust/WASM policy |
 | Approve business remediation | Authenticated operator |
 | Prove an exact approved execution | Short-lived one-time capability |
 | Resolve approved private profile value | T3N protected execution boundary |
 | Decide whether external side effect is complete | Independent read-back + Spring state machine |
 
-The prompt is untrusted content. It is never an authorization source.
+The prompt is untrusted content. It is never an authorization source. Public Agent registration is also not an authorization source: it proves discoverability of the authenticated Agent DID, while Member Delegation remains the T3N permission boundary.
 
 ## Real AI agent boundary
 
@@ -293,8 +294,9 @@ Rules:
 - `GATEWAY_SERVICE_TOKEN` is a separate service-to-service credential.
 - `REMEDIATION_CAPABILITY_KEY` signs one-time human authorization proofs and is distinct from every T3N/provider/remediation credential.
 - Canonical tenant/agent DIDs come from authenticated T3N sessions.
+- Public Agent Card generation reads the Agent DID only from the authenticated Agent session; the card is never allowed to replace or derive that identity.
+- Agent Card registration proves public onboarding/discoverability only. Member Delegation restricts contract, functions, scopes, hosts and validity and remains the authorization source.
 - Delegated calls derive `pii_did` internally from the authenticated tenant session.
-- Member delegation restricts contract, functions, scopes, hosts and validity.
 - The model proposes; Rust/WASM policy decides. Provider failure, invalid tool output and T3N failure all fail closed.
 - The model/application carry only logical private references; only the contract maps them to supported T3N profile markers.
 - `ALLOW` + authenticated operator + explicit human authorization + valid one-time capability are required before protected remediation.
@@ -333,12 +335,15 @@ Business APIs require the Spring Security operator session and CSRF protection. 
 The dashboard reports independent observed states:
 
 ```text
-Gateway       ONLINE / UNAVAILABLE
-Tenant        AUTHENTICATED / NOT AUTHENTICATED
-Agent         AUTHENTICATED / NOT AUTHENTICATED / NOT CONFIGURED
-Contract      RESOLVED / UNAVAILABLE
-Delegation    ACTIVE / REVOKED / NOT_GRANTED / UNKNOWN
+Gateway          ONLINE / UNAVAILABLE
+Tenant           AUTHENTICATED / NOT AUTHENTICATED
+Agent            AUTHENTICATED / NOT AUTHENTICATED / NOT CONFIGURED
+Agent onboarding REGISTERED / NOT_REGISTERED / MISMATCH / UNAVAILABLE
+Contract         RESOLVED / UNAVAILABLE
+Delegation       ACTIVE / REVOKED / NOT_GRANTED / UNKNOWN
 ```
+
+`Authenticated` means the configured agent credential established a T3N session and the canonical Agent DID came from that authenticated session. `REGISTERED` means the public Agent Card resolved through T3N, matched that same DID, passed the supported schema/size checks and advertised only implemented services. `Delegated` means the tenant granted contract functions/scopes/hosts. Registration is discoverability only: it does not grant contract access and it is not a TEE-attestation claim.
 
 `RESOLVED` means contract id/version were resolved. It is not hardware attestation. Delegated functions and allowed hosts come from the observed grant.
 
@@ -364,6 +369,17 @@ Local controls:
 bash scripts/run-local-evidence.sh
 ```
 
+Public Agent onboarding verification is read-only and separate from publication:
+
+```bash
+cd t3n-gateway
+npm install
+npm run agent:card:verify   # read-only; exits non-zero unless REGISTERED
+npm run agent:card:publish  # mutable; publishes via pinned local T3N CLI and may consume credits
+```
+
+`agent:card:publish` builds the deterministic public card from `AgentSession.getAgentDid()`, writes only non-secret metadata, uses the locally installed SDK/CLI `5.2.0`, passes the agent key through the child-process environment rather than command-line arguments, and verifies the public card after publication. The generated local `t3n-gateway/agent-card.json` is ignored by Git. `agent:card:verify` never publishes or mutates T3N state.
+
 Live T3N evidence:
 
 ```bash
@@ -372,13 +388,13 @@ npm install
 npm run evidence:live
 ```
 
-Generated artifacts are `docs/evidence/deployment-manifest.json` and `docs/evidence/testnet-run.json`. The orchestrator binds WASM SHA-256, canonical DIDs and contract id/version and fails on mismatch, scenario `FAIL` or configured secret leakage. `NOT_RUN` is never counted as `PASS`.
+Generated artifacts are `docs/evidence/deployment-manifest.json` and `docs/evidence/testnet-run.json`. The orchestrator binds WASM SHA-256, canonical DIDs and contract id/version and fails on mismatch, scenario `FAIL` or configured secret leakage. It also records the observed Agent Card state, public URI when resolved, SHA-256 of the raw resolved card, verification timestamp and verified services. `evidence:live` observes onboarding only; it never publishes an Agent Card. `NOT_RUN` is never counted as `PASS`.
 
 For live remediation proof, both `SECURITY_API_URL` and `SECURITY_VERIFICATION_URL` must be configured/sealed and the delegation includes only their derived HTTPS hosts. A live remediation scenario passes only on the documented execution plus independent verification sequence. An accepted 2xx without read-back cannot become a passing completion claim.
 
 Profile-placeholder resolution must remain `NOT_RUN` in public evidence until a compatible T3N testnet profile/user context actually executes it. Local Rust/Java/gateway/frontend tests prove the closed-reference architecture but are not mislabeled as live profile-resolution evidence.
 
-The submission capture harness rejects AI/T3N/operator/service/capability secrets in generated metadata and captures a remediation success only after the UI shows independently verified `COMPLETED`.
+The submission capture harness rejects AI/T3N/operator/service/capability secrets in generated metadata, requires the live Agent onboarding state to be `REGISTERED`, and captures a remediation success only after the UI shows independently verified `COMPLETED`.
 
 ## Terminal 3 integration findings
 
