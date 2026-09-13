@@ -17,6 +17,8 @@ export interface RemediationBody {
   policy_version: string;
   policy_hash: string;
   executor_did: string;
+  operator_principal_hash: string;
+  authorized_at: number;
 }
 
 interface Claims {
@@ -34,7 +36,9 @@ interface Claims {
   policyVersion: string;
   policyHash: string;
   executorDid: string;
+  operatorPrincipalHash: string;
   authorizedAt: number;
+  issuedAt: number;
   expiresAt: number;
   nonce: string;
 }
@@ -84,6 +88,10 @@ export function canonicalizeApprovedHost(value: unknown): string {
   return input;
 }
 
+function validSha256(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+}
+
 export class RemediationAuthorizationVerifier {
   constructor(
     private readonly key: string,
@@ -100,11 +108,21 @@ export class RemediationAuthorizationVerifier {
     if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) throw new Error('CAPABILITY_INVALID');
 
     const claims = JSON.parse(Buffer.from(payloadPart, 'base64url').toString('utf8')) as Claims;
-    if (!claims.nonce || !claims.expiresAt || claims.expiresAt <= this.now()) throw new Error('CAPABILITY_EXPIRED');
-    if (claims.authorizedAt > this.now() + 5_000) throw new Error('CAPABILITY_INVALID');
-    if (!claims.policyVersion || !/^[a-f0-9]{64}$/.test(claims.policyHash ?? '')) throw new Error('CAPABILITY_INVALID');
+    const currentTime = this.now();
+    if (!claims.nonce || !claims.expiresAt || claims.expiresAt <= currentTime) throw new Error('CAPABILITY_EXPIRED');
+    if (!Number.isFinite(claims.authorizedAt) || claims.authorizedAt <= 0
+      || !Number.isFinite(claims.issuedAt) || claims.issuedAt <= 0
+      || claims.authorizedAt > claims.issuedAt
+      || claims.issuedAt > currentTime + 5_000
+      || claims.expiresAt <= claims.issuedAt) {
+      throw new Error('CAPABILITY_INVALID');
+    }
+    if (!claims.policyVersion || !validSha256(claims.policyHash)) throw new Error('CAPABILITY_INVALID');
     if (!claims.executorDid?.startsWith('did:t3n:')) throw new Error('CAPABILITY_INVALID');
-    if (!/^[a-f0-9]{64}$/.test(claims.normalPayloadHash ?? '')) throw new Error('CAPABILITY_INVALID');
+    if (!validSha256(claims.normalPayloadHash) || !validSha256(claims.operatorPrincipalHash)) throw new Error('CAPABILITY_INVALID');
+    if (!validSha256(body.operator_principal_hash) || !Number.isFinite(body.authorized_at) || body.authorized_at <= 0) {
+      throw new Error('CAPABILITY_INVALID');
+    }
     const approvedHost = canonicalizeApprovedHost(body.approved_host);
     const claimApprovedHost = canonicalizeApprovedHost(claims.approvedHost);
 
@@ -121,10 +139,12 @@ export class RemediationAuthorizationVerifier {
       || claims.privateRefsHash !== listHash(body.private_refs)
       || claims.policyVersion !== body.policy_version
       || claims.policyHash !== body.policy_hash
-      || claims.executorDid !== body.executor_did;
+      || claims.executorDid !== body.executor_did
+      || claims.operatorPrincipalHash !== body.operator_principal_hash
+      || claims.authorizedAt !== body.authorized_at;
     if (mismatched) throw new Error('CAPABILITY_BODY_MISMATCH');
 
-    const entries = this.loadEntries().filter((entry) => entry.expiresAt > this.now());
+    const entries = this.loadEntries().filter((entry) => entry.expiresAt > currentTime);
     if (entries.some((entry) => entry.nonce === claims.nonce)) throw new Error('CAPABILITY_REPLAY');
     entries.push({ nonce: claims.nonce, expiresAt: claims.expiresAt });
     this.persistEntries(entries);
