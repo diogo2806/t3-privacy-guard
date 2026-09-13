@@ -43,6 +43,8 @@ This matrix distinguishes **automated local assertions**, **property-generated l
 | A37 | Rust | Read-back has matching operation and expected state | `VERIFIED`; mismatched state is `UNVERIFIED` | `remediation.rs` tests | READY_TO_RUN |
 | A38 | Java | `isolate-account`, `create-incident` or `notify-security` receives policy `ALLOW` and then remediation authorization is attempted | Policy result remains valid, but protected remediation is rejected before authorization/claim/egress; proposal remains `EVALUATED` | `IncidentServiceTest` | READY_TO_RUN |
 | A39 | Rust | `execute-remediation` receives an action without the currently supported completion contract | Fail closed before secret lookup or protected egress; only `revoke-credential` reaches the current executor | `remediation.rs` tests | READY_TO_RUN |
+| A40 | Gateway/API/React | Matching Member Delegation has `valid_from_secs` in the future | Gateway reports `SCHEDULED`; backend readiness remains false; UI renders a pending state and never `Operational` | `delegation-service.test.ts`, `SystemStatusServiceTest`, `SystemStatusBar.test.tsx`, `TrustFlowSummary.test.tsx` | READY_TO_RUN |
+| A41 | Gateway | Delegation window contains unreadable bounds or `valid_from_secs > valid_until_secs` | `UNKNOWN`, never `ACTIVE` | `delegation-service.test.ts` | READY_TO_RUN |
 | P01 | Rust property | Generated action/field combinations include forbidden secret fields | Secret never appears in `allowed_fields`; decision is not `ALLOW` | `tests/properties.rs` / proptest | PROPERTY_TEST |
 | P02 | Rust property | Generated allowed requests with duplicates/order variation | Every `ALLOW` remains a subset of the action policy with no redactions | `tests/properties.rs` / proptest | PROPERTY_TEST |
 | P03 | Rust property | Mutate an allowed request by adding privilege | Mutation cannot remain `ALLOW` when it violates policy | `tests/properties.rs` / proptest | PROPERTY_TEST |
@@ -66,6 +68,8 @@ This matrix distinguishes **automated local assertions**, **property-generated l
 ## Interpretation
 
 `READY_TO_RUN` means an executable fixed assertion exists in the repository but this document does not pretend it was executed by a particular environment. `PROPERTY_TEST` means generated local invariant checks; Rust failures preserve proptest counterexamples/seeds and gateway generators use fixed seeds. Property tests are not live T3N evidence and their case count is not a coverage percentage. `NOT_RUN` means the scenario intentionally requires real T3N testnet state, credentials, credits and, for egress scenarios, seeded private remediation/verification configuration.
+
+For Member Delegation status, `ACTIVE` means the observed grant is currently inside its validity window. A grant whose `valid_from_secs` is in the future is `SCHEDULED` and does not make the control plane ready. Expired grants are `REVOKED`; malformed, non-numeric or inverted validity windows are `UNKNOWN` and fail closed.
 
 `ALLOW` is a policy result, not proof that an execution capability exists for that action. The current protected executor and independent completion contract are intentionally closed to `revoke-credential`, whose final verified state is `REVOKED`. `isolate-account`, `create-incident` and `notify-security` remain valid policy-evaluation actions, but both Spring authorization and Rust `execute-remediation` fail closed before side effects if one of those actions is sent to the current remediation executor.
 

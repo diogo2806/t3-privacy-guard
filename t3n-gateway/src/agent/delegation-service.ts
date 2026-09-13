@@ -12,7 +12,7 @@ export interface DelegationGrantRequest {
   readonly validUntilSecs?: number;
 }
 
-export type DelegationState = 'ACTIVE' | 'REVOKED' | 'NOT_GRANTED' | 'UNKNOWN';
+export type DelegationState = 'ACTIVE' | 'SCHEDULED' | 'REVOKED' | 'NOT_GRANTED' | 'UNKNOWN';
 export interface DelegationStatus {
   readonly state: DelegationState;
   readonly functions: string[];
@@ -28,7 +28,7 @@ interface GrantRecord {
   scopes?: unknown;
   read_scopes?: unknown;
   allowed_hosts?: unknown;
-  window?: { valid_from_secs?: unknown; valid_until_secs?: unknown };
+  window?: unknown;
 }
 
 function assertNonEmpty(values: string[], field: string): void {
@@ -50,6 +50,27 @@ function asStrings(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
 
+function optionalFiniteNumber(object: Record<string, unknown>, key: string): number | null | undefined {
+  if (!(key in object)) return undefined;
+  const value = object[key];
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return value;
+}
+
+export function interpretDelegationWindow(window: unknown, nowSecs: number): DelegationState {
+  if (window === undefined || window === null) return 'ACTIVE';
+  if (!window || typeof window !== 'object' || Array.isArray(window)) return 'UNKNOWN';
+
+  const object = window as Record<string, unknown>;
+  const validFrom = optionalFiniteNumber(object, 'valid_from_secs');
+  const validUntil = optionalFiniteNumber(object, 'valid_until_secs');
+  if (validFrom === null || validUntil === null) return 'UNKNOWN';
+  if (validFrom !== undefined && validUntil !== undefined && validFrom > validUntil) return 'UNKNOWN';
+  if (validUntil !== undefined && validUntil < nowSecs) return 'REVOKED';
+  if (validFrom !== undefined && validFrom > nowSecs) return 'SCHEDULED';
+  return 'ACTIVE';
+}
+
 export class DelegationService {
   constructor(private readonly tenantSession: T3nSession, private readonly agentSession: AgentSession) {}
 
@@ -62,7 +83,9 @@ export class DelegationService {
       grantee: this.agentSession.getAgentDid(), contract_id: request.contractId, version_req: request.versionReq,
       functions: request.functions, scopes: request.scopes, read_scopes: request.readScopes,
       allowed_hosts: request.allowedHosts,
-      window: request.validFromSecs || request.validUntilSecs ? { valid_from_secs: request.validFromSecs, valid_until_secs: request.validUntilSecs } : undefined,
+      window: request.validFromSecs !== undefined || request.validUntilSecs !== undefined
+        ? { valid_from_secs: request.validFromSecs, valid_until_secs: request.validUntilSecs }
+        : undefined,
     });
   }
 
@@ -94,8 +117,7 @@ export class DelegationService {
     const scopes = asStrings(grant.scopes);
     const allowedHosts = asStrings(grant.allowed_hosts);
     if (functions.length === 0 || scopes.length === 0) return { state: 'UNKNOWN', functions, allowedHosts, policy };
-    const validUntil = typeof grant.window?.valid_until_secs === 'number' ? grant.window.valid_until_secs : null;
-    const state: DelegationState = validUntil !== null && validUntil < Math.floor(Date.now() / 1000) ? 'REVOKED' : 'ACTIVE';
+    const state = interpretDelegationWindow(grant.window, Math.floor(Date.now() / 1000));
     return { state, functions, allowedHosts, policy };
   }
 

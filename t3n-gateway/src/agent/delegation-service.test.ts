@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { T3nSession } from '../t3n/session.js';
 import type { AgentSession } from './agent-session.js';
-import { DelegationService } from './delegation-service.js';
+import { DelegationService, interpretDelegationWindow } from './delegation-service.js';
 
 function fakeSessions(policy: unknown) {
   const updates: unknown[] = [];
@@ -20,11 +20,60 @@ function fakeSessions(policy: unknown) {
   return { tenant, agent, updates };
 }
 
+test('interprets delegation validity window fail-closed at exact temporal boundaries', () => {
+  const now = 1_700_000_000;
+  assert.equal(interpretDelegationWindow(undefined, now), 'ACTIVE');
+  assert.equal(interpretDelegationWindow({ valid_from_secs: now }, now), 'ACTIVE');
+  assert.equal(interpretDelegationWindow({ valid_until_secs: now }, now), 'ACTIVE');
+  assert.equal(interpretDelegationWindow({ valid_from_secs: now + 1 }, now), 'SCHEDULED');
+  assert.equal(interpretDelegationWindow({ valid_until_secs: now - 1 }, now), 'REVOKED');
+  assert.equal(interpretDelegationWindow({ valid_from_secs: now + 10, valid_until_secs: now + 5 }, now), 'UNKNOWN');
+  assert.equal(interpretDelegationWindow({ valid_from_secs: 'later' }, now), 'UNKNOWN');
+  assert.equal(interpretDelegationWindow({ valid_until_secs: Number.NaN }, now), 'UNKNOWN');
+  assert.equal(interpretDelegationWindow('invalid', now), 'UNKNOWN');
+});
+
 test('reports NOT_GRANTED when no grant exists for agent and contract', async () => {
   const { tenant, agent } = fakeSessions({ grants: [] });
   const service = new DelegationService(tenant, agent);
   const result = await service.status('z:tenant:privacy-guard');
   assert.equal(result.state, 'NOT_GRANTED');
+});
+
+test('reports SCHEDULED for a matching grant whose validity window has not begun', async () => {
+  const now = Math.floor(Date.now() / 1000);
+  const { tenant, agent } = fakeSessions({
+    grants: [{
+      grantee: 'did:t3n:agent-test',
+      contract_id: 'z:tenant:privacy-guard',
+      functions: ['evaluate-action'],
+      scopes: ['incident_id'],
+      window: { valid_from_secs: now + 300, valid_until_secs: now + 600 },
+    }],
+  });
+  const service = new DelegationService(tenant, agent);
+  assert.equal((await service.status('z:tenant:privacy-guard')).state, 'SCHEDULED');
+});
+
+test('reports UNKNOWN for unreadable or inverted matching grant windows', async () => {
+  const now = Math.floor(Date.now() / 1000);
+  for (const window of [
+    { valid_from_secs: 'later' },
+    { valid_until_secs: 'later' },
+    { valid_from_secs: now + 600, valid_until_secs: now + 300 },
+  ]) {
+    const { tenant, agent } = fakeSessions({
+      grants: [{
+        grantee: 'did:t3n:agent-test',
+        contract_id: 'z:tenant:privacy-guard',
+        functions: ['evaluate-action'],
+        scopes: ['incident_id'],
+        window,
+      }],
+    });
+    const service = new DelegationService(tenant, agent);
+    assert.equal((await service.status('z:tenant:privacy-guard')).state, 'UNKNOWN');
+  }
 });
 
 test('revoke returns NOT_GRANTED without writing a replacement policy when grant is absent', async () => {

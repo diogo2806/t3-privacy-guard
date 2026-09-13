@@ -13,6 +13,8 @@ const READY_STATUS: SystemStatus = {
   agentConfigured: true,
   agentAuthenticated: true,
   agentDid: 'did:t3n:agent',
+  agentRegistrationState: 'REGISTERED',
+  agentCardServices: ['DID'],
   contractResolved: true,
   contractId: 'z:tenant:privacy-guard',
   contractVersion: '0.3.0',
@@ -162,6 +164,21 @@ describe('TrustFlowSummary', () => {
     expect(screen.getByText('T3N controls unavailable')).toBeInTheDocument();
     expect(screen.getByText(/cannot be proven until live status recovers/i)).toBeInTheDocument();
     expect(container.querySelector('.trust-readiness-unavailable')).toBeInTheDocument();
+    expect(container.querySelector('.trust-readiness-ready')).not.toBeInTheDocument();
+  });
+
+  it('keeps a future delegation pending and never reports T3N controls ready', () => {
+    const { container } = render(<TrustFlowSummary
+      agentAnalysis={null}
+      decision={null}
+      selectedAction={null}
+      remediationExecution={null}
+      systemStatus={{ ...READY_STATUS, delegationState: 'SCHEDULED' }}
+      statusLoading={false}
+    />);
+    expect(screen.getByText('Delegation scheduled')).toBeInTheDocument();
+    expect(screen.getByText(/authorization window has not begun/i)).toBeInTheDocument();
+    expect(container.querySelector('.trust-readiness-pending')).toBeInTheDocument();
     expect(container.querySelector('.trust-readiness-ready')).not.toBeInTheDocument();
   });
 });

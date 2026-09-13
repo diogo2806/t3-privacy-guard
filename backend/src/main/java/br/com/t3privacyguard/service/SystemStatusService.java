@@ -38,6 +38,8 @@ public class SystemStatusService {
         String message;
         if (!gatewayReachable) {
             message = "T3N gateway is unreachable.";
+        } else if ("SCHEDULED".equals(delegationState)) {
+            message = "Delegation exists, but its authorization window has not begun.";
         } else if (controlsReady && "REGISTERED".equals(registrationState)) {
             message = "T3N controls are ready, and the public Agent Card is registered for the authenticated Agent DID.";
         } else if (controlsReady) {

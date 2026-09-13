@@ -36,6 +36,13 @@ function t3nReady(status: SystemStatus | null): boolean {
   );
 }
 
+function readinessState(status: SystemStatus | null, loading: boolean, ready: boolean): { className: string; label: string } {
+  if (loading) return { className: 'trust-readiness-pending', label: 'Checking T3N' };
+  if (ready) return { className: 'trust-readiness-ready', label: 'T3N controls ready' };
+  if (status?.delegationState === 'SCHEDULED') return { className: 'trust-readiness-pending', label: 'Delegation scheduled' };
+  return { className: 'trust-readiness-unavailable', label: 'T3N controls unavailable' };
+}
+
 function isHumanAuthorized(action: ActionProposal | null): boolean {
   return action?.status === 'REMEDIATION_AUTHORIZED' || action?.status === 'REMEDIATED';
 }
@@ -122,7 +129,9 @@ function resultMessage(
   ready: boolean,
   statusLoading: boolean,
   proposalReceived: boolean,
+  systemStatus: SystemStatus | null,
 ): string {
+  if (!statusLoading && systemStatus?.delegationState === 'SCHEDULED') return 'Delegation exists, but its authorization window has not begun. Policy decisions and protected execution are not reported as ready.';
   if (!statusLoading && !ready) return 'T3N controls are unavailable or incomplete. Policy decisions and protected execution cannot be proven until live status recovers.';
   if (!proposalReceived) return 'Start with a prompt. The AI may propose an action, but it has no authority to execute it.';
   if (!decision) return 'An action proposal is available. T3N policy has not produced a decision yet.';
@@ -141,6 +150,7 @@ export function TrustFlowSummary({ agentAnalysis, decision, selectedAction, reme
   const steps = trustSteps(agentAnalysis, decision, selectedAction, remediationExecution);
   const ready = t3nReady(systemStatus);
   const proposalReceived = Boolean(agentAnalysis || selectedAction);
+  const readiness = readinessState(systemStatus, statusLoading, ready);
 
   return (
     <section className="trust-flow card" aria-labelledby="trust-flow-title">
@@ -149,8 +159,8 @@ export function TrustFlowSummary({ agentAnalysis, decision, selectedAction, reme
           <p className="eyebrow">Trust flow</p>
           <h2 id="trust-flow-title">AI proposes. Independent controls decide what happens next.</h2>
         </div>
-        <span className={`trust-readiness ${statusLoading ? 'trust-readiness-pending' : ready ? 'trust-readiness-ready' : 'trust-readiness-unavailable'}`}>
-          {statusLoading ? 'Checking T3N' : ready ? 'T3N controls ready' : 'T3N controls unavailable'}
+        <span className={`trust-readiness ${readiness.className}`}>
+          {readiness.label}
         </span>
       </div>
 
@@ -171,7 +181,7 @@ export function TrustFlowSummary({ agentAnalysis, decision, selectedAction, reme
         })}
       </ol>
 
-      <p className="trust-result" aria-live="polite"><strong>Result:</strong> {resultMessage(decision, selectedAction, remediationExecution, ready, statusLoading, proposalReceived)}</p>
+      <p className="trust-result" aria-live="polite"><strong>Result:</strong> {resultMessage(decision, selectedAction, remediationExecution, ready, statusLoading, proposalReceived, systemStatus)}</p>
     </section>
   );
 }
