@@ -241,6 +241,16 @@ Unknown properties are rejected. In particular the model cannot supply `decision
 
 Real private values must never be placed in demo prompts; the model asks only for an enumerated logical category when a supported private value is needed.
 
+Before a prompt reaches a configured remote AI provider, the gateway runs a deliberately **partial high-confidence sensitive-literal guard**. It blocks supported structured classes that can be validated defensibly: e-mail, CPF, checksum-valid CNPJ, strongly signalled phone numbers (E.164 or an explicit phone/mobile/telefone/celular label), public IP addresses explicitly labelled as customer/user data, API keys/tokens, Bearer tokens, JWTs, private-key markers, labelled passwords and Luhn-valid card candidates. Public IPs used as technical URLs/hosts are not blocked merely for being IP literals, and the guard does not attempt generic regex detection of names or addresses.
+
+That boundary reduces the chance of supported literals reaching the provider; it is **not** a semantic or exhaustive PII scanner. A prompt that passes the guard is not certified `PII-free`, `safe` or equivalent. Rejected errors expose categories only, never the matched value or offset. The shared versioned corpus at `privacy-conformance/sensitive-literal-corpus.json` is consumed by both TypeScript gateway tests and Java persistence-boundary tests so the overlapping cases cannot drift silently.
+
+```text
+known supported high-confidence literal -> BLOCK BEFORE PROVIDER
+other/unstructured free text            -> no absolute PII-free claim
+supported private T3N value             -> logical reference such as verified_email
+```
+
 ## Public T3N Agent onboarding and discoverability
 
 The Proposal Agent has deliberately separate states: **authenticated**, **registered**, **Member grant**, and **effective access**. Authentication proves control of the configured Proposal credential and yields the canonical Agent DID. Registration proves that a public Agent Card for that same DID can be resolved from T3N. Member Delegation is the tenant/data-owner grant document. Effective access is the independent principal-side T3N authorization verdict for the exact operation. Registration and grant read-back never imply effective access by themselves.
@@ -357,7 +367,7 @@ TEE mapping:       {{profile.verified_contacts.email.value}}
 
 The literal marker is created inside Rust/WASM from a closed allowlist. Clients cannot submit arbitrary profile namespaces. `verified_email` on an unrelated action is minimized with `REDACT`; unknown references and literal placeholder strings are denied. Spring persists only the reference name, never the email address. Human authorization capabilities bind the private-reference set so it cannot be changed after approval.
 
-Where plaintext may exist:
+For a private value obtained through this supported logical-reference flow, plaintext visibility is:
 
 ```text
 AI model                       NO
@@ -368,6 +378,8 @@ Business audit/evidence        NO
 T3N protected egress           YES, only while resolving the approved placeholder
 Allowed external service       YES, as the intended recipient of the protected egress
 ```
+
+This table does not make a blanket claim about arbitrary user-supplied free text: users must not paste private values into the prompt, and the pre-provider guard is intentionally partial.
 
 `PlaceholderDenied`, `PlaceholderUnknown` and `PlaceholderNoUserContext` fail closed. Upstream responses are reduced to operation/status metadata before leaving the contract, so an echoed private value is not returned to the application.
 
