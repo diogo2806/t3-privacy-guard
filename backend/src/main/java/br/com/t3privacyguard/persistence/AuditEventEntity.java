@@ -4,10 +4,14 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.Instant;
 
 @Entity
-@Table(name = "audit_events")
+@Table(
+    name = "audit_events",
+    uniqueConstraints = @UniqueConstraint(name = "uk_audit_integrity_sequence", columnNames = {"incident_id", "integrity_sequence"})
+)
 public class AuditEventEntity {
     @Id
     private String id;
@@ -25,6 +29,14 @@ public class AuditEventEntity {
     private String t3nHash;
     @Column(name = "t3n_function", length = 120)
     private String t3nFunction;
+    @Column(name = "integrity_sequence")
+    private Long integritySequence;
+    @Column(name = "previous_mac", length = 64)
+    private String previousMac;
+    @Column(name = "event_mac", length = 64)
+    private String eventMac;
+    @Column(name = "integrity_version", length = 16)
+    private String integrityVersion;
 
     protected AuditEventEntity() {}
 
@@ -42,6 +54,23 @@ public class AuditEventEntity {
         String t3nHash,
         String t3nFunction
     ) {
+        this(id, incidentId, type, message, createdAt, t3nSequence, t3nHash, t3nFunction, null, null, null, null);
+    }
+
+    public AuditEventEntity(
+        String id,
+        String incidentId,
+        String type,
+        String message,
+        Instant createdAt,
+        Long t3nSequence,
+        String t3nHash,
+        String t3nFunction,
+        Long integritySequence,
+        String previousMac,
+        String eventMac,
+        String integrityVersion
+    ) {
         this.id = id;
         this.incidentId = incidentId;
         this.type = type;
@@ -50,6 +79,10 @@ public class AuditEventEntity {
         this.t3nSequence = t3nSequence;
         this.t3nHash = t3nHash;
         this.t3nFunction = t3nFunction;
+        this.integritySequence = integritySequence;
+        this.previousMac = previousMac;
+        this.eventMac = eventMac;
+        this.integrityVersion = integrityVersion;
     }
 
     public String getId() { return id; }
@@ -60,4 +93,8 @@ public class AuditEventEntity {
     public Long getT3nSequence() { return t3nSequence; }
     public String getT3nHash() { return t3nHash; }
     public String getT3nFunction() { return t3nFunction; }
+    public Long getIntegritySequence() { return integritySequence; }
+    public String getPreviousMac() { return previousMac; }
+    public String getEventMac() { return eventMac; }
+    public String getIntegrityVersion() { return integrityVersion; }
 }
