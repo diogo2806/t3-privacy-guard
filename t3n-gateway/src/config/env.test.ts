@@ -25,16 +25,26 @@ test('rejects missing tenant API key', () => {
   }), ConfigurationError);
 });
 
-test('defaults to testnet, disabled AI and current contract version', () => {
+test('defaults to testnet, disabled AI, persistent trust floor and current contract version', () => {
   const config = readGatewayConfig(baseEnv);
   assert.equal(config.network, 'testnet');
   assert.equal(config.port, 3001);
   assert.equal(config.agentApiKey, null);
   assert.equal(config.contractVersion, '0.4.0');
   assert.equal(config.remediationReplayStorePath, '/data/remediation-capability-nonces.json');
+  assert.equal(config.trustManifestFloorStorePath, '/data/t3n-trust-floor.json');
   assert.equal(config.aiProvider, 'disabled');
   assert.equal(config.aiApiKey, null);
   assert.equal(config.aiModel, null);
+});
+
+test('accepts a custom persistent trust manifest floor path', () => {
+  assert.equal(readGatewayConfig({ ...baseEnv, T3N_TRUST_FLOOR_STORE_PATH: '/state/t3n-floor.json' }).trustManifestFloorStorePath, '/state/t3n-floor.json');
+});
+
+test('rejects explicitly empty persistent state paths', () => {
+  assert.throws(() => readGatewayConfig({ ...baseEnv, T3N_TRUST_FLOOR_STORE_PATH: '   ' }), ConfigurationError);
+  assert.throws(() => readGatewayConfig({ ...baseEnv, REMEDIATION_REPLAY_STORE_PATH: '   ' }), ConfigurationError);
 });
 
 test('accepts HTTPS remote and explicit loopback HTTP AI providers', () => {
