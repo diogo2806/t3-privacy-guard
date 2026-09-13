@@ -18,6 +18,8 @@ import org.springframework.stereotype.Component;
 public class GatewaySystemClient {
     private static final String SERVICE_TOKEN_HEADER = "X-Gateway-Service-Token";
     private static final int MAX_ACTIVITY_LIMIT = 200;
+    private static final List<String> MEMBER_DELEGATION_STATES = List.of("ACTIVE", "SCHEDULED", "REVOKED", "NOT_GRANTED", "UNKNOWN");
+    private static final List<String> EFFECTIVE_DELEGATION_STATES = List.of("ACTIVE", "DENIED", "UNKNOWN");
 
     private final HttpClient httpClient;
     private final ObjectMapper mapper;
@@ -85,13 +87,35 @@ public class GatewaySystemClient {
         }
     }
 
+    private static List<String> safeList(List<String> values) {
+        return values == null ? List.of() : List.copyOf(values);
+    }
+
     public record HealthResponse(String status, String service) {}
     public record TenantStatus(boolean connected, boolean ready, String tenantDid, String network) {}
     public record AgentStatus(boolean configured, boolean connected, boolean ready, String agentDid, String network) {}
     public record ExecutorStatus(boolean configured, boolean connected, boolean ready, String executorDid, String network) {}
     public record AgentRegistrationStatus(String agentDid, String state, String cardUri, String cardSha256, String verifiedAt, List<String> services) {}
     public record ContractIdentity(String contractId, String contractVersion) {}
-    public record DelegationStatus(String state, List<String> functions, List<String> allowedHosts) {}
+    public record DelegationStatus(
+        String memberState,
+        String effectiveState,
+        List<String> functions,
+        List<String> scopes,
+        List<String> allowedHosts,
+        List<String> checkedFunctions,
+        List<String> checkedScopes
+    ) {
+        public DelegationStatus {
+            memberState = MEMBER_DELEGATION_STATES.contains(memberState) ? memberState : "UNKNOWN";
+            effectiveState = EFFECTIVE_DELEGATION_STATES.contains(effectiveState) ? effectiveState : "UNKNOWN";
+            functions = safeList(functions);
+            scopes = safeList(scopes);
+            allowedHosts = safeList(allowedHosts);
+            checkedFunctions = safeList(checkedFunctions);
+            checkedScopes = safeList(checkedScopes);
+        }
+    }
     public record ActivityEvent(
         long sequence,
         String hash,
