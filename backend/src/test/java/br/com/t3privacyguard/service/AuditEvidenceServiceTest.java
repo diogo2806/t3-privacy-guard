@@ -4,13 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import br.com.t3privacyguard.audit.AuditIntegrityService;
+import br.com.t3privacyguard.audit.AuditIntegrityState;
 import br.com.t3privacyguard.domain.AuditReconciliationStatus;
 import br.com.t3privacyguard.domain.Severity;
 import br.com.t3privacyguard.integration.GatewaySystemClient;
 import br.com.t3privacyguard.integration.GatewaySystemClient.ActivityEvent;
 import br.com.t3privacyguard.integration.GatewaySystemClient.ActivityPage;
 import br.com.t3privacyguard.persistence.AuditEventEntity;
-import br.com.t3privacyguard.persistence.AuditEventRepository;
 import br.com.t3privacyguard.persistence.IncidentEntity;
 import br.com.t3privacyguard.persistence.IncidentRepository;
 import java.time.Instant;
@@ -21,7 +22,7 @@ import org.junit.jupiter.api.Test;
 
 class AuditEvidenceServiceTest {
     private IncidentRepository incidents;
-    private AuditEventRepository audits;
+    private AuditIntegrityService integrity;
     private GatewaySystemClient gateway;
     private AuditEvidenceService service;
     private IncidentEntity incident;
@@ -29,9 +30,9 @@ class AuditEvidenceServiceTest {
     @BeforeEach
     void setUp() {
         incidents = mock(IncidentRepository.class);
-        audits = mock(AuditEventRepository.class);
+        integrity = mock(AuditIntegrityService.class);
         gateway = mock(GatewaySystemClient.class);
-        service = new AuditEvidenceService(incidents, audits, gateway);
+        service = new AuditEvidenceService(incidents, integrity, gateway);
         Instant createdAt = Instant.now().minusSeconds(60);
         incident = new IncidentEntity("incident-1", "Test", Severity.HIGH, "Summary", "test", createdAt, createdAt.plusSeconds(3600));
         when(incidents.findById("incident-1")).thenReturn(Optional.of(incident));
@@ -44,7 +45,7 @@ class AuditEvidenceServiceTest {
             new AuditEventEntity("local-2", "incident-1", "POLICY_DECISION", "Allowed", Instant.now().minusSeconds(40), 42L, "hash-42", "evaluate-action"),
             new AuditEventEntity("local-3", "incident-1", "REMEDIATION_ACCEPTED", "Accepted", Instant.now().minusSeconds(30), null, null, "execute-remediation")
         );
-        when(audits.findByIncidentIdOrderByCreatedAtAsc("incident-1")).thenReturn(local);
+        verifiedLocal(local);
         availableIdentity();
         when(gateway.activity(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.eq(100)))
             .thenReturn(Optional.of(new ActivityPage(List.of(
@@ -56,6 +57,7 @@ class AuditEvidenceServiceTest {
 
         var result = service.read("incident-1", 100);
 
+        assertThat(result.integrity().state()).isEqualTo(AuditIntegrityState.VERIFIED);
         assertThat(result.localEvents()).extracting(event -> event.status()).containsExactly(
             AuditReconciliationStatus.LOCAL_ONLY,
             AuditReconciliationStatus.MATCHED,
@@ -74,9 +76,10 @@ class AuditEvidenceServiceTest {
 
     @Test
     void hashMismatchIsUnmatchedAndNeverFallsBackToApproximation() {
-        when(audits.findByIncidentIdOrderByCreatedAtAsc("incident-1")).thenReturn(List.of(
+        List<AuditEventEntity> local = List.of(
             new AuditEventEntity("local-1", "incident-1", "POLICY_DECISION", "Allowed", Instant.now(), 42L, "different-hash", "evaluate-action")
-        ));
+        );
+        verifiedLocal(local);
         availableIdentity();
         when(gateway.activity(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.eq(100)))
             .thenReturn(Optional.of(new ActivityPage(List.of(
@@ -91,19 +94,32 @@ class AuditEvidenceServiceTest {
     }
 
     @Test
-    void preservesLocalAuditWhenT3nActivityIsUnavailable() {
-        when(audits.findByIncidentIdOrderByCreatedAtAsc("incident-1")).thenReturn(List.of(
+    void preservesLocalIntegritySignalWhenT3nActivityIsUnavailable() {
+        List<AuditEventEntity> local = List.of(
             new AuditEventEntity("local-1", "incident-1", "INCIDENT_CREATED", "Created", Instant.now()),
             new AuditEventEntity("local-2", "incident-1", "POLICY_DECISION", "Allowed", Instant.now(), null, null, "evaluate-action")
-        ));
+        );
+        verifiedLocal(local);
         when(gateway.tenantStatus()).thenReturn(Optional.empty());
 
         var result = service.read("incident-1", 100);
 
+        assertThat(result.integrity().state()).isEqualTo(AuditIntegrityState.VERIFIED);
         assertThat(result.localEvents()).hasSize(2);
         assertThat(result.t3nEvents()).isEmpty();
         assertThat(result.provenance().t3nAvailable()).isFalse();
         assertThat(result.provenance().message()).isEqualTo("T3N activity temporarily unavailable. Local business audit remains available; network provenance was not verified.");
+    }
+
+    private void verifiedLocal(List<AuditEventEntity> local) {
+        when(integrity.verify("incident-1")).thenReturn(new AuditIntegrityService.Verification(
+            AuditIntegrityState.VERIFIED,
+            local.size(),
+            "a".repeat(64),
+            "v1",
+            "HMAC chain verified.",
+            local
+        ));
     }
 
     private void availableIdentity() {
