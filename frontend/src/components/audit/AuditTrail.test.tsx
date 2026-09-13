@@ -41,7 +41,7 @@ const matchedEvidence: AuditEvidence = {
     unmatched: 0,
     localOnly: 0,
     t3nOnly: 0,
-    message: 'T3N activity is available. Reconciliation requires exact identifiers.',
+    message: 'T3N activity is available. Reconciliation requires exact sequence, hash, contract, function and the canonical actor for that function.',
   },
   nextSequence: null,
   limit: 100,
@@ -50,15 +50,17 @@ const matchedEvidence: AuditEvidence = {
 afterEach(() => vi.restoreAllMocks());
 
 describe('AuditTrail', () => {
-  it('keeps local and T3N sources visually distinct and shows an exact match', async () => {
+  it('keeps local and T3N sources visually distinct and explains the function-specific actor boundary', async () => {
     vi.spyOn(privacyGuardApi, 'auditEvidence').mockResolvedValue(matchedEvidence);
     render(<AuditTrail events={[localEvent]} />);
 
     expect(await screen.findByText('T3N Activity Log')).toBeInTheDocument();
     expect(screen.getByText('Local business audit')).toBeInTheDocument();
+    expect(screen.getByText(/Proposal Agent for evaluation, Protected Executor for execution and verification/)).toBeInTheDocument();
     expect(screen.getAllByText('Matched')).toHaveLength(3);
     expect(screen.getByText('Sequence 42 · success')).toBeInTheDocument();
     expect(screen.getByText(/Expected T3N function:/)).toBeInTheDocument();
+    expect(screen.getByText('did:t3n:agent')).toBeInTheDocument();
   });
 
   it('preserves local business audit and shows the degraded provenance copy', async () => {

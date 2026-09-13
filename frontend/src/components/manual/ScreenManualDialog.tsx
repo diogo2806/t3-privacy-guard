@@ -109,7 +109,7 @@ export function ScreenManualDialog() {
           </section>
           <section>
             <h3>Retenção, trace e auditoria</h3>
-            <p>Incidentes recebem <strong>expiresAt</strong> controlado pelo servidor e deixam de ser retornados após expiração. <strong>Trace ID</strong> identifica uma tentativa HTTP e <strong>Request ID</strong> identifica a operação lógica idempotente. O trace guarda somente metadados limitados. O audit local e o T3N Activity Log são fontes independentes de provenance. Eventos de avaliação devem identificar o Proposal Agent; execução e verificação devem identificar o Protected Executor.</p>
+            <p>Incidentes recebem <strong>expiresAt</strong> controlado pelo servidor e deixam de ser retornados após expiração. <strong>Trace ID</strong> identifica uma tentativa HTTP e <strong>Request ID</strong> identifica a operação lógica idempotente. O trace guarda somente metadados limitados. O audit local e o T3N Activity Log são fontes independentes de provenance. Um <strong>Matched</strong> exige sequence, hash, contrato, função e ator canônico exatos: <code>evaluate-action</code> deve identificar o Proposal Agent; <code>execute-remediation</code> e <code>verify-remediation</code> devem identificar o Protected Executor. Ator trocado nunca é promovido para Matched. Se a identidade canônica de um principal estiver indisponível, os eventos de rede continuam observáveis, mas as operações afetadas permanecem sem provenance confirmada.</p>
           </section>
           <section>
             <h3>Proof &amp; evidence</h3>

@@ -38,56 +38,164 @@ class AuditEvidenceServiceTest {
     }
 
     @Test
-    void matchesOnlyExactSequenceHashContractAgentAndFunction() {
+    void matchesFunctionSpecificProposalAndExecutorActors() {
         List<AuditEventEntity> local = List.of(
             new AuditEventEntity("local-1", "incident-1", "INCIDENT_CREATED", "Created", Instant.now().minusSeconds(50)),
             new AuditEventEntity("local-2", "incident-1", "POLICY_DECISION", "Allowed", Instant.now().minusSeconds(40), 42L, "hash-42", "evaluate-action"),
-            new AuditEventEntity("local-3", "incident-1", "REMEDIATION_ACCEPTED", "Accepted", Instant.now().minusSeconds(30), null, null, "execute-remediation")
+            new AuditEventEntity("local-3", "incident-1", "REMEDIATION_ACCEPTED", "Accepted", Instant.now().minusSeconds(30), 43L, "hash-43", "execute-remediation"),
+            new AuditEventEntity("local-4", "incident-1", "REMEDIATION_VERIFIED", "Verified", Instant.now().minusSeconds(20), 44L, "hash-44", "verify-remediation")
         );
         when(audits.findByIncidentIdOrderByCreatedAtAsc("incident-1")).thenReturn(local);
         availableIdentity();
-        when(gateway.activity(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.eq(100)))
-            .thenReturn(Optional.of(new ActivityPage(List.of(
-                activity(43, "hash-43", "execute-remediation", "did:t3n:agent", "z:tenant:privacy-guard"),
-                activity(42, "hash-42", "evaluate-action", "did:t3n:agent", "z:tenant:privacy-guard"),
-                activity(41, "ignored", "evaluate-action", "did:t3n:other-agent", "z:tenant:privacy-guard"),
-                activity(40, "ignored", "evaluate-action", "did:t3n:agent", "z:other:contract")
-            ), null, true)));
+        whenActivity(100, new ActivityPage(List.of(
+            activity(45, "ignored", "evaluate-action", "did:t3n:agent", "did:t3n:tenant", "z:other:contract"),
+            activity(44, "hash-44", "verify-remediation", "did:t3n:executor", "did:t3n:tenant", "z:tenant:privacy-guard"),
+            activity(43, "hash-43", "execute-remediation", "did:t3n:executor", "did:t3n:tenant", "z:tenant:privacy-guard"),
+            activity(42, "hash-42", "evaluate-action", "did:t3n:agent", "did:t3n:tenant", "z:tenant:privacy-guard")
+        ), null, true));
 
         var result = service.read("incident-1", 100);
 
         assertThat(result.localEvents()).extracting(event -> event.status()).containsExactly(
             AuditReconciliationStatus.LOCAL_ONLY,
             AuditReconciliationStatus.MATCHED,
+            AuditReconciliationStatus.MATCHED,
+            AuditReconciliationStatus.MATCHED
+        );
+        assertThat(result.t3nEvents()).extracting(event -> event.sequence()).containsExactly(44L, 43L, 42L);
+        assertThat(result.t3nEvents()).extracting(event -> event.status()).containsOnly(AuditReconciliationStatus.MATCHED);
+        assertThat(result.provenance().matched()).isEqualTo(3);
+        assertThat(result.provenance().unmatched()).isZero();
+        assertThat(result.provenance().t3nOnly()).isZero();
+    }
+
+    @Test
+    void swappedActorsNeverMatchAndRemainVisibleAsT3nOnly() {
+        when(audits.findByIncidentIdOrderByCreatedAtAsc("incident-1")).thenReturn(List.of(
+            new AuditEventEntity("local-1", "incident-1", "POLICY_DECISION", "Allowed", Instant.now(), 52L, "hash-52", "evaluate-action"),
+            new AuditEventEntity("local-2", "incident-1", "REMEDIATION_ACCEPTED", "Accepted", Instant.now(), 53L, "hash-53", "execute-remediation"),
+            new AuditEventEntity("local-3", "incident-1", "REMEDIATION_VERIFIED", "Verified", Instant.now(), 54L, "hash-54", "verify-remediation")
+        ));
+        availableIdentity();
+        whenActivity(100, new ActivityPage(List.of(
+            activity(54, "hash-54", "verify-remediation", "did:t3n:agent", "did:t3n:tenant", "z:tenant:privacy-guard"),
+            activity(53, "hash-53", "execute-remediation", "did:t3n:agent", "did:t3n:tenant", "z:tenant:privacy-guard"),
+            activity(52, "hash-52", "evaluate-action", "did:t3n:executor", "did:t3n:tenant", "z:tenant:privacy-guard")
+        ), null, true));
+
+        var result = service.read("incident-1", 100);
+
+        assertThat(result.localEvents()).extracting(event -> event.status()).containsOnly(AuditReconciliationStatus.UNMATCHED);
+        assertThat(result.t3nEvents()).extracting(event -> event.status()).containsOnly(AuditReconciliationStatus.T3N_ONLY);
+        assertThat(result.provenance().matched()).isZero();
+        assertThat(result.provenance().unmatched()).isEqualTo(3);
+        assertThat(result.provenance().t3nOnly()).isEqualTo(3);
+    }
+
+    @Test
+    void executorUnavailableDoesNotBlockProposalReconciliationOrFabricateProtectedMatch() {
+        when(audits.findByIncidentIdOrderByCreatedAtAsc("incident-1")).thenReturn(List.of(
+            new AuditEventEntity("local-1", "incident-1", "POLICY_DECISION", "Allowed", Instant.now(), 62L, "hash-62", "evaluate-action"),
+            new AuditEventEntity("local-2", "incident-1", "REMEDIATION_ACCEPTED", "Accepted", Instant.now(), 63L, "hash-63", "execute-remediation")
+        ));
+        availableTenantAndContract();
+        when(gateway.agentStatus()).thenReturn(Optional.of(new GatewaySystemClient.AgentStatus(true, true, true, "did:t3n:agent", "testnet")));
+        when(gateway.executorStatus()).thenReturn(Optional.empty());
+        whenActivity(100, new ActivityPage(List.of(
+            activity(63, "hash-63", "execute-remediation", "did:t3n:executor", "did:t3n:tenant", "z:tenant:privacy-guard"),
+            activity(62, "hash-62", "evaluate-action", "did:t3n:agent", "did:t3n:tenant", "z:tenant:privacy-guard")
+        ), null, true));
+
+        var result = service.read("incident-1", 100);
+
+        assertThat(result.localEvents()).extracting(event -> event.status()).containsExactly(
+            AuditReconciliationStatus.MATCHED,
             AuditReconciliationStatus.UNMATCHED
         );
-        assertThat(result.localEvents().get(2).matchedSequence()).isNull();
-        assertThat(result.t3nEvents()).extracting(event -> event.sequence()).containsExactly(43L, 42L);
         assertThat(result.t3nEvents()).extracting(event -> event.status()).containsExactly(
             AuditReconciliationStatus.T3N_ONLY,
             AuditReconciliationStatus.MATCHED
         );
+        assertThat(result.provenance().t3nAvailable()).isTrue();
+        assertThat(result.provenance().message()).contains("canonical principal identities are unavailable");
+    }
+
+    @Test
+    void proposalUnavailableDoesNotBlockExecutorReconciliationOrFabricateEvaluationMatch() {
+        when(audits.findByIncidentIdOrderByCreatedAtAsc("incident-1")).thenReturn(List.of(
+            new AuditEventEntity("local-1", "incident-1", "POLICY_DECISION", "Allowed", Instant.now(), 72L, "hash-72", "evaluate-action"),
+            new AuditEventEntity("local-2", "incident-1", "REMEDIATION_VERIFIED", "Verified", Instant.now(), 73L, "hash-73", "verify-remediation")
+        ));
+        availableTenantAndContract();
+        when(gateway.agentStatus()).thenReturn(Optional.empty());
+        when(gateway.executorStatus()).thenReturn(Optional.of(new GatewaySystemClient.ExecutorStatus(true, true, true, "did:t3n:executor", "testnet")));
+        whenActivity(100, new ActivityPage(List.of(
+            activity(73, "hash-73", "verify-remediation", "did:t3n:executor", "did:t3n:tenant", "z:tenant:privacy-guard"),
+            activity(72, "hash-72", "evaluate-action", "did:t3n:agent", "did:t3n:tenant", "z:tenant:privacy-guard")
+        ), null, true));
+
+        var result = service.read("incident-1", 100);
+
+        assertThat(result.localEvents()).extracting(event -> event.status()).containsExactly(
+            AuditReconciliationStatus.UNMATCHED,
+            AuditReconciliationStatus.MATCHED
+        );
+        assertThat(result.provenance().t3nAvailable()).isTrue();
         assertThat(result.provenance().matched()).isEqualTo(1);
         assertThat(result.provenance().unmatched()).isEqualTo(1);
-        assertThat(result.provenance().t3nOnly()).isEqualTo(1);
     }
 
     @Test
     void hashMismatchIsUnmatchedAndNeverFallsBackToApproximation() {
         when(audits.findByIncidentIdOrderByCreatedAtAsc("incident-1")).thenReturn(List.of(
-            new AuditEventEntity("local-1", "incident-1", "POLICY_DECISION", "Allowed", Instant.now(), 42L, "different-hash", "evaluate-action")
+            new AuditEventEntity("local-1", "incident-1", "POLICY_DECISION", "Allowed", Instant.now(), 82L, "different-hash", "evaluate-action")
         ));
         availableIdentity();
-        when(gateway.activity(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.eq(100)))
-            .thenReturn(Optional.of(new ActivityPage(List.of(
-                activity(42, "hash-42", "evaluate-action", "did:t3n:agent", "z:tenant:privacy-guard")
-            ), null, true)));
+        whenActivity(100, new ActivityPage(List.of(
+            activity(82, "hash-82", "evaluate-action", "did:t3n:agent", "did:t3n:tenant", "z:tenant:privacy-guard")
+        ), null, true));
 
         var result = service.read("incident-1", 100);
 
         assertThat(result.localEvents().getFirst().status()).isEqualTo(AuditReconciliationStatus.UNMATCHED);
         assertThat(result.t3nEvents().getFirst().status()).isEqualTo(AuditReconciliationStatus.T3N_ONLY);
         assertThat(result.provenance().matched()).isZero();
+    }
+
+    @Test
+    void tenantAndContractMustMatchExactly() {
+        when(audits.findByIncidentIdOrderByCreatedAtAsc("incident-1")).thenReturn(List.of(
+            new AuditEventEntity("local-1", "incident-1", "POLICY_DECISION", "Allowed", Instant.now(), 92L, "hash-92", "evaluate-action")
+        ));
+        availableIdentity();
+        whenActivity(100, new ActivityPage(List.of(
+            activity(93, "hash-93", "evaluate-action", "did:t3n:agent", "did:t3n:tenant", "z:other:contract"),
+            activity(92, "hash-92", "evaluate-action", "did:t3n:agent", "did:t3n:other-tenant", "z:tenant:privacy-guard")
+        ), null, true));
+
+        var result = service.read("incident-1", 100);
+
+        assertThat(result.localEvents().getFirst().status()).isEqualTo(AuditReconciliationStatus.UNMATCHED);
+        assertThat(result.t3nEvents()).isEmpty();
+        assertThat(result.provenance().matched()).isZero();
+    }
+
+    @Test
+    void truncatedActivityWindowKeepsExistingIncompletenessSemantics() {
+        when(audits.findByIncidentIdOrderByCreatedAtAsc("incident-1")).thenReturn(List.of(
+            new AuditEventEntity("local-1", "incident-1", "POLICY_DECISION", "Allowed", Instant.now(), 102L, "hash-102", "evaluate-action")
+        ));
+        availableIdentity();
+        whenActivity(100, new ActivityPage(List.of(
+            activity(102, "hash-102", "evaluate-action", "did:t3n:agent", "did:t3n:tenant", "z:tenant:privacy-guard")
+        ), 101L, false));
+
+        var result = service.read("incident-1", 100);
+
+        assertThat(result.localEvents().getFirst().status()).isEqualTo(AuditReconciliationStatus.MATCHED);
+        assertThat(result.provenance().t3nComplete()).isFalse();
+        assertThat(result.provenance().message()).contains("bounded activity window was truncated");
+        assertThat(result.nextSequence()).isEqualTo(101L);
     }
 
     @Test
@@ -107,19 +215,36 @@ class AuditEvidenceServiceTest {
     }
 
     private void availableIdentity() {
-        when(gateway.tenantStatus()).thenReturn(Optional.of(new GatewaySystemClient.TenantStatus(true, true, "did:t3n:tenant", "testnet")));
+        availableTenantAndContract();
         when(gateway.agentStatus()).thenReturn(Optional.of(new GatewaySystemClient.AgentStatus(true, true, true, "did:t3n:agent", "testnet")));
+        when(gateway.executorStatus()).thenReturn(Optional.of(new GatewaySystemClient.ExecutorStatus(true, true, true, "did:t3n:executor", "testnet")));
+    }
+
+    private void availableTenantAndContract() {
+        when(gateway.tenantStatus()).thenReturn(Optional.of(new GatewaySystemClient.TenantStatus(true, true, "did:t3n:tenant", "testnet")));
         when(gateway.contractIdentity()).thenReturn(Optional.of(new GatewaySystemClient.ContractIdentity("z:tenant:privacy-guard", "1")));
     }
 
-    private static ActivityEvent activity(long sequence, String hash, String function, String actorDid, String contractId) {
+    private void whenActivity(int limit, ActivityPage page) {
+        when(gateway.activity(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.eq(limit)))
+            .thenReturn(Optional.of(page));
+    }
+
+    private static ActivityEvent activity(
+        long sequence,
+        String hash,
+        String function,
+        String actorDid,
+        String onBehalfOfDid,
+        String contractId
+    ) {
         return new ActivityEvent(
             sequence,
             hash,
             Instant.now().toEpochMilli(),
             "agent",
             actorDid,
-            "did:t3n:tenant",
+            onBehalfOfDid,
             contractId,
             function,
             "success",

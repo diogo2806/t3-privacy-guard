@@ -43,7 +43,7 @@ export function AuditTrail({ events }: { events: AuditEvent[] }) {
           <RefreshCw aria-hidden="true" /><span>{loading ? 'Refreshing…' : 'Refresh provenance'}</span>
         </button>
       </div>
-      <p className="card-copy">Business events and independent T3N metadata remain separate. A match requires exact sequence, hash, contract, agent and function identifiers.</p>
+      <p className="card-copy">Business events and independent T3N metadata remain separate. A match requires exact sequence, hash, contract, function and its canonical actor: Proposal Agent for evaluation, Protected Executor for execution and verification.</p>
 
       {error && <div className="audit-provenance-note audit-provenance-note-error" role="alert">{error}</div>}
       {loading && !evidence && <p className="empty-copy" role="status">Loading network provenance. Local business audit remains available below.</p>}
@@ -84,7 +84,7 @@ export function AuditTrail({ events }: { events: AuditEvent[] }) {
       </section>
 
       <section className="audit-source" aria-labelledby="t3n-activity-title">
-        <div className="audit-source-heading"><Network aria-hidden="true" /><div><h3 id="t3n-activity-title">T3N Activity Log</h3><p>Sanitized network metadata for this incident window and canonical contract identity.</p></div></div>
+        <div className="audit-source-heading"><Network aria-hidden="true" /><div><h3 id="t3n-activity-title">T3N Activity Log</h3><p>Sanitized network metadata for this incident window, canonical contract and function-specific actor boundary.</p></div></div>
         {!evidence ? <p className="empty-copy">Network provenance has not been loaded yet.</p> : !evidence.provenance.t3nAvailable ? <p className="empty-copy">Network provenance was not verified. The local business audit above remains available.</p> : evidence.t3nEvents.length === 0 ? (
           <p className="empty-copy">No relevant T3N operations were observed in this bounded incident window.</p>
         ) : (
