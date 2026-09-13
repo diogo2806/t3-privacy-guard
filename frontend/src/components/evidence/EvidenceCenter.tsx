@@ -1,5 +1,8 @@
 import { CircleDashed, FileCheck2, RefreshCw, ShieldCheck, ShieldX } from 'lucide-react';
 import type { AgentRegistrationState, EvidenceBundle, EvidenceScenario } from '../../services/privacyGuardApi';
+import { Button } from '../ui/Button';
+import { SectionHeader } from '../ui/SectionHeader';
+import { Surface } from '../ui/Surface';
 
 interface Props { evidence: EvidenceBundle | null; loading: boolean; error: string | null; onRefresh: () => void; }
 
@@ -16,27 +19,34 @@ function registrationLabel(state: AgentRegistrationState): string {
   return 'UNAVAILABLE';
 }
 
+function scenarioLabel(id: string): string {
+  const labels: Record<string, string> = {
+    'LIVE-PROPOSAL-CANNOT-EXECUTE': 'Proposal agent blocked from protected execution',
+  };
+  return labels[id] ?? id.replace(/^LIVE-/, '').replaceAll('-', ' ').replace(/(^|\s)\S/g, (letter) => letter.toUpperCase());
+}
+
 function EvidenceMeaning() {
   return (
-    <section className="card evidence-meaning" aria-labelledby="evidence-meaning-title">
-      <div className="card-heading compact"><span className="section-icon"><FileCheck2 aria-hidden="true" /></span><div><p className="eyebrow">What this proves</p><h2 id="evidence-meaning-title">Observed security outcomes on T3N testnet</h2></div></div>
-      <p>This evidence bundle shows which security outcomes were actually observed on T3N testnet. <strong>PASS</strong> is observed proof, <strong>FAIL</strong> is an observed mismatch, and <strong>NOT RUN</strong> is not counted as proof.</p>
-    </section>
+    <Surface className="evidence-meaning" aria-labelledby="evidence-meaning-title">
+      <SectionHeader eyebrow="What this proves" title="Observed security outcomes on T3N testnet" titleId="evidence-meaning-title" icon={<FileCheck2 aria-hidden="true" />} />
+      <p>This bundle reports observed outcomes only. <strong>PASS</strong> is observed proof, <strong>FAIL</strong> is an observed mismatch, and <strong>NOT RUN</strong> is not proof and is never counted as PASS.</p>
+    </Surface>
   );
 }
 
 export function EvidenceCenter({ evidence, loading, error, onRefresh }: Props) {
-  if (loading) return <div className="evidence-layout"><EvidenceMeaning /><section className="card evidence-empty" aria-live="polite">Loading evidence…</section></div>;
+  if (loading) return <div className="evidence-layout"><EvidenceMeaning /><Surface className="evidence-empty" aria-live="polite">Loading evidence…</Surface></div>;
   if (error || !evidence) {
     return (
       <div className="evidence-layout">
         <EvidenceMeaning />
-        <section className="card evidence-empty" aria-label="Evidence status">
+        <Surface className="evidence-empty" aria-label="Evidence status">
           <FileCheck2 aria-hidden="true" />
-          <h2>Proof &amp; evidence</h2>
+          <h2>Evidence</h2>
           <p>{error ?? 'No live T3N evidence has been generated yet.'}</p>
-          <button className="button button-secondary" type="button" onClick={onRefresh}><RefreshCw aria-hidden="true" />Refresh evidence</button>
-        </section>
+          <Button variant="secondary" onClick={onRefresh}><RefreshCw aria-hidden="true" />Refresh evidence</Button>
+        </Surface>
       </div>
     );
   }
@@ -51,60 +61,100 @@ export function EvidenceCenter({ evidence, loading, error, onRefresh }: Props) {
     <section className="evidence-layout" aria-label="T3N testnet evidence">
       <EvidenceMeaning />
 
-      <div className="card">
-        <div className="card-heading compact"><span className="section-icon"><FileCheck2 aria-hidden="true" /></span><div><p className="eyebrow">Technical evidence metadata</p><h2>T3N testnet execution</h2></div></div>
-        <dl className="evidence-metadata">
-          <div><dt>Source</dt><dd>{evidence.metadata.source}</dd></div>
-          <div><dt>Generated</dt><dd>{new Date(evidence.metadata.generatedAt).toLocaleString()}</dd></div>
-          <div className="evidence-wide"><dt>Source commit</dt><dd><code>{evidence.metadata.sourceCommitSha}</code></dd></div>
-          <div><dt>Source tree</dt><dd><span className={`status-pill ${evidence.metadata.sourceTreeClean ? 'status-pill-ok' : 'status-pill-off'}`}>{sourceTreeState}</span></dd></div>
-          <div><dt>SDK</dt><dd>{evidence.metadata.sdkVersion}</dd></div>
-          <div><dt>Network</dt><dd>{evidence.metadata.network}</dd></div>
-          <div><dt>Trust anchor</dt><dd>{trustAnchorState}</dd></div>
-          <div><dt>Rollback floor</dt><dd>{rollbackFloorState}</dd></div>
-          <div><dt>Trust manifest version</dt><dd>{evidence.metadata.trustManifestVersion}</dd></div>
-          <div><dt>Agent onboarding</dt><dd><span className={`status-pill ${registrationOk ? 'status-pill-ok' : 'status-pill-off'}`}>{registrationLabel(evidence.metadata.agentRegistrationState)}</span></dd></div>
-          <div><dt>A2A service in resolved card</dt><dd><span className={`status-pill ${a2aObserved ? 'status-pill-ok' : 'status-pill-off'}`}>{a2aObserved ? 'OBSERVED' : 'NOT OBSERVED'}</span></dd></div>
-          <div><dt>Card check</dt><dd>{new Date(evidence.metadata.agentCardVerifiedAt).toLocaleString()}</dd></div>
-          <div><dt>Contract version</dt><dd>{evidence.metadata.contractVersion}</dd></div>
-          <div><dt>Policy version</dt><dd>{evidence.metadata.policyVersion}</dd></div>
-          <div className="evidence-wide"><dt>Agent Card URI</dt><dd><code>{evidence.metadata.agentCardUri ?? 'Not resolved'}</code></dd></div>
-          <div className="evidence-wide"><dt>Agent Card SHA-256</dt><dd><code>{evidence.metadata.agentCardSha256 ?? 'Not available'}</code></dd></div>
-          <div><dt>Agent Card services</dt><dd>{evidence.metadata.agentCardServices.length ? evidence.metadata.agentCardServices.join(', ') : 'None verified'}</dd></div>
-          <div className="evidence-wide"><dt>Contract</dt><dd><code>{evidence.metadata.contractId}</code></dd></div>
-          <div className="evidence-wide"><dt>Policy SHA-256</dt><dd><code>{evidence.metadata.policyHash}</code></dd></div>
-          <div className="evidence-wide"><dt>WASM SHA-256</dt><dd><code>{evidence.metadata.wasmSha256}</code></dd></div>
-          <div className="evidence-wide"><dt>Tenant DID</dt><dd><code>{evidence.metadata.tenantDid}</code></dd></div>
-          <div className="evidence-wide"><dt>Proposal Agent DID</dt><dd><code>{evidence.metadata.agentDid}</code></dd></div>
-          <div className="evidence-wide"><dt>Protected Executor DID</dt><dd><code>{evidence.metadata.executorDid}</code></dd></div>
-        </dl>
-        <p className="evidence-disclaimer">This identifies the public source revision used to generate this evidence bundle. WASM and policy hashes remain the executed artifact identities. CLEAN means the Git working tree was clean when evidence generation started; DIRTY is disclosed explicitly and is not treated as verified source.</p>
-        <p className="evidence-disclaimer">Policy version/hash identify the canonical operational policy used by this evidence run. Trust anchor VERIFIED means the T3N signed manifest established the cluster trust boundary for these authenticated sessions. Rollback floor PERSISTED means the accepted manifest version was stored across gateway restarts. These are policy/trust provenance signals, not a claim of per-request hardware attestation.</p>
-        <p className="evidence-disclaimer">The Proposal Agent DID is the policy-evaluation principal. The Protected Executor DID is a separate authenticated T3N principal used only for privileged execution and verification after human authorization. Agent registration remains discoverability evidence; delegated authority is proven separately.</p>
-        <p className="evidence-disclaimer">A2A OBSERVED means the resolved T3N Agent Card advertised the A2A evaluation service during this evidence run. It does not by itself prove that the public endpoint was reachable or live-tested. Protected remediation is not exposed through A2A.</p>
-      </div>
-
-      <div className="card">
+      <Surface className="evidence-summary" aria-labelledby="evidence-summary-title">
         <div className="evidence-toolbar">
-          <div><p className="eyebrow">Security scenarios</p><h2>Observed outcomes</h2></div>
-          <button className="button button-ghost" type="button" onClick={onRefresh}><RefreshCw aria-hidden="true" />Refresh evidence</button>
+          <div><p className="eyebrow">Evidence summary</p><h2 id="evidence-summary-title">Execution proof at a glance</h2></div>
+          <Button variant="ghost" onClick={onRefresh}><RefreshCw aria-hidden="true" />Refresh evidence</Button>
         </div>
-        <div className="evidence-totals" aria-label="Evidence totals">
-          <span className="evidence-total evidence-pass">{evidence.totals.pass} PASS</span>
-          <span className="evidence-total evidence-fail">{evidence.totals.fail} FAIL</span>
-          <span className="evidence-total evidence-not-run">{evidence.totals.notRun} NOT RUN</span>
+        <div className="evidence-summary-totals" aria-label="Evidence totals">
+          <div className="evidence-summary-metric evidence-pass"><strong>{evidence.totals.pass}</strong><span>PASS</span></div>
+          <div className="evidence-summary-metric evidence-fail"><strong>{evidence.totals.fail}</strong><span>FAIL</span></div>
+          <div className="evidence-summary-metric evidence-not-run"><strong>{evidence.totals.notRun}</strong><span>NOT RUN</span></div>
+          <div className="evidence-summary-metric"><strong>{evidence.metadata.network.toUpperCase()}</strong><span>Network</span></div>
+        </div>
+        <dl className="evidence-executive-facts">
+          <div><dt>Source tree</dt><dd><span className={`status-pill ${evidence.metadata.sourceTreeClean ? 'status-pill-ok' : 'status-pill-off'}`}>{sourceTreeState}</span></dd></div>
+          <div><dt>Trust anchor</dt><dd><span className={`status-pill ${evidence.metadata.trustAnchorVerified ? 'status-pill-ok' : 'status-pill-off'}`}>{trustAnchorState}</span></dd></div>
+          <div><dt>Policy</dt><dd>{evidence.metadata.policyVersion}</dd></div>
+          <div><dt>Generated</dt><dd>{new Date(evidence.metadata.generatedAt).toLocaleString()}</dd></div>
+        </dl>
+      </Surface>
+
+      <Surface aria-labelledby="observed-outcomes-title">
+        <div className="evidence-toolbar">
+          <div><p className="eyebrow">Security scenarios</p><h2 id="observed-outcomes-title">Observed outcomes</h2></div>
         </div>
         <ul className="evidence-list">
           {evidence.scenarios.map((scenario) => (
             <li key={scenario.id} className={`evidence-row evidence-row-${scenario.status.toLowerCase().replace('_', '-')}`}>
               <ScenarioIcon scenario={scenario} />
-              <div><strong>{scenario.id}</strong><span>Expected: {scenario.expected}</span>{scenario.actual && <span>Observed: {scenario.actual}</span>}</div>
+              <div className="evidence-row-copy">
+                <strong>{scenarioLabel(scenario.id)}</strong>
+                <code>{scenario.id}</code>
+                <span>Expected: {scenario.expected}</span>
+                {scenario.actual && <span>Observed: {scenario.actual}</span>}
+              </div>
               <span className="evidence-status">{scenario.status.replace('_', ' ')}</span>
             </li>
           ))}
         </ul>
-        <p className="evidence-disclaimer">PASS means the observed result matched the expected security outcome. NOT RUN means the scenario was not executed in this evidence bundle; it is never counted as PASS.</p>
-      </div>
+        <p className="evidence-disclaimer"><strong>NOT RUN is not proof.</strong> It remains visible and is never included in the PASS total.</p>
+      </Surface>
+
+      <Surface className="evidence-provenance" aria-labelledby="technical-provenance-title">
+        <SectionHeader eyebrow="Technical provenance" title="Inspect source, trust, identities and policy" titleId="technical-provenance-title" icon={<FileCheck2 aria-hidden="true" />} />
+
+        <details className="evidence-provenance-group">
+          <summary>Source &amp; build</summary>
+          <dl className="evidence-metadata">
+            <div><dt>Source</dt><dd>{evidence.metadata.source}</dd></div>
+            <div><dt>Generated</dt><dd>{new Date(evidence.metadata.generatedAt).toLocaleString()}</dd></div>
+            <div className="evidence-wide"><dt>Source commit</dt><dd><code>{evidence.metadata.sourceCommitSha}</code></dd></div>
+            <div><dt>Source tree</dt><dd>{sourceTreeState}</dd></div>
+            <div><dt>SDK</dt><dd>{evidence.metadata.sdkVersion}</dd></div>
+          </dl>
+          <p className="evidence-disclaimer">CLEAN is a reproducible working-tree state, not an independent source audit. WASM and policy hashes remain the executed artifact identities.</p>
+        </details>
+
+        <details className="evidence-provenance-group">
+          <summary>Trust &amp; network</summary>
+          <dl className="evidence-metadata">
+            <div><dt>Network</dt><dd>{evidence.metadata.network}</dd></div>
+            <div><dt>Trust anchor</dt><dd>{trustAnchorState}</dd></div>
+            <div><dt>Rollback floor</dt><dd>{rollbackFloorState}</dd></div>
+            <div><dt>Trust manifest version</dt><dd>{evidence.metadata.trustManifestVersion}</dd></div>
+          </dl>
+          <p className="evidence-disclaimer">Trust provenance establishes the cluster trust boundary for authenticated sessions. It is not per-request hardware attestation.</p>
+        </details>
+
+        <details className="evidence-provenance-group">
+          <summary>Identities &amp; discoverability</summary>
+          <dl className="evidence-metadata">
+            <div><dt>Agent onboarding</dt><dd><span className={`status-pill ${registrationOk ? 'status-pill-ok' : 'status-pill-off'}`}>{registrationLabel(evidence.metadata.agentRegistrationState)}</span></dd></div>
+            <div><dt>A2A service in resolved card</dt><dd><span className={`status-pill ${a2aObserved ? 'status-pill-ok' : 'status-pill-off'}`}>{a2aObserved ? 'OBSERVED' : 'NOT OBSERVED'}</span></dd></div>
+            <div><dt>Card check</dt><dd>{new Date(evidence.metadata.agentCardVerifiedAt).toLocaleString()}</dd></div>
+            <div><dt>Agent Card services</dt><dd>{evidence.metadata.agentCardServices.length ? evidence.metadata.agentCardServices.join(', ') : 'None verified'}</dd></div>
+            <div className="evidence-wide"><dt>Agent Card URI</dt><dd><code>{evidence.metadata.agentCardUri ?? 'Not resolved'}</code></dd></div>
+            <div className="evidence-wide"><dt>Agent Card SHA-256</dt><dd><code>{evidence.metadata.agentCardSha256 ?? 'Not available'}</code></dd></div>
+            <div className="evidence-wide"><dt>Tenant DID</dt><dd><code>{evidence.metadata.tenantDid}</code></dd></div>
+            <div className="evidence-wide"><dt>Proposal Agent DID</dt><dd><code>{evidence.metadata.agentDid}</code></dd></div>
+            <div className="evidence-wide"><dt>Protected Executor DID</dt><dd><code>{evidence.metadata.executorDid}</code></dd></div>
+          </dl>
+          <p className="evidence-disclaimer">Agent Card and A2A are discoverability evidence; they do not grant delegated authority. A2A OBSERVED means the resolved card advertised the service, not that public reachability was proved. Protected remediation is not exposed through A2A.</p>
+        </details>
+
+        <details className="evidence-provenance-group">
+          <summary>Contract &amp; policy</summary>
+          <dl className="evidence-metadata">
+            <div><dt>Contract version</dt><dd>{evidence.metadata.contractVersion}</dd></div>
+            <div><dt>Policy version</dt><dd>{evidence.metadata.policyVersion}</dd></div>
+            <div className="evidence-wide"><dt>Contract</dt><dd><code>{evidence.metadata.contractId}</code></dd></div>
+            <div className="evidence-wide"><dt>Policy SHA-256</dt><dd><code>{evidence.metadata.policyHash}</code></dd></div>
+            <div className="evidence-wide"><dt>WASM SHA-256</dt><dd><code>{evidence.metadata.wasmSha256}</code></dd></div>
+          </dl>
+          <p className="evidence-disclaimer">Policy version/hash identify the canonical operational policy used by this run. The Proposal Agent evaluates policy; the separate Protected Executor performs privileged execution and verification only after required authorization.</p>
+        </details>
+      </Surface>
     </section>
   );
 }
