@@ -4,6 +4,7 @@ export type AiProvider = 'disabled' | 'openai-compatible';
 export interface GatewayConfig {
   readonly apiKey: string;
   readonly agentApiKey: string | null;
+  readonly executorApiKey: string | null;
   readonly network: T3nNetwork;
   readonly port: number;
   readonly contractTail: string;
@@ -62,6 +63,10 @@ export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): Gateway
   const agentApiKey = env.T3N_AGENT_API_KEY?.trim() || null;
   if (agentApiKey && agentApiKey === apiKey) throw new ConfigurationError('T3N_AGENT_API_KEY must be different from T3N_API_KEY');
 
+  const executorApiKey = env.T3N_EXECUTOR_API_KEY?.trim() || null;
+  if (executorApiKey && executorApiKey === apiKey) throw new ConfigurationError('T3N_EXECUTOR_API_KEY must be different from T3N_API_KEY');
+  if (executorApiKey && agentApiKey && executorApiKey === agentApiKey) throw new ConfigurationError('T3N_EXECUTOR_API_KEY must be different from T3N_AGENT_API_KEY');
+
   const networkValue = (env.T3N_NETWORK ?? 'testnet').trim().toLowerCase();
   if (networkValue !== 'testnet' && networkValue !== 'production') throw new ConfigurationError('T3N_NETWORK must be either testnet or production');
 
@@ -92,6 +97,7 @@ export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): Gateway
   return {
     apiKey,
     agentApiKey,
+    executorApiKey,
     network: networkValue,
     port: portValue,
     contractTail,

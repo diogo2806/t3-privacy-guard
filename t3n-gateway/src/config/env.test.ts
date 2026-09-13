@@ -30,12 +30,23 @@ test('defaults to testnet, disabled AI, persistent trust floor and current contr
   assert.equal(config.network, 'testnet');
   assert.equal(config.port, 3001);
   assert.equal(config.agentApiKey, null);
+  assert.equal(config.executorApiKey, null);
   assert.equal(config.contractVersion, '0.4.0');
   assert.equal(config.remediationReplayStorePath, '/data/remediation-capability-nonces.json');
   assert.equal(config.trustManifestFloorStorePath, '/data/t3n-trust-floor.json');
   assert.equal(config.aiProvider, 'disabled');
   assert.equal(config.aiApiKey, null);
   assert.equal(config.aiModel, null);
+});
+
+test('accepts distinct tenant proposal-agent and executor credentials', () => {
+  const config = readGatewayConfig({
+    ...baseEnv,
+    T3N_AGENT_API_KEY: 'proposal-agent-secret',
+    T3N_EXECUTOR_API_KEY: 'protected-executor-secret',
+  });
+  assert.equal(config.agentApiKey, 'proposal-agent-secret');
+  assert.equal(config.executorApiKey, 'protected-executor-secret');
 });
 
 test('accepts a custom persistent trust manifest floor path', () => {
@@ -83,9 +94,20 @@ test('rejects enabled AI provider without model or key', () => {
   assert.throws(() => readGatewayConfig({ ...baseEnv, AI_PROVIDER: 'unknown-provider' }), ConfigurationError);
 });
 
-test('rejects reuse of tenant key as agent key', () => {
+test('rejects reuse of tenant key as proposal-agent or executor key', () => {
   assert.throws(
     () => readGatewayConfig({ ...baseEnv, T3N_API_KEY: 'same-secret', T3N_AGENT_API_KEY: 'same-secret' }),
+    ConfigurationError,
+  );
+  assert.throws(
+    () => readGatewayConfig({ ...baseEnv, T3N_API_KEY: 'same-secret', T3N_EXECUTOR_API_KEY: 'same-secret' }),
+    ConfigurationError,
+  );
+});
+
+test('rejects reuse of proposal-agent key as executor key', () => {
+  assert.throws(
+    () => readGatewayConfig({ ...baseEnv, T3N_AGENT_API_KEY: 'same-delegated-secret', T3N_EXECUTOR_API_KEY: 'same-delegated-secret' }),
     ConfigurationError,
   );
 });

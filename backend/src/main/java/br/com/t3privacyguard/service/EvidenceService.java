@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -46,6 +47,7 @@ public class EvidenceService {
                 required(manifest, "sdkVersion"),
                 required(manifest, "tenantDid"),
                 required(manifest, "agentDid"),
+                required(manifest, "executorDid"),
                 required(manifest, "agentRegistrationState"),
                 nullableText(manifest, "agentCardUri"),
                 nullableText(manifest, "agentCardSha256"),
@@ -65,6 +67,7 @@ public class EvidenceService {
             assertSame(testnet, "sdkVersion", metadata.sdkVersion());
             assertSame(testnet, "tenantDid", metadata.tenantDid());
             assertSame(testnet, "agentDid", metadata.agentDid());
+            assertSame(testnet, "executorDid", metadata.executorDid());
             assertSame(testnet, "contractId", metadata.contractId());
             assertSame(testnet, "contractVersion", metadata.contractVersion());
             assertSame(testnet, "wasmSha256", metadata.wasmSha256());
@@ -100,8 +103,12 @@ public class EvidenceService {
     }
 
     private static void validateMetadata(Metadata value) {
-        if (!value.tenantDid().startsWith("did:t3n:") || !value.agentDid().startsWith("did:t3n:")) throw new IllegalStateException("Evidence DIDs are invalid");
-        if (value.tenantDid().equals(value.agentDid())) throw new IllegalStateException("Evidence tenant and agent DIDs must differ");
+        if (!value.tenantDid().startsWith("did:t3n:") || !value.agentDid().startsWith("did:t3n:") || !value.executorDid().startsWith("did:t3n:")) {
+            throw new IllegalStateException("Evidence DIDs are invalid");
+        }
+        if (new HashSet<>(List.of(value.tenantDid(), value.agentDid(), value.executorDid())).size() != 3) {
+            throw new IllegalStateException("Evidence tenant, proposal agent and protected executor DIDs must differ");
+        }
         if (!value.wasmSha256().matches("[a-f0-9]{64}")) throw new IllegalStateException("Evidence WASM SHA-256 is invalid");
         if (value.policyVersion().isBlank() || !value.policyHash().matches("[a-f0-9]{64}")) throw new IllegalStateException("Evidence policy provenance is invalid");
         if (!REGISTRATION_STATES.contains(value.agentRegistrationState())) throw new IllegalStateException("Evidence Agent registration state is invalid");
@@ -164,6 +171,7 @@ public class EvidenceService {
         String sdkVersion,
         String tenantDid,
         String agentDid,
+        String executorDid,
         String agentRegistrationState,
         String agentCardUri,
         String agentCardSha256,

@@ -41,6 +41,7 @@ public class GatewaySystemClient {
 
     public Optional<TenantStatus> tenantStatus() { return get("/internal/t3n/status", TenantStatus.class, true); }
     public Optional<AgentStatus> agentStatus() { return get("/internal/agent/status", AgentStatus.class, true); }
+    public Optional<ExecutorStatus> executorStatus() { return get("/internal/executor/status", ExecutorStatus.class, true); }
     public Optional<AgentRegistrationStatus> agentRegistration() { return get("/internal/agent/registration", AgentRegistrationStatus.class, true); }
 
     public Optional<ContractIdentity> contractIdentity() {
@@ -49,9 +50,17 @@ public class GatewaySystemClient {
     }
 
     public Optional<DelegationStatus> delegationStatus(String contractId) {
+        return delegationStatus("/internal/agent/delegations/", contractId);
+    }
+
+    public Optional<DelegationStatus> executorDelegationStatus(String contractId) {
+        return delegationStatus("/internal/executor/delegations/", contractId);
+    }
+
+    private Optional<DelegationStatus> delegationStatus(String prefix, String contractId) {
         if (contractId == null || contractId.isBlank()) return Optional.empty();
         String encoded = URLEncoder.encode(contractId, StandardCharsets.UTF_8);
-        return get("/internal/agent/delegations/" + encoded, DelegationStatus.class, true);
+        return get(prefix + encoded, DelegationStatus.class, true);
     }
 
     public Optional<ActivityPage> activity(long fromMs, long toMs, int limit) {
@@ -79,6 +88,7 @@ public class GatewaySystemClient {
     public record HealthResponse(String status, String service) {}
     public record TenantStatus(boolean connected, boolean ready, String tenantDid, String network) {}
     public record AgentStatus(boolean configured, boolean connected, boolean ready, String agentDid, String network) {}
+    public record ExecutorStatus(boolean configured, boolean connected, boolean ready, String executorDid, String network) {}
     public record AgentRegistrationStatus(String agentDid, String state, String cardUri, String cardSha256, String verifiedAt, List<String> services) {}
     public record ContractIdentity(String contractId, String contractVersion) {}
     public record DelegationStatus(String state, List<String> functions, List<String> allowedHosts) {}

@@ -25,20 +25,22 @@ export class AgentSession {
   constructor(
     private readonly config: GatewayConfig,
     private readonly trustFloorStore: TrustManifestFloorStore,
+    private readonly principalApiKey: string | null = config.agentApiKey,
+    private readonly principalLabel: string = 'Agent',
   ) {}
 
   getClient(): T3nClient {
-    if (!this.client || !this.agentDid) throw new Error('Agent session is not authenticated');
+    if (!this.client || !this.agentDid) throw new Error(`${this.principalLabel} session is not authenticated`);
     return this.client;
   }
 
   getAgentDid(): string {
-    if (!this.agentDid) throw new Error('Agent session is not authenticated');
+    if (!this.agentDid) throw new Error(`${this.principalLabel} session is not authenticated`);
     return this.agentDid;
   }
 
   getStatus(): AgentSessionStatus {
-    const configured = Boolean(this.config.agentApiKey);
+    const configured = Boolean(this.principalApiKey);
     const connected = this.client !== null && this.agentDid !== null;
     return {
       configured,
@@ -53,11 +55,11 @@ export class AgentSession {
   }
 
   async connect(): Promise<void> {
-    if (!this.config.agentApiKey) throw new Error('T3N agent key is not configured');
+    if (!this.principalApiKey) throw new Error(`${this.principalLabel} T3N key is not configured`);
     if (this.getStatus().ready) return;
     if (this.connecting) return this.connecting;
 
-    this.connecting = this.connectInternal(this.config.agentApiKey);
+    this.connecting = this.connectInternal(this.principalApiKey);
     try {
       await this.connecting;
     } finally {
@@ -65,9 +67,9 @@ export class AgentSession {
     }
   }
 
-  private async connectInternal(agentApiKey: string): Promise<void> {
+  private async connectInternal(apiKey: string): Promise<void> {
     try {
-      const principal = await authenticatePrincipal(agentApiKey, this.config.network, this.trustFloorStore);
+      const principal = await authenticatePrincipal(apiKey, this.config.network, this.trustFloorStore);
       this.client = principal.client;
       this.agentDid = principal.did;
       this.trustManifestVersion = principal.trustManifestVersion;
@@ -76,7 +78,7 @@ export class AgentSession {
       this.client = null;
       this.agentDid = null;
       this.trustManifestVersion = null;
-      this.lastError = sanitizeError(error, [agentApiKey]);
+      this.lastError = sanitizeError(error, [apiKey]);
       throw new Error(`${this.lastError.category}: ${this.lastError.message}`);
     }
   }

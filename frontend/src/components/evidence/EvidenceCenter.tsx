@@ -70,10 +70,11 @@ export function EvidenceCenter({ evidence, loading, error, onRefresh }: Props) {
           <div className="evidence-wide"><dt>Policy SHA-256</dt><dd><code>{evidence.metadata.policyHash}</code></dd></div>
           <div className="evidence-wide"><dt>WASM SHA-256</dt><dd><code>{evidence.metadata.wasmSha256}</code></dd></div>
           <div className="evidence-wide"><dt>Tenant DID</dt><dd><code>{evidence.metadata.tenantDid}</code></dd></div>
-          <div className="evidence-wide"><dt>Agent DID</dt><dd><code>{evidence.metadata.agentDid}</code></dd></div>
+          <div className="evidence-wide"><dt>Proposal Agent DID</dt><dd><code>{evidence.metadata.agentDid}</code></dd></div>
+          <div className="evidence-wide"><dt>Protected Executor DID</dt><dd><code>{evidence.metadata.executorDid}</code></dd></div>
         </dl>
         <p className="evidence-disclaimer">Policy version/hash identify the canonical operational policy used by this evidence run. Trust anchor VERIFIED means the T3N signed manifest established the cluster trust boundary for these authenticated sessions. Rollback floor PERSISTED means the accepted manifest version was stored across gateway restarts. These are policy/trust provenance signals, not a claim of per-request hardware attestation.</p>
-        <p className="evidence-disclaimer">Agent registration proves that the public Agent Card resolved for the authenticated Agent DID. It is discoverability evidence only; Member Delegation remains the authorization source.</p>
+        <p className="evidence-disclaimer">The Proposal Agent DID is the policy-evaluation principal. The Protected Executor DID is a separate authenticated T3N principal used only for privileged execution and verification after human authorization. Agent registration remains discoverability evidence; delegated authority is proven separately.</p>
       </div>
 
       <div className="card">

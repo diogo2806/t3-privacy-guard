@@ -49,7 +49,7 @@ export function createContractRouter(
         private_refs: body.private_refs ?? [],
         policy_version: body.policy_version,
         policy_hash: body.policy_hash,
-      });
+      }, body.executor_did);
       logTraceStage(response, 'PROTECTED_EGRESS', requestId, 'ACCEPTED');
       response.json(result);
     } catch (error) {

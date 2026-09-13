@@ -3,6 +3,7 @@ import { AgentCardRegistry } from './agent/agent-card.js';
 import { AgentService } from './agent/agent-service.js';
 import { AgentSession } from './agent/agent-session.js';
 import { DelegationService } from './agent/delegation-service.js';
+import { ExecutorSession } from './agent/executor-session.js';
 import { OpenAiCompatibleProvider } from './agent/openai-compatible-provider.js';
 import { readGatewayConfig } from './config/env.js';
 import { PrivacyGuardContractService } from './contract/privacy-guard-contract.js';
@@ -10,6 +11,7 @@ import { createActivityRouter } from './http/activity-router.js';
 import { createAgentRouter } from './http/agent-router.js';
 import { createAiAgentRouter } from './http/ai-agent-router.js';
 import { createContractRouter } from './http/contract-router.js';
+import { createExecutorRouter } from './http/executor-router.js';
 import { createStatusRouter } from './http/status-router.js';
 import { RemediationAuthorizationVerifier } from './security/remediation-authorization.js';
 import { sanitizeError } from './security/sanitize.js';
@@ -22,10 +24,12 @@ const config = readGatewayConfig();
 const trustFloorStore = new TrustManifestFloorStore(config.trustManifestFloorStorePath);
 const tenantSession = new T3nSession(config, trustFloorStore);
 const agentSession = new AgentSession(config, trustFloorStore);
+const executorSession = new ExecutorSession(config, trustFloorStore);
 const agentCardRegistry = new AgentCardRegistry(agentSession);
 const activityLogService = new ActivityLogService(tenantSession);
 const delegationService = new DelegationService(tenantSession, agentSession);
-const contractService = new PrivacyGuardContractService(config, tenantSession, agentSession, activityLogService);
+const executorDelegationService = new DelegationService(tenantSession, executorSession);
+const contractService = new PrivacyGuardContractService(config, tenantSession, agentSession, executorSession, activityLogService);
 const remediationVerifier = new RemediationAuthorizationVerifier(config.remediationCapabilityKey, config.remediationReplayStorePath);
 const aiProvider = config.aiProvider === 'openai-compatible' && config.aiApiUrl && config.aiApiKey && config.aiModel
   ? new OpenAiCompatibleProvider({ apiUrl: config.aiApiUrl, apiKey: config.aiApiKey, model: config.aiModel })
@@ -40,6 +44,7 @@ app.use('/internal', requireServiceToken(config.gatewayServiceToken));
 app.use('/internal/t3n', createStatusRouter(tenantSession));
 app.use('/internal/t3n/activity', createActivityRouter(activityLogService, config.gatewayServiceToken));
 app.use('/internal/agent', createAgentRouter(agentSession, delegationService, agentCardRegistry, config.gatewayServiceToken));
+app.use('/internal/executor', createExecutorRouter(executorSession, executorDelegationService, config.gatewayServiceToken));
 app.use('/internal/ai-agent', createAiAgentRouter(aiAgentService, config.gatewayServiceToken));
 app.use('/internal/contracts/privacy-guard', createContractRouter(contractService, remediationVerifier, config.gatewayServiceToken));
 
@@ -51,7 +56,13 @@ void tenantSession.connect().catch((error) => {
 });
 if (config.agentApiKey) {
   void agentSession.connect().catch((error) => {
-    const safe = sanitizeError(error, [config.agentApiKey ?? '', config.gatewayServiceToken, config.remediationCapabilityKey, config.aiApiKey ?? '']);
-    console.error(`Initial T3N agent connection failed [${safe.category}]: ${safe.message}`);
+    const safe = sanitizeError(error, [config.agentApiKey ?? '', config.executorApiKey ?? '', config.gatewayServiceToken, config.remediationCapabilityKey, config.aiApiKey ?? '']);
+    console.error(`Initial T3N proposal-agent connection failed [${safe.category}]: ${safe.message}`);
+  });
+}
+if (config.executorApiKey) {
+  void executorSession.connect().catch((error) => {
+    const safe = sanitizeError(error, [config.executorApiKey ?? '', config.agentApiKey ?? '', config.gatewayServiceToken, config.remediationCapabilityKey, config.aiApiKey ?? '']);
+    console.error(`Initial T3N protected-executor connection failed [${safe.category}]: ${safe.message}`);
   });
 }

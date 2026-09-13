@@ -9,6 +9,7 @@ export interface DeploymentManifest {
   sdkVersion: '5.2.0';
   tenantDid: string;
   agentDid: string;
+  executorDid: string;
   agentRegistrationState: AgentRegistrationState;
   agentCardUri: string | null;
   agentCardSha256: string | null;
@@ -31,6 +32,7 @@ export interface TestnetEvidenceIdentity {
   sdkVersion: string;
   tenantDid: string;
   agentDid: string;
+  executorDid: string;
   contractId: string;
   contractVersion: string;
   wasmSha256: string | null;
@@ -43,11 +45,11 @@ export async function sha256File(path: string): Promise<string> {
 }
 
 export function assertManifestIdentity(manifest: DeploymentManifest): void {
-  if (!manifest.tenantDid.startsWith('did:t3n:') || !manifest.agentDid.startsWith('did:t3n:')) {
+  if (!manifest.tenantDid.startsWith('did:t3n:') || !manifest.agentDid.startsWith('did:t3n:') || !manifest.executorDid.startsWith('did:t3n:')) {
     throw new Error('Deployment manifest requires canonical T3N DIDs');
   }
-  if (manifest.tenantDid === manifest.agentDid) {
-    throw new Error('Tenant DID and agent DID must be different');
+  if (new Set([manifest.tenantDid, manifest.agentDid, manifest.executorDid]).size !== 3) {
+    throw new Error('Tenant DID, proposal Agent DID and protected Executor DID must be different');
   }
   if (!/^[a-f0-9]{64}$/.test(manifest.wasmSha256)) {
     throw new Error('Deployment manifest contains an invalid WASM SHA-256');
@@ -81,6 +83,7 @@ export function assertEvidenceMatchesDeployment(manifest: DeploymentManifest, ev
     ['sdkVersion', manifest.sdkVersion, evidence.sdkVersion],
     ['tenantDid', manifest.tenantDid, evidence.tenantDid],
     ['agentDid', manifest.agentDid, evidence.agentDid],
+    ['executorDid', manifest.executorDid, evidence.executorDid],
     ['contractId', manifest.contractId, evidence.contractId],
     ['contractVersion', manifest.contractVersion, evidence.contractVersion],
     ['wasmSha256', manifest.wasmSha256, evidence.wasmSha256],
