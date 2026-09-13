@@ -129,7 +129,7 @@ test('sensitive prompt rejection is sanitized and does not echo the literal', as
   });
 });
 
-test('v1 endpoint rejects legacy method, missing version and oversized body', async () => {
+test('v1 endpoint requires the A2A-Version header and rejects legacy/query-only versioning and oversized body', async () => {
   await withServer(successService(), async (baseUrl) => {
     const legacy = requestBody() as Record<string, unknown>;
     legacy.method = 'message/send';
@@ -142,7 +142,29 @@ test('v1 endpoint rejects legacy method, missing version and oversized body', as
     });
     assert.equal(missingVersion.status, 400);
 
+    const queryOnlyVersion = await fetch(`${baseUrl}/a2a?A2A-Version=1.0`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody()),
+    });
+    assert.equal(queryOnlyVersion.status, 400);
+
     const oversized = requestBody('x'.repeat(17_000));
     assert.equal((await post(baseUrl, oversized)).status, 413);
+  });
+});
+
+test('public adapter applies a basic per-client rate limit before evaluation', async () => {
+  let evaluations = 0;
+  await withServer(successService(() => { evaluations += 1; }), async (baseUrl) => {
+    for (let request = 0; request < 30; request += 1) {
+      const response = await post(baseUrl, { ...requestBody(), id: `rpc-${request}` });
+      assert.equal(response.status, 200, `request ${request + 1}`);
+    }
+    const limited = await post(baseUrl, { ...requestBody(), id: 'rpc-limited' });
+    assert.equal(limited.status, 429);
+    assert.match(limited.headers.get('Retry-After') ?? '', /^\d+$/);
+    assert.match(await limited.text(), /RATE_LIMITED/);
+    assert.equal(evaluations, 30);
   });
 });
