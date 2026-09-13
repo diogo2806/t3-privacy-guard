@@ -74,7 +74,7 @@ function validEvidence(evidence: EvidenceBundle | null): evidence is EvidenceBun
 
 function readiness(status: SystemStatus | null, statusLoading: boolean, evidence: EvidenceBundle | null, evidenceLoading: boolean) {
   if (statusLoading || evidenceLoading) return { label: 'CHECKING RUNTIME', tone: 'pending' as const };
-  if (status?.protectedRemediationReady && validEvidence(evidence) && evidence.totals.fail === 0) {
+  if (status?.protectedRemediationReady && status.enterpriseIntegrationReady && validEvidence(evidence) && evidence.totals.fail === 0) {
     return { label: 'T3N LIVE / READY', tone: 'success' as const };
   }
   if (status?.evaluationReady || status || evidence) return { label: 'INCOMPLETE', tone: 'warning' as const };
@@ -239,6 +239,7 @@ export function ExecutiveDemoView({
             <div><dt>Executor DID</dt><dd><code title={executorDid ?? undefined}>{shorten(executorDid)}</code></dd></div>
             <div><dt>Identity separation</dt><dd className={`executive-tone-text-${identities.tone}`}>{identities.label}</dd></div>
             <div><dt>Effective delegation</dt><dd className={`executive-tone-text-${delegation.tone}`}>{delegation.label}</dd></div>
+            <div><dt>Enterprise integration</dt><dd>{systemStatus?.enterpriseIntegrationState ?? 'UNKNOWN'}</dd></div>
             <div><dt>Agent Card</dt><dd>{systemStatus?.agentRegistrationState === 'REGISTERED' ? 'REGISTERED' : systemStatus?.agentRegistrationState ?? 'NOT OBSERVED'}</dd></div>
           </dl>
         ) : (
