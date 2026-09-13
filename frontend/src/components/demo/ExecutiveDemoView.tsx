@@ -67,6 +67,7 @@ function validEvidence(evidence: EvidenceBundle | null): evidence is EvidenceBun
       && evidence.metadata.source === 'T3N_TESTNET'
       && /^[a-f0-9]{40}$/i.test(evidence.metadata.sourceCommitSha)
       && evidence.metadata.network.trim()
+      && evidence.metadata.contractId.trim()
       && evidence.metadata.contractVersion.trim(),
   );
 }
@@ -231,7 +232,8 @@ export function ExecutiveDemoView({
             <div><dt>Source commit</dt><dd><code title={evidence.metadata.sourceCommitSha}>{evidence.metadata.sourceCommitSha.slice(0, 8)}…</code></dd></div>
             <div><dt>Source tree</dt><dd className={evidence.metadata.sourceTreeClean ? 'executive-proof-ok' : 'executive-proof-danger'}>{evidence.metadata.sourceTreeClean ? 'CLEAN' : 'DIRTY'}</dd></div>
             <div><dt>Network</dt><dd>{evidence.metadata.network.toUpperCase()}</dd></div>
-            <div><dt>Contract</dt><dd>{evidence.metadata.contractVersion}</dd></div>
+            <div><dt>Contract ID</dt><dd><code title={evidence.metadata.contractId}>{shorten(evidence.metadata.contractId)}</code></dd></div>
+            <div><dt>Contract version</dt><dd>{evidence.metadata.contractVersion}</dd></div>
             <div><dt>Evidence</dt><dd>{evidence.totals.pass} PASS / {evidence.totals.fail} FAIL / {evidence.totals.notRun} NOT RUN</dd></div>
             <div><dt>Proposal DID</dt><dd><code title={proposalDid ?? undefined}>{shorten(proposalDid)}</code></dd></div>
             <div><dt>Executor DID</dt><dd><code title={executorDid ?? undefined}>{shorten(executorDid)}</code></dd></div>
