@@ -30,6 +30,10 @@ public class ActionProposalEntity {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 40)
     private ProposalStatus status;
+    @Column(name = "remediation_authorized_by", length = 120)
+    private String remediationAuthorizedBy;
+    @Column(name = "remediation_authorized_at")
+    private Instant remediationAuthorizedAt;
     @Column(nullable = false)
     private Instant createdAt;
 
@@ -61,7 +65,23 @@ public class ActionProposalEntity {
     }
 
     public void markEvaluated() { this.status = ProposalStatus.EVALUATED; }
-    public void authorizeRemediation() { this.status = ProposalStatus.REMEDIATION_AUTHORIZED; }
+
+    public boolean authorizeRemediation(String principal, Instant authorizedAt) {
+        if (this.remediationAuthorizedBy != null || this.remediationAuthorizedAt != null) {
+            if (this.remediationAuthorizedBy == null || this.remediationAuthorizedAt == null || !this.remediationAuthorizedBy.equals(principal)) {
+                throw new IllegalStateException("Remediation authorization is already bound to another or incomplete principal provenance");
+            }
+            return false;
+        }
+        if (this.status != ProposalStatus.EVALUATED && this.status != ProposalStatus.REMEDIATION_AUTHORIZED) {
+            throw new IllegalStateException("Action is not eligible for remediation authorization");
+        }
+        this.remediationAuthorizedBy = principal;
+        this.remediationAuthorizedAt = authorizedAt;
+        this.status = ProposalStatus.REMEDIATION_AUTHORIZED;
+        return true;
+    }
+
     public void markRemediated() { this.status = ProposalStatus.REMEDIATED; }
     public String getId() { return id; }
     public String getIncidentId() { return incidentId; }
@@ -74,5 +94,7 @@ public class ActionProposalEntity {
     public String getNormalPayloadJson() { return normalPayloadJson; }
     public String getPrivateRefsJson() { return privateRefsJson; }
     public ProposalStatus getStatus() { return status; }
+    public String getRemediationAuthorizedBy() { return remediationAuthorizedBy; }
+    public Instant getRemediationAuthorizedAt() { return remediationAuthorizedAt; }
     public Instant getCreatedAt() { return createdAt; }
 }
