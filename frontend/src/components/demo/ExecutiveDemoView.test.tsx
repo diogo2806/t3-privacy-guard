@@ -123,7 +123,7 @@ describe('ExecutiveDemoView', () => {
     expect(screen.getByTestId('executive-step-verify')).toHaveTextContent('WAITING');
   });
 
-  it('shows human authorization as observed but does not claim execution', () => {
+  it('shows human authorization as observed but does not claim execution or verification', () => {
     renderExecutive({
       selectedAction: { ...baseAction, host: 'postman-echo.com', status: 'REMEDIATION_AUTHORIZED' },
       decision: decision('ALLOW'),
@@ -132,6 +132,7 @@ describe('ExecutiveDemoView', () => {
     expect(screen.getByTestId('executive-observed-outcome')).toHaveTextContent('AUTHORIZED / NOT EXECUTED');
     expect(screen.getByTestId('executive-step-human')).toHaveTextContent('AUTHORIZED');
     expect(screen.getByTestId('executive-step-executor')).toHaveTextContent('NOT STARTED');
+    expect(screen.getByTestId('executive-step-verify')).toHaveTextContent('NOT VERIFIED YET');
   });
 
   it.each([
@@ -160,6 +161,13 @@ describe('ExecutiveDemoView', () => {
     expect(screen.getByTestId('executive-proof')).toHaveTextContent('CONFIRMED');
     expect(screen.getByTestId('executive-proof')).toHaveTextContent('REGISTERED');
     expect(screen.getByTestId('executive-proof')).toHaveTextContent(/NOT RUN is not proof/i);
+  });
+
+  it('does not label runtime ready when the evidence bundle contains a failure', () => {
+    renderExecutive({ evidence: { ...evidence, totals: { pass: 11, fail: 1, notRun: 1 } } as EvidenceBundle });
+
+    expect(screen.getByTestId('executive-readiness')).toHaveTextContent('INCOMPLETE');
+    expect(screen.getByTestId('executive-proof')).toHaveTextContent('11 PASS / 1 FAIL / 1 NOT RUN');
   });
 
   it('navigates only to technical evidence and keeps the Screen Manual accessible', async () => {
