@@ -45,6 +45,20 @@ function renderPanel(current: RemediationExecution | null, onVerify = vi.fn(), c
   return onVerify;
 }
 
+function notificationAction(status: ActionProposal['status'] = 'REMEDIATION_AUTHORIZED'): ActionProposal {
+  return {
+    ...action,
+    id: 'action-notify',
+    requestId: 'request-notify',
+    action: 'notify-security',
+    resource: 'incident:synthetic',
+    purpose: 'incident-notification',
+    fields: ['incident_id', 'severity', 'summary'],
+    privateRefs: ['verified_email'],
+    status,
+  };
+}
+
 describe('RemediationPanel', () => {
   it('shows the exact approved destination before protected execution', () => {
     renderPanel(null);
@@ -84,11 +98,28 @@ describe('RemediationPanel', () => {
     expect(onVerify).toHaveBeenCalledTimes(1);
   });
 
-  it('labels completed only after verified read-back', () => {
+  it('labels credential revocation completed only after verified read-back', () => {
     renderPanel(execution('COMPLETED', { completedAt: '2026-09-12T18:00:03Z' }));
     expect(screen.getByText('VERIFIED')).toBeInTheDocument();
     expect(screen.getByText('COMPLETED')).toBeInTheDocument();
-    expect(screen.getByText(/Independent read-back verified the expected external state/i)).toBeInTheDocument();
+    expect(screen.getByText(/Independent read-back verified REVOKED/i)).toBeInTheDocument();
+  });
+
+  it('shows the private notification boundary without rendering plaintext recipient data', () => {
+    renderPanel(null, vi.fn(), notificationAction());
+    expect(screen.getByText('verified_email')).toBeInTheDocument();
+    expect(screen.getByText('T3N PROTECTED EXECUTION')).toBeInTheDocument();
+    expect(screen.getByText('NO')).toBeInTheDocument();
+    expect(screen.getByText('DELIVERED')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Execute protected security notification' })).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('{{profile.');
+  });
+
+  it('labels notification completion as verified delivery and private resolution', () => {
+    renderPanel(execution('COMPLETED', { completedAt: '2026-09-12T18:00:03Z' }), vi.fn(), notificationAction('REMEDIATED'));
+    expect(screen.getByText('DELIVERED + RESOLUTION VERIFIED')).toBeInTheDocument();
+    expect(screen.getByText(/private recipient was resolved inside T3N/i)).toBeInTheDocument();
+    expect(screen.getByText(/plaintext recipient was not returned/i)).toBeInTheDocument();
   });
 
   it('does not offer authorization or execution for actions without a verified completion contract', () => {
