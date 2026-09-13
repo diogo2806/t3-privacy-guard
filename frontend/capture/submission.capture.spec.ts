@@ -133,6 +133,7 @@ test('capture submission material only from live testnet evidence', async ({ pag
     process.env.AI_API_KEY,
     process.env.GATEWAY_SERVICE_TOKEN,
     process.env.REMEDIATION_CAPABILITY_KEY,
+    process.env.AUDIT_INTEGRITY_KEY,
     process.env.EVIDENCE_SENTINEL_SECRET,
   ]);
   await writeFile(resolve(outputRoot, 'capture-metadata.json'), serialized, 'utf8');

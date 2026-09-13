@@ -1,6 +1,9 @@
 package br.com.t3privacyguard.persistence;
 
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
 import java.time.Instant;
 
 @Entity
@@ -16,15 +19,45 @@ public class AuditEventEntity {
     private String message;
     @Column(nullable = false)
     private Instant createdAt;
+    @Column(name = "sequence_number")
+    private Long sequence;
+    @Column(name = "previous_mac", length = 64)
+    private String previousMac;
+    @Column(name = "event_mac", length = 64)
+    private String eventMac;
+    @Column(name = "integrity_version", length = 16)
+    private String integrityVersion;
+    @Column(name = "integrity_key_id", length = 32)
+    private String integrityKeyId;
 
     protected AuditEventEntity() {}
 
     public AuditEventEntity(String id, String incidentId, String type, String message, Instant createdAt) {
+        this(id, incidentId, type, message, createdAt, null, null, null, null, null);
+    }
+
+    public AuditEventEntity(
+        String id,
+        String incidentId,
+        String type,
+        String message,
+        Instant createdAt,
+        Long sequence,
+        String previousMac,
+        String eventMac,
+        String integrityVersion,
+        String integrityKeyId
+    ) {
         this.id = id;
         this.incidentId = incidentId;
         this.type = type;
         this.message = message;
         this.createdAt = createdAt;
+        this.sequence = sequence;
+        this.previousMac = previousMac;
+        this.eventMac = eventMac;
+        this.integrityVersion = integrityVersion;
+        this.integrityKeyId = integrityKeyId;
     }
 
     public String getId() { return id; }
@@ -32,4 +65,9 @@ public class AuditEventEntity {
     public String getType() { return type; }
     public String getMessage() { return message; }
     public Instant getCreatedAt() { return createdAt; }
+    public Long getSequence() { return sequence; }
+    public String getPreviousMac() { return previousMac; }
+    public String getEventMac() { return eventMac; }
+    public String getIntegrityVersion() { return integrityVersion; }
+    public String getIntegrityKeyId() { return integrityKeyId; }
 }
