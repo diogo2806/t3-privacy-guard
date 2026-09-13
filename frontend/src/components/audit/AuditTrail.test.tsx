@@ -56,7 +56,7 @@ describe('AuditTrail', () => {
 
     expect(await screen.findByText('T3N Activity Log')).toBeInTheDocument();
     expect(screen.getByText('Local business audit')).toBeInTheDocument();
-    expect(screen.getAllByText('Matched')).toHaveLength(2);
+    expect(screen.getAllByText('Matched')).toHaveLength(3);
     expect(screen.getByText('Sequence 42 · success')).toBeInTheDocument();
     expect(screen.getByText(/Expected T3N function:/)).toBeInTheDocument();
   });
