@@ -25,7 +25,7 @@ public class SystemStatusService {
         Optional<TenantStatus> tenant = gateway.tenantStatus();
         Optional<AgentStatus> agent = gateway.agentStatus();
         Optional<ExecutorStatus> executor = gateway.executorStatus();
-        Optional<AgentRegistrationStatus> registration = agent.filter(AgentStatus::ready).flatMap(ignored -> gateway.agentRegistration());
+        Optional<AgentRegistrationStatus> registration = gatewayReachable ? gateway.agentRegistration() : Optional.empty();
         Optional<ContractIdentity> contract = gateway.contractIdentity();
         Optional<DelegationStatus> proposalDelegation = contract.flatMap(value -> gateway.delegationStatus(value.contractId()));
         Optional<DelegationStatus> executorDelegation = contract.flatMap(value -> gateway.executorDelegationStatus(value.contractId()));
@@ -116,7 +116,8 @@ public class SystemStatusService {
     private static String registrationState(Optional<AgentRegistrationStatus> registration, String authenticatedAgentDid) {
         if (registration.isEmpty()) return "UNAVAILABLE";
         AgentRegistrationStatus value = registration.get();
-        if (authenticatedAgentDid == null || value.agentDid() == null || !authenticatedAgentDid.equals(value.agentDid())) return "MISMATCH";
+        if (authenticatedAgentDid == null || authenticatedAgentDid.isBlank()) return "UNAVAILABLE";
+        if (value.agentDid() == null || !authenticatedAgentDid.equals(value.agentDid())) return "MISMATCH";
         return REGISTRATION_STATES.contains(value.state()) ? value.state() : "UNAVAILABLE";
     }
 
