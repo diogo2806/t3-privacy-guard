@@ -42,11 +42,12 @@ public class GatewayRemediationClient {
 
     public RemediationResult execute(RemediationRequest request, String capability) {
         if (capability == null || capability.isBlank()) throw new IllegalArgumentException("Remediation capability is required");
+        if (request.approvedHost() == null || request.approvedHost().isBlank()) throw new IllegalArgumentException("Approved remediation destination is required");
         try {
             String executorDid = requireExecutorDid();
             RemediationWireRequest wireRequest = new RemediationWireRequest(
                 request.incidentId(), request.actionId(), request.decisionId(), request.requestId(), request.action(), request.resource(), request.purpose(),
-                request.fields(), request.privateRefs(), request.policyVersion(), request.policyHash(), executorDid
+                request.approvedHost(), request.fields(), request.privateRefs(), request.policyVersion(), request.policyHash(), executorDid
             );
             RemediationResult result = restClient.post()
                 .uri("/internal/contracts/privacy-guard/remediate")
@@ -97,6 +98,7 @@ public class GatewayRemediationClient {
         String action,
         String resource,
         String purpose,
+        @JsonProperty("approved_host") String approvedHost,
         List<String> fields,
         @JsonProperty("private_refs") List<String> privateRefs,
         @JsonProperty("policy_version") String policyVersion,
@@ -111,6 +113,7 @@ public class GatewayRemediationClient {
         String action,
         String resource,
         String purpose,
+        @JsonProperty("approved_host") String approvedHost,
         List<String> fields,
         @JsonProperty("private_refs") List<String> privateRefs,
         @JsonProperty("policy_version") String policyVersion,
