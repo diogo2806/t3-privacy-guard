@@ -47,6 +47,8 @@ export function createContractRouter(
         purpose: body.purpose,
         fields: body.fields,
         private_refs: body.private_refs ?? [],
+        policy_version: body.policy_version,
+        policy_hash: body.policy_hash,
       });
       logTraceStage(response, 'PROTECTED_EGRESS', requestId, 'ACCEPTED');
       response.json(result);
@@ -54,7 +56,7 @@ export function createContractRouter(
       const code = error instanceof Error ? error.message : 'UNKNOWN';
       if (code === 'CAPABILITY_REPLAY') response.status(409).json({ error: 'Remediation authorization proof was already consumed' });
       else if (code.startsWith('CAPABILITY_')) response.status(403).json({ error: 'Remediation authorization proof is invalid or unavailable' });
-      else response.status(503).json({ error: 'Protected remediation could not be accepted' });
+      else response.status(503).json({ error: 'Protected remediation could not be accepted under the approved policy' });
       logTraceStage(response, 'PROTECTED_EGRESS', requestId, code.startsWith('CAPABILITY_') ? 'DENIED' : 'UNAVAILABLE');
     }
   });
