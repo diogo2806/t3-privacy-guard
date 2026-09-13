@@ -7,6 +7,7 @@ export type AgentRegistrationState = 'REGISTERED' | 'NOT_REGISTERED' | 'MISMATCH
 export type EvidenceScenarioStatus = 'PASS' | 'FAIL' | 'NOT_RUN';
 export type RemediationState = 'EXECUTING' | 'PENDING_VERIFICATION' | 'COMPLETED' | 'UNVERIFIED' | 'FAILED';
 export type AuditReconciliationStatus = 'LOCAL_ONLY' | 'T3N_ONLY' | 'MATCHED' | 'UNMATCHED';
+export type AuditIntegrityState = 'VERIFIED' | 'BROKEN' | 'KEY_MISMATCH' | 'LEGACY_UNVERIFIED' | 'PURGED' | 'NOT_AVAILABLE';
 
 export interface Incident { id: string; title: string; severity: Severity; summary: string; source: string; status: string; createdAt: string; expiresAt: string; retentionState: 'ACTIVE'; }
 export interface ActionProposal { id: string; incidentId: string; requestId: string; action: string; resource: string; purpose: string; host?: string | null; fields: string[]; privateRefs: string[]; status: ProposalStatus; createdAt: string; }
@@ -29,7 +30,8 @@ export interface AuditEvent { id: string; incidentId: string; type: string; mess
 export interface LocalAuditEvidence extends AuditEvent { status: AuditReconciliationStatus; t3nSequence?: number | null; t3nFunction?: string | null; matchedSequence?: number | null; }
 export interface T3nActivityEvidence { sequence: number; hash: string; timestamp: string; callerType: string; actorDid: string; onBehalfOfDid: string; contractId: string; function: string; outcome: string; status: AuditReconciliationStatus; }
 export interface AuditProvenance { localAvailable: boolean; t3nAvailable: boolean; t3nComplete: boolean; matched: number; unmatched: number; localOnly: number; t3nOnly: number; message: string; }
-export interface AuditEvidence { localEvents: LocalAuditEvidence[]; t3nEvents: T3nActivityEvidence[]; provenance: AuditProvenance; nextSequence?: number | null; limit: number; }
+export interface AuditIntegrity { state: AuditIntegrityState; eventsChecked: number; head?: string | null; version?: string | null; detail: string; }
+export interface AuditEvidence { localEvents: LocalAuditEvidence[]; t3nEvents: T3nActivityEvidence[]; provenance: AuditProvenance; integrity: AuditIntegrity; nextSequence?: number | null; limit: number; }
 export interface ExecutionTraceEvent { id: string; incidentId: string; actionId: string; traceId: string; requestId: string; stage: string; state: string; reasonCode?: string | null; durationMs?: number | null; createdAt: string; }
 export interface OperatorSession { authenticated: boolean; username?: string | null; }
 export interface AgentAnalysis { provider: string; model: string; incident: Incident; action: ActionProposal; decision: PolicyDecision; }
