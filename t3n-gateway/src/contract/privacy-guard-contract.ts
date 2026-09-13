@@ -59,6 +59,11 @@ export interface RemediationResult extends ActivityAnnotated {
   readonly policy_hash: string;
 }
 
+export interface PayloadMinimizationProof {
+  readonly must_egress_seen: boolean;
+  readonly must_not_egress_seen: boolean;
+}
+
 export interface RemediationVerificationRequest {
   readonly request_id: string;
   readonly operation_id: string;
@@ -69,6 +74,7 @@ export interface RemediationVerificationResult extends ActivityAnnotated {
   readonly request_id: string;
   readonly status: 'VERIFIED' | 'UNVERIFIED';
   readonly observed_state?: string | null;
+  readonly payload_proof?: PayloadMinimizationProof | null;
 }
 
 export interface ContractIdentity { readonly contractId: string; readonly contractVersion: string; }
@@ -113,9 +119,15 @@ function isRemediation(value: unknown): value is RemediationResult {
 function isVerification(value: unknown): value is RemediationVerificationResult {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<RemediationVerificationResult>;
+  const proof = candidate.payload_proof;
+  const validProof = proof == null
+    || (typeof proof === 'object'
+      && typeof proof.must_egress_seen === 'boolean'
+      && typeof proof.must_not_egress_seen === 'boolean');
   return typeof candidate.request_id === 'string'
     && (candidate.status === 'VERIFIED' || candidate.status === 'UNVERIFIED')
-    && (candidate.observed_state == null || typeof candidate.observed_state === 'string');
+    && (candidate.observed_state == null || typeof candidate.observed_state === 'string')
+    && validProof;
 }
 
 function annotate<T extends object>(result: T, activity?: ActivityReference): T & ActivityAnnotated {
