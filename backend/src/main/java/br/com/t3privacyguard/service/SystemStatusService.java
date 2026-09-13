@@ -5,6 +5,8 @@ import br.com.t3privacyguard.integration.GatewaySystemClient.AgentRegistrationSt
 import br.com.t3privacyguard.integration.GatewaySystemClient.AgentStatus;
 import br.com.t3privacyguard.integration.GatewaySystemClient.ContractIdentity;
 import br.com.t3privacyguard.integration.GatewaySystemClient.DelegationStatus;
+import br.com.t3privacyguard.integration.GatewaySystemClient.EnterpriseIntegrationReadiness;
+import br.com.t3privacyguard.integration.GatewaySystemClient.EnterpriseVerificationContract;
 import br.com.t3privacyguard.integration.GatewaySystemClient.ExecutorStatus;
 import br.com.t3privacyguard.integration.GatewaySystemClient.TenantStatus;
 import java.util.List;
@@ -26,6 +28,7 @@ public class SystemStatusService {
         Optional<AgentStatus> agent = gateway.agentStatus();
         Optional<ExecutorStatus> executor = gateway.executorStatus();
         Optional<AgentRegistrationStatus> registration = gatewayReachable ? gateway.agentRegistration() : Optional.empty();
+        Optional<EnterpriseIntegrationReadiness> enterpriseIntegration = gatewayReachable ? gateway.enterpriseIntegrationReadiness() : Optional.empty();
         Optional<ContractIdentity> contract = gateway.contractIdentity();
         Optional<DelegationStatus> proposalDelegation = contract.flatMap(value -> gateway.delegationStatus(value.contractId()));
         Optional<DelegationStatus> executorDelegation = contract.flatMap(value -> gateway.executorDelegationStatus(value.contractId()));
@@ -41,6 +44,8 @@ public class SystemStatusService {
         String delegationEffectiveState = proposalDelegation.map(DelegationStatus::effectiveState).orElse("UNKNOWN");
         String executorDelegationMemberState = executorDelegation.map(DelegationStatus::memberState).orElse("UNKNOWN");
         String executorDelegationEffectiveState = executorDelegation.map(DelegationStatus::effectiveState).orElse("UNKNOWN");
+        String enterpriseIntegrationState = enterpriseIntegration.map(EnterpriseIntegrationReadiness::state).orElse("UNKNOWN");
+        boolean enterpriseIntegrationReady = "READY".equals(enterpriseIntegrationState);
 
         boolean evaluationReady = tenantAuthenticated
             && agentAuthenticated
@@ -87,6 +92,22 @@ public class SystemStatusService {
             contract.map(ContractIdentity::contractVersion).orElse(null),
             evaluationReady,
             protectedRemediationReady,
+            enterpriseIntegrationState,
+            enterpriseIntegrationReady,
+            enterpriseIntegration.map(EnterpriseIntegrationReadiness::executionConfigured).orElse(false),
+            enterpriseIntegration.map(EnterpriseIntegrationReadiness::verificationConfigured).orElse(false),
+            enterpriseIntegration.map(EnterpriseIntegrationReadiness::credentialConfigured).orElse(false),
+            enterpriseIntegration.map(EnterpriseIntegrationReadiness::executionHost).orElse(null),
+            enterpriseIntegration.map(EnterpriseIntegrationReadiness::verificationHost).orElse(null),
+            enterpriseIntegration.map(EnterpriseIntegrationReadiness::policyAllowsExecutionHost).orElse(false),
+            enterpriseIntegration.map(EnterpriseIntegrationReadiness::policyAllowsVerificationHost).orElse(false),
+            enterpriseIntegration.map(EnterpriseIntegrationReadiness::executorDelegationAllowsExecutionHost).orElse(false),
+            enterpriseIntegration.map(EnterpriseIntegrationReadiness::executorDelegationAllowsVerificationHost).orElse(false),
+            enterpriseIntegration.map(EnterpriseIntegrationReadiness::supportedExecutableActions).map(SystemStatusService::safeList).orElse(List.of()),
+            enterpriseIntegration.map(EnterpriseIntegrationReadiness::supportedVerifiedActions).map(SystemStatusService::safeList).orElse(List.of()),
+            enterpriseIntegration.map(EnterpriseIntegrationReadiness::verificationContracts).map(SystemStatusService::safeVerificationContracts).orElse(List.of()),
+            enterpriseIntegration.map(EnterpriseIntegrationReadiness::evaluationOnlyActions).map(SystemStatusService::safeList).orElse(List.of()),
+            enterpriseIntegration.map(EnterpriseIntegrationReadiness::checkedAt).orElse(null),
             delegationMemberState,
             delegationEffectiveState,
             proposalDelegation.map(DelegationStatus::functions).map(SystemStatusService::safeList).orElse(List.of()),
@@ -146,6 +167,10 @@ public class SystemStatusService {
         return values == null ? List.of() : List.copyOf(values);
     }
 
+    private static List<EnterpriseVerificationContract> safeVerificationContracts(List<EnterpriseVerificationContract> values) {
+        return values == null ? List.of() : List.copyOf(values);
+    }
+
     public record SystemStatusResponse(
         boolean gatewayReachable,
         boolean tenantAuthenticated,
@@ -170,6 +195,22 @@ public class SystemStatusService {
         String contractVersion,
         boolean evaluationReady,
         boolean protectedRemediationReady,
+        String enterpriseIntegrationState,
+        boolean enterpriseIntegrationReady,
+        boolean enterpriseExecutionConfigured,
+        boolean enterpriseVerificationConfigured,
+        boolean enterpriseCredentialConfigured,
+        String enterpriseExecutionHost,
+        String enterpriseVerificationHost,
+        boolean enterprisePolicyAllowsExecutionHost,
+        boolean enterprisePolicyAllowsVerificationHost,
+        boolean enterpriseExecutorDelegationAllowsExecutionHost,
+        boolean enterpriseExecutorDelegationAllowsVerificationHost,
+        List<String> enterpriseSupportedExecutableActions,
+        List<String> enterpriseSupportedVerifiedActions,
+        List<EnterpriseVerificationContract> enterpriseVerificationContracts,
+        List<String> enterpriseEvaluationOnlyActions,
+        String enterpriseIntegrationCheckedAt,
         String delegationMemberState,
         String delegationEffectiveState,
         List<String> delegatedFunctions,

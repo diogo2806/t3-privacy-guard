@@ -4,6 +4,7 @@ export type ProposalStatus = 'PENDING' | 'EVALUATED' | 'REMEDIATION_AUTHORIZED' 
 export type DelegationState = 'ACTIVE' | 'SCHEDULED' | 'REVOKED' | 'NOT_GRANTED' | 'UNKNOWN';
 export type EffectiveDelegationState = 'ACTIVE' | 'DENIED' | 'UNKNOWN';
 export type AgentRegistrationState = 'REGISTERED' | 'NOT_REGISTERED' | 'MISMATCH' | 'UNAVAILABLE';
+export type EnterpriseIntegrationState = 'READY' | 'INCOMPLETE' | 'MISMATCH' | 'UNKNOWN';
 export type EvidenceScenarioStatus = 'PASS' | 'FAIL' | 'NOT_RUN';
 export type RemediationState = 'EXECUTING' | 'PENDING_VERIFICATION' | 'COMPLETED' | 'UNVERIFIED' | 'FAILED';
 export type AuditReconciliationStatus = 'LOCAL_ONLY' | 'T3N_ONLY' | 'MATCHED' | 'UNMATCHED';
@@ -36,6 +37,7 @@ export interface ExecutionTraceEvent { id: string; incidentId: string; actionId:
 export interface OperatorSession { authenticated: boolean; username?: string | null; }
 export interface AgentAnalysis { provider: string; model: string; incident: Incident; action: ActionProposal; decision: PolicyDecision; }
 export interface RemediationExecution { incidentId: string; actionId: string; requestId: string; state: RemediationState; httpCode?: number | null; operationId?: string | null; verificationAttempts: number; failureCode?: string | null; startedAt: string; completedAt?: string | null; }
+export interface EnterpriseVerificationContract { action: string; expectedState: string; }
 export interface SystemStatus {
   gatewayReachable: boolean;
   tenantAuthenticated: boolean;
@@ -60,6 +62,22 @@ export interface SystemStatus {
   contractVersion?: string | null;
   evaluationReady: boolean;
   protectedRemediationReady: boolean;
+  enterpriseIntegrationState: EnterpriseIntegrationState;
+  enterpriseIntegrationReady: boolean;
+  enterpriseExecutionConfigured: boolean;
+  enterpriseVerificationConfigured: boolean;
+  enterpriseCredentialConfigured: boolean;
+  enterpriseExecutionHost?: string | null;
+  enterpriseVerificationHost?: string | null;
+  enterprisePolicyAllowsExecutionHost: boolean;
+  enterprisePolicyAllowsVerificationHost: boolean;
+  enterpriseExecutorDelegationAllowsExecutionHost: boolean;
+  enterpriseExecutorDelegationAllowsVerificationHost: boolean;
+  enterpriseSupportedExecutableActions: string[];
+  enterpriseSupportedVerifiedActions: string[];
+  enterpriseVerificationContracts: EnterpriseVerificationContract[];
+  enterpriseEvaluationOnlyActions: string[];
+  enterpriseIntegrationCheckedAt?: string | null;
   delegationMemberState: DelegationState;
   delegationEffectiveState: EffectiveDelegationState;
   delegatedFunctions: string[];
