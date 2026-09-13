@@ -67,16 +67,16 @@ export function EvidenceCenter({ evidence, loading, error, onRefresh }: Props) {
           <Button variant="ghost" onClick={onRefresh}><RefreshCw aria-hidden="true" />Refresh evidence</Button>
         </div>
         <div className="evidence-summary-totals" aria-label="Evidence totals">
-          <div className="evidence-summary-metric evidence-pass"><strong>{evidence.totals.pass}</strong><span>PASS</span></div>
-          <div className="evidence-summary-metric evidence-fail"><strong>{evidence.totals.fail}</strong><span>FAIL</span></div>
-          <div className="evidence-summary-metric evidence-not-run"><strong>{evidence.totals.notRun}</strong><span>NOT RUN</span></div>
-          <div className="evidence-summary-metric"><strong>{evidence.metadata.network.toUpperCase()}</strong><span>Network</span></div>
+          <div className="evidence-summary-metric evidence-pass" data-testid="evidence-pass-total"><strong>{evidence.totals.pass}</strong><span>PASS</span></div>
+          <div className="evidence-summary-metric evidence-fail" data-testid="evidence-fail-total"><strong>{evidence.totals.fail}</strong><span>FAIL</span></div>
+          <div className="evidence-summary-metric evidence-not-run" data-testid="evidence-not-run-total"><strong>{evidence.totals.notRun}</strong><span>NOT RUN</span></div>
+          <div className="evidence-summary-metric" data-testid="evidence-network"><strong>{evidence.metadata.network.toUpperCase()}</strong><span>Network</span></div>
         </div>
         <dl className="evidence-executive-facts">
-          <div><dt>Source tree</dt><dd><span className={`status-pill ${evidence.metadata.sourceTreeClean ? 'status-pill-ok' : 'status-pill-off'}`}>{sourceTreeState}</span></dd></div>
+          <div><dt>Source tree</dt><dd data-testid="evidence-source-tree"><span className={`status-pill ${evidence.metadata.sourceTreeClean ? 'status-pill-ok' : 'status-pill-off'}`}>{sourceTreeState}</span></dd></div>
           <div><dt>Trust anchor</dt><dd><span className={`status-pill ${evidence.metadata.trustAnchorVerified ? 'status-pill-ok' : 'status-pill-off'}`}>{trustAnchorState}</span></dd></div>
           <div><dt>Policy</dt><dd>{evidence.metadata.policyVersion}</dd></div>
-          <div><dt>Generated</dt><dd>{new Date(evidence.metadata.generatedAt).toLocaleString()}</dd></div>
+          <div><dt>Generated</dt><dd data-testid="evidence-generated-at">{new Date(evidence.metadata.generatedAt).toLocaleString()}</dd></div>
         </dl>
       </Surface>
 
@@ -86,7 +86,7 @@ export function EvidenceCenter({ evidence, loading, error, onRefresh }: Props) {
         </div>
         <ul className="evidence-list">
           {evidence.scenarios.map((scenario) => (
-            <li key={scenario.id} className={`evidence-row evidence-row-${scenario.status.toLowerCase().replace('_', '-')}`}>
+            <li key={scenario.id} className={`evidence-row evidence-row-${scenario.status.toLowerCase().replace('_', '-')}`} data-testid={`evidence-scenario-${scenario.id}`}>
               <ScenarioIcon scenario={scenario} />
               <div className="evidence-row-copy">
                 <strong>{scenarioLabel(scenario.id)}</strong>
@@ -109,7 +109,7 @@ export function EvidenceCenter({ evidence, loading, error, onRefresh }: Props) {
           <dl className="evidence-metadata">
             <div><dt>Source</dt><dd>{evidence.metadata.source}</dd></div>
             <div><dt>Generated</dt><dd>{new Date(evidence.metadata.generatedAt).toLocaleString()}</dd></div>
-            <div className="evidence-wide"><dt>Source commit</dt><dd><code>{evidence.metadata.sourceCommitSha}</code></dd></div>
+            <div className="evidence-wide"><dt>Source commit</dt><dd data-testid="evidence-source-commit"><code>{evidence.metadata.sourceCommitSha}</code></dd></div>
             <div><dt>Source tree</dt><dd>{sourceTreeState}</dd></div>
             <div><dt>SDK</dt><dd>{evidence.metadata.sdkVersion}</dd></div>
           </dl>
@@ -136,9 +136,9 @@ export function EvidenceCenter({ evidence, loading, error, onRefresh }: Props) {
             <div><dt>Agent Card services</dt><dd>{evidence.metadata.agentCardServices.length ? evidence.metadata.agentCardServices.join(', ') : 'None verified'}</dd></div>
             <div className="evidence-wide"><dt>Agent Card URI</dt><dd><code>{evidence.metadata.agentCardUri ?? 'Not resolved'}</code></dd></div>
             <div className="evidence-wide"><dt>Agent Card SHA-256</dt><dd><code>{evidence.metadata.agentCardSha256 ?? 'Not available'}</code></dd></div>
-            <div className="evidence-wide"><dt>Tenant DID</dt><dd><code>{evidence.metadata.tenantDid}</code></dd></div>
-            <div className="evidence-wide"><dt>Proposal Agent DID</dt><dd><code>{evidence.metadata.agentDid}</code></dd></div>
-            <div className="evidence-wide"><dt>Protected Executor DID</dt><dd><code>{evidence.metadata.executorDid}</code></dd></div>
+            <div className="evidence-wide"><dt>Tenant DID</dt><dd data-testid="evidence-tenant-did"><code>{evidence.metadata.tenantDid}</code></dd></div>
+            <div className="evidence-wide"><dt>Proposal Agent DID</dt><dd data-testid="evidence-proposal-agent-did"><code>{evidence.metadata.agentDid}</code></dd></div>
+            <div className="evidence-wide"><dt>Protected Executor DID</dt><dd data-testid="evidence-protected-executor-did"><code>{evidence.metadata.executorDid}</code></dd></div>
           </dl>
           <p className="evidence-disclaimer">Agent Card and A2A are discoverability evidence; they do not grant delegated authority. A2A OBSERVED means the resolved card advertised the service, not that public reachability was proved. Protected remediation is not exposed through A2A.</p>
         </details>
@@ -146,11 +146,11 @@ export function EvidenceCenter({ evidence, loading, error, onRefresh }: Props) {
         <details className="evidence-provenance-group">
           <summary>Contract &amp; policy</summary>
           <dl className="evidence-metadata">
-            <div><dt>Contract version</dt><dd>{evidence.metadata.contractVersion}</dd></div>
+            <div><dt>Contract version</dt><dd data-testid="evidence-contract-version">{evidence.metadata.contractVersion}</dd></div>
             <div><dt>Policy version</dt><dd>{evidence.metadata.policyVersion}</dd></div>
-            <div className="evidence-wide"><dt>Contract</dt><dd><code>{evidence.metadata.contractId}</code></dd></div>
+            <div className="evidence-wide"><dt>Contract</dt><dd data-testid="evidence-contract-id"><code>{evidence.metadata.contractId}</code></dd></div>
             <div className="evidence-wide"><dt>Policy SHA-256</dt><dd><code>{evidence.metadata.policyHash}</code></dd></div>
-            <div className="evidence-wide"><dt>WASM SHA-256</dt><dd><code>{evidence.metadata.wasmSha256}</code></dd></div>
+            <div className="evidence-wide"><dt>WASM SHA-256</dt><dd data-testid="evidence-wasm-sha256"><code>{evidence.metadata.wasmSha256}</code></dd></div>
           </dl>
           <p className="evidence-disclaimer">Policy version/hash identify the canonical operational policy used by this run. The Proposal Agent evaluates policy; the separate Protected Executor performs privileged execution and verification only after required authorization.</p>
         </details>
