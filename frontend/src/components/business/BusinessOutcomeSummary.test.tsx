@@ -37,6 +37,11 @@ const SAFE_ACTION: ActionProposal = {
   requestId: 'request-safe',
   host: 'postman-echo.com',
   fields: ['incident_id', 'credential_id', 'reason'],
+  normalPayload: {
+    incident_id: 'inc-demo-001',
+    credential_id: 'cred-demo-001',
+    reason: 'suspected compromise',
+  },
   createdAt: '2026-09-13T15:00:01.000Z',
 };
 
@@ -56,7 +61,7 @@ function policyDecision(action: ActionProposal, value: PolicyDecision['decision'
     redactedFields: value === 'REDACT' ? ['employee_department'] : [],
     allowedPrivateRefs: [],
     redactedPrivateRefs: [],
-    requiresHumanAuthorization: value === 'ALLOW',
+    requiresHumanAuthorization: value !== 'DENY',
     evaluatedAt,
   };
 }
@@ -125,11 +130,27 @@ describe('BusinessOutcomeSummary', () => {
     expect(section('Authorized response').getByText('NOT VERIFIED')).toBeInTheDocument();
   });
 
-  it('shows REDACT as minimization required rather than successful execution', () => {
+  it('shows non-executable REDACT as minimization required rather than successful execution', () => {
     renderSummary({ incident: INCIDENT, selectedAction: THREAT_ACTION, decision: policyDecision(THREAT_ACTION, 'REDACT') });
     expect(screen.getByRole('status')).toHaveTextContent('requires a smaller data scope');
     expect(section('T3N control outcome').getByText('REDACT')).toBeInTheDocument();
     expect(section('T3N control outcome').getByText(/1 · employee_department/)).toBeInTheDocument();
+  });
+
+  it('shows executable REDACT as still requiring human authorization', () => {
+    const action: ActionProposal = {
+      ...SAFE_ACTION,
+      fields: [...SAFE_ACTION.fields, 'employee_department'],
+      normalPayload: { ...SAFE_ACTION.normalPayload, employee_department: 'finance' },
+    };
+    const redact = policyDecision(action, 'REDACT');
+    renderSummary({ incident: INCIDENT, selectedAction: action, decision: redact });
+
+    expect(screen.getByRole('status')).toHaveTextContent(/minimized the request to an executable scope/i);
+    expectValue('Policy-executable action', 'revoke-credential');
+    expectValue('Human authorization', 'REQUIRED');
+    expectValue('Policy-allowed destination', 'postman-echo.com');
+    expectValue('Approved destination', 'Not authorized yet');
   });
 
   it('shows actual requested private reference counts without exposing a value', () => {
@@ -160,7 +181,7 @@ describe('BusinessOutcomeSummary', () => {
     expect(section('Authorized response').getByText('REQUIRED')).toBeInTheDocument();
     expect(section('Authorized response').getByText('Not authorized yet')).toBeInTheDocument();
     expect(screen.queryByText('Authorized by')).not.toBeInTheDocument();
-    expectValue('Policy-allowed action', 'revoke-credential');
+    expectValue('Policy-executable action', 'revoke-credential');
   });
 
   it('shows the authenticated application operator only after bound authorization', () => {
