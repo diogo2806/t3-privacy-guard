@@ -1,9 +1,13 @@
 package br.com.t3privacyguard.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import br.com.t3privacyguard.audit.AuditIntegrityService;
+import br.com.t3privacyguard.domain.AuditIntegrityState;
 import br.com.t3privacyguard.domain.AuditReconciliationStatus;
 import br.com.t3privacyguard.domain.Severity;
 import br.com.t3privacyguard.integration.GatewaySystemClient;
@@ -23,6 +27,7 @@ class AuditEvidenceServiceTest {
     private IncidentRepository incidents;
     private AuditEventRepository audits;
     private GatewaySystemClient gateway;
+    private AuditIntegrityService auditIntegrity;
     private AuditEvidenceService service;
     private IncidentEntity incident;
 
@@ -31,9 +36,13 @@ class AuditEvidenceServiceTest {
         incidents = mock(IncidentRepository.class);
         audits = mock(AuditEventRepository.class);
         gateway = mock(GatewaySystemClient.class);
-        service = new AuditEvidenceService(incidents, audits, gateway);
+        auditIntegrity = mock(AuditIntegrityService.class);
+        service = new AuditEvidenceService(incidents, audits, gateway, auditIntegrity);
         incident = new IncidentEntity("incident-1", "Test", Severity.HIGH, "Summary", "test", Instant.now().minusSeconds(60));
         when(incidents.findById("incident-1")).thenReturn(Optional.of(incident));
+        when(auditIntegrity.verify(eq("incident-1"), anyList())).thenReturn(new AuditIntegrityService.AuditIntegrityResult(
+            AuditIntegrityState.VERIFIED, 3, "a".repeat(64), "v1", "The retained local audit chain was verified with the current HMAC integrity key."
+        ));
     }
 
     @Test
@@ -55,6 +64,8 @@ class AuditEvidenceServiceTest {
 
         var result = service.read("incident-1", 100);
 
+        assertThat(result.integrity().state()).isEqualTo(AuditIntegrityState.VERIFIED);
+        assertThat(result.integrity().eventsChecked()).isEqualTo(3);
         assertThat(result.localEvents()).extracting(event -> event.status()).containsExactly(
             AuditReconciliationStatus.LOCAL_ONLY,
             AuditReconciliationStatus.MATCHED,
@@ -90,7 +101,7 @@ class AuditEvidenceServiceTest {
     }
 
     @Test
-    void preservesLocalAuditWhenT3nActivityIsUnavailable() {
+    void preservesLocalIntegritySignalWhenT3nActivityIsUnavailable() {
         when(audits.findByIncidentIdOrderByCreatedAtAsc("incident-1")).thenReturn(List.of(
             new AuditEventEntity("local-1", "incident-1", "INCIDENT_CREATED", "Created", Instant.now()),
             new AuditEventEntity("local-2", "incident-1", "POLICY_DECISION", "Allowed", Instant.now(), null, null, "evaluate-action")
@@ -101,6 +112,7 @@ class AuditEvidenceServiceTest {
 
         assertThat(result.localEvents()).hasSize(2);
         assertThat(result.t3nEvents()).isEmpty();
+        assertThat(result.integrity().state()).isEqualTo(AuditIntegrityState.VERIFIED);
         assertThat(result.provenance().t3nAvailable()).isFalse();
         assertThat(result.provenance().message()).isEqualTo("T3N activity temporarily unavailable. Local business audit remains available; network provenance was not verified.");
     }
