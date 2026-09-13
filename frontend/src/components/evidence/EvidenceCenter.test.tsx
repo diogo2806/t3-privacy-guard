@@ -4,12 +4,15 @@ import { describe, expect, it, vi } from 'vitest';
 import { EvidenceCenter } from './EvidenceCenter';
 
 describe('EvidenceCenter', () => {
-  it('explains proof semantics and renders policy/trust provenance without overstating attestation', () => {
+  it('explains proof semantics and renders agent, policy and trust provenance without overstating attestation', () => {
     render(<EvidenceCenter evidence={{
       metadata: {
         source: 'T3N_TESTNET', generatedAt: '2026-09-12T00:00:00Z', network: 'testnet', sdkVersion: '5.2.0',
-        tenantDid: 'did:t3n:tenant', agentDid: 'did:t3n:agent', contractId: 'z:tenant:privacy-guard',
-        contractVersion: '0.4.0', wasmSha256: 'a'.repeat(64), policyVersion: '2026-09-12.1', policyHash: 'b'.repeat(64),
+        tenantDid: 'did:t3n:tenant', agentDid: 'did:t3n:agent',
+        agentRegistrationState: 'REGISTERED', agentCardUri: 'https://node.example/api/agent-card/did%3At3n%3Aagent',
+        agentCardSha256: 'c'.repeat(64), agentCardVerifiedAt: '2026-09-12T00:00:01Z', agentCardServices: ['DID'],
+        contractId: 'z:tenant:privacy-guard', contractVersion: '0.4.0', wasmSha256: 'a'.repeat(64),
+        policyVersion: '2026-09-12.1', policyHash: 'b'.repeat(64),
         trustAnchorVerified: true, trustManifestFloorPersisted: true, trustManifestVersion: 42,
       },
       scenarios: [
@@ -26,9 +29,13 @@ describe('EvidenceCenter', () => {
     expect(screen.getByText('0.4.0')).toBeInTheDocument();
     expect(screen.getByText('2026-09-12.1')).toBeInTheDocument();
     expect(screen.getByText('b'.repeat(64))).toBeInTheDocument();
+    expect(screen.getByText('c'.repeat(64))).toBeInTheDocument();
+    expect(screen.getAllByText('REGISTERED').length).toBeGreaterThan(0);
+    expect(screen.getByText('DID')).toBeInTheDocument();
     expect(screen.getByText('VERIFIED')).toBeInTheDocument();
     expect(screen.getByText('PERSISTED')).toBeInTheDocument();
     expect(screen.getByText('42')).toBeInTheDocument();
+    expect(screen.getByText(/discovery evidence, not delegation/i)).toBeInTheDocument();
     expect(screen.getByText(/not a claim of per-request hardware attestation/i)).toBeInTheDocument();
     expect(screen.getByText(/never counted as PASS/i)).toBeInTheDocument();
   });
