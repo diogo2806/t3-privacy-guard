@@ -167,6 +167,7 @@ test('capture submission material only from live testnet evidence', async ({ pag
   await expect(page.getByTestId('executive-observed-outcome')).toContainText('AUTHORIZED / NOT EXECUTED');
   await expect(page.getByTestId('executive-step-human')).toContainText('AUTHORIZED');
   await expect(page.getByTestId('executive-step-executor')).toContainText('NOT STARTED');
+  await expect(page.getByTestId('executive-step-verify')).toContainText('NOT VERIFIED YET');
   files.push(await captureExecutiveViewport(page, '03-executive-human-authorization.png'));
 
   let remediationVerified = false;
@@ -188,7 +189,7 @@ test('capture submission material only from live testnet evidence', async ({ pag
     files.push(await captureExecutiveViewport(page, '04-executive-verified-outcome.png'));
   } else {
     await expect(page.getByTestId('executive-observed-outcome')).toContainText('AUTHORIZED / NOT EXECUTED');
-    await expect(page.getByTestId('executive-step-verify')).not.toContainText('VERIFIED');
+    await expect(page.getByTestId('executive-step-verify')).toContainText('NOT VERIFIED YET');
     files.push(await captureExecutiveViewport(page, '04-executive-not-verified-yet.png'));
   }
 
