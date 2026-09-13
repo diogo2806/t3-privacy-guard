@@ -6,6 +6,7 @@ import br.com.t3privacyguard.api.ApiModels.AuditResponse;
 import br.com.t3privacyguard.api.ApiModels.CreateActionRequest;
 import br.com.t3privacyguard.api.ApiModels.CreateIncidentRequest;
 import br.com.t3privacyguard.api.ApiModels.DecisionResponse;
+import br.com.t3privacyguard.api.ApiModels.ExecutionTraceResponse;
 import br.com.t3privacyguard.api.ApiModels.IncidentResponse;
 import br.com.t3privacyguard.api.ApiModels.RemediationAuthorizationResponse;
 import br.com.t3privacyguard.api.ApiModels.RemediationExecutionResponse;
@@ -72,6 +73,11 @@ public class IncidentController {
     @GetMapping("/{incidentId}/actions/{actionId}/remediation")
     public RemediationExecutionResponse remediation(@PathVariable String incidentId, @PathVariable String actionId) {
         return remediationQuery.get(incidentId, actionId);
+    }
+
+    @GetMapping("/{incidentId}/actions/{actionId}/trace")
+    public List<ExecutionTraceResponse> executionTrace(@PathVariable String incidentId, @PathVariable String actionId) {
+        return service.executionTrace(incidentId, actionId);
     }
 
     @GetMapping("/{incidentId}/history")
