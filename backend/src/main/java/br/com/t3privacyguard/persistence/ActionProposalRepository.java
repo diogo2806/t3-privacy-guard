@@ -15,5 +15,9 @@ public interface ActionProposalRepository extends JpaRepository<ActionProposalEn
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select a from ActionProposalEntity a where a.id = :id")
+    Optional<ActionProposalEntity> findByIdForAuthorization(@Param("id") String id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select a from ActionProposalEntity a where a.id = :id")
     Optional<ActionProposalEntity> findByIdForExecutionClaim(@Param("id") String id);
 }
