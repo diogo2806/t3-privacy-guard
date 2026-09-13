@@ -29,7 +29,7 @@ test('accepts only the minimum structured proposal surface', () => {
   assert.deepEqual(proposal.fields, ['incident_id', 'credential_id', 'reason']);
 });
 
-test('rejects model attempts to decide authorization or inject identity', () => {
+test('rejects model attempts to decide authorization inject identity or supply normal payload values', () => {
   for (const extra of [
     { decision: 'ALLOW' },
     { allow: true },
@@ -41,6 +41,8 @@ test('rejects model attempts to decide authorization or inject identity', () => 
     { secret: 'synthetic' },
     { apiKey: 'synthetic' },
     { api_key: 'synthetic' },
+    { normal_payload: { reason: 'model-controlled-value' } },
+    { normalPayload: { reason: 'model-controlled-value' } },
   ]) {
     assert.throws(() => validateAgentProposal({ ...validProposal(), ...extra }), /AGENT_PROPOSAL_FORBIDDEN_FIELD/);
   }
@@ -57,10 +59,12 @@ test('rejects unknown keys and oversized field sets', () => {
 
 test('property: generated authority fields are always rejected with reproducible seed 0x53a9f17d', () => {
   const random = seeded();
-  const forbidden = ['decision', 'allow', 'override', 'approved', 'agent_did', 'pii_did', 'credential', 'secret', 'apiKey', 'api_key'];
+  const forbidden = ['decision', 'allow', 'override', 'approved', 'agent_did', 'pii_did', 'credential', 'secret', 'apiKey', 'api_key', 'normal_payload', 'normalPayload'];
   for (let index = 0; index < 1_000; index += 1) {
     const key = forbidden[random() % forbidden.length];
-    const value = `synthetic-${random().toString(16)}`;
+    const value = key === 'normal_payload' || key === 'normalPayload'
+      ? { reason: `synthetic-${random().toString(16)}` }
+      : `synthetic-${random().toString(16)}`;
     assert.throws(
       () => validateAgentProposal({ ...validProposal(), [key]: value }),
       /AGENT_PROPOSAL_FORBIDDEN_FIELD/,
