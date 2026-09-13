@@ -18,15 +18,18 @@ class EvidenceServiceTest {
         Path manifest = tempDir.resolve("deployment-manifest.json");
         Path testnet = tempDir.resolve("testnet-run.json");
         String hash = "a".repeat(64);
+        String cardHash = "c".repeat(64);
         Files.writeString(manifest, """
-            {"source":"T3N_TESTNET","generatedAt":"2026-09-12T00:00:00Z","network":"testnet","sdkVersion":"5.2.0","tenantDid":"did:t3n:tenant","agentDid":"did:t3n:agent","contractId":"z:tenant:privacy-guard","contractVersion":"0.3.0","wasmSha256":"%s","trustAnchorVerified":true,"trustManifestFloorPersisted":true,"trustManifestVersion":42,"unexpectedSecretField":"must-not-cross"}
-            """.formatted(hash));
+            {"source":"T3N_TESTNET","generatedAt":"2026-09-12T00:00:00Z","network":"testnet","sdkVersion":"5.2.0","tenantDid":"did:t3n:tenant","agentDid":"did:t3n:agent","agentRegistrationState":"REGISTERED","agentCardUri":"https://node.example/api/agent-card/did:t3n:agent","agentCardSha256":"%s","agentCardVerifiedAt":"2026-09-12T00:00:01Z","agentCardServices":["DID"],"contractId":"z:tenant:privacy-guard","contractVersion":"0.3.0","wasmSha256":"%s","trustAnchorVerified":true,"trustManifestFloorPersisted":true,"trustManifestVersion":42,"unexpectedSecretField":"must-not-cross"}
+            """.formatted(cardHash, hash));
         Files.writeString(testnet, """
             {"network":"testnet","sdkVersion":"5.2.0","tenantDid":"did:t3n:tenant","agentDid":"did:t3n:agent","contractId":"z:tenant:privacy-guard","contractVersion":"0.3.0","wasmSha256":"%s","scenarios":[{"id":"s1","expected":"DENY","actual":"DENY","status":"PASS"},{"id":"s2","expected":"blocked","actual":null,"status":"NOT_RUN"}]}
             """.formatted(hash));
 
         var result = new EvidenceService(mapper, manifest.toString(), testnet.toString()).latest();
         assertThat(result.metadata().source()).isEqualTo("T3N_TESTNET");
+        assertThat(result.metadata().agentRegistrationState()).isEqualTo("REGISTERED");
+        assertThat(result.metadata().agentCardServices()).containsExactly("DID");
         assertThat(result.metadata().contractVersion()).isEqualTo("0.3.0");
         assertThat(result.metadata().trustAnchorVerified()).isTrue();
         assertThat(result.metadata().trustManifestFloorPersisted()).isTrue();
@@ -44,10 +47,22 @@ class EvidenceServiceTest {
     }
 
     @Test
-    void mismatchedHashFailsInsteadOfPresentingEvidence() throws Exception {
+    void registeredCardWithInvalidHashFailsClosed() throws Exception {
         Path manifest = tempDir.resolve("manifest.json");
         Path testnet = tempDir.resolve("run.json");
-        Files.writeString(manifest, "{\"source\":\"T3N_TESTNET\",\"generatedAt\":\"2026-09-12T00:00:00Z\",\"network\":\"testnet\",\"sdkVersion\":\"5.2.0\",\"tenantDid\":\"did:t3n:tenant\",\"agentDid\":\"did:t3n:agent\",\"contractId\":\"z:tenant:privacy-guard\",\"contractVersion\":\"0.3.0\",\"wasmSha256\":\"" + "a".repeat(64) + "\",\"trustAnchorVerified\":true,\"trustManifestFloorPersisted\":true,\"trustManifestVersion\":42}");
+        String wasmHash = "a".repeat(64);
+        Files.writeString(manifest, "{\"source\":\"T3N_TESTNET\",\"generatedAt\":\"2026-09-12T00:00:00Z\",\"network\":\"testnet\",\"sdkVersion\":\"5.2.0\",\"tenantDid\":\"did:t3n:tenant\",\"agentDid\":\"did:t3n:agent\",\"agentRegistrationState\":\"REGISTERED\",\"agentCardUri\":\"https://node.example/card\",\"agentCardSha256\":\"bad\",\"agentCardVerifiedAt\":\"2026-09-12T00:00:01Z\",\"agentCardServices\":[\"DID\"],\"contractId\":\"z:tenant:privacy-guard\",\"contractVersion\":\"0.3.0\",\"wasmSha256\":\"" + wasmHash + "\",\"trustAnchorVerified\":true,\"trustManifestFloorPersisted\":true,\"trustManifestVersion\":42}");
+        Files.writeString(testnet, "{\"network\":\"testnet\",\"sdkVersion\":\"5.2.0\",\"tenantDid\":\"did:t3n:tenant\",\"agentDid\":\"did:t3n:agent\",\"contractId\":\"z:tenant:privacy-guard\",\"contractVersion\":\"0.3.0\",\"wasmSha256\":\"" + wasmHash + "\",\"scenarios\":[]}");
+        assertThatThrownBy(() -> new EvidenceService(mapper, manifest.toString(), testnet.toString()).latest())
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("invalid or inconsistent");
+    }
+
+    @Test
+    void mismatchedHashFailsInsteadOfPresentingEvidence() throws Exception {
+        Path manifest = tempDir.resolve("manifest-mismatch.json");
+        Path testnet = tempDir.resolve("run-mismatch.json");
+        Files.writeString(manifest, "{\"source\":\"T3N_TESTNET\",\"generatedAt\":\"2026-09-12T00:00:00Z\",\"network\":\"testnet\",\"sdkVersion\":\"5.2.0\",\"tenantDid\":\"did:t3n:tenant\",\"agentDid\":\"did:t3n:agent\",\"agentRegistrationState\":\"NOT_REGISTERED\",\"agentCardUri\":null,\"agentCardSha256\":null,\"agentCardVerifiedAt\":\"2026-09-12T00:00:01Z\",\"agentCardServices\":[],\"contractId\":\"z:tenant:privacy-guard\",\"contractVersion\":\"0.3.0\",\"wasmSha256\":\"" + "a".repeat(64) + "\",\"trustAnchorVerified\":true,\"trustManifestFloorPersisted\":true,\"trustManifestVersion\":42}");
         Files.writeString(testnet, "{\"network\":\"testnet\",\"sdkVersion\":\"5.2.0\",\"tenantDid\":\"did:t3n:tenant\",\"agentDid\":\"did:t3n:agent\",\"contractId\":\"z:tenant:privacy-guard\",\"contractVersion\":\"0.3.0\",\"wasmSha256\":\"" + "b".repeat(64) + "\",\"scenarios\":[]}");
         assertThatThrownBy(() -> new EvidenceService(mapper, manifest.toString(), testnet.toString()).latest())
             .isInstanceOf(IllegalStateException.class)
@@ -61,12 +76,12 @@ class EvidenceServiceTest {
         String hash = "c".repeat(64);
         Files.writeString(testnet, "{\"network\":\"testnet\",\"sdkVersion\":\"5.2.0\",\"tenantDid\":\"did:t3n:tenant\",\"agentDid\":\"did:t3n:agent\",\"contractId\":\"z:tenant:privacy-guard\",\"contractVersion\":\"0.3.0\",\"wasmSha256\":\"" + hash + "\",\"scenarios\":[]}");
 
-        Files.writeString(manifest, "{\"source\":\"T3N_TESTNET\",\"generatedAt\":\"2026-09-12T00:00:00Z\",\"network\":\"testnet\",\"sdkVersion\":\"5.2.0\",\"tenantDid\":\"did:t3n:tenant\",\"agentDid\":\"did:t3n:agent\",\"contractId\":\"z:tenant:privacy-guard\",\"contractVersion\":\"0.3.0\",\"wasmSha256\":\"" + hash + "\",\"trustAnchorVerified\":false,\"trustManifestFloorPersisted\":true,\"trustManifestVersion\":42}");
+        Files.writeString(manifest, "{\"source\":\"T3N_TESTNET\",\"generatedAt\":\"2026-09-12T00:00:00Z\",\"network\":\"testnet\",\"sdkVersion\":\"5.2.0\",\"tenantDid\":\"did:t3n:tenant\",\"agentDid\":\"did:t3n:agent\",\"agentRegistrationState\":\"NOT_REGISTERED\",\"agentCardUri\":null,\"agentCardSha256\":null,\"agentCardVerifiedAt\":\"2026-09-12T00:00:01Z\",\"agentCardServices\":[],\"contractId\":\"z:tenant:privacy-guard\",\"contractVersion\":\"0.3.0\",\"wasmSha256\":\"" + hash + "\",\"trustAnchorVerified\":false,\"trustManifestFloorPersisted\":true,\"trustManifestVersion\":42}");
         assertThatThrownBy(() -> new EvidenceService(mapper, manifest.toString(), testnet.toString()).latest())
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("invalid or inconsistent");
 
-        Files.writeString(manifest, "{\"source\":\"T3N_TESTNET\",\"generatedAt\":\"2026-09-12T00:00:00Z\",\"network\":\"testnet\",\"sdkVersion\":\"5.2.0\",\"tenantDid\":\"did:t3n:tenant\",\"agentDid\":\"did:t3n:agent\",\"contractId\":\"z:tenant:privacy-guard\",\"contractVersion\":\"0.3.0\",\"wasmSha256\":\"" + hash + "\"}");
+        Files.writeString(manifest, "{\"source\":\"T3N_TESTNET\",\"generatedAt\":\"2026-09-12T00:00:00Z\",\"network\":\"testnet\",\"sdkVersion\":\"5.2.0\",\"tenantDid\":\"did:t3n:tenant\",\"agentDid\":\"did:t3n:agent\",\"agentRegistrationState\":\"NOT_REGISTERED\",\"agentCardUri\":null,\"agentCardSha256\":null,\"agentCardVerifiedAt\":\"2026-09-12T00:00:01Z\",\"agentCardServices\":[],\"contractId\":\"z:tenant:privacy-guard\",\"contractVersion\":\"0.3.0\",\"wasmSha256\":\"" + hash + "\"}");
         assertThatThrownBy(() -> new EvidenceService(mapper, manifest.toString(), testnet.toString()).latest())
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("invalid or inconsistent");

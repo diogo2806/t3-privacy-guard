@@ -2,6 +2,7 @@ export type Severity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 export type DecisionType = 'ALLOW' | 'REDACT' | 'DENY';
 export type ProposalStatus = 'PENDING' | 'EVALUATED' | 'REMEDIATION_AUTHORIZED' | 'REMEDIATED';
 export type DelegationState = 'ACTIVE' | 'REVOKED' | 'NOT_GRANTED' | 'UNKNOWN';
+export type AgentRegistrationState = 'REGISTERED' | 'NOT_REGISTERED' | 'MISMATCH' | 'UNAVAILABLE';
 export type EvidenceScenarioStatus = 'PASS' | 'FAIL' | 'NOT_RUN';
 export type RemediationState = 'EXECUTING' | 'PENDING_VERIFICATION' | 'COMPLETED' | 'UNVERIFIED' | 'FAILED';
 
@@ -20,6 +21,11 @@ export interface SystemStatus {
   agentConfigured: boolean;
   agentAuthenticated: boolean;
   agentDid?: string | null;
+  agentRegistrationState: AgentRegistrationState;
+  agentCardUri?: string | null;
+  agentCardSha256?: string | null;
+  agentCardVerifiedAt?: string | null;
+  agentCardServices: string[];
   contractResolved: boolean;
   contractId?: string | null;
   contractVersion?: string | null;
@@ -35,6 +41,11 @@ export interface EvidenceMetadata {
   sdkVersion: string;
   tenantDid: string;
   agentDid: string;
+  agentRegistrationState: AgentRegistrationState;
+  agentCardUri?: string | null;
+  agentCardSha256?: string | null;
+  agentCardVerifiedAt: string;
+  agentCardServices: string[];
   contractId: string;
   contractVersion: string;
   wasmSha256: string;

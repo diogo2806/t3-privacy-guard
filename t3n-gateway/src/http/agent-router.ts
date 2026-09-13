@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { AgentCardRegistry } from '../agent/agent-card.js';
 import type { AgentSession } from '../agent/agent-session.js';
 import type { DelegationGrantRequest, DelegationService } from '../agent/delegation-service.js';
 import { requireServiceToken } from '../security/service-auth.js';
@@ -6,6 +7,7 @@ import { requireServiceToken } from '../security/service-auth.js';
 export function createAgentRouter(
   agentSession: AgentSession,
   delegationService: DelegationService,
+  agentCardRegistry: AgentCardRegistry,
   serviceToken: string,
 ): Router {
   const router = Router();
@@ -14,6 +16,11 @@ export function createAgentRouter(
   router.get('/status', (_request, response) => {
     const status = agentSession.getStatus();
     response.status(status.ready ? 200 : 503).json(status);
+  });
+
+  router.get('/registration', async (_request, response) => {
+    const registration = await agentCardRegistry.verify();
+    response.json(registration);
   });
 
   router.post('/connect', privileged, async (_request, response) => {

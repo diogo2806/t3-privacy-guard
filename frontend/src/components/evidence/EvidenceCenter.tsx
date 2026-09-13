@@ -1,5 +1,5 @@
-import { FileCheck2, RefreshCw, ShieldCheck, ShieldX, CircleDashed } from 'lucide-react';
-import type { EvidenceBundle, EvidenceScenario } from '../../services/privacyGuardApi';
+import { CircleDashed, FileCheck2, RefreshCw, ShieldCheck, ShieldX } from 'lucide-react';
+import type { AgentRegistrationState, EvidenceBundle, EvidenceScenario } from '../../services/privacyGuardApi';
 
 interface Props { evidence: EvidenceBundle | null; loading: boolean; error: string | null; onRefresh: () => void; }
 
@@ -7,6 +7,13 @@ function ScenarioIcon({ scenario }: { scenario: EvidenceScenario }) {
   if (scenario.status === 'PASS') return <ShieldCheck aria-hidden="true" />;
   if (scenario.status === 'FAIL') return <ShieldX aria-hidden="true" />;
   return <CircleDashed aria-hidden="true" />;
+}
+
+function registrationLabel(state: AgentRegistrationState): string {
+  if (state === 'REGISTERED') return 'REGISTERED';
+  if (state === 'NOT_REGISTERED') return 'NOT REGISTERED';
+  if (state === 'MISMATCH') return 'CARD/DID MISMATCH';
+  return 'UNAVAILABLE';
 }
 
 function EvidenceMeaning() {
@@ -36,6 +43,7 @@ export function EvidenceCenter({ evidence, loading, error, onRefresh }: Props) {
 
   const trustAnchorState = evidence.metadata.trustAnchorVerified ? 'VERIFIED' : 'NOT VERIFIED';
   const rollbackFloorState = evidence.metadata.trustManifestFloorPersisted ? 'PERSISTED' : 'NOT PERSISTED';
+  const registrationOk = evidence.metadata.agentRegistrationState === 'REGISTERED';
 
   return (
     <section className="evidence-layout" aria-label="T3N testnet evidence">
@@ -51,13 +59,19 @@ export function EvidenceCenter({ evidence, loading, error, onRefresh }: Props) {
           <div><dt>Trust anchor</dt><dd>{trustAnchorState}</dd></div>
           <div><dt>Rollback floor</dt><dd>{rollbackFloorState}</dd></div>
           <div><dt>Trust manifest version</dt><dd>{evidence.metadata.trustManifestVersion}</dd></div>
+          <div><dt>Agent onboarding</dt><dd><span className={`status-pill ${registrationOk ? 'status-pill-ok' : 'status-pill-off'}`}>{registrationLabel(evidence.metadata.agentRegistrationState)}</span></dd></div>
+          <div><dt>Card verified</dt><dd>{new Date(evidence.metadata.agentCardVerifiedAt).toLocaleString()}</dd></div>
           <div><dt>Contract version</dt><dd>{evidence.metadata.contractVersion}</dd></div>
+          <div className="evidence-wide"><dt>Agent Card URI</dt><dd><code>{evidence.metadata.agentCardUri ?? 'Not resolved'}</code></dd></div>
+          <div className="evidence-wide"><dt>Agent Card SHA-256</dt><dd><code>{evidence.metadata.agentCardSha256 ?? 'Not available'}</code></dd></div>
+          <div><dt>Agent Card services</dt><dd>{evidence.metadata.agentCardServices.length ? evidence.metadata.agentCardServices.join(', ') : 'None verified'}</dd></div>
           <div className="evidence-wide"><dt>Contract</dt><dd><code>{evidence.metadata.contractId}</code></dd></div>
           <div className="evidence-wide"><dt>WASM SHA-256</dt><dd><code>{evidence.metadata.wasmSha256}</code></dd></div>
           <div className="evidence-wide"><dt>Tenant DID</dt><dd><code>{evidence.metadata.tenantDid}</code></dd></div>
           <div className="evidence-wide"><dt>Agent DID</dt><dd><code>{evidence.metadata.agentDid}</code></dd></div>
         </dl>
         <p className="evidence-disclaimer">Trust anchor VERIFIED means the T3N signed manifest established the cluster trust boundary for these authenticated sessions. Rollback floor PERSISTED means the accepted manifest version was stored across gateway restarts; it is not a claim of per-request hardware attestation.</p>
+        <p className="evidence-disclaimer">Agent registration proves public onboarding/discoverability for the authenticated DID. It does not grant contract access; Member Delegation remains the authorization source.</p>
       </div>
 
       <div className="card">

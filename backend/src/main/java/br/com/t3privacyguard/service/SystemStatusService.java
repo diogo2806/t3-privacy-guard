@@ -1,6 +1,7 @@
 package br.com.t3privacyguard.service;
 
 import br.com.t3privacyguard.integration.GatewaySystemClient;
+import br.com.t3privacyguard.integration.GatewaySystemClient.AgentRegistrationStatus;
 import br.com.t3privacyguard.integration.GatewaySystemClient.AgentStatus;
 import br.com.t3privacyguard.integration.GatewaySystemClient.ContractIdentity;
 import br.com.t3privacyguard.integration.GatewaySystemClient.DelegationStatus;
@@ -11,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class SystemStatusService {
+    private static final List<String> REGISTRATION_STATES = List.of("REGISTERED", "NOT_REGISTERED", "MISMATCH", "UNAVAILABLE");
     private final GatewaySystemClient gateway;
 
     public SystemStatusService(GatewaySystemClient gateway) {
@@ -21,21 +23,27 @@ public class SystemStatusService {
         boolean gatewayReachable = gateway.health();
         Optional<TenantStatus> tenant = gateway.tenantStatus();
         Optional<AgentStatus> agent = gateway.agentStatus();
+        Optional<AgentRegistrationStatus> registration = agent.filter(AgentStatus::ready).flatMap(ignored -> gateway.agentRegistration());
         Optional<ContractIdentity> contract = gateway.contractIdentity();
         Optional<DelegationStatus> delegation = contract.flatMap(value -> gateway.delegationStatus(value.contractId()));
 
         boolean tenantAuthenticated = tenant.map(TenantStatus::ready).orElse(false);
         boolean agentAuthenticated = agent.map(AgentStatus::ready).orElse(false);
+        String authenticatedAgentDid = agent.map(AgentStatus::agentDid).orElse(null);
+        String registrationState = registrationState(registration, authenticatedAgentDid);
         boolean contractResolved = contract.isPresent();
         String delegationState = delegation.map(DelegationStatus::state).orElse("UNKNOWN");
+        boolean controlsReady = tenantAuthenticated && agentAuthenticated && contractResolved && "ACTIVE".equals(delegationState);
 
         String message;
         if (!gatewayReachable) {
             message = "T3N gateway is unreachable.";
-        } else if (tenantAuthenticated && agentAuthenticated && contractResolved && "ACTIVE".equals(delegationState)) {
-            message = "Tenant and agent are authenticated, the contract is resolved, and the observed delegation is active.";
+        } else if (controlsReady && "REGISTERED".equals(registrationState)) {
+            message = "T3N controls are ready, and the public Agent Card is registered for the authenticated Agent DID.";
+        } else if (controlsReady) {
+            message = "T3N controls are ready, but public Agent onboarding is not confirmed as REGISTERED.";
         } else {
-            message = "Gateway is online, but one or more T3N operational states are not confirmed as ready.";
+            message = "Gateway is online, but one or more T3N identity, contract, or delegation controls are not confirmed as ready.";
         }
 
         return new SystemStatusResponse(
@@ -45,7 +53,12 @@ public class SystemStatusService {
             tenant.map(TenantStatus::tenantDid).orElse(null),
             agent.map(AgentStatus::configured).orElse(false),
             agentAuthenticated,
-            agent.map(AgentStatus::agentDid).orElse(null),
+            authenticatedAgentDid,
+            registrationState,
+            registration.map(AgentRegistrationStatus::cardUri).orElse(null),
+            registration.map(AgentRegistrationStatus::cardSha256).orElse(null),
+            registration.map(AgentRegistrationStatus::verifiedAt).orElse(null),
+            registration.map(AgentRegistrationStatus::services).orElse(List.of()),
             contractResolved,
             contract.map(ContractIdentity::contractId).orElse(null),
             contract.map(ContractIdentity::contractVersion).orElse(null),
@@ -56,6 +69,13 @@ public class SystemStatusService {
         );
     }
 
+    private static String registrationState(Optional<AgentRegistrationStatus> registration, String authenticatedAgentDid) {
+        if (registration.isEmpty()) return "UNAVAILABLE";
+        AgentRegistrationStatus value = registration.get();
+        if (authenticatedAgentDid == null || value.agentDid() == null || !authenticatedAgentDid.equals(value.agentDid())) return "MISMATCH";
+        return REGISTRATION_STATES.contains(value.state()) ? value.state() : "UNAVAILABLE";
+    }
+
     public record SystemStatusResponse(
         boolean gatewayReachable,
         boolean tenantAuthenticated,
@@ -64,6 +84,11 @@ public class SystemStatusService {
         boolean agentConfigured,
         boolean agentAuthenticated,
         String agentDid,
+        String agentRegistrationState,
+        String agentCardUri,
+        String agentCardSha256,
+        String agentCardVerifiedAt,
+        List<String> agentCardServices,
         boolean contractResolved,
         String contractId,
         String contractVersion,

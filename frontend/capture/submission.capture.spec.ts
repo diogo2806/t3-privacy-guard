@@ -47,9 +47,10 @@ test('capture submission material only from live testnet evidence', async ({ pag
   const status = page.getByRole('region', { name: 'Live T3N operational status' });
   await expect(status).toBeVisible();
   await expect(status).toContainText('Authenticated');
+  await expect(status).toContainText('Registered');
   await expect(status).toContainText('Resolved');
   await expect(status).toContainText('ACTIVE');
-  await expect(status).not.toContainText(/UNKNOWN|NOT_GRANTED|REVOKED|Unavailable/i);
+  await expect(status).not.toContainText(/UNKNOWN|NOT_GRANTED|REVOKED|Not registered|mismatch|Unavailable/i);
 
   const files: string[] = [];
   files.push(await screenshot(page, '01-live-status.png'));
@@ -57,14 +58,21 @@ test('capture submission material only from live testnet evidence', async ({ pag
   await page.getByRole('button', { name: 'Evidence', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'T3N testnet execution' })).toBeVisible();
   await expect(page.getByText('T3N_TESTNET', { exact: true })).toBeVisible();
+  await expect(page.getByText('REGISTERED', { exact: true })).toBeVisible();
   await expect(page.getByText('0 FAIL', { exact: true })).toBeVisible();
 
   const generatedAt = await metadataValue(page, 'Generated');
+  const agentRegistrationState = await metadataValue(page, 'Agent onboarding');
+  const agentCardUri = await metadataValue(page, 'Agent Card URI');
+  const agentCardSha256 = await metadataValue(page, 'Agent Card SHA-256');
   const contractId = await metadataValue(page, 'Contract');
   const contractVersion = await metadataValue(page, 'Version');
   const wasmSha256 = await metadataValue(page, 'WASM SHA-256');
   const tenantDid = await metadataValue(page, 'Tenant DID');
   const agentDid = await metadataValue(page, 'Agent DID');
+  expect(agentRegistrationState).toBe('REGISTERED');
+  expect(agentCardUri).toMatch(/^https:\/\//);
+  expect(agentCardSha256).toMatch(/^[a-f0-9]{64}$/);
   expect(tenantDid).not.toBe(agentDid);
   expect(wasmSha256).toMatch(/^[a-f0-9]{64}$/);
 
@@ -115,6 +123,9 @@ test('capture submission material only from live testnet evidence', async ({ pag
     baseUrl: safeBaseUrl,
     evidenceSource: 'T3N_TESTNET',
     evidenceGeneratedAt: generatedAt,
+    agentRegistrationState,
+    agentCardUri,
+    agentCardSha256,
     contractId,
     contractVersion,
     wasmSha256,

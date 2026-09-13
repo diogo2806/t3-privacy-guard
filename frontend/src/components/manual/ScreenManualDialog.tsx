@@ -102,7 +102,7 @@ export function ScreenManualDialog() {
           </section>
           <section>
             <h3>Views and filters</h3>
-            <p><strong>Protection demo</strong> contains the prompt, proposal, policy decision, human authorization, protected execution, verification and audit trail. <strong>Proof &amp; evidence</strong> shows which testnet outcomes were actually observed. The screen has no business-data filters; these two views organize the journey. Technical T3N identifiers, contract and delegation details remain available under <strong>Show technical details</strong> without dominating the main flow.</p>
+            <p><strong>Protection demo</strong> contains the prompt, proposal, policy decision, human authorization, protected execution, verification and audit trail. <strong>Proof &amp; evidence</strong> shows which testnet outcomes were actually observed. The screen has no business-data filters; these two views organize the journey. Technical T3N identifiers, public Agent Card onboarding, contract and delegation details remain available under <strong>Show technical details</strong> without dominating the main flow.</p>
           </section>
           <section>
             <h3>Prompt field and actions</h3>
@@ -115,6 +115,10 @@ export function ScreenManualDialog() {
           <section>
             <h3>T3N trust provenance</h3>
             <p><strong>Trust anchor VERIFIED</strong> means the official signed T3N manifest established the cluster trust boundary for the authenticated sessions. <strong>Rollback floor PERSISTED</strong> means the accepted trust-manifest version is stored as a monotonic high-water mark across gateway restarts. The displayed trust-manifest version is that observed high-water version. These states are not per-request hardware attestation. Trust-manifest unavailability, rollback rejection, corrupted persisted state or a missing version fail closed and must not appear as a green success state.</p>
+          </section>
+          <section>
+            <h3>Agent onboarding, identity and delegation</h3>
+            <p><strong>Authenticated</strong> means the agent key established a T3N session and the canonical Agent DID came from that authenticated network response. <strong>Registered</strong> means the public Agent Card resolved from T3N, matched that same DID, passed schema and size checks, was active and advertised only implemented services. <strong>Delegated</strong> means the tenant granted contract functions, scopes and hosts. Registration is public discoverability; it does not grant contract access and is not TEE attestation. <strong>NOT REGISTERED</strong>, <strong>CARD/DID MISMATCH</strong> and <strong>UNAVAILABLE</strong> are non-success onboarding states.</p>
           </section>
           <section>
             <h3>Decision states</h3>
@@ -130,19 +134,19 @@ export function ScreenManualDialog() {
           </section>
           <section>
             <h3>Evidence states</h3>
-            <p><strong>PASS</strong> is an observed result that matched the expected security outcome. <strong>FAIL</strong> is an observed mismatch. <strong>NOT RUN</strong> means the scenario was not executed and is never counted as proof.</p>
+            <p><strong>PASS</strong> is an observed result that matched the expected security outcome. <strong>FAIL</strong> is an observed mismatch. <strong>NOT RUN</strong> means the scenario was not executed and is never counted as proof. Agent Card evidence records the observed registration state, public URI when resolved, SHA-256, verification time and implemented services; it proves onboarding/discoverability only.</p>
           </section>
           <section>
             <h3>Rules and permissions</h3>
-            <p>Application sign-in does not grant T3N authority. Policy must allow the exact action and scope, critical remediation requires human authorization, protected execution requires its runtime controls, and completion additionally requires independent read-back. DENY and REDACT cannot be promoted to execution by the interface.</p>
+            <p>Application sign-in and Agent Card registration do not grant T3N authority. Policy must allow the exact action and scope, Member Delegation must authorize the required functions and host, critical remediation requires human authorization, protected execution requires its runtime controls, and completion additionally requires independent read-back. DENY and REDACT cannot be promoted to execution by the interface.</p>
           </section>
           <section>
             <h3>Main flow</h3>
-            <p>1. Sign in. 2. Read the trust flow and confirm whether T3N controls are available. 3. Enter a non-sensitive prompt. 4. Inspect the proposal. 5. Observe DENY, REDACT or ALLOW. 6. For an allowed remediation, authorize it as a human operator. 7. Execute the protected action once. 8. Treat acceptance as pending verification. 9. Verify the external state. 10. Review Proof &amp; evidence, the audit trail and technical details when needed.</p>
+            <p>1. Sign in. 2. Read the trust flow and confirm whether T3N controls are available. 3. Use technical details to distinguish Agent authentication, public registration and Member Delegation. 4. Enter a non-sensitive prompt. 5. Inspect the proposal. 6. Observe DENY, REDACT or ALLOW. 7. For an allowed remediation, authorize it as a human operator. 8. Execute the protected action once. 9. Treat acceptance as pending verification. 10. Verify the external state. 11. Review Proof &amp; evidence, the audit trail and technical details when needed.</p>
           </section>
           <section>
             <h3>Messages and error states</h3>
-            <p>Sensitive prompt content is rejected before reaching the external provider. Provider, T3N or trust-boundary failures fail closed. Expired application sessions require sign-in again. Rate-limited sign-in follows the server retry interval. Ambiguous execution remains UNVERIFIED and is not automatically re-executed. Error messages must not expose private values, passwords, credentials, request bodies or raw headers.</p>
+            <p>Sensitive prompt content is rejected before reaching the external provider. Provider, T3N or trust-boundary failures fail closed. Agent onboarding may show <strong>NOT REGISTERED</strong> when no public card exists, <strong>CARD/DID MISMATCH</strong> when resolved metadata does not match the authenticated Agent DID or supported services, and <strong>UNAVAILABLE</strong> when public resolution cannot be verified. These states do not change the meaning of Member Delegation. Expired application sessions require sign-in again. Rate-limited sign-in follows the server retry interval. Ambiguous execution remains UNVERIFIED and is not automatically re-executed. Error messages must not expose private values, passwords, credentials, request bodies or raw headers.</p>
           </section>
         </div>
       </section>

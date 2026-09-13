@@ -1,4 +1,5 @@
 import express from 'express';
+import { AgentCardRegistry } from './agent/agent-card.js';
 import { AgentService } from './agent/agent-service.js';
 import { AgentSession } from './agent/agent-session.js';
 import { DelegationService } from './agent/delegation-service.js';
@@ -19,6 +20,7 @@ const config = readGatewayConfig();
 const trustFloorStore = new TrustManifestFloorStore(config.trustManifestFloorStorePath);
 const tenantSession = new T3nSession(config, trustFloorStore);
 const agentSession = new AgentSession(config, trustFloorStore);
+const agentCardRegistry = new AgentCardRegistry(agentSession);
 const delegationService = new DelegationService(tenantSession, agentSession);
 const contractService = new PrivacyGuardContractService(config, tenantSession, agentSession);
 const remediationVerifier = new RemediationAuthorizationVerifier(config.remediationCapabilityKey, config.remediationReplayStorePath);
@@ -33,7 +35,7 @@ app.use(express.json({ limit: '256kb' }));
 app.get('/health', (_request, response) => response.json({ status: 'UP', service: 't3n-gateway' }));
 app.use('/internal', requireServiceToken(config.gatewayServiceToken));
 app.use('/internal/t3n', createStatusRouter(tenantSession));
-app.use('/internal/agent', createAgentRouter(agentSession, delegationService, config.gatewayServiceToken));
+app.use('/internal/agent', createAgentRouter(agentSession, delegationService, agentCardRegistry, config.gatewayServiceToken));
 app.use('/internal/ai-agent', createAiAgentRouter(aiAgentService, config.gatewayServiceToken));
 app.use('/internal/contracts/privacy-guard', createContractRouter(contractService, remediationVerifier, config.gatewayServiceToken));
 

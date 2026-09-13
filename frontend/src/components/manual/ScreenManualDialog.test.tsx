@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { ScreenManualDialog } from './ScreenManualDialog';
 
 describe('ScreenManualDialog', () => {
-  it('traps keyboard focus, explains the trust journey, closes with Escape and restores focus', async () => {
+  it('traps keyboard focus, explains trust and Agent onboarding, closes with Escape and restores focus', async () => {
     const user = userEvent.setup();
     render(
       <div>
@@ -25,6 +25,9 @@ describe('ScreenManualDialog', () => {
     expect(screen.getByText('What this screen is for')).toBeInTheDocument();
     expect(screen.getByText(/ALLOW does not mean executed/i)).toBeInTheDocument();
     expect(screen.getByText(/COMPLETED appears only after independent read-back/i)).toBeInTheDocument();
+    expect(screen.getByText(/Agent onboarding, identity and delegation/i)).toBeInTheDocument();
+    expect(screen.getByText(/Registration is public discoverability/i)).toBeInTheDocument();
+    expect(screen.getByText(/Agent Card registration do not grant T3N authority/i)).toBeInTheDocument();
     expect(screen.getByText(/Protection demo/i)).toBeInTheDocument();
     expect(screen.getAllByText(/Proof & evidence/i).length).toBeGreaterThan(0);
     expect(closeButton).toHaveFocus();

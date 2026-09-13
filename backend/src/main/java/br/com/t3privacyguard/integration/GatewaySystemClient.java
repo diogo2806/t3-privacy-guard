@@ -40,6 +40,7 @@ public class GatewaySystemClient {
 
     public Optional<TenantStatus> tenantStatus() { return get("/internal/t3n/status", TenantStatus.class, true); }
     public Optional<AgentStatus> agentStatus() { return get("/internal/agent/status", AgentStatus.class, true); }
+    public Optional<AgentRegistrationStatus> agentRegistration() { return get("/internal/agent/registration", AgentRegistrationStatus.class, true); }
 
     public Optional<ContractIdentity> contractIdentity() {
         return get("/internal/contracts/privacy-guard/identity", ContractIdentity.class, true)
@@ -71,6 +72,7 @@ public class GatewaySystemClient {
     public record HealthResponse(String status, String service) {}
     public record TenantStatus(boolean connected, boolean ready, String tenantDid, String network) {}
     public record AgentStatus(boolean configured, boolean connected, boolean ready, String agentDid, String network) {}
+    public record AgentRegistrationStatus(String agentDid, String state, String cardUri, String cardSha256, String verifiedAt, List<String> services) {}
     public record ContractIdentity(String contractId, String contractVersion) {}
     public record DelegationStatus(String state, List<String> functions, List<String> allowedHosts) {}
 }
