@@ -19,8 +19,11 @@ function status(agentRegistrationState: SystemStatus['agentRegistrationState']):
     agentRegistrationState,
     agentCardUri: agentRegistrationState === 'REGISTERED' ? 'https://node.example/card' : null,
     agentCardSha256: agentRegistrationState === 'REGISTERED' ? 'a'.repeat(64) : null,
-    agentCardVerifiedAt: '2026-09-12T20:00:00Z',
-    agentCardServices: agentRegistrationState === 'REGISTERED' ? ['DID'] : [],
+    agentCardVerifiedAt: '2026-09-13T11:00:00Z',
+    agentCardServices: agentRegistrationState === 'REGISTERED' ? ['A2A', 'DID'] : [],
+    a2aConfigured: true,
+    a2aPublicUrl: 'https://guard.example/a2a',
+    a2aConfigurationCheckedAt: '2026-09-13T11:00:00Z',
     contractResolved: true,
     contractId: 'z:tenant:privacy-guard',
     contractVersion: '0.4.0',
@@ -54,6 +57,26 @@ describe('SystemStatusBar', () => {
     expect(screen.getByText('Operational')).toBeInTheDocument();
     expect(screen.getAllByText('Authorized')).toHaveLength(2);
     expect(screen.getByText('did:t3n:protected-executor')).toBeInTheDocument();
+  });
+
+  it('shows A2A as published only when the resolved Agent Card contains the service', () => {
+    render(<SystemStatusBar status={status('REGISTERED')} loading={false} onRefresh={vi.fn()} />);
+    expect(screen.getByText('A2A evaluation service')).toBeInTheDocument();
+    expect(screen.getByText('Published')).toHaveClass('status-pill-ok');
+    expect(screen.getByText('Yes · observed in resolved Agent Card')).toBeInTheDocument();
+    expect(screen.getByText('https://guard.example/a2a')).toBeInTheDocument();
+    expect(screen.getByText('Policy evaluation only')).toBeInTheDocument();
+    expect(screen.getByText('Not exposed through A2A')).toBeInTheDocument();
+    expect(screen.getByText('Not performed by this status check')).toBeInTheDocument();
+    expect(screen.queryByText(/verified live/i)).not.toBeInTheDocument();
+  });
+
+  it('does not promote local A2A configuration to a published or live-verified state', () => {
+    const configuredOnly = { ...status('REGISTERED'), agentCardServices: ['DID'] };
+    render(<SystemStatusBar status={configuredOnly} loading={false} onRefresh={vi.fn()} />);
+    expect(screen.getByText('Configured · not published')).toHaveClass('status-pill-pending');
+    expect(screen.getByText('No')).toBeInTheDocument();
+    expect(screen.getByText('Not performed by this status check')).toBeInTheDocument();
   });
 
   it('does not report operational when executor is unavailable', () => {
