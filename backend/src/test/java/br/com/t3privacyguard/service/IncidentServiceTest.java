@@ -25,6 +25,7 @@ import br.com.t3privacyguard.persistence.AuditEventRepository;
 import br.com.t3privacyguard.persistence.IncidentRepository;
 import br.com.t3privacyguard.persistence.PolicyDecisionRepository;
 import br.com.t3privacyguard.persistence.RemediationExecutionRepository;
+import br.com.t3privacyguard.security.RemediationAuthorizationSigner;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -34,12 +35,14 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 @SpringBootTest
 class IncidentServiceTest {
     private static final String POLICY_VERSION = "2026-09-12.1";
     private static final String POLICY_HASH = "a".repeat(64);
+    private static final String OPERATOR = "ops-reviewer";
 
     @Autowired IncidentService service;
     @Autowired IncidentRepository incidents;
@@ -47,6 +50,7 @@ class IncidentServiceTest {
     @Autowired PolicyDecisionRepository decisions;
     @Autowired AuditEventRepository audits;
     @Autowired RemediationExecutionRepository remediations;
+    @Autowired JdbcTemplate jdbc;
     @MockitoBean GatewayPolicyClient gateway;
     @MockitoBean GatewayRemediationClient remediationGateway;
 
@@ -111,7 +115,43 @@ class IncidentServiceTest {
         var incident = createIncident("Attack"); var action = service.addAction(incident.id(), safeAction("req-2"));
         when(gateway.evaluate(any())).thenReturn(decision("req-2", DecisionType.DENY, "HOST_NOT_ALLOWED", List.of(), List.of()));
         service.evaluate(incident.id(), action.id());
-        assertThatThrownBy(() -> service.authorizeRemediation(incident.id(), action.id())).isInstanceOf(PolicyDeniedException.class);
+        assertThatThrownBy(() -> service.authorizeRemediation(incident.id(), action.id(), OPERATOR)).isInstanceOf(PolicyDeniedException.class);
+    }
+
+    @Test void authorizationPersistsAuthenticatedPrincipalAndRetryKeepsOriginalTimestamp() {
+        var incident = createIncident("Approval provenance");
+        var action = service.addAction(incident.id(), safeAction("req-provenance"));
+        allow("req-provenance");
+        service.evaluate(incident.id(), action.id());
+
+        var first = service.authorizeRemediation(incident.id(), action.id(), "  ops-reviewer  ");
+        var persisted = actions.findById(action.id()).orElseThrow();
+        var firstTimestamp = persisted.getRemediationAuthorizedAt();
+        var second = service.authorizeRemediation(incident.id(), action.id(), OPERATOR);
+
+        assertThat(first.authorizedBy()).isEqualTo(OPERATOR);
+        assertThat(first.authorizedAt()).isNotNull();
+        assertThat(second.authorizedBy()).isEqualTo(OPERATOR);
+        assertThat(second.authorizedAt()).isEqualTo(firstTimestamp);
+        assertThat(actions.findById(action.id()).orElseThrow().getRemediationAuthorizedAt()).isEqualTo(firstTimestamp);
+        assertThat(audits.findAll()).filteredOn(event -> "REMEDIATION_AUTHORIZED".equals(event.getType())).hasSize(1);
+        assertThat(audits.findAll()).anyMatch(event -> event.getMessage().contains("authorized by " + OPERATOR));
+    }
+
+    @Test void differentOperatorCannotOverwriteExistingAuthorization() {
+        var incident = createIncident("Approval conflict");
+        var action = service.addAction(incident.id(), safeAction("req-approval-conflict"));
+        allow("req-approval-conflict");
+        service.evaluate(incident.id(), action.id());
+        service.authorizeRemediation(incident.id(), action.id(), OPERATOR);
+        var firstTimestamp = actions.findById(action.id()).orElseThrow().getRemediationAuthorizedAt();
+
+        assertThatThrownBy(() -> service.authorizeRemediation(incident.id(), action.id(), "other-operator"))
+            .isInstanceOf(ConflictException.class)
+            .hasMessageContaining("another operator");
+        var persisted = actions.findById(action.id()).orElseThrow();
+        assertThat(persisted.getRemediationAuthorizedBy()).isEqualTo(OPERATOR);
+        assertThat(persisted.getRemediationAuthorizedAt()).isEqualTo(firstTimestamp);
     }
 
     @Test void supportedRemediationWithoutApprovedDestinationFailsClosed() {
@@ -122,7 +162,7 @@ class IncidentServiceTest {
         ));
         allow("host-missing");
         service.evaluate(incident.id(), action.id());
-        assertThatThrownBy(() -> service.authorizeRemediation(incident.id(), action.id()))
+        assertThatThrownBy(() -> service.authorizeRemediation(incident.id(), action.id(), OPERATOR))
             .isInstanceOf(PolicyDeniedException.class)
             .hasMessageContaining("approved destination");
         verify(remediationGateway, times(0)).execute(any(), anyString());
@@ -155,7 +195,7 @@ class IncidentServiceTest {
             ));
 
             assertThat(service.evaluate(incident.id(), action.id()).decision()).isEqualTo(DecisionType.ALLOW);
-            assertThatThrownBy(() -> service.authorizeRemediation(incident.id(), action.id()))
+            assertThatThrownBy(() -> service.authorizeRemediation(incident.id(), action.id(), OPERATOR))
                 .isInstanceOf(PolicyDeniedException.class)
                 .hasMessage("Protected remediation is not implemented for this action");
             assertThat(actions.findById(action.id()).orElseThrow().getStatus().name()).isEqualTo("EVALUATED");
@@ -166,7 +206,7 @@ class IncidentServiceTest {
         verify(remediationGateway, times(0)).verify(anyString(), anyString());
     }
 
-    @Test void executionCarriesThePersistedApprovedDestination() {
+    @Test void executionCarriesApprovedDestinationAndHumanAuthorizationBinding() {
         var context = authorizedAction("req-host-bound");
         when(remediationGateway.execute(any(), anyString())).thenReturn(remediation("req-host-bound", 202, "op-host"));
         when(remediationGateway.verify("req-host-bound", "op-host")).thenReturn(new VerificationResult("req-host-bound", "VERIFIED", "REVOKED"));
@@ -176,6 +216,18 @@ class IncidentServiceTest {
         ArgumentCaptor<RemediationRequest> request = ArgumentCaptor.forClass(RemediationRequest.class);
         verify(remediationGateway).execute(request.capture(), anyString());
         assertThat(request.getValue().approvedHost()).isEqualTo("postman-echo.com");
+        assertThat(request.getValue().operatorPrincipalHash()).isEqualTo(RemediationAuthorizationSigner.operatorPrincipalHash(OPERATOR));
+        assertThat(request.getValue().authorizationRecordedAt()).isPositive();
+    }
+
+    @Test void legacyAuthorizationWithoutProvenanceCannotExecute() {
+        var context = authorizedAction("req-legacy-authorization");
+        jdbc.update("update action_proposals set remediation_authorized_by = null, remediation_authorized_at = null where id = ?", context.actionId());
+
+        assertThatThrownBy(() -> service.executeRemediation(context.incidentId(), context.actionId()))
+            .isInstanceOf(PolicyDeniedException.class)
+            .hasMessageContaining("provenance is not bound");
+        verify(remediationGateway, times(0)).execute(any(), anyString());
     }
 
     @Test void completedRequiresIndependentReadBackAndReplayDoesNotReexecute() {
@@ -261,7 +313,7 @@ class IncidentServiceTest {
         when(gateway.evaluate(any())).thenThrow(new GatewayUnavailableException("gateway unavailable"));
         assertThatThrownBy(() -> service.evaluate(incident.id(), action.id())).isInstanceOf(GatewayUnavailableException.class);
         assertThat(decisions.count()).isZero();
-        assertThatThrownBy(() -> service.authorizeRemediation(incident.id(), action.id())).isInstanceOf(ConflictException.class);
+        assertThatThrownBy(() -> service.authorizeRemediation(incident.id(), action.id(), OPERATOR)).isInstanceOf(ConflictException.class);
     }
 
     @Test void mismatchedPolicyResponseRequestIdFailsClosed() {
@@ -293,7 +345,7 @@ class IncidentServiceTest {
         var action = service.addAction(incident.id(), safeAction(requestId));
         allow(requestId);
         service.evaluate(incident.id(), action.id());
-        service.authorizeRemediation(incident.id(), action.id());
+        service.authorizeRemediation(incident.id(), action.id(), OPERATOR);
         return new AuthorizedAction(incident.id(), action.id());
     }
 
