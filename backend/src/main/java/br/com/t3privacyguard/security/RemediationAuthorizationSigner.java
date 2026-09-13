@@ -19,6 +19,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
+import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -26,9 +27,11 @@ import org.springframework.stereotype.Component;
 @Component
 public class RemediationAuthorizationSigner {
     private static final String TOKEN_VERSION = "v2";
+    private static final Pattern KEY_ID = Pattern.compile("[A-Za-z0-9._-]{1,32}");
 
     private final ObjectMapper mapper;
     private final PrivateKey privateKey;
+    private final String keyId;
     private final Duration ttl;
     private final Supplier<String> executorDidSupplier;
 
@@ -37,17 +40,22 @@ public class RemediationAuthorizationSigner {
         ObjectMapper mapper,
         GatewayRemediationClient gateway,
         @Value("${privacy-guard.remediation-capability.private-key-pkcs8}") String privateKeyPkcs8,
+        @Value("${privacy-guard.remediation-capability.key-id:primary}") String keyId,
         @Value("${privacy-guard.remediation-capability.ttl-seconds:60}") long ttlSeconds
     ) {
-        this(mapper, privateKeyPkcs8, ttlSeconds, gateway::requireExecutorDid);
+        this(mapper, privateKeyPkcs8, keyId, ttlSeconds, gateway::requireExecutorDid);
     }
 
-    RemediationAuthorizationSigner(ObjectMapper mapper, String privateKeyPkcs8, long ttlSeconds, Supplier<String> executorDidSupplier) {
+    RemediationAuthorizationSigner(ObjectMapper mapper, String privateKeyPkcs8, String keyId, long ttlSeconds, Supplier<String> executorDidSupplier) {
         if (ttlSeconds < 10 || ttlSeconds > 300) {
             throw new IllegalStateException("REMEDIATION_CAPABILITY_TTL_SECONDS must be between 10 and 300");
         }
+        if (keyId == null || !KEY_ID.matcher(keyId).matches()) {
+            throw new IllegalStateException("REMEDIATION_AUTH_KEY_ID must match [A-Za-z0-9._-]{1,32}");
+        }
         this.mapper = mapper;
         this.privateKey = parsePrivateKey(privateKeyPkcs8);
+        this.keyId = keyId;
         this.ttl = Duration.ofSeconds(ttlSeconds);
         this.executorDidSupplier = executorDidSupplier;
     }
@@ -82,7 +90,7 @@ public class RemediationAuthorizationSigner {
             throw new IllegalArgumentException("Human authorization timestamp cannot be after capability issuance");
         }
         Claims claims = new Claims(
-            incidentId, actionId, requestId, decisionId, action, resource, purpose, canonicalApprovedHost,
+            keyId, incidentId, actionId, requestId, decisionId, action, resource, purpose, canonicalApprovedHost,
             listHash(fields), NormalPayloadCanonicalizer.sha256(normalPayload), listHash(privateRefs), policyVersion, policyHash, executorDid,
             operatorPrincipalHash, remediationAuthorizedAt.toEpochMilli(), now.toEpochMilli(), now.plus(ttl).toEpochMilli(), UUID.randomUUID().toString()
         );
@@ -164,6 +172,7 @@ public class RemediationAuthorizationSigner {
     }
 
     public record Claims(
+        String keyId,
         String incidentId,
         String actionId,
         String requestId,
