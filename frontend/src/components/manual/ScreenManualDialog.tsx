@@ -102,7 +102,7 @@ export function ScreenManualDialog() {
           </section>
           <section>
             <h3>Views and filters</h3>
-            <p><strong>Protection demo</strong> contains the prompt, proposal, policy decision, human authorization, protected execution, verification and audit trail. <strong>Proof &amp; evidence</strong> shows which testnet outcomes were actually observed. The screen has no business-data filters; these two views organize the journey. Technical T3N identifiers, contract and delegation details remain available under <strong>Show technical details</strong> without dominating the main flow.</p>
+            <p><strong>Protection demo</strong> contains the prompt, proposal, policy decision, human authorization, protected execution, verification, the technical Execution Trace and the separate Business Audit Trail. <strong>Proof &amp; evidence</strong> shows which testnet outcomes were actually observed. The screen has no business-data filters; these two views organize the journey. Technical T3N identifiers, contract and delegation details remain available under <strong>Show technical details</strong> without dominating the main flow.</p>
           </section>
           <section>
             <h3>Prompt field and actions</h3>
@@ -117,6 +117,10 @@ export function ScreenManualDialog() {
             <p><strong>Trust anchor VERIFIED</strong> means the official signed T3N manifest established the cluster trust boundary for the authenticated sessions. <strong>Rollback floor PERSISTED</strong> means the accepted trust-manifest version is stored as a monotonic high-water mark across gateway restarts. The displayed trust-manifest version is that observed high-water version. These states are not per-request hardware attestation. Trust-manifest unavailability, rollback rejection, corrupted persisted state or a missing version fail closed and must not appear as a green success state.</p>
           </section>
           <section>
+            <h3>Execution trace</h3>
+            <p><strong>Trace</strong> identifies one technical HTTP attempt; <strong>Request</strong> identifies the logical operation and remains stable for idempotency. The browser creates a fresh safe trace for each API attempt, the backend validates or replaces it, returns it in <strong>X-Trace-Id</strong>, and propagates the same trace through authenticated gateway calls. The selected action timeline can therefore contain multiple trace IDs for the same Request when the operator retries or advances the flow. Typical states are <strong>RECEIVED</strong>, <strong>SENT</strong>, <strong>ACCEPTED</strong>, <strong>AUTHORIZED</strong>, <strong>VERIFIED</strong>, <strong>DENIED</strong>, <strong>REDACTED</strong>, <strong>FAILED</strong> and <strong>UNAVAILABLE</strong>. The timeline contains only bounded identifiers, stage/state, timestamp, reason code and same-process duration when available. It never exposes raw request/response bodies, headers, capabilities, keys, passwords, private values or resolved T3N placeholders. A T3N request or receipt identifier is shown only if the platform actually returns one; the application does not invent one.</p>
+          </section>
+          <section>
             <h3>Decision states</h3>
             <p><strong>DENY</strong> blocks the proposal before protected egress. <strong>REDACT</strong> requires a smaller data scope before the action may continue. <strong>ALLOW</strong> means policy permits the proposal, but it is not human approval, execution or completion.</p>
           </section>
@@ -129,20 +133,24 @@ export function ScreenManualDialog() {
             <p><strong>EXECUTING</strong> means execution is in progress. <strong>PENDING_VERIFICATION</strong> means the external action was accepted but completion is not proven. <strong>COMPLETED</strong> requires independent verification of the expected state. <strong>UNVERIFIED</strong> means the result is ambiguous or does not match. <strong>FAILED</strong> means a known failure. An HTTP success response alone is never enough to display COMPLETED.</p>
           </section>
           <section>
+            <h3>Retry rule</h3>
+            <p>A retry keeps the same logical Request ID but receives a new Trace ID, so idempotency and observability stay independent. Repeating execution for an already claimed action reconciles persisted state instead of intentionally sending a second side effect. An ambiguous outcome remains UNVERIFIED and can be read back only when a verifiable operation ID exists.</p>
+          </section>
+          <section>
             <h3>Evidence states</h3>
             <p><strong>PASS</strong> is an observed result that matched the expected security outcome. <strong>FAIL</strong> is an observed mismatch. <strong>NOT RUN</strong> means the scenario was not executed and is never counted as proof.</p>
           </section>
           <section>
             <h3>Rules and permissions</h3>
-            <p>Application sign-in does not grant T3N authority. Policy must allow the exact action and scope, critical remediation requires human authorization, protected execution requires its runtime controls, and completion additionally requires independent read-back. DENY and REDACT cannot be promoted to execution by the interface.</p>
+            <p>Application sign-in does not grant T3N authority. Policy must allow the exact action and scope, critical remediation requires human authorization, protected execution requires its runtime controls, and completion additionally requires independent read-back. DENY and REDACT cannot be promoted to execution by the interface. A Trace ID is correlation metadata only; it grants no authority and cannot be used to access another incident or action.</p>
           </section>
           <section>
             <h3>Main flow</h3>
-            <p>1. Sign in. 2. Read the trust flow and confirm whether T3N controls are available. 3. Enter a non-sensitive prompt. 4. Inspect the proposal. 5. Observe DENY, REDACT or ALLOW. 6. For an allowed remediation, authorize it as a human operator. 7. Execute the protected action once. 8. Treat acceptance as pending verification. 9. Verify the external state. 10. Review Proof &amp; evidence, the audit trail and technical details when needed.</p>
+            <p>1. Sign in. 2. Read the trust flow and confirm whether T3N controls are available. 3. Enter a non-sensitive prompt. 4. Inspect the proposal. 5. Observe DENY, REDACT or ALLOW. 6. For an allowed remediation, authorize it as a human operator. 7. Execute the protected action once. 8. Treat acceptance as pending verification. 9. Verify the external state. 10. Review the Execution Trace for technical correlation, the Business Audit Trail for persisted business events, and Proof &amp; evidence for reproducible T3N proof. 11. Open technical details when contract, delegation or trust-provenance metadata is needed.</p>
           </section>
           <section>
             <h3>Messages and error states</h3>
-            <p>Sensitive prompt content is rejected before reaching the external provider. Provider, T3N or trust-boundary failures fail closed. Expired application sessions require sign-in again. Rate-limited sign-in follows the server retry interval. Ambiguous execution remains UNVERIFIED and is not automatically re-executed. Error messages must not expose private values, passwords, credentials, request bodies or raw headers.</p>
+            <p>Sensitive prompt content is rejected before reaching the external provider. Provider, T3N or trust-boundary failures fail closed. Expired application sessions require sign-in again. Rate-limited sign-in follows the server retry interval. Ambiguous execution remains UNVERIFIED and is not automatically re-executed. Error messages and trace metadata must not expose private values, passwords, credentials, capabilities, request bodies or raw headers.</p>
           </section>
         </div>
       </section>

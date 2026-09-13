@@ -1,0 +1,14 @@
+.execution-trace-card { margin-bottom: 1rem; }
+.trace-request { margin: -.15rem 0 .9rem; color: var(--muted); font-size: .78rem; }
+.trace-request code, .trace-id code { color: var(--text); overflow-wrap: anywhere; }
+.trace-list { display: grid; gap: .75rem; margin: 0; padding: 0; list-style: none; }
+.trace-item { padding: .8rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-soft); }
+.trace-item-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+.trace-item-heading strong { font-size: .8rem; }
+.trace-state { flex: 0 0 auto; padding: .18rem .45rem; border: 1px solid var(--border-strong); border-radius: 999px; color: var(--muted); font-size: .64rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.trace-state[data-state="ACCEPTED"], .trace-state[data-state="AUTHORIZED"], .trace-state[data-state="VERIFIED"] { border-color: var(--success); color: var(--success); background: var(--success-soft); }
+.trace-state[data-state="DENIED"], .trace-state[data-state="FAILED"] { border-color: var(--danger); color: var(--danger); background: var(--danger-soft); }
+.trace-state[data-state="REDACTED"], .trace-state[data-state="UNAVAILABLE"] { border-color: var(--warning); color: var(--warning); background: var(--warning-soft); }
+.trace-state[data-state="SENT"], .trace-state[data-state="RECEIVED"] { border-color: var(--accent-strong); color: var(--accent); }
+.trace-meta { display: flex; flex-wrap: wrap; gap: .3rem .65rem; margin-top: .45rem; color: var(--muted); font-size: .7rem; }
+.trace-reason, .trace-id { margin: .4rem 0 0; color: var(--muted); font-size: .72rem; overflow-wrap: anywhere; }
