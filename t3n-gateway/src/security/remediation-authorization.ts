@@ -17,6 +17,8 @@ export interface RemediationBody {
   policy_version: string;
   policy_hash: string;
   executor_did: string;
+  operator_principal_hash: string;
+  authorization_recorded_at: number;
 }
 
 interface Claims {
@@ -34,7 +36,9 @@ interface Claims {
   policyVersion: string;
   policyHash: string;
   executorDid: string;
+  operatorPrincipalHash: string;
   authorizedAt: number;
+  issuedAt: number;
   expiresAt: number;
   nonce: string;
 }
@@ -100,11 +104,23 @@ export class RemediationAuthorizationVerifier {
     if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) throw new Error('CAPABILITY_INVALID');
 
     const claims = JSON.parse(Buffer.from(payloadPart, 'base64url').toString('utf8')) as Claims;
-    if (!claims.nonce || !claims.expiresAt || claims.expiresAt <= this.now()) throw new Error('CAPABILITY_EXPIRED');
-    if (claims.authorizedAt > this.now() + 5_000) throw new Error('CAPABILITY_INVALID');
+    const now = this.now();
+    if (!claims.nonce || !claims.expiresAt || claims.expiresAt <= now) throw new Error('CAPABILITY_EXPIRED');
+    if (!Number.isSafeInteger(claims.authorizedAt) || claims.authorizedAt <= 0
+      || !Number.isSafeInteger(claims.issuedAt) || claims.issuedAt <= 0
+      || claims.authorizedAt > claims.issuedAt
+      || claims.issuedAt > now + 5_000
+      || claims.expiresAt <= claims.issuedAt) {
+      throw new Error('CAPABILITY_INVALID');
+    }
     if (!claims.policyVersion || !/^[a-f0-9]{64}$/.test(claims.policyHash ?? '')) throw new Error('CAPABILITY_INVALID');
     if (!claims.executorDid?.startsWith('did:t3n:')) throw new Error('CAPABILITY_INVALID');
     if (!/^[a-f0-9]{64}$/.test(claims.normalPayloadHash ?? '')) throw new Error('CAPABILITY_INVALID');
+    if (!/^[a-f0-9]{64}$/.test(claims.operatorPrincipalHash ?? '')) throw new Error('CAPABILITY_INVALID');
+    if (!/^[a-f0-9]{64}$/.test(body.operator_principal_hash ?? '')
+      || !Number.isSafeInteger(body.authorization_recorded_at) || body.authorization_recorded_at <= 0) {
+      throw new Error('CAPABILITY_INVALID');
+    }
     const approvedHost = canonicalizeApprovedHost(body.approved_host);
     const claimApprovedHost = canonicalizeApprovedHost(claims.approvedHost);
 
@@ -121,10 +137,12 @@ export class RemediationAuthorizationVerifier {
       || claims.privateRefsHash !== listHash(body.private_refs)
       || claims.policyVersion !== body.policy_version
       || claims.policyHash !== body.policy_hash
-      || claims.executorDid !== body.executor_did;
+      || claims.executorDid !== body.executor_did
+      || claims.operatorPrincipalHash !== body.operator_principal_hash
+      || claims.authorizedAt !== body.authorization_recorded_at;
     if (mismatched) throw new Error('CAPABILITY_BODY_MISMATCH');
 
-    const entries = this.loadEntries().filter((entry) => entry.expiresAt > this.now());
+    const entries = this.loadEntries().filter((entry) => entry.expiresAt > now);
     if (entries.some((entry) => entry.nonce === claims.nonce)) throw new Error('CAPABILITY_REPLAY');
     entries.push({ nonce: claims.nonce, expiresAt: claims.expiresAt });
     this.persistEntries(entries);
