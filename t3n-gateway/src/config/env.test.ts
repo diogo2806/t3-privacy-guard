@@ -55,13 +55,23 @@ test('accepts and normalizes an HTTPS public A2A endpoint', () => {
   assert.equal(config.a2aPublicUrl, 'https://guard.example/a2a');
 });
 
-test('rejects unsafe or non-A2A public endpoints', () => {
+test('rejects unsafe, local, private or non-A2A public endpoints', () => {
   for (const url of [
     'http://guard.example/a2a',
     'https://user:password@guard.example/a2a',
     'https://guard.example/a2a?redirect=https://evil.example',
     'https://guard.example/a2a#fragment',
     'https://guard.example/not-a2a',
+    'https://localhost/a2a',
+    'https://service.local/a2a',
+    'https://127.0.0.1/a2a',
+    'https://10.0.0.2/a2a',
+    'https://172.18.0.5/a2a',
+    'https://192.168.1.10/a2a',
+    'https://169.254.1.1/a2a',
+    'https://[::1]/a2a',
+    'https://[fd00::1]/a2a',
+    'https://[fe80::1]/a2a',
     'javascript:alert(1)',
   ]) {
     assert.throws(() => readGatewayConfig({ ...baseEnv, A2A_PUBLIC_URL: url }), ConfigurationError, url);
