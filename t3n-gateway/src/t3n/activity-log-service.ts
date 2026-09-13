@@ -18,7 +18,6 @@ export interface SanitizedActivityEvent {
   readonly callerType: 'agent' | 'human';
   readonly actorDid: string;
   readonly onBehalfOfDid: string;
-  readonly orgDid: string;
   readonly contractId: string;
   readonly function: string;
   readonly outcome: 'success' | 'denied' | 'error';
@@ -65,7 +64,6 @@ function sanitizeEntry(value: unknown): SanitizedActivityEvent | null {
     || (entry.caller_type !== 'agent' && entry.caller_type !== 'human')
     || !nonBlank(entry.actor)
     || !nonBlank(entry.on_behalf_of)
-    || !nonBlank(entry.org)
     || !nonBlank(entry.contract)
     || !nonBlank(entry.function)
     || (entry.outcome !== 'success' && entry.outcome !== 'denied' && entry.outcome !== 'error')) return null;
@@ -81,7 +79,6 @@ function sanitizeEntry(value: unknown): SanitizedActivityEvent | null {
     callerType: entry.caller_type,
     actorDid: entry.actor.slice(0, 180),
     onBehalfOfDid: entry.on_behalf_of.slice(0, 180),
-    orgDid: entry.org.slice(0, 180),
     contractId: entry.contract.slice(0, 240),
     function: entry.function.slice(0, 120),
     outcome: entry.outcome,
