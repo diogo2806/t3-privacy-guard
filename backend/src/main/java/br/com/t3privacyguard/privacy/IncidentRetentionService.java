@@ -79,11 +79,11 @@ public class IncidentRetentionService {
         List<String> actionIds = actions.findByIncidentIdOrderByCreatedAtAsc(incidentId).stream()
             .map(ActionProposalEntity::getId)
             .toList();
+        traces.deleteAllByIncidentId(incidentId);
         if (!actionIds.isEmpty()) {
             remediations.deleteAllByActionProposalIdIn(actionIds);
             decisions.deleteAllByActionProposalIdIn(actionIds);
         }
-        traces.deleteAllByIncidentId(incidentId);
         actions.deleteAllByIncidentId(incidentId);
         audits.deleteAllByIncidentId(incidentId);
         incidents.deleteById(incidentId);
