@@ -58,6 +58,12 @@ function evidenceDelegation(status: DelegationStatus): DelegationEvidence {
   };
 }
 
+function authorisedVerdict(value: unknown): boolean | null {
+  if (!value || typeof value !== 'object') return null;
+  const authorised = (value as Record<string, unknown>).authorised;
+  return typeof authorised === 'boolean' ? authorised : null;
+}
+
 const config = readGatewayConfig();
 if (config.network !== 'testnet' && process.env.EVIDENCE_ALLOW_PRODUCTION !== 'true') throw new Error('Adversarial evidence runner is restricted to testnet unless EVIDENCE_ALLOW_PRODUCTION=true is explicitly set');
 if (!config.agentApiKey) throw new Error('T3N_AGENT_API_KEY is required for testnet evidence');
@@ -185,6 +191,44 @@ async function expectExecutorRevocationRejected(id: string, expected: string, re
     record(id, expected, 'REJECTED', isAuthorizationRejection(detail) ? 'PASS' : 'FAIL', detail);
   }
 }
+async function expectRevokedProposalCheckDenied(contractId: string, tenantDid: string): Promise<void> {
+  try {
+    const result = await agentSession.getClient().checkDelegation({
+      contract: contractId,
+      pii_did: tenantDid,
+      functions: [...PROPOSAL_DELEGATION_REQUIREMENTS.functions],
+      scopes: [...PROPOSAL_DELEGATION_REQUIREMENTS.scopes],
+    }) as unknown;
+    const authorised = authorisedVerdict(result);
+    record(
+      'LIVE-REVOKED-PROPOSAL-CHECK',
+      'Proposal checkDelegation returns authorised=false after Proposal Member Delegation revocation',
+      authorised === null ? 'INCONCLUSIVE' : `authorised=${authorised}`,
+      authorised === false ? 'PASS' : 'FAIL',
+    );
+  } catch (error) {
+    record('LIVE-REVOKED-PROPOSAL-CHECK', 'Proposal checkDelegation returns authorised=false after Proposal Member Delegation revocation', null, 'FAIL', sanitizeEvidenceError(error));
+  }
+}
+async function expectRevokedExecutorCheckDenied(contractId: string, tenantDid: string): Promise<void> {
+  try {
+    const result = await executorSession.getClient().checkDelegation({
+      contract: contractId,
+      pii_did: tenantDid,
+      functions: [...EXECUTOR_DELEGATION_REQUIREMENTS.functions],
+      scopes: [...EXECUTOR_DELEGATION_REQUIREMENTS.scopes],
+    }) as unknown;
+    const authorised = authorisedVerdict(result);
+    record(
+      'LIVE-REVOKED-EXECUTOR-CHECK',
+      'Executor checkDelegation returns authorised=false after Executor Member Delegation revocation',
+      authorised === null ? 'INCONCLUSIVE' : `authorised=${authorised}`,
+      authorised === false ? 'PASS' : 'FAIL',
+    );
+  } catch (error) {
+    record('LIVE-REVOKED-EXECUTOR-CHECK', 'Executor checkDelegation returns authorised=false after Executor Member Delegation revocation', null, 'FAIL', sanitizeEvidenceError(error));
+  }
+}
 
 await tenantSession.connect();
 await Promise.all([agentSession.connect(), executorSession.connect()]);
@@ -233,15 +277,26 @@ record(
 );
 
 if (process.env.EVIDENCE_RUN_EGRESS_NEGATIVES === 'true') {
+  try {
+    await proposalDelegation.revoke(identity.contractId);
+    await expectRevokedProposalCheckDenied(identity.contractId, tenantDid);
+  } finally {
+    await grantLeastPrivilege(identity.contractId, identity.contractVersion);
+  }
   await expectProposalExecutorRejected(identity.contractId, identity.contractVersion, tenantDid, agentDid);
   await expectProposalVerificationRejected(identity.contractId, identity.contractVersion, tenantDid);
   try {
     await executorDelegation.revoke(identity.contractId);
+    await expectRevokedExecutorCheckDenied(identity.contractId, tenantDid);
     await expectExecutorRevocationRejected('LIVE-REVOKED-EXECUTOR', 'protected egress rejected after Executor delegation revocation', 'live-revoked-executor-deny', executorDid);
-  } finally { await grantLeastPrivilege(identity.contractId, identity.contractVersion); }
+  } finally {
+    await grantLeastPrivilege(identity.contractId, identity.contractVersion);
+  }
 } else {
+  record('LIVE-REVOKED-PROPOSAL-CHECK', 'Proposal checkDelegation returns authorised=false after Proposal Member Delegation revocation', null, 'NOT_RUN', 'Set EVIDENCE_RUN_EGRESS_NEGATIVES=true to mutate and restore the live Proposal grant.');
   record('LIVE-PROPOSAL-CANNOT-EXECUTE', 'Proposal Agent DID rejected by T3N for execute-remediation', null, 'NOT_RUN', 'Set EVIDENCE_RUN_EGRESS_NEGATIVES=true after the private remediation map has been seeded.');
   record('LIVE-PROPOSAL-CANNOT-VERIFY', 'Proposal Agent DID rejected by T3N for verify-remediation', null, 'NOT_RUN', 'Set EVIDENCE_RUN_EGRESS_NEGATIVES=true after the private verification map has been seeded.');
+  record('LIVE-REVOKED-EXECUTOR-CHECK', 'Executor checkDelegation returns authorised=false after Executor Member Delegation revocation', null, 'NOT_RUN', 'Set EVIDENCE_RUN_EGRESS_NEGATIVES=true to mutate and restore the live Executor grant.');
   record('LIVE-REVOKED-EXECUTOR', 'protected egress rejected after Executor delegation revocation', null, 'NOT_RUN', 'Set EVIDENCE_RUN_EGRESS_NEGATIVES=true after the private remediation map has been seeded.');
 }
 
