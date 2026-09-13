@@ -1,6 +1,8 @@
 package br.com.t3privacyguard.api;
 
 import br.com.t3privacyguard.api.ApiModels.ActionResponse;
+import br.com.t3privacyguard.api.ApiModels.AgentAnalysisResponse;
+import br.com.t3privacyguard.api.ApiModels.AnalyzeAgentRequest;
 import br.com.t3privacyguard.api.ApiModels.AuditEvidenceResponse;
 import br.com.t3privacyguard.api.ApiModels.AuditResponse;
 import br.com.t3privacyguard.api.ApiModels.CreateActionRequest;
@@ -10,6 +12,7 @@ import br.com.t3privacyguard.api.ApiModels.ExecutionTraceResponse;
 import br.com.t3privacyguard.api.ApiModels.IncidentResponse;
 import br.com.t3privacyguard.api.ApiModels.RemediationAuthorizationResponse;
 import br.com.t3privacyguard.api.ApiModels.RemediationExecutionResponse;
+import br.com.t3privacyguard.service.AgentAnalysisService;
 import br.com.t3privacyguard.service.AuditEvidenceService;
 import br.com.t3privacyguard.service.IncidentService;
 import br.com.t3privacyguard.service.RemediationQueryService;
@@ -30,11 +33,18 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/incidents")
 public class IncidentController {
     private final IncidentService service;
+    private final AgentAnalysisService agentAnalysis;
     private final RemediationQueryService remediationQuery;
     private final AuditEvidenceService auditEvidence;
 
-    public IncidentController(IncidentService service, RemediationQueryService remediationQuery, AuditEvidenceService auditEvidence) {
+    public IncidentController(
+        IncidentService service,
+        AgentAnalysisService agentAnalysis,
+        RemediationQueryService remediationQuery,
+        AuditEvidenceService auditEvidence
+    ) {
         this.service = service;
+        this.agentAnalysis = agentAnalysis;
         this.remediationQuery = remediationQuery;
         this.auditEvidence = auditEvidence;
     }
@@ -48,6 +58,11 @@ public class IncidentController {
 
     @GetMapping("/{incidentId}")
     public IncidentResponse get(@PathVariable String incidentId) { return service.getIncident(incidentId); }
+
+    @PostMapping("/{incidentId}/agent-proposals")
+    public AgentAnalysisResponse addAgentProposal(@PathVariable String incidentId, @Valid @RequestBody AnalyzeAgentRequest request) {
+        return agentAnalysis.analyzeExistingIncident(incidentId, request.prompt());
+    }
 
     @PostMapping("/{incidentId}/actions")
     @ResponseStatus(HttpStatus.CREATED)
