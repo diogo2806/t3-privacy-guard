@@ -41,6 +41,9 @@ export interface SystemStatus {
   agentConfigured: boolean;
   agentAuthenticated: boolean;
   agentDid?: string | null;
+  executorConfigured: boolean;
+  executorAuthenticated: boolean;
+  executorDid?: string | null;
   agentRegistrationState: AgentRegistrationState;
   agentCardUri?: string | null;
   agentCardSha256?: string | null;
@@ -52,6 +55,9 @@ export interface SystemStatus {
   delegationState: DelegationState;
   delegatedFunctions: string[];
   allowedHosts: string[];
+  executorDelegationState: DelegationState;
+  executorDelegatedFunctions: string[];
+  executorAllowedHosts: string[];
   message: string;
 }
 export interface EvidenceMetadata {
@@ -61,6 +67,7 @@ export interface EvidenceMetadata {
   sdkVersion: string;
   tenantDid: string;
   agentDid: string;
+  executorDid: string;
   agentRegistrationState: AgentRegistrationState;
   agentCardUri?: string | null;
   agentCardSha256?: string | null;

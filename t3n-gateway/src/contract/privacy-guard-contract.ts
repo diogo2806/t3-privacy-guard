@@ -1,5 +1,6 @@
 import { getContractVersion, getNodeUrl } from '@terminal3/t3n-sdk';
 import type { AgentSession } from '../agent/agent-session.js';
+import type { ExecutorSession } from '../agent/executor-session.js';
 import type { GatewayConfig } from '../config/env.js';
 import type { ActivityLogService, ActivityReference } from '../t3n/activity-log-service.js';
 import type { T3nSession } from '../t3n/session.js';
@@ -124,6 +125,7 @@ export class PrivacyGuardContractService {
     private readonly config: GatewayConfig,
     private readonly tenantSession: T3nSession,
     private readonly agentSession: AgentSession,
+    private readonly executorSession: ExecutorSession,
     private readonly activityLog?: ActivityLogService,
   ) {}
 
@@ -133,12 +135,17 @@ export class PrivacyGuardContractService {
     return `z:${tenantId}:${this.config.contractTail}`;
   }
 
+  async protectedExecutorDid(): Promise<string> {
+    await this.executorSession.connect();
+    return this.executorSession.getExecutorDid();
+  }
+
   private async currentVersion(contractId: string): Promise<string> { return getContractVersion(getNodeUrl(), contractId); }
 
-  private async capture<T>(contractId: string, functionName: string, operation: () => Promise<T>): Promise<{ result: T; activity?: ActivityReference }> {
+  private async capture<T>(actorDid: string, contractId: string, functionName: string, operation: () => Promise<T>): Promise<{ result: T; activity?: ActivityReference }> {
     if (!this.activityLog) return { result: await operation() };
     return this.activityLog.capture({
-      actorDid: this.agentSession.getAgentDid(),
+      actorDid,
       onBehalfOfDid: this.tenantSession.getTenantDid(),
       contractId,
       function: functionName,
@@ -154,21 +161,25 @@ export class PrivacyGuardContractService {
     await this.agentSession.connect();
     const contractId = await this.canonicalContractId();
     const contractVersion = await this.currentVersion(contractId);
-    const captured = await this.capture(contractId, 'evaluate-action', () => this.agentSession.getClient().executeAndDecode(buildDelegatedExecutionRequest(
+    const agentDid = this.agentSession.getAgentDid();
+    const captured = await this.capture(agentDid, contractId, 'evaluate-action', () => this.agentSession.getClient().executeAndDecode(buildDelegatedExecutionRequest(
       this.tenantSession.getTenantDid(), contractId, contractVersion, 'evaluate-action',
-      { ...request, private_refs: request.private_refs ?? [], agent_did: this.agentSession.getAgentDid() },
+      { ...request, private_refs: request.private_refs ?? [], agent_did: agentDid },
     )));
     if (!isDecision(captured.result)) throw new Error('T3N contract returned an invalid policy decision');
     return annotate(captured.result, captured.activity);
   }
 
-  async remediate(request: RemediationExecutionRequest): Promise<RemediationResult> {
-    await this.agentSession.connect();
+  async remediate(request: RemediationExecutionRequest, authorizedExecutorDid: string): Promise<RemediationResult> {
+    await Promise.all([this.agentSession.connect(), this.executorSession.connect()]);
+    const executorDid = this.executorSession.getExecutorDid();
+    if (authorizedExecutorDid !== executorDid) throw new Error('CAPABILITY_EXECUTOR_MISMATCH');
     const contractId = await this.canonicalContractId();
     const contractVersion = await this.currentVersion(contractId);
-    const captured = await this.capture(contractId, 'execute-remediation', () => this.agentSession.getClient().executeAndDecode(buildDelegatedExecutionRequest(
+    const proposalAgentDid = this.agentSession.getAgentDid();
+    const captured = await this.capture(executorDid, contractId, 'execute-remediation', () => this.executorSession.getClient().executeAndDecode(buildDelegatedExecutionRequest(
       this.tenantSession.getTenantDid(), contractId, contractVersion, 'execute-remediation',
-      { ...request, private_refs: request.private_refs ?? [], agent_did: this.agentSession.getAgentDid() },
+      { ...request, private_refs: request.private_refs ?? [], agent_did: proposalAgentDid },
     )));
     if (!isRemediation(captured.result)) throw new Error('T3N contract returned an invalid remediation result');
     if (captured.result.policy_version !== request.policy_version || captured.result.policy_hash !== request.policy_hash) {
@@ -178,10 +189,11 @@ export class PrivacyGuardContractService {
   }
 
   async verifyRemediation(request: RemediationVerificationRequest): Promise<RemediationVerificationResult> {
-    await this.agentSession.connect();
+    await this.executorSession.connect();
     const contractId = await this.canonicalContractId();
     const contractVersion = await this.currentVersion(contractId);
-    const captured = await this.capture(contractId, 'verify-remediation', () => this.agentSession.getClient().executeAndDecode(buildDelegatedExecutionRequest(
+    const executorDid = this.executorSession.getExecutorDid();
+    const captured = await this.capture(executorDid, contractId, 'verify-remediation', () => this.executorSession.getClient().executeAndDecode(buildDelegatedExecutionRequest(
       this.tenantSession.getTenantDid(), contractId, contractVersion, 'verify-remediation', request,
     )));
     if (!isVerification(captured.result)) throw new Error('T3N contract returned an invalid remediation verification result');

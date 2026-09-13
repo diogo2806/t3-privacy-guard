@@ -77,11 +77,11 @@ export function ScreenManualDialog() {
         <div className="manual-content">
           <section>
             <h3>Finalidade</h3>
-            <p id="screen-manual-purpose">Esta tela demonstra resposta a incidentes com separação explícita entre proposta de IA, identidade T3N, onboarding público do agente, autorização por delegação, policy executada no contrato e ação protegida. A IA pode propor, mas não pode conceder permissão a si mesma, alterar a policy ativa, obter valores privados diretamente nem declarar uma remediação crítica como concluída.</p>
+            <p id="screen-manual-purpose">Esta tela demonstra resposta a incidentes com separação explícita entre proposta de IA, identidade T3N, onboarding público do agente, autorização por delegação, autorização humana e execução por um principal T3N privilegiado separado. A IA pode propor, mas não pode conceder permissão a si mesma, obter a credencial do Protected Executor, alterar a policy ativa, obter valores privados diretamente nem declarar uma remediação crítica como concluída.</p>
           </section>
           <section>
             <h3>Áreas da tela</h3>
-            <p><strong>Protection demo</strong> contém cenários, prompt, proposta, decisão, autorização humana, execução, retenção, Execution Trace e audit provenance. <strong>Proof &amp; evidence</strong> mostra somente resultados observados e metadados verificáveis. <strong>Show technical details</strong> expõe DIDs, contrato, onboarding, delegation, hosts e funções sem misturar esses dados com a jornada principal.</p>
+            <p><strong>Protection demo</strong> contém cenários, prompt, proposta, decisão, autorização humana, execução, retenção, Execution Trace e audit provenance. <strong>Proof &amp; evidence</strong> mostra somente resultados observados e metadados verificáveis. <strong>Show technical details</strong> expõe Tenant DID, Proposal Agent DID, Protected Executor DID, contrato, onboarding, delegações, hosts e funções sem misturar esses dados com a jornada principal.</p>
           </section>
           <section>
             <h3>Campos, cenários e ações</h3>
@@ -89,7 +89,8 @@ export function ScreenManualDialog() {
           </section>
           <section>
             <h3>Identidade, onboarding e autorização</h3>
-            <p><strong>Authenticated</strong> significa que a sessão T3N provou a identidade da chave e forneceu a DID canônica. <strong>Registered</strong> significa que um Agent Card público válido foi resolvido para exatamente a mesma Agent DID. <strong>Delegated</strong> significa que o tenant concedeu funções, escopos e hosts por Member Delegation. São controles independentes: registrar o Agent Card aumenta descoberta pública, mas não concede acesso ao contrato.</p>
+            <p><strong>Authenticated</strong> significa que uma sessão T3N provou a identidade da chave e forneceu a DID canônica. O <strong>Proposal Agent</strong> é o principal usado para <code>evaluate-action</code>; ele não recebe grant para <code>execute-remediation</code> ou <code>verify-remediation</code>. O <strong>Protected Executor</strong> usa outra credencial e outra DID canônica, recebe somente as funções de execução/verificação e os hosts necessários, e não é usado pelo provedor de IA.</p>
+            <p><strong>Registered</strong> significa que um Agent Card público válido foi resolvido para exatamente a mesma Proposal Agent DID. <strong>Proposal delegation</strong> e <strong>Executor delegation</strong> são autorizações independentes. Registrar o Agent Card aumenta descoberta pública, mas não concede acesso ao contrato. O fluxo não é considerado operacional se o Proposal Agent ou o Protected Executor estiverem sem autenticação/delegação compatível.</p>
             <p>O card público anuncia somente o serviço <strong>DID</strong> realmente suportado. Ele não contém API key, private key, token, endpoint interno, A2A, MCP ou x402. Os estados <strong>NOT REGISTERED</strong>, <strong>CARD/DID MISMATCH</strong> e <strong>UNAVAILABLE</strong> nunca são apresentados como sucesso. Um card divergente ou inválido não é aceito apenas por responder HTTP 200.</p>
           </section>
           <section>
@@ -106,7 +107,7 @@ export function ScreenManualDialog() {
           </section>
           <section>
             <h3>Autorização humana e execução protegida</h3>
-            <p>O fluxo completo atual é <code>revoke-credential</code>. <strong>Authorize credential revocation</strong> registra a decisão humana vinculada à decisão persistida e à policy version/hash. <strong>Execute protected credential revocation</strong> usa capability de uso único e revalida a policy antes do egress. Aceitação externa gera estado pendente; <strong>Verify external state</strong> faz read-back independente. <strong>COMPLETED</strong> só aparece após confirmação do estado esperado. Resultado ambíguo permanece <strong>UNVERIFIED</strong> e não é reenviado automaticamente.</p>
+            <p>O fluxo completo atual é <code>revoke-credential</code>. <strong>Authorize credential revocation</strong> registra a decisão humana vinculada à decisão persistida e à policy version/hash; a capability de uso único inclui também a Protected Executor DID autenticada no momento da autorização. <strong>Execute protected credential revocation</strong> envia essa capability ao gateway, que rejeita troca de executor e usa a sessão T3N do Protected Executor. O Proposal Agent não possui grant T3N para essa função. A policy é revalidada antes do egress. Aceitação externa gera estado pendente; <strong>Verify external state</strong> faz read-back independente. <strong>COMPLETED</strong> só aparece após confirmação do estado esperado. Resultado ambíguo permanece <strong>UNVERIFIED</strong> e não é reenviado automaticamente.</p>
           </section>
           <section>
             <h3>Execution Trace</h3>
@@ -114,23 +115,23 @@ export function ScreenManualDialog() {
           </section>
           <section>
             <h3>Audit provenance e T3N Activity Log</h3>
-            <p>O audit local registra eventos de negócio sanitizados. O T3N Activity Log é uma segunda fonte read-only de provenance de rede. <strong>MATCHED</strong> exige correspondência exata de sequence/hash e identidade técnica esperada. <strong>UNMATCHED</strong> significa que havia provenance esperada sem confirmação exata. <strong>LOCAL ONLY</strong> é normal para eventos apenas da aplicação. <strong>T3N ONLY</strong> indica evento T3N relevante sem vínculo local. Uma janela truncada nunca é apresentada como prova de ausência.</p>
+            <p>O audit local registra eventos de negócio sanitizados. O T3N Activity Log é uma segunda fonte read-only de provenance de rede. <strong>MATCHED</strong> exige correspondência exata de sequence/hash e identidade técnica esperada. <strong>UNMATCHED</strong> significa que havia provenance esperada sem confirmação exata. <strong>LOCAL ONLY</strong> é normal para eventos apenas da aplicação. <strong>T3N ONLY</strong> indica evento T3N relevante sem vínculo local. Uma janela truncada nunca é apresentada como prova de ausência. Eventos de avaliação devem identificar o Proposal Agent; eventos de execução/verificação devem identificar o Protected Executor.</p>
           </section>
           <section>
             <h3>Proof &amp; evidence</h3>
-            <p><strong>PASS</strong> significa resultado observado compatível com o esperado. <strong>FAIL</strong> é divergência observada. <strong>NOT RUN</strong> não conta como prova. O bundle identifica rede, SDK, tenant DID, Agent DID, Agent Card URI/hash/status, contrato, WASM SHA-256, policy version/hash e trust-manifest provenance. Agent Card prova onboarding público, não autorização nem attestation de hardware.</p>
+            <p><strong>PASS</strong> significa resultado observado compatível com o esperado. <strong>FAIL</strong> é divergência observada. <strong>NOT RUN</strong> não conta como prova. O bundle identifica rede, SDK, tenant DID, Proposal Agent DID, Protected Executor DID, Agent Card URI/hash/status, contrato, WASM SHA-256, policy version/hash e trust-manifest provenance. O cenário <strong>LIVE-PROPOSAL-CANNOT-EXECUTE</strong>, quando executado, deve provar que a própria Member Delegation T3N rejeita tentativa do Proposal Agent de chamar a função privilegiada. Agent Card prova onboarding público, não autorização nem attestation de hardware.</p>
           </section>
           <section>
             <h3>Permissões e regras</h3>
-            <p>Login na aplicação não concede autoridade T3N. A Agent DID vem da sessão autenticada, nunca de valor hardcoded. O Agent Card não concede funções. Member Delegation continua sendo a fonte de autorização. Rotas internas usam service token. A interface não promove DENY/REDACT para execução, não inventa receipt T3N e não transforma indisponibilidade em sucesso.</p>
+            <p>Login na aplicação não concede autoridade T3N. As DIDs do Tenant, Proposal Agent e Protected Executor vêm de sessões autenticadas, nunca de valores hardcoded. O Agent Card não concede funções. A Proposal delegation não pode conter funções de remediação; a Executor delegation não deve ser usada pelo fluxo de proposta. Rotas internas usam service token. A interface não promove DENY/REDACT para execução, não inventa receipt T3N e não transforma indisponibilidade em sucesso.</p>
           </section>
           <section>
             <h3>Fluxo principal</h3>
-            <p>1. Entre na aplicação. 2. Confira status de tenant e agente. 3. Diferencie Agent onboarding de Delegation. 4. Escolha um cenário e revise o prompt. 5. Use Ask agent. 6. Inspecione a proposta real. 7. Leia a decisão T3N e sua policy version/hash. 8. Se houver ALLOW para revogação suportada, registre autorização humana. 9. Execute uma vez. 10. Verifique o estado externo. 11. Consulte Execution Trace e audit provenance. 12. Consulte Proof &amp; evidence e, quando necessário, os detalhes técnicos.</p>
+            <p>1. Entre na aplicação. 2. Confira status de Tenant, Proposal Agent e Protected Executor. 3. Diferencie onboarding público das duas delegações funcionais. 4. Escolha um cenário e revise o prompt. 5. Use Ask agent. 6. Inspecione a proposta real. 7. Leia a decisão T3N e sua policy version/hash. 8. Se houver ALLOW para revogação suportada, registre autorização humana. 9. Confirme que a autorização está vinculada ao Protected Executor. 10. Execute uma vez. 11. Verifique o estado externo. 12. Consulte Execution Trace, audit provenance e Proof &amp; evidence.</p>
           </section>
           <section>
             <h3>Mensagens e estados de erro</h3>
-            <p>Conteúdo sensível é rejeitado sem ecoar o literal. Falha de provedor, T3N, Agent Card, policy KV ou trust boundary não é apresentada como sucesso. Card ausente gera <strong>NOT REGISTERED</strong>; divergência de DID/schema gera <strong>CARD/DID MISMATCH</strong>; indisponibilidade de resolução gera <strong>UNAVAILABLE</strong>. Falha no Activity Log mantém o audit local disponível e marca a provenance de rede como não verificada. Mudança de policy após autorização bloqueia execução protegida. Sessão expirada exige novo login.</p>
+            <p>Conteúdo sensível é rejeitado sem ecoar o literal. Falha de provedor, T3N, Agent Card, policy KV, Proposal Agent, Protected Executor ou trust boundary não é apresentada como sucesso. Card ausente gera <strong>NOT REGISTERED</strong>; divergência de DID/schema gera <strong>CARD/DID MISMATCH</strong>; indisponibilidade de resolução gera <strong>UNAVAILABLE</strong>. Troca da Executor DID entre autorização e execução invalida a capability. Falha no Activity Log mantém o audit local disponível e marca a provenance de rede como não verificada. Mudança de policy após autorização bloqueia execução protegida. Sessão expirada exige novo login.</p>
           </section>
         </div>
       </section>

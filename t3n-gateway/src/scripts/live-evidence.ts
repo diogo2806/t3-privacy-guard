@@ -6,6 +6,7 @@ import { TenantClient, getNodeUrl } from '@terminal3/t3n-sdk';
 import { AgentCardRegistry } from '../agent/agent-card.js';
 import { AgentSession } from '../agent/agent-session.js';
 import { DelegationService } from '../agent/delegation-service.js';
+import { ExecutorSession } from '../agent/executor-session.js';
 import { readGatewayConfig } from '../config/env.js';
 import { PrivacyGuardContractService } from '../contract/privacy-guard-contract.js';
 import { assertEvidenceMatchesDeployment, assertManifestIdentity, sha256File, type DeploymentManifest, type TestnetEvidenceIdentity } from '../evidence/deployment-manifest.js';
@@ -40,36 +41,43 @@ if (config.network !== 'testnet' && process.env.EVIDENCE_ALLOW_PRODUCTION !== 't
   throw new Error('Live evidence orchestration is restricted to testnet unless EVIDENCE_ALLOW_PRODUCTION=true');
 }
 if (!config.agentApiKey) throw new Error('T3N_AGENT_API_KEY is required for live evidence');
+if (!config.executorApiKey) throw new Error('T3N_EXECUTOR_API_KEY is required for live evidence');
 
 const trustFloorStore = new TrustManifestFloorStore(config.trustManifestFloorStorePath);
 const tenantSession = new T3nSession(config, trustFloorStore);
 const agentSession = new AgentSession(config, trustFloorStore);
+const executorSession = new ExecutorSession(config, trustFloorStore);
 const agentCardRegistry = new AgentCardRegistry(agentSession);
-const delegation = new DelegationService(tenantSession, agentSession);
-const contract = new PrivacyGuardContractService(config, tenantSession, agentSession);
+const proposalDelegation = new DelegationService(tenantSession, agentSession);
+const executorDelegation = new DelegationService(tenantSession, executorSession);
+const contract = new PrivacyGuardContractService(config, tenantSession, agentSession, executorSession);
 await tenantSession.connect();
-await agentSession.connect();
+await Promise.all([agentSession.connect(), executorSession.connect()]);
 
 const tenantStatus = tenantSession.getStatus();
 const agentStatus = agentSession.getStatus();
+const executorStatus = executorSession.getExecutorStatus();
 const persistedTrustFloor = await trustFloorStore.get(config.network);
-if (!tenantStatus.trustAnchorVerified || !agentStatus.trustAnchorVerified || !persistedTrustFloor) {
-  throw new Error('Live evidence requires verified T3N trust anchors and a persisted rollback floor');
+if (!tenantStatus.trustAnchorVerified || !agentStatus.trustAnchorVerified || !executorStatus.trustAnchorVerified || !persistedTrustFloor) {
+  throw new Error('Live evidence requires verified T3N trust anchors and a persisted rollback floor for all principals');
 }
 if (
   tenantStatus.trustManifestVersion === null
   || agentStatus.trustManifestVersion === null
+  || executorStatus.trustManifestVersion === null
   || tenantStatus.trustManifestVersion > persistedTrustFloor.version
   || agentStatus.trustManifestVersion > persistedTrustFloor.version
+  || executorStatus.trustManifestVersion > persistedTrustFloor.version
 ) {
   throw new Error('Persisted T3N trust manifest floor is inconsistent with authenticated sessions');
 }
 
 const tenantDid = tenantSession.getTenantDid();
 const agentDid = agentSession.getAgentDid();
-if (tenantDid === agentDid) throw new Error('Tenant DID and agent DID must be different');
+const executorDid = executorSession.getExecutorDid();
+if (new Set([tenantDid, agentDid, executorDid]).size !== 3) throw new Error('Tenant, proposal Agent and protected Executor DIDs must be different');
 const agentRegistration = await agentCardRegistry.verify();
-if (agentRegistration.agentDid && agentRegistration.agentDid !== agentDid) throw new Error('Agent Card verification DID differs from the authenticated Agent DID');
+if (agentRegistration.agentDid && agentRegistration.agentDid !== agentDid) throw new Error('Agent Card verification DID differs from the authenticated Proposal Agent DID');
 const wasmSha256 = await sha256File(wasmPath);
 const policySource = JSON.parse(await readFile(policyPath, 'utf8')) as unknown;
 const policy = canonicalizeOperationalPolicy(policySource);
@@ -110,6 +118,7 @@ const manifest: DeploymentManifest = {
   sdkVersion: '5.2.0',
   tenantDid,
   agentDid,
+  executorDid,
   agentRegistrationState: agentRegistration.state,
   agentCardUri: agentRegistration.cardUri,
   agentCardSha256: agentRegistration.cardSha256,
@@ -131,6 +140,7 @@ if (manifest.contractVersion !== config.contractVersion) throw new Error('Deploy
 const sensitiveValues = [
   config.apiKey,
   config.agentApiKey,
+  config.executorApiKey,
   process.env.SECURITY_API_KEY,
   process.env.EVIDENCE_SENTINEL_SECRET,
   process.env.AI_API_KEY,
@@ -157,10 +167,17 @@ if (process.env.EVIDENCE_PREPARE_EGRESS === 'true') {
   if (setup.status !== 0) throw new Error('Private remediation map setup failed');
 }
 
-await delegation.grant({
+await proposalDelegation.grant({
   contractId,
   versionReq: contractVersion,
-  functions: ['evaluate-action', 'execute-remediation', 'verify-remediation'],
+  functions: ['evaluate-action'],
+  scopes: ['incident_id', 'credential_id', 'reason'],
+  allowedHosts: [],
+});
+await executorDelegation.grant({
+  contractId,
+  versionReq: contractVersion,
+  functions: ['execute-remediation', 'verify-remediation'],
   scopes: ['incident_id', 'credential_id', 'reason'],
   allowedHosts: configuredEgressHosts(),
 });
@@ -186,6 +203,8 @@ console.info(JSON.stringify({
   wasmSha256,
   policyVersion: policy.document.version,
   policyHash: policy.hash,
+  proposalAgentDid: agentDid,
+  protectedExecutorDid: executorDid,
   agentRegistrationState: agentRegistration.state,
   agentCardSha256: agentRegistration.cardSha256,
   trustManifestVersion: persistedTrustFloor.version,

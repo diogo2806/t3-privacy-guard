@@ -14,11 +14,12 @@ class RemediationAuthorizationSignerTest {
     private static final String KEY = "test-remediation-capability-key-1234567890";
     private static final String POLICY_VERSION = "2026-09-12.1";
     private static final String POLICY_HASH = "a".repeat(64);
+    private static final String EXECUTOR_DID = "did:t3n:protected-executor-test";
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
-    void capabilityIsSignedAndBoundToActionPrivateReferencesAndPolicyProvenance() throws Exception {
-        var signer = new RemediationAuthorizationSigner(mapper, KEY, 60);
+    void capabilityIsSignedAndBoundToActionPrivateReferencesPolicyAndExecutor() throws Exception {
+        var signer = new RemediationAuthorizationSigner(mapper, KEY, 60, () -> EXECUTOR_DID);
         String token = signer.issue(
             "incident-1", "action-1", "request-1", "decision-1",
             "notify-security", "incident:test", "incident-notification",
@@ -35,6 +36,7 @@ class RemediationAuthorizationSignerTest {
         assertThat(claims.get("privateRefsHash").asText()).hasSize(64);
         assertThat(claims.get("policyVersion").asText()).isEqualTo(POLICY_VERSION);
         assertThat(claims.get("policyHash").asText()).isEqualTo(POLICY_HASH);
+        assertThat(claims.get("executorDid").asText()).isEqualTo(EXECUTOR_DID);
         assertThat(claims.get("nonce").asText()).isNotBlank();
         assertThat(claims.get("expiresAt").asLong()).isGreaterThan(claims.get("authorizedAt").asLong());
 
