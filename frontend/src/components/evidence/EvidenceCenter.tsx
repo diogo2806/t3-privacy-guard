@@ -22,6 +22,7 @@ function registrationLabel(state: AgentRegistrationState): string {
 function scenarioLabel(id: string): string {
   const labels: Record<string, string> = {
     'LIVE-PROPOSAL-CANNOT-EXECUTE': 'Proposal agent blocked from protected execution',
+    'LIVE-EXECUTOR-REQUIRES-HUMAN-PROOF': 'Executor credential alone blocked by the T3N human-proof boundary',
   };
   return labels[id] ?? id.replace(/^LIVE-/, '').replaceAll('-', ' ').replace(/(^|\s)\S/g, (letter) => letter.toUpperCase());
 }
@@ -98,7 +99,7 @@ export function EvidenceCenter({ evidence, loading, error, onRefresh }: Props) {
             </li>
           ))}
         </ul>
-        <p className="evidence-disclaimer"><strong>NOT RUN is not proof.</strong> It remains visible and is never included in the PASS total.</p>
+        <p className="evidence-disclaimer"><strong>NOT RUN is not proof.</strong> It remains visible and is never included in the PASS total. The human-proof negative uses the real Protected Executor DID and demonstrates that Executor authority alone is insufficient; valid proof issuance stays inside the authenticated backend flow.</p>
       </Surface>
 
       <Surface className="evidence-provenance" aria-labelledby="technical-provenance-title">
@@ -152,7 +153,7 @@ export function EvidenceCenter({ evidence, loading, error, onRefresh }: Props) {
             <div className="evidence-wide"><dt>Policy SHA-256</dt><dd><code>{evidence.metadata.policyHash}</code></dd></div>
             <div className="evidence-wide"><dt>WASM SHA-256</dt><dd data-testid="evidence-wasm-sha256"><code>{evidence.metadata.wasmSha256}</code></dd></div>
           </dl>
-          <p className="evidence-disclaimer">Policy version/hash identify the canonical operational policy used by this run. The Proposal Agent evaluates policy; the separate Protected Executor performs privileged execution and verification only after required authorization.</p>
+          <p className="evidence-disclaimer">Policy version/hash identify the canonical operational policy used by this run. The Proposal Agent evaluates policy; the separate Protected Executor performs privileged execution and verification only after the one-time human proof is verified at both the gateway and the T3N contract boundary.</p>
         </details>
       </Surface>
     </section>
