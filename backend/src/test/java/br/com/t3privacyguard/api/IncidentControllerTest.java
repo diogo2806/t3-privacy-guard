@@ -6,6 +6,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import br.com.t3privacyguard.api.ApiModels.RemediationAuthorizationResponse;
+import br.com.t3privacyguard.service.AgentAnalysisService;
 import br.com.t3privacyguard.service.AuditEvidenceService;
 import br.com.t3privacyguard.service.IncidentService;
 import br.com.t3privacyguard.service.RemediationQueryService;
@@ -20,6 +21,7 @@ import org.springframework.security.core.Authentication;
 @ExtendWith(MockitoExtension.class)
 class IncidentControllerTest {
     @Mock IncidentService service;
+    @Mock AgentAnalysisService agentAnalysis;
     @Mock RemediationQueryService remediationQuery;
     @Mock AuditEvidenceService auditEvidence;
     @Mock Authentication authentication;
@@ -28,7 +30,7 @@ class IncidentControllerTest {
 
     @BeforeEach
     void setUp() {
-        controller = new IncidentController(service, remediationQuery, auditEvidence);
+        controller = new IncidentController(service, agentAnalysis, remediationQuery, auditEvidence);
     }
 
     @Test
