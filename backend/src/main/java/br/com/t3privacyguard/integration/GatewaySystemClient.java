@@ -77,7 +77,22 @@ public class GatewaySystemClient {
 
     public record HealthResponse(String status, String service) {}
     public record TenantStatus(boolean connected, boolean ready, String tenantDid, String network) {}
-    public record AgentStatus(boolean configured, boolean connected, boolean ready, String agentDid, String network) {}
+    public record AgentStatus(
+        boolean configured,
+        boolean connected,
+        boolean ready,
+        String agentDid,
+        String network,
+        String agentRegistrationState,
+        String agentCardUri,
+        String agentCardSha256,
+        String agentCardVerifiedAt,
+        List<String> agentCardServices
+    ) {
+        public AgentStatus {
+            agentCardServices = agentCardServices == null ? List.of() : List.copyOf(agentCardServices);
+        }
+    }
     public record ContractIdentity(String contractId, String contractVersion) {}
     public record DelegationStatus(String state, List<String> functions, List<String> allowedHosts) {}
     public record ActivityEvent(
