@@ -15,9 +15,10 @@ import org.junit.jupiter.api.io.TempDir;
 class EvidenceServiceTest {
     @TempDir Path tempDir;
     private final ObjectMapper mapper = new ObjectMapper();
+    private static final String SOURCE_COMMIT = "1".repeat(40);
 
     @Test
-    void readsAllowlistedPolicyTrustAgentAndExecutorEvidence() throws Exception {
+    void readsAllowlistedPolicyTrustAgentExecutorAndSourceEvidence() throws Exception {
         Path manifest = tempDir.resolve("deployment-manifest.json");
         Path testnet = tempDir.resolve("testnet-run.json");
         String wasmHash = "a".repeat(64);
@@ -32,6 +33,8 @@ class EvidenceServiceTest {
 
         var result = new EvidenceService(mapper, manifest.toString(), testnet.toString()).latest();
         assertThat(result.metadata().source()).isEqualTo("T3N_TESTNET");
+        assertThat(result.metadata().sourceCommitSha()).isEqualTo(SOURCE_COMMIT);
+        assertThat(result.metadata().sourceTreeClean()).isTrue();
         assertThat(result.metadata().policyVersion()).isEqualTo("2026-09-12.1");
         assertThat(result.metadata().policyHash()).isEqualTo(policyHash);
         assertThat(result.metadata().agentDid()).isEqualTo("did:t3n:proposal-agent");
@@ -51,6 +54,50 @@ class EvidenceServiceTest {
     void missingLiveEvidenceIsExplicitlyNotFound() {
         var service = new EvidenceService(mapper, tempDir.resolve("missing-manifest.json").toString(), tempDir.resolve("missing-run.json").toString());
         assertThatThrownBy(service::latest).isInstanceOf(EvidenceNotFoundException.class);
+    }
+
+    @Test
+    void missingOrMalformedSourceCommitFailsClosed() throws Exception {
+        Path manifest = tempDir.resolve("manifest-source.json");
+        Path testnet = tempDir.resolve("run-source.json");
+        String wasmHash = "7".repeat(64);
+        String policyHash = "6".repeat(64);
+        Map<String, Object> invalid = validManifest(wasmHash, "2026-09-12.1", policyHash);
+        invalid.put("sourceCommitSha", "abc1234");
+        write(manifest, invalid);
+        write(testnet, validRun(wasmHash, "2026-09-12.1", policyHash, List.of()));
+        assertThatThrownBy(() -> new EvidenceService(mapper, manifest.toString(), testnet.toString()).latest())
+            .isInstanceOf(IllegalStateException.class).hasMessageContaining("invalid or inconsistent");
+    }
+
+    @Test
+    void sourceCommitOrTreeStateMismatchFailsClosed() throws Exception {
+        Path manifest = tempDir.resolve("manifest-source-mismatch.json");
+        Path testnet = tempDir.resolve("run-source-mismatch.json");
+        String wasmHash = "5".repeat(64);
+        String policyHash = "4".repeat(64);
+        write(manifest, validManifest(wasmHash, "2026-09-12.1", policyHash));
+        Map<String, Object> run = validRun(wasmHash, "2026-09-12.1", policyHash, List.of());
+        run.put("sourceTreeClean", false);
+        write(testnet, run);
+        assertThatThrownBy(() -> new EvidenceService(mapper, manifest.toString(), testnet.toString()).latest())
+            .isInstanceOf(IllegalStateException.class).hasMessageContaining("invalid or inconsistent");
+    }
+
+    @Test
+    void dirtySourceTreeIsExplicitMetadataNotImplicitPass() throws Exception {
+        Path manifest = tempDir.resolve("manifest-dirty.json");
+        Path testnet = tempDir.resolve("run-dirty.json");
+        String wasmHash = "3".repeat(64);
+        String policyHash = "2".repeat(64);
+        Map<String, Object> manifestData = validManifest(wasmHash, "2026-09-12.1", policyHash);
+        Map<String, Object> runData = validRun(wasmHash, "2026-09-12.1", policyHash, List.of());
+        manifestData.put("sourceTreeClean", false);
+        runData.put("sourceTreeClean", false);
+        write(manifest, manifestData);
+        write(testnet, runData);
+        var result = new EvidenceService(mapper, manifest.toString(), testnet.toString()).latest();
+        assertThat(result.metadata().sourceTreeClean()).isFalse();
     }
 
     @Test
@@ -111,7 +158,8 @@ class EvidenceServiceTest {
 
     private Map<String, Object> validManifest(String wasmHash, String policyVersion, String policyHash) {
         Map<String, Object> value = new LinkedHashMap<>();
-        value.put("source", "T3N_TESTNET"); value.put("generatedAt", "2026-09-12T00:00:00Z"); value.put("network", "testnet"); value.put("sdkVersion", "5.2.0");
+        value.put("source", "T3N_TESTNET"); value.put("generatedAt", "2026-09-12T00:00:00Z");
+        value.put("sourceCommitSha", SOURCE_COMMIT); value.put("sourceTreeClean", true); value.put("network", "testnet"); value.put("sdkVersion", "5.2.0");
         value.put("tenantDid", "did:t3n:tenant"); value.put("agentDid", "did:t3n:proposal-agent"); value.put("executorDid", "did:t3n:protected-executor");
         value.put("agentRegistrationState", "REGISTERED"); value.put("agentCardUri", "https://node.example/agent-card/did:t3n:proposal-agent");
         value.put("agentCardSha256", "3".repeat(64)); value.put("agentCardVerifiedAt", "2026-09-12T00:00:01Z"); value.put("agentCardServices", List.of("DID"));
@@ -123,7 +171,8 @@ class EvidenceServiceTest {
 
     private Map<String, Object> validRun(String wasmHash, String policyVersion, String policyHash, List<Map<String, Object>> scenarios) {
         Map<String, Object> value = new LinkedHashMap<>();
-        value.put("network", "testnet"); value.put("sdkVersion", "5.2.0"); value.put("tenantDid", "did:t3n:tenant"); value.put("agentDid", "did:t3n:proposal-agent"); value.put("executorDid", "did:t3n:protected-executor");
+        value.put("sourceCommitSha", SOURCE_COMMIT); value.put("sourceTreeClean", true); value.put("network", "testnet"); value.put("sdkVersion", "5.2.0");
+        value.put("tenantDid", "did:t3n:tenant"); value.put("agentDid", "did:t3n:proposal-agent"); value.put("executorDid", "did:t3n:protected-executor");
         value.put("contractId", "z:tenant:privacy-guard"); value.put("contractVersion", "0.4.0"); value.put("wasmSha256", wasmHash);
         value.put("policyVersion", policyVersion); value.put("policyHash", policyHash); value.put("scenarios", scenarios);
         return value;

@@ -43,6 +43,8 @@ public class EvidenceService {
             Metadata metadata = new Metadata(
                 source,
                 required(manifest, "generatedAt"),
+                required(manifest, "sourceCommitSha"),
+                requiredBoolean(manifest, "sourceTreeClean"),
                 required(manifest, "network"),
                 required(manifest, "sdkVersion"),
                 required(manifest, "tenantDid"),
@@ -63,6 +65,8 @@ public class EvidenceService {
                 requiredPositiveLong(manifest, "trustManifestVersion")
             );
             validateMetadata(metadata);
+            assertSame(testnet, "sourceCommitSha", metadata.sourceCommitSha());
+            assertSameBoolean(testnet, "sourceTreeClean", metadata.sourceTreeClean());
             assertSame(testnet, "network", metadata.network());
             assertSame(testnet, "sdkVersion", metadata.sdkVersion());
             assertSame(testnet, "tenantDid", metadata.tenantDid());
@@ -103,6 +107,7 @@ public class EvidenceService {
     }
 
     private static void validateMetadata(Metadata value) {
+        if (!value.sourceCommitSha().matches("[a-f0-9]{40}")) throw new IllegalStateException("Evidence source commit SHA is invalid");
         if (!value.tenantDid().startsWith("did:t3n:") || !value.agentDid().startsWith("did:t3n:") || !value.executorDid().startsWith("did:t3n:")) {
             throw new IllegalStateException("Evidence DIDs are invalid");
         }
@@ -163,10 +168,16 @@ public class EvidenceService {
         if (!expected.equals(required(node, field))) throw new IllegalStateException("Evidence mismatch for " + field);
     }
 
+    private static void assertSameBoolean(JsonNode node, String field, boolean expected) {
+        if (requiredBoolean(node, field) != expected) throw new IllegalStateException("Evidence mismatch for " + field);
+    }
+
     public record EvidenceResponse(Metadata metadata, List<Scenario> scenarios, Totals totals) {}
     public record Metadata(
         String source,
         String generatedAt,
+        String sourceCommitSha,
+        boolean sourceTreeClean,
         String network,
         String sdkVersion,
         String tenantDid,

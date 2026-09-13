@@ -44,6 +44,7 @@ export function EvidenceCenter({ evidence, loading, error, onRefresh }: Props) {
   const trustAnchorState = evidence.metadata.trustAnchorVerified ? 'VERIFIED' : 'NOT VERIFIED';
   const rollbackFloorState = evidence.metadata.trustManifestFloorPersisted ? 'PERSISTED' : 'NOT PERSISTED';
   const registrationOk = evidence.metadata.agentRegistrationState === 'REGISTERED';
+  const sourceTreeState = evidence.metadata.sourceTreeClean ? 'CLEAN' : 'DIRTY';
   const a2aObserved = registrationOk && evidence.metadata.agentCardServices.includes('A2A');
 
   return (
@@ -55,6 +56,8 @@ export function EvidenceCenter({ evidence, loading, error, onRefresh }: Props) {
         <dl className="evidence-metadata">
           <div><dt>Source</dt><dd>{evidence.metadata.source}</dd></div>
           <div><dt>Generated</dt><dd>{new Date(evidence.metadata.generatedAt).toLocaleString()}</dd></div>
+          <div className="evidence-wide"><dt>Source commit</dt><dd><code>{evidence.metadata.sourceCommitSha}</code></dd></div>
+          <div><dt>Source tree</dt><dd><span className={`status-pill ${evidence.metadata.sourceTreeClean ? 'status-pill-ok' : 'status-pill-off'}`}>{sourceTreeState}</span></dd></div>
           <div><dt>SDK</dt><dd>{evidence.metadata.sdkVersion}</dd></div>
           <div><dt>Network</dt><dd>{evidence.metadata.network}</dd></div>
           <div><dt>Trust anchor</dt><dd>{trustAnchorState}</dd></div>
@@ -62,7 +65,7 @@ export function EvidenceCenter({ evidence, loading, error, onRefresh }: Props) {
           <div><dt>Trust manifest version</dt><dd>{evidence.metadata.trustManifestVersion}</dd></div>
           <div><dt>Agent onboarding</dt><dd><span className={`status-pill ${registrationOk ? 'status-pill-ok' : 'status-pill-off'}`}>{registrationLabel(evidence.metadata.agentRegistrationState)}</span></dd></div>
           <div><dt>A2A service in resolved card</dt><dd><span className={`status-pill ${a2aObserved ? 'status-pill-ok' : 'status-pill-off'}`}>{a2aObserved ? 'OBSERVED' : 'NOT OBSERVED'}</span></dd></div>
-          <div><dt>Card verified</dt><dd>{new Date(evidence.metadata.agentCardVerifiedAt).toLocaleString()}</dd></div>
+          <div><dt>Card check</dt><dd>{new Date(evidence.metadata.agentCardVerifiedAt).toLocaleString()}</dd></div>
           <div><dt>Contract version</dt><dd>{evidence.metadata.contractVersion}</dd></div>
           <div><dt>Policy version</dt><dd>{evidence.metadata.policyVersion}</dd></div>
           <div className="evidence-wide"><dt>Agent Card URI</dt><dd><code>{evidence.metadata.agentCardUri ?? 'Not resolved'}</code></dd></div>
@@ -75,6 +78,7 @@ export function EvidenceCenter({ evidence, loading, error, onRefresh }: Props) {
           <div className="evidence-wide"><dt>Proposal Agent DID</dt><dd><code>{evidence.metadata.agentDid}</code></dd></div>
           <div className="evidence-wide"><dt>Protected Executor DID</dt><dd><code>{evidence.metadata.executorDid}</code></dd></div>
         </dl>
+        <p className="evidence-disclaimer">This identifies the public source revision used to generate this evidence bundle. WASM and policy hashes remain the executed artifact identities. CLEAN means the Git working tree was clean when evidence generation started; DIRTY is disclosed explicitly and is not treated as verified source.</p>
         <p className="evidence-disclaimer">Policy version/hash identify the canonical operational policy used by this evidence run. Trust anchor VERIFIED means the T3N signed manifest established the cluster trust boundary for these authenticated sessions. Rollback floor PERSISTED means the accepted manifest version was stored across gateway restarts. These are policy/trust provenance signals, not a claim of per-request hardware attestation.</p>
         <p className="evidence-disclaimer">The Proposal Agent DID is the policy-evaluation principal. The Protected Executor DID is a separate authenticated T3N principal used only for privileged execution and verification after human authorization. Agent registration remains discoverability evidence; delegated authority is proven separately.</p>
         <p className="evidence-disclaimer">A2A OBSERVED means the resolved T3N Agent Card advertised the A2A evaluation service during this evidence run. It does not by itself prove that the public endpoint was reachable or live-tested. Protected remediation is not exposed through A2A.</p>

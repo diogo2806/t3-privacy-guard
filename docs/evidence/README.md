@@ -4,11 +4,11 @@ This directory separates local regression controls from real Terminal 3 testnet 
 
 ## Dashboard proof view
 
-The operator dashboard presents evidence in business-first order. The **Proof & evidence** view explains what the bundle proves before showing technical metadata: `PASS` is an observed outcome that matched the expected security result, `FAIL` is an observed mismatch, and `NOT_RUN` means the scenario was not executed and is never counted as proof. Contract, DID, Agent onboarding, SDK, network, trust-anchor, rollback-floor, policy and WASM metadata remain available below that explanation so a judge can first understand the outcome and then inspect the technical linkage.
+The operator dashboard presents evidence in business-first order. The **Proof & evidence** view explains what the bundle proves before showing technical metadata: `PASS` is an observed outcome that matched the expected security result, `FAIL` is an observed mismatch, and `NOT_RUN` means the scenario was not executed and is never counted as proof. Source commit/tree state, contract, DID, Agent onboarding, SDK, network, trust-anchor, rollback-floor, policy and WASM metadata remain available below that explanation so a judge can first understand the outcome and then inspect the technical linkage.
+
+`Source commit` is the full 40-character Git revision captured before evidence generation starts. `Source tree` is `CLEAN` only when that revision had no tracked or untracked working-tree changes at capture time; otherwise it is explicitly `DIRTY`. This source identity links the bundle to public code, but it does not replace the WASM SHA-256 or policy hash and is not an independent code audit.
 
 The dashboard trust flow follows the same claim boundary as the evidence bundle: `ALLOW` is not execution, accepted external execution is not completion, `REGISTERED` Agent onboarding is not delegation, an observed `ACTIVE` Member grant is not by itself effective delegated authority, and `COMPLETED` is shown only after independent read-back verifies the expected external state. T3N control-plane or trust-boundary unavailability is surfaced explicitly rather than rendered as a successful state. Operational readiness requires T3N `checkDelegation()` to confirm effective access for the authenticated Proposal Agent and Protected Executor.
-
-A2A is reported with the same evidence discipline. `Configured` means the public URL passed local validation. `Published` means the expected A2A service was observed in the resolved T3N Agent Card. Neither state is described as `verified live` endpoint reachability unless a separate external request actually proves that fact.
 
 ## Local automated evidence
 
@@ -18,7 +18,7 @@ From the repository root:
 bash scripts/run-local-evidence.sh
 ```
 
-This executes Rust policy/remediation/verification tests, including dev-only `proptest` suites that generate hundreds of policy/parser combinations, Java replay/authorization/distributed-idempotency/incident-retention/audit-reconciliation tests, gateway Member-grant/effective-`checkDelegation`/`pii_did`/leak/trust-floor/Agent-Card/A2A tests plus deterministic generated agent-schema invariants and trace-correlation tests, and React accessibility/decision/remediation-state/evidence-provenance/onboarding/A2A/effective-authorization/retention-state tests. Raw runtime logs are gitignored.
+This executes Rust policy/remediation/verification tests, including dev-only `proptest` suites that generate hundreds of policy/parser combinations, Java replay/authorization/distributed-idempotency/incident-retention/audit-reconciliation tests, gateway Member-grant/effective-`checkDelegation`/`pii_did`/leak/trust-floor/Agent-Card tests plus deterministic generated agent-schema invariants and trace-correlation tests, and React accessibility/decision/remediation-state/evidence-provenance/onboarding/effective-authorization/retention-state tests. Raw runtime logs are gitignored.
 
 Property tests are classified as **local invariant evidence**. A failing Rust property reports a reproducible proptest counterexample/seed; the gateway generator uses fixed documented seeds. Generated case counts are not represented as coverage percentage and never count as live T3N execution.
 
@@ -83,9 +83,9 @@ It contains no T3N keys, agent keys, cookies, session identifiers or provider cr
 
 There is no automatic `unsafe_trust_server` fallback for hosted testnet/production. Manually resetting the floor is an explicit recovery action because it discards rollback history; it is never performed by application code.
 
-## Public Agent Card, A2A and effective delegation evidence
+## Public Agent Card and effective delegation evidence
 
-Agent authentication, public registration, optional A2A interoperability, Member Delegation and effective platform authorization are separate evidence dimensions.
+Agent authentication, public registration, Member Delegation and effective platform authorization are separate evidence dimensions.
 
 ```text
 T3N_AGENT_API_KEY
@@ -97,8 +97,6 @@ authenticated Proposal Agent session
 canonical Proposal Agent DID
       |
       +--> public Agent Card -> REGISTERED / NOT_REGISTERED / MISMATCH / UNAVAILABLE
-      |      |
-      |      +--> optional A2A service observed -> evaluation only
       |
       +--> Member grant document -> ACTIVE / SCHEDULED / REVOKED / NOT_GRANTED / UNKNOWN
                                    |
@@ -111,11 +109,9 @@ canonical Proposal Agent DID
                                    +--> error/invalid    -> effective UNKNOWN
 ```
 
-The same Member-grant-to-`checkDelegation()` sequence is evaluated independently for the Protected Executor using its own authenticated T3N client. The `pii_did` is always the canonical Tenant DID returned by the authenticated Tenant session. The contract id is the canonical resolved contract and functions/scopes are taken from the matching observed grant, never from browser or A2A input.
+The same Member-grant-to-`checkDelegation()` sequence is evaluated independently for the Protected Executor using its own authenticated T3N client. The `pii_did` is always the canonical Tenant DID returned by the authenticated Tenant session. The contract id is the canonical resolved contract and functions/scopes are taken from the matching observed grant, never from browser input.
 
-The builder derives the public T3N card only from the canonical DID returned by the authenticated `AgentSession`. The card always advertises one `DID` service for that exact DID, is active, explicitly does not claim x402 support, and rejects sensitive metadata or unsupported service names. If `A2A_PUBLIC_URL` is configured as a valid HTTPS `/a2a` endpoint, the card additionally advertises an `A2A` service pointing to the real `/.well-known/agent-card.json` discovery URL with version `1.0`; otherwise A2A must be absent. The runtime verifier resolves the public card over HTTPS, enforces the bounded schema/size, requires the DID service to match the authenticated Agent DID exactly, verifies the configured A2A service when present, and hashes the exact resolved body.
-
-The public A2A discovery document exposes one skill, **A2A evaluation service**. External agents can request analysis and a T3N policy decision. Protected remediation remains operator-authorized and is not exposed through A2A. Local gateway tests prove strict request/schema handling, prompt-sensitive rejection, server-derived policy identities and the absence of human authorization/remediation capability from the public response. Those local tests are not endpoint-reachability evidence.
+The builder derives the public card only from the canonical DID returned by the authenticated `AgentSession`. The supported public card advertises one `DID` service for that exact DID, is active, explicitly does not claim x402 support, and rejects sensitive metadata or unsupported service names. The runtime verifier resolves the public card over HTTPS, enforces the bounded schema/size, requires the DID service to match the authenticated Agent DID exactly, and hashes the exact resolved body.
 
 Read-only verification:
 
@@ -137,16 +133,14 @@ State meanings:
 
 - `REGISTERED`: a public card resolved and passed the closed schema/DID/service validation;
 - `NOT_REGISTERED`: no public card was found for the authenticated DID;
-- `MISMATCH`: a card was returned but its schema, DID, service set or supported metadata did not match the expected agent, including an A2A configuration/card mismatch;
+- `MISMATCH`: a card was returned but its schema, DID, service set or supported metadata did not match the expected agent;
 - `UNAVAILABLE`: the authenticated DID or public registry could not be verified at that time;
-- A2A `Configured`: `A2A_PUBLIC_URL` passed local validation; this does not prove publication or liveness;
-- A2A `Published`: the configured service was observed in a successfully resolved Agent Card; this does not by itself prove the public endpoint is reachable;
 - Member `ACTIVE`: a matching grant is present and temporally valid, but this alone does not prove effective authority;
 - Effective `ACTIVE`: T3N returned `authorised=true` from `checkDelegation()` executed as the authenticated principal;
 - Effective `INCOMPLETE`: no effective authorization exists for the observed request, including `authorised=false` or a non-active Member grant;
 - Effective `UNKNOWN`: the platform verdict could not be validated and the system fails closed.
 
-The deployment manifest records `agentRegistrationState` and the verification timestamp. When a card was actually resolved, it can also record the public card URI, SHA-256 and service names. When `A2A` appears in `agentCardServices`, that is evidence that the A2A discovery service was present in the resolved T3N Agent Card at verification time. A card hash/service list is discoverability provenance only. `REGISTERED` does **not** mean delegated, authorized, endpoint-live-tested, TEE-attested or permitted to execute any contract function. Likewise, an `ACTIVE` Member grant is not presented as an effective authorization unless `checkDelegation()` confirms it.
+The deployment manifest records `agentRegistrationState` and the verification timestamp. When a card was actually resolved, it can also record the public card URI, SHA-256 and service names. A card hash is discoverability provenance only. `REGISTERED` does **not** mean delegated, authorized, TEE-attested or permitted to execute any contract function. Likewise, an `ACTIVE` Member grant is not presented as an effective authorization unless `checkDelegation()` confirms it.
 
 ## One-command live proof
 
@@ -155,9 +149,9 @@ Prerequisites:
 - valid rotated Tenant `T3N_API_KEY`;
 - separate funded `T3N_AGENT_API_KEY`;
 - separate funded `T3N_EXECUTOR_API_KEY` for the Protected Executor;
-- optional `A2A_PUBLIC_URL` only when the deployment intends to publish/verify the public A2A discovery service;
 - persistent `/data` storage available to the gateway, or an explicit `T3N_TRUST_FLOOR_STORE_PATH` on equivalent persistent storage;
 - built release WASM at the documented path, or `T3N_CONTRACT_WASM_PATH`;
+- a clean Git working tree for submission evidence;
 - `T3N_CONTRACT_NUMERIC_ID` when the configured contract version already exists and an operation needs its numeric id;
 - synthetic `SECURITY_API_KEY`, `SECURITY_API_URL` and `SECURITY_VERIFICATION_URL` only when protected egress/read-back is enabled.
 
@@ -170,25 +164,30 @@ npm run evidence:live
 
 The orchestrator:
 
-1. loads the persisted trust-manifest floor for the configured T3N network;
-2. authenticates Tenant, Proposal Agent and Protected Executor separately through verified trust anchors using the same monotonic floor;
-3. rejects identity collapse and refuses evidence generation unless the sessions report verified trust anchors and a persisted floor;
-4. performs read-only public Agent Card verification for the authenticated Proposal Agent DID, including the configured A2A service when enabled, and records the observed registration state without confusing it with endpoint reachability, Member Delegation or effective authorization;
-5. calculates `SHA-256(WASM_BYTES)`;
-6. resolves the configured live contract version or registers it when absent;
-7. provisions/read-backs the versioned private T3N operational policy and binds its version/hash;
-8. writes sanitized `docs/evidence/deployment-manifest.json` including trust-anchor, rollback-floor, Agent Card service list, policy and contract/WASM provenance;
-9. optionally prepares the private remediation map when `EVIDENCE_PREPARE_EGRESS=true`;
-10. derives least-privilege allowed hosts from the configured HTTPS action/verification endpoints;
-11. creates/updates least-privilege Member grants for Proposal Agent and Protected Executor as required by the evidence setup;
-12. runtime status distinguishes each observed Member grant from the authenticated principal-side `checkDelegation()` verdict; only effective `ACTIVE` counts as operational readiness;
-13. invokes the existing `evidence:testnet` runner;
-14. verifies that testnet evidence and deployment manifest have the same network, SDK, DIDs, contract id/version, WASM hash and policy provenance;
-15. fails if the runner reports failure, the identities mismatch, trust/policy metadata is inconsistent, or leak detection finds configured secret material.
+1. resolves `git rev-parse --verify HEAD` using a fixed-argument child process, requires a full 40-character SHA and records the working-tree state before generated evidence files are written;
+2. fails closed on a dirty tree by default; `EVIDENCE_ALLOW_DIRTY_SOURCE=true` is available only for an explicitly non-submission run and records `sourceTreeClean=false` rather than hiding the state;
+3. loads the persisted trust-manifest floor for the configured T3N network;
+4. authenticates Tenant, Proposal Agent and Protected Executor separately through verified trust anchors using the same monotonic floor;
+5. rejects identity collapse and refuses evidence generation unless the sessions report verified trust anchors and a persisted floor;
+6. performs read-only public Agent Card verification for the authenticated Proposal Agent DID and records the observed registration state without confusing it with Member Delegation or effective authorization;
+7. calculates `SHA-256(WASM_BYTES)`;
+8. resolves the configured live contract version or registers it when absent;
+9. provisions/read-backs the versioned private T3N operational policy and binds its version/hash;
+10. writes sanitized `docs/evidence/deployment-manifest.json` including source revision, trust-anchor, rollback-floor, Agent Card, policy and contract/WASM provenance;
+11. optionally prepares the private remediation map when `EVIDENCE_PREPARE_EGRESS=true`;
+12. derives least-privilege allowed hosts from the configured HTTPS action/verification endpoints;
+13. creates/updates least-privilege Member grants for Proposal Agent and Protected Executor as required by the evidence setup;
+14. runtime status distinguishes each observed Member grant from the authenticated principal-side `checkDelegation()` verdict; only effective `ACTIVE` counts as operational readiness;
+15. invokes the existing `evidence:testnet` runner and writes the same captured source SHA/tree state into `testnet-run.json`;
+16. verifies that testnet evidence and deployment manifest have the same source SHA/tree state, network, SDK, DIDs, contract id/version, WASM hash and policy provenance;
+17. fails if the runner reports failure, source identity is absent/malformed/mismatched, the identities mismatch, trust/policy metadata is inconsistent, or leak detection finds configured secret material.
 
 The evidence chain is:
 
 ```text
+public source revision
+   | full Git SHA + CLEAN/DIRTY tree state
+   v
 verified T3N trust manifest
    | signed manifest + numeric version
    v
@@ -199,7 +198,6 @@ authenticated Tenant + Proposal Agent + Protected Executor sessions
    |                         |
    |                         +--> public Proposal Agent Card resolution
    |                              state + URI/hash/services when observed
-   |                              +--> optional A2A service observed in card
    |
    +--> Member grants -> principal-side checkDelegation -> effective access
    v
@@ -207,15 +205,16 @@ WASM bytes + canonical policy
    | SHA-256 + policy version/hash
    v
 deployment-manifest.json
-   | trust + onboarding + policy + contract + canonical DIDs
+   | source revision + trust + onboarding + policy + contract + canonical DIDs
    v
 T3N testnet runner
    |
    v
 testnet-run.json
+   | same source revision + live outcomes
 ```
 
-This proves linkage between the verified T3N cluster trust anchor, the persisted anti-rollback high-water mark, the authenticated identities, the observed public Agent Card registration/service state, the local WASM/policy artifacts used in the registration/provisioning flow, the resolved T3N contract identity/version and the live scenario results. Runtime readiness additionally requires the platform-side delegation verdict described above; the evidence bundle does not infer effective authorization from a Member grant alone. An observed A2A card service is not described as endpoint liveness, and none of this is described as hardware attestation unless a separate T3N API explicitly provides execution-specific attestation evidence.
+This closes the linkage `public source -> commit -> WASM/policy identity -> T3N execution -> observed scenarios`. The source SHA proves which repository revision was captured; the WASM SHA-256 still identifies the binary bytes and the policy hash still identifies the canonical operational policy. A clean source tree is a reproducibility signal, not proof that the source was independently audited. Runtime readiness additionally requires the platform-side delegation verdict described above; the evidence bundle does not infer effective authorization from a Member grant alone. It is not described as hardware attestation unless a separate T3N API explicitly provides execution-specific attestation evidence.
 
 ## Optional protected egress + independent verification proof
 
@@ -304,11 +303,13 @@ The `limit` is server-validated between 1 and 200. Activity evidence is sanitize
 `deployment-manifest.json` contains only public/verifiable metadata:
 
 - UTC timestamp;
+- full source commit SHA (`sourceCommitSha`);
+- explicit source-tree state (`sourceTreeClean`);
 - network;
 - SDK `5.2.0`;
 - canonical Tenant, Proposal Agent and Protected Executor DIDs;
 - observed Agent Card registration state;
-- Agent Card public URI/SHA-256/verification timestamp/service names when a card was resolved, including `A2A` only when it was observed in the resolved card;
+- Agent Card public URI/SHA-256/verification timestamp/service names when a card was resolved;
 - `trustAnchorVerified=true` only after the official signed trust-anchor path succeeds;
 - `trustManifestFloorPersisted=true` only after a valid monotonic floor is present on persistent state;
 - accepted trust-manifest high-water version;
@@ -317,32 +318,31 @@ The `limit` is server-validated between 1 and 200. Activity evidence is sanitize
 - policy version/hash;
 - WASM SHA-256.
 
-The manifest intentionally does not claim that an `A2A` service-name observation proves external reachability. Endpoint-liveness evidence requires a separate external request and is not synthesized from configuration.
+`testnet-run.json` contains the same `sourceCommitSha` and `sourceTreeClean` values plus live scenario outcomes including PASS/FAIL/NOT_RUN. Missing, malformed or mismatched source provenance invalidates the bundle. Optional scenarios that were not executed stay `NOT_RUN`; they are never converted into PASS.
 
-`testnet-run.json` contains live scenario outcomes including PASS/FAIL/NOT_RUN. Optional scenarios that were not executed stay `NOT_RUN`; they are never converted into PASS.
-
-Both artifacts pass leak detection against configured Tenant/Proposal Agent/Protected Executor keys, remediation key, AI provider key, service token, capability signing key and optional sentinel before being accepted.
+Both artifacts pass leak detection against configured Tenant/Proposal Agent/Protected Executor keys, remediation key, AI provider key, service token, capability signing key and optional sentinel before being accepted. Neither artifact contains `.env` contents, API keys, tokens or private keys.
 
 ## Trust, onboarding and authorization evidence wording
 
 The UI and evidence API deliberately distinguish these concepts:
 
+- **Source commit**: full public Git revision captured for the run; it establishes source traceability, not independent verification.
+- **Source tree CLEAN/DIRTY**: whether that revision's working tree was clean when evidence generation started; `DIRTY` is disclosed and never relabelled as success.
+- **WASM SHA-256**: identity of the contract binary bytes used by the evidence flow.
+- **Policy SHA-256**: identity of the canonical operational policy used by the decisions.
 - **Trust anchor VERIFIED**: the signed T3N manifest established the cluster trust boundary used by the authenticated sessions.
 - **Rollback floor PERSISTED**: the accepted manifest-version high-water mark is stored across gateway restarts and supplied back through `minVersion`.
 - **Trust manifest version**: the numeric version exposed by the verified trust anchor and persisted as the high-water mark.
 - **Proposal Agent AUTHENTICATED**: the session proved control of its credential and yielded the canonical Proposal Agent DID.
 - **Protected Executor AUTHENTICATED**: its independent session proved the separate execution principal DID.
 - **Agent onboarding REGISTERED**: a public Agent Card for the Proposal Agent DID resolved and passed the closed validation.
-- **A2A CONFIGURED**: a public HTTPS `/a2a` URL passed local validation; not publication/liveness evidence.
-- **A2A PUBLISHED / OBSERVED**: the expected A2A discovery service was present in the resolved T3N Agent Card; not endpoint-liveness evidence.
-- **A2A evaluation service**: public analysis plus T3N policy decision only; protected remediation is not exposed.
 - **Member grant ACTIVE**: the Tenant-side grant record exists and is inside its validity window; this is not yet an effective platform verdict.
 - **Platform delegation AUTHORIZED**: `checkDelegation()` executed as the authenticated grantee returned `authorised=true` for the canonical contract, Tenant DID and observed functions/scopes.
 - **Effective access ACTIVE**: the Member grant is active and the platform delegation is authorized. Only this state may contribute to operational readiness.
 
-These labels do not mean “hardware execution verified”. A public Agent Card hash/service list is not authorization or attestation, and a per-request hardware-attestation claim would require separate execution-specific evidence.
+These labels do not mean “hardware execution verified”. A public Agent Card hash is not authorization or attestation, a clean source tree is not a code audit, and a per-request hardware-attestation claim would require separate execution-specific evidence.
 
-If trust-manifest retrieval, rollback validation, persisted state validation, version extraction or effective-delegation verification fails, readiness remains false. Agent Card resolution has its own explicit negative states (`NOT_REGISTERED`, `MISMATCH`, `UNAVAILABLE`) and is never silently rendered as `REGISTERED`. A configured A2A service missing from or differing in the resolved card yields the mismatch path; a local A2A URL alone is never rendered as published/live. `authorised=false` produces effective `INCOMPLETE`; a failed or malformed platform verdict produces `UNKNOWN`.
+If trust-manifest retrieval, rollback validation, persisted state validation, version extraction or effective-delegation verification fails, readiness remains false. Agent Card resolution has its own explicit negative states (`NOT_REGISTERED`, `MISMATCH`, `UNAVAILABLE`) and is never silently rendered as `REGISTERED`. `authorised=false` produces effective `INCOMPLETE`; a failed or malformed platform verdict produces `UNKNOWN`.
 
 ## Profile placeholder evidence
 
@@ -350,6 +350,6 @@ The policy-level logical-reference scenario can run independently. Actual `verif
 
 ## What is not live evidence
 
-Mocks, unit tests, property tests, generated cases, screenshots, docs and unexecuted commands are not T3N testnet proof. A locally configured A2A URL is not proof of publication or reachability. A locally generated Agent Card is not proof that it was hosted; `REGISTERED` requires read-only public resolution of the authenticated DID. An `A2A` service observed in that resolved card proves discoverability metadata only and is not endpoint-liveness proof. An observed Member grant is not proof of effective authority; runtime readiness additionally requires the authenticated principal-side T3N `checkDelegation()` verdict. The generated deployment manifest plus matching successful `testnet-run.json` are the live evidence source of truth for contract scenarios. A screenshot of a 2xx response is not remediation completion proof; the matching verification state is required. A persisted trust floor is cluster-trust rollback protection, not execution-specific hardware attestation. Activity reconciliation is provenance for T3N-observed operations, not a replacement for the local business audit.
+Mocks, unit tests, property tests, generated cases, screenshots, docs and unexecuted commands are not T3N testnet proof. A Git commit SHA by itself is not live proof and `CLEAN` is not a security certification; they only link a generated bundle to a source revision. A locally generated Agent Card is not proof that it was hosted; `REGISTERED` requires read-only public resolution of the authenticated DID. An observed Member grant is not proof of effective authority; runtime readiness additionally requires the authenticated principal-side T3N `checkDelegation()` verdict. The generated deployment manifest plus matching successful `testnet-run.json` are the live evidence source of truth for contract scenarios. A screenshot of a 2xx response is not remediation completion proof; the matching verification state is required. A persisted trust floor is cluster-trust rollback protection, not execution-specific hardware attestation. Activity reconciliation is provenance for T3N-observed operations, not a replacement for the local business audit.
 
 See `scenario-matrix.md` for the security-scenario mapping.

@@ -132,8 +132,6 @@ React / Spring Boot
       v
 Node / TypeScript T3N Gateway
       |
-      +--> optional public A2A v1.0 -> evaluation only
-      |
       +--> Tenant session ------------------------+
       |                                           |
       +--> Proposal Agent session                 | pii_did
@@ -173,7 +171,7 @@ T3N / Rust WASM policy
 
 - `frontend/`: React/Vite operator dashboard served by Nginx.
 - `backend/`: Java 21/Spring Boot business API, operator sessions and durable business/remediation state.
-- `t3n-gateway/`: isolated T3N SDK adapter, AI provider adapter, optional public A2A evaluation adapter, separate Tenant/Proposal Agent/Protected Executor sessions, delegation verification and anti-replay protection.
+- `t3n-gateway/`: isolated T3N SDK adapter, AI provider adapter, separate Tenant/Proposal Agent/Protected Executor sessions, delegation verification and anti-replay protection.
 - `contracts/privacy-guard/`: Rust/WIT policy, closed private-reference mapping, protected remediation and independent verification for `wasm32-wasip2`.
 
 Each runtime has its own Dockerfile. There is intentionally no `docker-compose.yml`; services are deployed independently in containers.
@@ -183,7 +181,6 @@ Each runtime has its own Dockerfile. There is intentionally no `docker-compose.y
 | Responsibility | Authority |
 |---|---|
 | Understand prompt and propose an action | AI model |
-| Request public analysis/evaluation | External A2A client, when enabled |
 | Authenticate Tenant identity | T3N Tenant session |
 | Authenticate proposal identity | T3N Proposal Agent session |
 | Authenticate protected execution identity | T3N Protected Executor session |
@@ -196,7 +193,7 @@ Each runtime has its own Dockerfile. There is intentionally no `docker-compose.y
 | Resolve approved private profile value | T3N protected execution boundary |
 | Decide whether external side effect is complete | Independent read-back + Spring state machine |
 
-The prompt is untrusted content. It is never an authorization source. An A2A client can request evaluation but cannot become the authorization source either.
+The prompt is untrusted content. It is never an authorization source.
 
 ## Real AI agent boundary
 
@@ -227,6 +224,16 @@ The only model tool surface is:
 Unknown properties are rejected. The model cannot supply `decision`, `allow`, `override`, `approved`, `agent_did`, `pii_did`, API keys, credentials, secrets, remediation capabilities or literal `{{profile...}}` markers. Canonical identities come only from authenticated T3N sessions.
 
 Real private values must never be placed in demo prompts; the model asks only for an enumerated logical category when a supported private value is needed.
+
+Before a prompt reaches a configured remote AI provider, the gateway runs a deliberately **partial high-confidence sensitive-literal guard**. It blocks supported structured classes that can be validated defensibly: e-mail, CPF, checksum-valid CNPJ, strongly signalled phone numbers (E.164 or an explicit phone/mobile/telefone/celular label), public IP addresses explicitly labelled as customer/user data, API keys/tokens, Bearer tokens, JWTs, private-key markers, labelled passwords and Luhn-valid card candidates. Public IPs used as technical URLs/hosts are not blocked merely for being IP literals, and the guard does not attempt generic regex detection of names or addresses.
+
+That boundary reduces the chance of supported literals reaching the provider; it is **not** a semantic or exhaustive PII scanner. A prompt that passes the guard is not certified `PII-free`, `safe` or equivalent. Rejected errors expose categories only, never the matched value or offset. The shared versioned corpus at `privacy-conformance/sensitive-literal-corpus.json` is consumed by both TypeScript gateway tests and Java persistence-boundary tests so the overlapping cases cannot drift silently.
+
+```text
+known supported high-confidence literal -> BLOCK BEFORE PROVIDER
+other/unstructured free text            -> no absolute PII-free claim
+supported private T3N value             -> logical reference such as verified_email
+```
 
 ## T3N identity, onboarding and effective delegation
 
@@ -286,7 +293,7 @@ The status API exposes only bounded/sanitized `satisfied` and `missing` labels f
 
 ### Public Agent Card
 
-`buildAgentCardForSession(...)` uses only `AgentSession.getAgentDid()` as the identity source. The card always advertises the supported `DID` service for the same canonical DID, `active: true` and `x402Support: false`. When and only when `A2A_PUBLIC_URL` is configured as a valid public HTTPS `/a2a` endpoint, the T3N Agent Card also advertises the `A2A` service at the real `/.well-known/agent-card.json` discovery URL with protocol version `1.0`. It never advertises MCP, x402 payment support, unsupported trust claims or private/internal gateway endpoints. Sensitive metadata keys and private-key-shaped values are rejected.
+`buildAgentCardForSession(...)` uses only `AgentSession.getAgentDid()` as the identity source. The card advertises the supported `DID` service for the same canonical DID, `active: true` and `x402Support: false`. It does not advertise unsupported A2A/MCP services, x402 payment support or private/internal gateway endpoints. Sensitive metadata keys and private-key-shaped values are rejected.
 
 Operational commands from `t3n-gateway/`:
 
@@ -297,47 +304,12 @@ npm run agent:card:publish   # explicit mutable T3N operation; may consume credi
 
 Agent Card states are discoverability evidence only:
 
-- `REGISTERED`: resolved card matches the authenticated Proposal Agent DID and the locally configured supported service schema;
+- `REGISTERED`: resolved card matches the authenticated Proposal Agent DID and supported service schema;
 - `NOT_REGISTERED`: no card was found;
-- `MISMATCH`: a card was returned but failed closed validation, including a configured/observed A2A service mismatch;
+- `MISMATCH`: a card was returned but failed closed validation;
 - `UNAVAILABLE`: resolution could not be verified.
 
 `REGISTERED` does not mean delegated, effectively authorized, TEE-attested or permitted to execute a contract function.
-
-## A2A evaluation service
-
-A2A is an optional public interoperability surface for **evaluation only**. Set `A2A_PUBLIC_URL` to the externally reachable HTTPS `/a2a` endpoint. When configured, the gateway exposes:
-
-```text
-GET  /.well-known/agent-card.json
-POST /a2a
-```
-
-The public Agent Card declares one skill: **A2A evaluation service**. External agents can request analysis and a T3N policy decision. Protected remediation remains operator-authorized and is not exposed through A2A.
-
-The adapter uses A2A protocol version `1.0` with JSON-RPC `SendMessage`. It accepts one bounded `ROLE_USER` text part, applies a 16 KiB request-body ceiling, a 4,000-character prompt ceiling and basic in-memory rate limiting. Unknown fields and unsupported operations/content types fail closed. The client cannot supply `agent_did`, `pii_did`, `decision`, authorization state, remediation capability, credentials or Protected Executor identity.
-
-The public flow is intentionally narrow:
-
-```text
-external A2A message
-      |
-      v
-prompt privacy guard
-      |
-      v
-existing AgentService
-      | structured proposal only
-      v
-existing T3N evaluate-action
-      | server-derived Proposal Agent DID + Tenant pii_did
-      v
-proposal + decision + reason code + policy version/hash + Proposal Agent DID
-```
-
-Sensitive prompts are rejected before a remote AI provider is called. Provider/schema failure and T3N evaluation failure return sanitized errors without echoing prompt/credentials. A2A has no endpoint for human authorization, `execute-remediation`, `verify-remediation` or capability issuance.
-
-Status language is intentionally conservative: `Configured` means local URL validation passed; `Published` means A2A was observed in the resolved public T3N Agent Card. Neither is called `verified live` unless an external reachability test actually occurs. The current status check states explicitly when that live test was not performed.
 
 ## Current policy vocabulary
 
@@ -393,7 +365,7 @@ TEE mapping:       {{profile.verified_contacts.email.value}}
 
 The literal marker is created inside Rust/WASM from a closed allowlist. Clients cannot submit arbitrary profile namespaces. Spring persists only the reference name, never the email address. Human authorization capabilities bind the private-reference set so it cannot be changed after approval.
 
-Plaintext visibility:
+For a private value obtained through this supported logical-reference flow, plaintext visibility is:
 
 ```text
 AI model                       NO
@@ -404,6 +376,8 @@ Business audit/evidence        NO
 T3N protected egress           YES, only while resolving the approved placeholder
 Allowed external service       YES, as the intended recipient
 ```
+
+This table does not make a blanket claim about arbitrary user-supplied free text: users must not paste private values into the prompt, and the pre-provider guard is intentionally partial.
 
 `PlaceholderDenied`, `PlaceholderUnknown` and `PlaceholderNoUserContext` fail closed. Upstream responses are reduced to operation/status metadata before leaving the contract.
 
@@ -446,7 +420,6 @@ Rules:
 - `REMEDIATION_CAPABILITY_KEY` signs one-time human authorization proofs and is distinct from every T3N/provider/remediation credential.
 - Canonical Tenant, Proposal Agent and Protected Executor DIDs come from authenticated T3N sessions.
 - Agent Card is discoverability metadata and never grants functions, scopes, hosts or business authorization.
-- Public A2A accepts evaluation requests only; it cannot issue human authorization, remediation capabilities or Protected Executor credentials and cannot execute protected remediation.
 - Member Delegation is an observed grant record, not an effective verdict.
 - Effective delegation is checked through the authenticated grantee client and fails closed on negative or unavailable verdicts.
 - Delegated calls derive `pii_did` internally from the authenticated Tenant session.
@@ -469,7 +442,6 @@ T3N_CONTRACT_VERSION
 T3N_CONTRACT_NUMERIC_ID
 T3N_POLICY_FILE
 T3N_TRUST_FLOOR_STORE_PATH
-A2A_PUBLIC_URL
 OPERATOR_USERNAME
 OPERATOR_PASSWORD
 OPERATOR_SESSION_TIMEOUT
@@ -489,8 +461,6 @@ SECURITY_VERIFICATION_URL
 
 `T3N_CONTRACT_VERSION` is `0.4.0` for the versioned-policy contract. `T3N_POLICY_FILE` points to the local source document used by the explicit policy provisioning script; the active runtime policy is loaded from private T3N KV.
 
-`A2A_PUBLIC_URL` is optional. When set it must be the externally reachable HTTPS `/a2a` endpoint without credentials, query parameters or fragments. It enables the public A2A adapter and causes the T3N Agent Card publication/verification path to require the matching A2A discovery service.
-
 `SECURITY_API_URL` is the protected action endpoint. `SECURITY_VERIFICATION_URL` is the independent read-back endpoint. Both are seeded into the T3N private map by the setup script; the verification endpoint is not a browser/backend credential.
 
 Business APIs require the Spring Security operator session and CSRF protection. The browser never receives T3N keys, AI provider keys, internal service token, remediation capability, remediation credential or resolved profile PII.
@@ -505,8 +475,6 @@ Tenant                     AUTHENTICATED / NOT AUTHENTICATED
 Proposal Agent             AUTHENTICATED / NOT AUTHENTICATED / NOT CONFIGURED
 Protected Executor         AUTHENTICATED / NOT AUTHENTICATED / NOT CONFIGURED
 Agent onboarding           REGISTERED / NOT_REGISTERED / MISMATCH / UNAVAILABLE
-A2A evaluation service     PUBLISHED / CONFIGURED NOT PUBLISHED / NOT CONFIGURED
-A2A endpoint live test     NOT PERFORMED by the status check
 Contract                   RESOLVED / UNAVAILABLE
 Proposal Member grant      ACTIVE / SCHEDULED / REVOKED / NOT_GRANTED / UNKNOWN
 Proposal platform verdict  AUTHORIZED / NOT AUTHORIZED / UNAVAILABLE / NOT CHECKED
@@ -516,7 +484,7 @@ Executor platform verdict  AUTHORIZED / NOT AUTHORIZED / UNAVAILABLE / NOT CHECK
 Executor effective access  ACTIVE / INCOMPLETE / UNKNOWN
 ```
 
-The control plane is reported `Operational` only when Tenant, Proposal Agent and Protected Executor authentication are ready, the contract is resolved, and **both effective delegation states are `ACTIVE`**. Member grant `ACTIVE` alone is insufficient. A2A publication is displayed separately and is not a prerequisite for protected operator workflows.
+The control plane is reported `Operational` only when Tenant, Proposal Agent and Protected Executor authentication are ready, the contract is resolved, and **both effective delegation states are `ACTIVE`**. Member grant `ACTIVE` alone is insufficient.
 
 `RESOLVED` means contract id/version were resolved. It is not hardware attestation. Functions, scopes and allowed hosts come from the observed grant; sanitized `satisfied`/`missing` labels come from T3N's effective-delegation verdict.
 
@@ -552,7 +520,7 @@ npm run evidence:live
 
 Generated artifacts are `docs/evidence/deployment-manifest.json` and `docs/evidence/testnet-run.json`. The orchestrator binds WASM SHA-256, canonical DIDs, contract id/version and policy version/hash and fails on mismatch, scenario `FAIL` or configured secret leakage. `NOT_RUN` is never counted as `PASS`.
 
-Agent Card metadata proves discoverability only. If `A2A` appears in `agentCardServices`, the evidence proves that the resolved T3N Agent Card advertised the configured A2A discovery service at verification time; that observation does not by itself prove public endpoint reachability. Member grant status proves the observed grant record/window only. Runtime effective access is derived from the authenticated principal-side `checkDelegation()` verdict and is never inferred from registration or a grant record alone.
+Agent Card metadata proves discoverability only. Member grant status proves the observed grant record/window only. Runtime effective access is derived from the authenticated principal-side `checkDelegation()` verdict and is never inferred from registration or a grant record alone.
 
 For live remediation proof, both `SECURITY_API_URL` and `SECURITY_VERIFICATION_URL` must be configured/sealed and the Executor grant includes only their derived HTTPS hosts. A live remediation scenario passes only on protected execution plus independent verification. An accepted 2xx without read-back cannot become a passing completion claim.
 
