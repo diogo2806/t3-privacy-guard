@@ -47,11 +47,12 @@ function hasAuthorizationProvenance(action: ActionProposal | null): boolean {
 }
 
 function executableRemediationDecision(action: ActionProposal | null, decision: PolicyDecision | null): boolean {
+  const payload = action?.normalPayload ?? {};
   return Boolean(
     action?.action === 'revoke-credential'
     && decision
     && decision.decision !== 'DENY'
-    && REQUIRED_REMEDIATION_FIELDS.every((field) => decision.allowedFields.includes(field)),
+    && REQUIRED_REMEDIATION_FIELDS.every((field) => decision.allowedFields.includes(field) && field in payload),
   );
 }
 
