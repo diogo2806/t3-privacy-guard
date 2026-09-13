@@ -40,7 +40,7 @@ export function RemediationPanel({ action, decision, execution, busy, onAuthoriz
       </>}
 
       {hasVerifiedExecutor && (execution || action?.status === 'REMEDIATION_AUTHORIZED' || action?.status === 'REMEDIATED') && (
-        <div className="remediation-state-panel" aria-label="Remediation execution and verification status">
+        <div className="remediation-state-panel" role="region" aria-label="Remediation execution and verification status">
           <div><span>Authorization</span><strong>{action?.status === 'REMEDIATION_AUTHORIZED' || action?.status === 'REMEDIATED' ? 'AUTHORIZED' : 'NOT AUTHORIZED'}</strong></div>
           <div><span>Execution</span><strong>{state.execution}</strong></div>
           <div><span>Verification</span><strong>{state.verification}</strong></div>
