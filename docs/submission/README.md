@@ -8,7 +8,7 @@ The product thesis is intentionally simple:
 
 > **AI can propose. Policy decides. Humans authorize. T3N executes. Independent evidence proves the outcome.**
 
-The challenge implementation applies that pattern to confidential incident response. The Rust policy recognizes four concrete operational actions: credential revocation, account isolation, incident recording and security notification. The Protection demo exposes all four as business-readable presets while preserving the strongest end-to-end execution/read-back path for credential revocation only.
+The challenge implementation applies that pattern to confidential incident response. The Rust policy recognizes four concrete operational actions: credential revocation, account isolation, incident recording and security notification. The Protection flow exposes all four as business-readable presets while preserving the strongest end-to-end execution/read-back path for credential revocation only.
 
 ## Executive summary
 
@@ -183,25 +183,22 @@ Only bounded Member-grant fields and the exact checked function/scope labels are
 
 ```text
 1. Sign in as application operator.
-2. Read the product thesis before inspecting low-level metadata.
-3. Confirm Tenant, Proposal Agent and Protected Executor are authenticated as separate principals.
-4. Inspect Agent onboarding separately from authorization.
-5. Open technical status and distinguish Member grant from Effective T3N access for Proposal Agent and Executor.
-6. Confirm Proposal evaluation is ready only with Proposal effective ACTIVE; treat protected remediation as operational only when Executor effective access is also ACTIVE.
-7. Choose Credential compromised and inspect the synthetic attack prompt.
-8. Click Ask agent and inspect the real model proposal.
-9. Observe independent T3N TEE DENY and the exact policy version/hash.
-10. Switch through Account takeover, Record security incident and Notify security contact; confirm preset selection grants no authority.
-11. For Notify security contact, confirm only logical verified_email appears, never plaintext email or raw profile placeholder.
-12. Return to Credential compromised and prepare the minimum revocation path.
-13. Observe T3N ALLOW/REDACT and the minimum-data boundary.
-14. Record explicit human authorization only after ALLOW under the displayed policy version/hash.
-15. Execute protected credential revocation when synthetic egress/read-back is configured.
-16. Confirm execution is bound to the authenticated Protected Executor and the same policy provenance.
-17. Observe PENDING_VERIFICATION or the verification transition.
-18. Accept COMPLETED only when independent read-back shows VERIFIED.
-19. Inspect Local audit integrity separately from T3N provenance; use a local trail as proof only when its HMAC state is VERIFIED.
-20. Open Evidence and confirm the full Source commit, Source tree CLEAN/DIRTY state, exact T3N_TESTNET claims, contract/WASM/policy provenance and NOT_RUN boundaries.
+2. Read the product thesis and the Trust Flow before inspecting low-level metadata.
+3. Confirm the top readiness badge reports the current T3N control-plane state.
+4. Expand System readiness details and confirm Tenant, Proposal Agent and Protected Executor are authenticated as separate principals.
+5. Distinguish Proposal/Executor Member grant from Effective T3N access; Proposal evaluation is ready only with Proposal effective ACTIVE, and protected remediation is operational only when Executor effective access is also ACTIVE.
+6. In Protection flow, choose Credential compromised and inspect the synthetic attack prompt.
+7. Click Analyze with agent and inspect the real model proposal.
+8. Observe independent T3N TEE DENY, attacker.example and the exact policy version/hash; no protected execution is available.
+9. Use Prepare safe path. This prepares/evaluates a minimum-scope revoke-credential proposal; it does not authorize or execute it.
+10. Observe T3N ALLOW/REDACT and the minimum-data boundary.
+11. Click Authorize credential revocation only after ALLOW under the displayed policy provenance.
+12. When the environment supports synthetic egress/read-back, click Execute protected credential revocation and use Verify external state if verification remains pending.
+13. Accept COMPLETED only when the Remediation execution and verification status shows Verification = VERIFIED and Final state = COMPLETED.
+14. Inspect Local audit integrity separately from T3N provenance; use a local trail as proof only when its HMAC state is VERIFIED.
+15. Open Evidence. Read Evidence summary first, then Observed outcomes, then expand Technical provenance.
+16. Confirm 0 FAIL, T3N_TESTNET, full Source commit, Source tree CLEAN, separate Tenant/Proposal Agent/Protected Executor DIDs, Contract version/id, WASM SHA-256, policy provenance and honest NOT RUN boundaries.
+17. Optionally return to Protection flow and inspect Account takeover, Record security incident and Notify security contact; preset selection grants no authority and verified_email remains a logical reference rather than plaintext.
 ```
 
 ## Architecture and trust boundaries
@@ -581,6 +578,12 @@ attack DENY + policy provenance
 
 Anything less is not a successful completion proof.
 
+### Evidence UI and capture contract
+
+The `Evidence` area is intentionally ordered for judging: `Evidence summary` -> `Observed outcomes` -> `Technical provenance`. Summary surfaces PASS/FAIL/NOT RUN and the execution context before low-level hashes. Technical provenance keeps source/build, trust/network, identities/discoverability and contract/policy metadata available through disclosures without weakening any claim boundary.
+
+The Playwright submission capture does not read evidence by visual position or `.evidence-metadata > div` order. It uses stable semantic hooks for fields that are part of the capture contract and still uses accessible roles/names for user actions. Before screenshots or `capture-metadata.json`, it requires the final UI states and records separate `tenantDid`, `proposalAgentDid` and `protectedExecutorDid`, plus full source commit, `CLEAN` source tree, contract id/version and WASM SHA-256. All three DIDs must be distinct and the leak detector remains mandatory.
+
 Local controls:
 
 ```bash
@@ -599,37 +602,37 @@ When preparing egress evidence, configure `SECURITY_API_URL` and the separate `S
 
 ## Screenshot shot list
 
-1. Product header + live T3N operational status.
-2. Expanded technical status showing separate Tenant, Proposal Agent and Protected Executor DIDs.
+1. Product header + judge-first Trust Flow + current T3N readiness badge.
+2. Expanded **System readiness details** showing separate Tenant, Proposal Agent and Protected Executor identities.
 3. Separate Proposal/Executor **Member grant** and **Effective T3N access** states; capture `Operational` only when protected remediation is ready, and show `Evaluation ready · execution blocked` when only Proposal is effectively authorized.
-4. Four enterprise scenario cards with Credential compromised selected and the statement that presets are not permissions.
-5. Attack prompt + provider/model provenance + model proposal + `DENY` + policy version/hash.
+4. **Protection flow** with Credential compromised selected and the statement that presets are not permissions.
+5. Attack prompt + provider/model provenance + model proposal after **Analyze with agent** + `DENY` + policy version/hash.
 6. `REDACT` data-minimization evidence.
 7. Notify security contact selected, showing logical `verified_email` and no plaintext address/raw placeholder.
-8. Legitimate credential-revocation proposal/minimum remediation + `ALLOW` + policy provenance.
-9. Human authorization separate from execution and bound to the same version/hash and Protected Executor.
-10. Execution/verification panel showing the state machine.
+8. **Prepare safe path** result showing legitimate minimum credential-revocation proposal + `ALLOW` + policy provenance.
+9. **Authorize credential revocation** shown separately from **Execute protected credential revocation**, bound to the same version/hash and Protected Executor.
+10. Execution/verification panel showing Authorization, Execution, Verification and Final state; use **Verify external state** for read-back-only retry when available.
 11. Local audit integrity shown separately from T3N Activity Log provenance; capture `VERIFIED` only when HMAC verification actually succeeded.
 12. Verified remediation screenshot only after `Verification = VERIFIED` and `Final state = COMPLETED`.
-13. Evidence Center with full Source commit, Source tree state, T3N_TESTNET metadata/results, contract/WASM/policy provenance and optional scenarios honestly PASS/FAIL/NOT_RUN.
+13. **Evidence** with `Evidence summary`, `Observed outcomes`, then expanded `Technical provenance`; include full Source commit, Source tree state, separate Proposal Agent/Protected Executor DIDs, T3N_TESTNET, contract/WASM/policy provenance and optional scenarios honestly PASS/FAIL/NOT RUN.
 
 Never capture passwords, cookies, T3N keys, provider key, service/capability keys, audit-integrity key, remediation secret, resolved profile PII, `.env` or raw logs.
 
 ## Demo video storyboard
 
 ```text
-0–10s    Product thesis: AI proposes; it does not own authority
-10–25s   Show three authenticated T3N identities
+0–10s    Product thesis + Trust Flow: AI proposes; it does not own authority
+10–25s   Expand System readiness details; show three authenticated T3N identities
 25–40s   Show Agent Card vs Member grant vs Effective T3N access
-40–65s   Credential attack prompt -> real provider -> malicious structured proposal
+40–65s   Protection flow -> Credential compromised -> Analyze with agent -> malicious structured proposal
 65–85s   Independent T3N TEE DENY + policy provenance; no protected egress
 85–105s  Switch scenarios; show isolation, record incident and logical verified_email context
-105–125s Minimum credential-revocation request -> ALLOW/REDACT + policy version/hash
-125–140s Explicit human authorization bound to policy provenance + Protected Executor DID
+105–125s Prepare safe path -> minimum credential revocation -> ALLOW/REDACT + policy version/hash
+125–140s Authorize credential revocation, bound to policy provenance + Protected Executor DID
 140–155s Show Local audit integrity separately from T3N Activity provenance
-155–170s Protected execution -> active policy recheck -> PENDING_VERIFICATION
-170–175s Independent read-back -> VERIFIED/COMPLETED when available
-175–180s Evidence Center -> source revision + exact proof status and NOT_RUN boundaries
+155–170s Execute protected credential revocation -> active policy recheck -> PENDING_VERIFICATION
+170–175s Verify external state -> VERIFIED/COMPLETED when available
+175–180s Evidence summary -> outcomes -> technical provenance + exact NOT_RUN boundaries
 ```
 
 ## UX and claim wording rules
