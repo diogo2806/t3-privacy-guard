@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { ActionProposal, PolicyDecision, RemediationExecution } from '../../services/privacyGuardApi';
@@ -85,7 +85,9 @@ describe('RemediationPanel', () => {
     expect(screen.getByText('Removed before egress')).toBeInTheDocument();
     expect(screen.getByText('employee_department')).toBeInTheDocument();
     expect(screen.getByText('employee_department=finance')).toBeInTheDocument();
-    expect(screen.queryByText('employee_department=finance', { selector: '.field-list:last-of-type code' })).not.toBeInTheDocument();
+    const protectedPayload = screen.getByText('Protected egress payload').closest('.field-list');
+    expect(protectedPayload).not.toBeNull();
+    expect(within(protectedPayload as HTMLElement).queryByText('employee_department=finance')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Authorize credential revocation' })).toBeInTheDocument();
   });
 
