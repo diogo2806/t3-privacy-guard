@@ -61,7 +61,7 @@ export interface RemediationResult extends ActivityAnnotated {
 export interface RemediationVerificationRequest {
   readonly request_id: string;
   readonly operation_id: string;
-  readonly action: 'revoke-credential' | 'notify-security';
+  readonly action?: 'revoke-credential' | 'notify-security';
   readonly expected_state: 'REVOKED' | 'DELIVERED';
 }
 
@@ -194,11 +194,15 @@ export class PrivacyGuardContractService {
 
   async verifyRemediation(request: RemediationVerificationRequest): Promise<RemediationVerificationResult> {
     await this.executorSession.connect();
+    if (!request.action && request.expected_state !== 'REVOKED') {
+      throw new Error('Verification action is required for non-revocation states');
+    }
+    const closedRequest = request.action ? request : { ...request, action: 'revoke-credential' as const };
     const contractId = await this.canonicalContractId();
     const contractVersion = await this.currentVersion(contractId);
     const executorDid = this.executorSession.getExecutorDid();
     const captured = await this.capture(executorDid, contractId, 'verify-remediation', () => this.executorSession.getClient().executeAndDecode(buildDelegatedExecutionRequest(
-      this.tenantSession.getTenantDid(), contractId, contractVersion, 'verify-remediation', request,
+      this.tenantSession.getTenantDid(), contractId, contractVersion, 'verify-remediation', closedRequest,
     )));
     if (!isVerification(captured.result)) throw new Error('T3N contract returned an invalid remediation verification result');
     return annotate(captured.result, captured.activity);
