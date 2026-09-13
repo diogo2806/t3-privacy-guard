@@ -44,6 +44,7 @@ export interface RemediationExecutionRequest {
   readonly purpose: string;
   readonly approved_host: string;
   readonly fields: string[];
+  readonly normal_payload: Record<string, string>;
   readonly private_refs?: string[];
   readonly policy_version: string;
   readonly policy_hash: string;
@@ -58,6 +59,11 @@ export interface RemediationResult extends ActivityAnnotated {
   readonly policy_hash: string;
 }
 
+export interface PayloadMinimizationProof {
+  readonly must_egress_seen: boolean;
+  readonly must_not_egress_seen: boolean;
+}
+
 export interface RemediationVerificationRequest {
   readonly request_id: string;
   readonly operation_id: string;
@@ -70,6 +76,7 @@ export interface RemediationVerificationResult extends ActivityAnnotated {
   readonly status: 'VERIFIED' | 'UNVERIFIED';
   readonly observed_state?: string | null;
   readonly recipient_resolved?: boolean | null;
+  readonly payload_proof?: PayloadMinimizationProof | null;
 }
 
 export interface ContractIdentity { readonly contractId: string; readonly contractVersion: string; }
@@ -114,10 +121,16 @@ function isRemediation(value: unknown): value is RemediationResult {
 function isVerification(value: unknown): value is RemediationVerificationResult {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<RemediationVerificationResult>;
+  const proof = candidate.payload_proof;
+  const validProof = proof == null
+    || (typeof proof === 'object'
+      && typeof proof.must_egress_seen === 'boolean'
+      && typeof proof.must_not_egress_seen === 'boolean');
   return typeof candidate.request_id === 'string'
     && (candidate.status === 'VERIFIED' || candidate.status === 'UNVERIFIED')
     && (candidate.observed_state == null || typeof candidate.observed_state === 'string')
-    && (candidate.recipient_resolved == null || typeof candidate.recipient_resolved === 'boolean');
+    && (candidate.recipient_resolved == null || typeof candidate.recipient_resolved === 'boolean')
+    && validProof;
 }
 
 function annotate<T extends object>(result: T, activity?: ActivityReference): T & ActivityAnnotated {
@@ -148,12 +161,7 @@ export class PrivacyGuardContractService {
 
   private async capture<T>(actorDid: string, contractId: string, functionName: string, operation: () => Promise<T>): Promise<{ result: T; activity?: ActivityReference }> {
     if (!this.activityLog) return { result: await operation() };
-    return this.activityLog.capture({
-      actorDid,
-      onBehalfOfDid: this.tenantSession.getTenantDid(),
-      contractId,
-      function: functionName,
-    }, operation);
+    return this.activityLog.capture({ actorDid, onBehalfOfDid: this.tenantSession.getTenantDid(), contractId, function: functionName }, operation);
   }
 
   async identity(): Promise<ContractIdentity> {
