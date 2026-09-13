@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { ScreenManualDialog } from './ScreenManualDialog';
 
 describe('ScreenManualDialog', () => {
-  it('traps focus and explains effective authorization, A2A, privacy, local integrity and T3N provenance', async () => {
+  it('traps focus and explains effective authorization, business outcome, A2A, privacy, local integrity and T3N provenance', async () => {
     const user = userEvent.setup();
     render(<div><button type="button">Outside action</button><ScreenManualDialog /></div>);
 
@@ -17,6 +17,11 @@ describe('ScreenManualDialog', () => {
     const dialog = screen.getByRole('dialog', { name: 'Incident Response Dashboard' });
     const closeButton = screen.getByRole('button', { name: 'Close Screen Manual' });
     expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(screen.getByRole('heading', { name: 'Business Outcome' })).toBeInTheDocument();
+    expect(dialog).toHaveTextContent(/Time to policy decision.*evaluatedAt.*action.createdAt/i);
+    expect(dialog).toHaveTextContent(/Time to verified outcome.*completedAt.*COMPLETED/i);
+    expect(dialog).toHaveTextContent(/não calcula dinheiro economizado.*ROI/i);
+    expect(dialog).toHaveTextContent(/Not yet observed.*Not verified yet/i);
     expect(screen.getByText('Identidade, Member grant e autorização efetiva')).toBeInTheDocument();
     expect(dialog).toHaveTextContent(/checkDelegation.*cliente autenticado do próprio principal/i);
     expect(dialog).toHaveTextContent(/evaluate-action.*execute-remediation.*verify-remediation/i);
@@ -33,7 +38,7 @@ describe('ScreenManualDialog', () => {
     expect(dialog).toHaveTextContent(/snapshot antigo internamente consistente/i);
     expect(dialog).toHaveTextContent(/evaluate-action.*Proposal Agent.*execute-remediation.*verify-remediation.*Protected Executor/i);
     expect(screen.getByText('Proof & evidence')).toBeInTheDocument();
-    expect(dialog).toHaveTextContent(/Source commit.*Source tree/i);
+    expect(dialog).toHaveTextContent(/Source tree/i);
     expect(dialog).toHaveTextContent(/COMPLETED/i);
     expect(closeButton).toHaveFocus();
 
