@@ -10,7 +10,8 @@ export interface GatewayConfig {
   readonly contractTail: string;
   readonly contractVersion: string;
   readonly gatewayServiceToken: string;
-  readonly remediationCapabilityKey: string;
+  readonly remediationAuthorizationPublicKey: string;
+  readonly remediationAuthorizationKeyId: string;
   readonly remediationReplayStorePath: string;
   readonly trustManifestFloorStorePath: string;
   readonly aiProvider: AiProvider;
@@ -37,6 +38,23 @@ function requiredPath(env: NodeJS.ProcessEnv, name: string, fallback: string): s
   const raw = env[name];
   if (raw !== undefined && !raw.trim()) throw new ConfigurationError(`${name} must not be empty`);
   return raw?.trim() || fallback;
+}
+
+function requiredKeyId(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
+  const value = env[name]?.trim() || fallback;
+  if (!/^[A-Za-z0-9._-]{1,32}$/.test(value)) throw new ConfigurationError(`${name} must match [A-Za-z0-9._-]{1,32}`);
+  return value;
+}
+
+function requiredEd25519PublicKey(env: NodeJS.ProcessEnv, name: string): string {
+  const value = env[name]?.trim();
+  if (!value) throw new ConfigurationError(`${name} is required as a Base64URL raw Ed25519 public key`);
+  try {
+    if (Buffer.from(value, 'base64url').length !== 32) throw new Error('invalid length');
+  } catch {
+    throw new ConfigurationError(`${name} must encode exactly 32 Ed25519 public-key bytes`);
+  }
+  return value;
 }
 
 function ipv4Octets(hostname: string): number[] | null {
@@ -158,7 +176,8 @@ export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): Gateway
     contractTail,
     contractVersion,
     gatewayServiceToken: requiredSecret(env, 'GATEWAY_SERVICE_TOKEN'),
-    remediationCapabilityKey: requiredSecret(env, 'REMEDIATION_CAPABILITY_KEY'),
+    remediationAuthorizationPublicKey: requiredEd25519PublicKey(env, 'REMEDIATION_AUTH_PUBLIC_KEY'),
+    remediationAuthorizationKeyId: requiredKeyId(env, 'REMEDIATION_AUTH_KEY_ID', 'v1'),
     remediationReplayStorePath: requiredPath(env, 'REMEDIATION_REPLAY_STORE_PATH', '/data/remediation-capability-nonces.json'),
     trustManifestFloorStorePath: requiredPath(env, 'T3N_TRUST_FLOOR_STORE_PATH', '/data/t3n-trust-floor.json'),
     aiProvider: aiProviderValue,
