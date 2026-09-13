@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 class RemediationAuthorizationSignerTest {
     private static final String PRIVATE_KEY_PKCS8 = "MC4CAQAwBQYDK2VwBCIEIAv4OIfbF/R/i9uL6wgRalq2gperSKNx+Ig9BuS9L4qS";
     private static final String PUBLIC_KEY_SPKI = "MCowBQYDK2VwAyEAW3EwSatHmT/ZSgrqu/G3ecXJrTviA5SjAoCwIfwau6A=";
+    private static final String KEY_ID = "primary";
     private static final String POLICY_VERSION = "2026-09-12.1";
     private static final String POLICY_HASH = "a".repeat(64);
     private static final String EXECUTOR_DID = "did:t3n:protected-executor-test";
@@ -24,8 +25,8 @@ class RemediationAuthorizationSignerTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
-    void v2CapabilityIsEd25519SignedAndBoundToActionPolicyExecutorAndHumanApproval() throws Exception {
-        var signer = new RemediationAuthorizationSigner(mapper, PRIVATE_KEY_PKCS8, 60, () -> EXECUTOR_DID);
+    void v2CapabilityIsEd25519SignedAndBoundToKeyActionPolicyExecutorAndHumanApproval() throws Exception {
+        var signer = new RemediationAuthorizationSigner(mapper, PRIVATE_KEY_PKCS8, KEY_ID, 60, () -> EXECUTOR_DID);
         Map<String, String> normalPayload = Map.of(
             "incident_id", "inc-demo-001",
             "reason", "suspected compromise",
@@ -43,6 +44,7 @@ class RemediationAuthorizationSignerTest {
         assertThat(parts).hasSize(3);
         assertThat(parts[0]).isEqualTo("v2");
         var claims = mapper.readTree(Base64.getUrlDecoder().decode(parts[1]));
+        assertThat(claims.get("keyId").asText()).isEqualTo(KEY_ID);
         assertThat(claims.get("incidentId").asText()).isEqualTo("incident-1");
         assertThat(claims.get("decisionId").asText()).isEqualTo("decision-1");
         assertThat(claims.get("approvedHost").asText()).isEqualTo("security-a.example");
@@ -68,7 +70,7 @@ class RemediationAuthorizationSignerTest {
 
     @Test
     void rejectsMissingOrFutureHumanAuthorizationProvenance() {
-        var signer = new RemediationAuthorizationSigner(mapper, PRIVATE_KEY_PKCS8, 60, () -> EXECUTOR_DID);
+        var signer = new RemediationAuthorizationSigner(mapper, PRIVATE_KEY_PKCS8, KEY_ID, 60, () -> EXECUTOR_DID);
         Map<String, String> normalPayload = Map.of("incident_id", "inc", "credential_id", "cred", "reason", "test");
 
         assertThatThrownBy(() -> signer.issue(
@@ -83,10 +85,13 @@ class RemediationAuthorizationSignerTest {
     }
 
     @Test
-    void rejectsLegacyHmacStyleSecretAsEd25519PrivateKey() {
-        assertThatThrownBy(() -> new RemediationAuthorizationSigner(mapper, "legacy-hmac-secret-that-is-long-enough-123", 60, () -> EXECUTOR_DID))
+    void rejectsLegacyHmacStyleSecretAndInvalidKeyId() {
+        assertThatThrownBy(() -> new RemediationAuthorizationSigner(mapper, "legacy-hmac-secret-that-is-long-enough-123", KEY_ID, 60, () -> EXECUTOR_DID))
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("base64 PKCS#8 Ed25519 private key");
+        assertThatThrownBy(() -> new RemediationAuthorizationSigner(mapper, PRIVATE_KEY_PKCS8, "../../bad", 60, () -> EXECUTOR_DID))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("REMEDIATION_AUTH_KEY_ID");
     }
 
     @Test
