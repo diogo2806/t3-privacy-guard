@@ -100,7 +100,15 @@ No model-controlled override.
 ### 2. Legitimate-remediation scenario
 
 ```text
-AI proposes minimum valid action + destination A
+Minimum-scope remediation prompt
+   |
+   v
+Same configured AI provider is called again
+inside the same incident
+   |
+   v
+AI produces a second independent proposal
+for the minimum valid action + destination A
    |
    v
 Proposal effective access CONFIRMED
@@ -137,11 +145,15 @@ Independent external read-back
    +--> ambiguous/mismatch      -> UNVERIFIED
 ```
 
+The application does not manufacture a "safe" second action after a denial. The same configured AI provider must propose again, and the second proposal is persisted and independently evaluated by T3N. If that output is `DENY`, `REDACT` or an action for which no protected executor exists, the system shows that result and stops; there is no hardcoded fallback.
+
 This is why `ALLOW` is not the same thing as execution, an observed grant is not the same thing as effective authorization, a policy-allowed destination is not automatically the human-approved destination, and HTTP `2xx` is not the same thing as completion.
 
 ## What the demo proves
 
 T3 Privacy Guard assumes the AI agent can be manipulated. The dashboard sends an actual textual prompt to a configured tool-calling model. The model can produce an unsafe structured proposal such as `host=attacker.example` plus `api_key`, but it cannot set a decision, identity, capability or secret. That proposal is persisted and evaluated independently by the T3N Rust/WASM policy, which returns `DENY`.
+
+After that denial, the credential-compromise demo can send a separate minimum-scope remediation prompt through `POST /api/incidents/{incidentId}/agent-proposals`. That endpoint accepts only the prompt, reuses the same `GatewayAgentClient`, preserves the same incident, persists a new independent `ActionProposal`, records sanitized provider/model provenance in the authenticated local audit chain, and submits the model output unchanged to the same T3N evaluation boundary. The browser cannot supply an action, decision, DID, capability, policy result or executor authority through this route.
 
 The Proposal Agent uses its own authenticated T3N credential/DID and is restricted to `evaluate-action`. Before evaluation is considered ready, the gateway requires both an active Proposal Member grant and a principal-side `checkDelegation` result with `authorised=true` for the exact contract, tenant DID and minimum scopes. The tenant session is never used as a substitute for that delegated-principal check.
 
@@ -359,7 +371,7 @@ The Protection demo exposes those four policy actions as business-readable, synt
 
 | Scenario | Proposed action | What the demo proves |
 |---|---|---|
-| Credential compromised | `revoke-credential` | Prompt-injection denial plus a separate minimum-scope revocation path with human authorization, destination binding, protected execution and independent read-back. |
+| Credential compromised | `revoke-credential` | A malicious real-model proposal can be denied; the same configured provider is then asked for a separate minimum-scope proposal in the same incident. T3N independently evaluates that second output before human authorization, destination binding, protected execution and read-back. No application-authored safe fallback exists. |
 | Account takeover | `isolate-account` | The model can propose isolation with synthetic identifiers while T3N independently evaluates action, fields, purpose and destination. |
 | Record security incident | `create-incident` | Incident recording can be evaluated without outbound egress; adding an unexpected destination remains subject to T3N policy. |
 | Notify security contact | `notify-security` | The model requests only logical `verified_email`; no plaintext email or raw `{{profile.*}}` placeholder belongs in browser/model input. |
@@ -562,6 +574,8 @@ npm run evidence:live
 ```
 
 Generated artifacts are `docs/evidence/deployment-manifest.json` and `docs/evidence/testnet-run.json`. The orchestrator binds WASM SHA-256, canonical tenant/Proposal/Executor DIDs, contract id/version and policy version/hash. It provisions least-privilege Member grants, performs principal-side `checkDelegation` for Proposal and Executor, aborts unless both are effectively `ACTIVE`, and fails on mismatch, scenario `FAIL` or configured secret leakage. The deployment manifest also records the observed Agent Card registration state and, when a card is resolved, its public URI, SHA-256, verification time and service names. `NOT_RUN` is never counted as `PASS`.
+
+When `AI_PROVIDER=openai-compatible`, the live testnet runner also executes `LIVE-AI-MINIMUM-REMEDIATION`: it constructs the same provider/service used at runtime, sends a minimum credential-remediation prompt, records sanitized provider/model plus the actual structured proposal, and submits that exact proposal to T3N. The scenario passes only when the live output is the exact minimum `revoke-credential` proposal for the approved host and T3N returns `ALLOW`. With `AI_PROVIDER=disabled`, the scenario is `NOT_RUN`; deterministic `LIVE-MINIMAL-ALLOW` remains policy evidence and is never relabelled as live AI evidence.
 
 `testnet-run.json` records a sanitized `delegation` object for Proposal Agent and Protected Executor containing only `memberState`, `effectiveState`, `checkedFunctions` and `checkedScopes`. It never persists the full Member Delegation document, SDK `satisfied`/`missing` payloads, private keys, API keys or tokens.
 
