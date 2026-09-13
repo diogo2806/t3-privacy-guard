@@ -20,7 +20,7 @@ For private profile data, the application carries only a category such as `verif
 
 Protected execution is fail-safe under retries. Spring creates a persistent atomic claim before egress. The TEE sends `requestId` as the stable idempotency key, but a 2xx only produces `PENDING_VERIFICATION`. A distinct T3N `verify-remediation` read-back must observe the matching `operation_id` and the closed expected state `REVOKED` before the business state becomes `COMPLETED`. Ambiguous outcomes become `UNVERIFIED`; they may be re-verified but are never automatically executed again.
 
-The project reports only verifiable state: `NOT_RUN` never becomes `PASS`, simulated output is not labelled live, profile-placeholder resolution is not labelled proved live until a compatible testnet profile actually executes it, external execution is not labelled completed from HTTP acceptance alone, and hardware attestation is not claimed without a concrete artifact.
+The project reports only verifiable state: `NOT_RUN` never becomes `PASS`, simulated output is not labelled live, profile-placeholder resolution is not labelled proved live until a compatible testnet profile actually executes it, external execution is not labelled completed from HTTP acceptance alone, public Agent registration is not labelled authorization, and hardware attestation is not claimed without a concrete artifact.
 
 ## Why this is more than PII detection
 
@@ -30,6 +30,8 @@ A normal PII filter answers questions such as “does this prompt contain an ema
 What may the agent propose?
         |
 Who is the authenticated agent?
+        |
+Is that agent publicly registered/discoverable?
         |
 Which action/purpose/host/data are allowed?
         |
@@ -96,18 +98,19 @@ The challenge UI currently spotlights credential revocation because it demonstra
 ```text
 1. Sign in as application operator
 2. Read the product thesis before inspecting low-level metadata
-3. Confirm Gateway / Tenant / Agent / Contract / Delegation separately
-4. Inspect the attack prompt
-5. Click Run attack scenario
-6. Inspect the real model's structured Agent proposal
-7. Observe independent T3N TEE DENY
-8. Submit a legitimate prompt or prepare the minimum safe action
-9. Observe T3N ALLOW/REDACT and the logical private-data boundary
-10. Record explicit human authorization only after ALLOW
-11. Execute protected remediation when synthetic egress/read-back is configured
-12. Observe PENDING_VERIFICATION or the verification transition
-13. Accept COMPLETED only when independent read-back shows VERIFIED
-14. Open Evidence and confirm exact T3N_TESTNET claims and NOT_RUN boundaries
+3. Confirm Gateway / Tenant / Agent authentication / Agent onboarding / Contract / Delegation separately
+4. Verify that Agent onboarding is REGISTERED for the public submission capture, without treating registration as permission
+5. Inspect the attack prompt
+6. Click Run attack scenario
+7. Inspect the real model's structured Agent proposal
+8. Observe independent T3N TEE DENY
+9. Submit a legitimate prompt or prepare the minimum safe action
+10. Observe T3N ALLOW/REDACT and the logical private-data boundary
+11. Record explicit human authorization only after ALLOW
+12. Execute protected remediation when synthetic egress/read-back is configured
+13. Observe PENDING_VERIFICATION or the verification transition
+14. Accept COMPLETED only when independent read-back shows VERIFIED
+15. Open Evidence and confirm exact T3N_TESTNET claims, Agent Card linkage and NOT_RUN boundaries
 ```
 
 ## Architecture and trust boundaries
@@ -152,6 +155,7 @@ Trust model:
 - **Unknown or privileged model fields are rejected.** Decisions, overrides, identities, credentials, secrets, API keys and literal `{{profile...}}` markers are rejected before T3N evaluation.
 - **Private data is referenced, not copied.** The model/application may request `verified_email`; only Rust/WASM can convert it to the official T3N profile marker.
 - **T3N identities are server-derived.** Agent DID comes from the authenticated agent session; tenant `pii_did` from the authenticated tenant session.
+- **Public Agent Card is identity metadata, not authority.** It is built only from the authenticated Agent DID and verified through public T3N resolution. `REGISTERED` proves discoverability of that identity, not contract access, Member Delegation or TEE attestation.
 - **Rust/WASM owns policy and private-reference mapping.** The model cannot manufacture `ALLOW` or select arbitrary profile namespaces.
 - **Spring Boot owns durable business authorization and execution state.** It persists logical refs, the human authorization transition and the remediation state machine.
 - **Gateway owns T3N sessions and privileged execution.** It requires service authentication and validates/consumes the one-time capability before execution.
@@ -166,8 +170,10 @@ Trust model:
 | What did the user ask? | Untrusted prompt |
 | What action does the model suggest? | AI proposal |
 | Which agent identity is executing? | Authenticated T3N Agent session |
+| Is that identity publicly registered/discoverable? | T3N public Agent Card resolver bound to the authenticated Agent DID |
 | Which tenant/data owner is the authorization subject? | Authenticated tenant session |
 | Is action/purpose/host/data allowed? | Rust/WASM policy |
+| Is contract access granted to the agent? | Member Delegation |
 | Is business remediation approved? | Authenticated human operator |
 | Is this exact execution authorized now? | Signed one-time capability |
 | May a private value be resolved? | Closed Rust mapping + T3N protected boundary |
@@ -188,6 +194,10 @@ Trust model:
 | Reflected upstream private value is absent from contract result schema | PROVED LOCAL | Rust remediation regression test |
 | Tenant DID derives from authenticated T3N session | PROVED LOCAL | gateway session code/tests |
 | Agent uses separate credential/DID | PROVED LOCAL | agent/tenant session separation |
+| Agent Card builder uses only the authenticated canonical Agent DID and supported public metadata | PROVED LOCAL | `agent-card.test.ts` |
+| Agent Card mismatch/unsupported service/network failure never becomes `REGISTERED` | PROVED LOCAL | `agent-card.test.ts` + backend/frontend tests |
+| Public Agent Card is registered on T3N for the submission agent | NOT CLAIMED | only when read-only resolver + evidence bundle report `REGISTERED` |
+| Agent registration grants contract authorization | NOT CLAIMED | Member Delegation remains the authority boundary |
 | Delegated calls bind `pii_did` to tenant DID | PROVED LOCAL | gateway contract tests |
 | Protected remediation requires service auth + signed human capability | PROVED LOCAL | gateway authorization boundary/tests |
 | Concurrent requests acquire at most one local execution claim | PROVED LOCAL | pessimistic claim + concurrency tests |
@@ -314,6 +324,10 @@ The project validates/sends non-empty scopes even where simplified examples omit
 
 Every delegated execution derives `pii_did` internally from `tenantSession.getTenantDid()`. Browser, Java and LLM cannot supply or override the authorization subject.
 
+### Agent Card onboarding
+
+The self-registered public Agent Card is built from `AgentSession.getAgentDid()` only. The deterministic public payload advertises the implemented `DID` service, keeps `x402Support=false`, stays below the T3N hosted-card size limit and contains no credentials. Read-only verification validates DID equality, active state, schema and service allowlist before reporting `REGISTERED`. Registration remains separate from Member Delegation.
+
 ### Profile placeholders
 
 The application never lets the LLM/browser choose a raw placeholder. `verified_email` is mapped inside the TEE contract to the documented `profile.verified_contacts.email.value` marker, limiting the public application contract to an auditable domain vocabulary.
@@ -329,6 +343,12 @@ The contract exposes separate `execute-remediation` and `verify-remediation` fun
 ## Evidence model
 
 ```text
+authenticated Agent DID
+        |
+        v
+public Agent Card resolver -> state / URI / SHA-256 / services / verifiedAt
+        |
+        v
 WASM bytes -> SHA-256 -> deployment-manifest.json
                          |
                          +-> same DIDs / contract / version / hash
@@ -337,7 +357,7 @@ WASM bytes -> SHA-256 -> deployment-manifest.json
                                testnet-run.json
 ```
 
-`PASS` means observed result matched expectation. `FAIL` means it did not. `NOT_RUN` means the scenario was not executed and is never counted as success. The profile-placeholder execution scenario remains `NOT_RUN` until a compatible profile/user context exists; local tests do not upgrade that claim to live proof.
+`PASS` means observed result matched expectation. `FAIL` means it did not. `NOT_RUN` means the scenario was not executed and is never counted as success. The profile-placeholder execution scenario remains `NOT_RUN` until a compatible profile/user context exists; local tests do not upgrade that claim to live proof. A locally generated card does not prove remote registration: only public T3N resolution that validates as `REGISTERED` does.
 
 The live remediation scenario is stricter:
 
@@ -357,6 +377,17 @@ Anything less is not a successful completion proof.
 bash scripts/run-local-evidence.sh
 ```
 
+### Public Agent onboarding
+
+```bash
+cd t3n-gateway
+npm install
+npm run agent:card:verify   # read-only
+npm run agent:card:publish  # explicit mutation; may consume credits
+```
+
+The submission should publish the Agent Card explicitly once for the intended Agent DID, then use the read-only verifier and live evidence/capture paths for proof. `evidence:live` never publishes the card automatically.
+
 ### Live T3N evidence
 
 ```bash
@@ -371,7 +402,7 @@ When preparing egress evidence, configure `SECURITY_API_URL` and the separate `S
 
 Screenshots must tell the same authority-separation story as the product, not merely prove that screens exist.
 
-1. Product header + live T3N operational status.
+1. Product header + live T3N operational status showing Agent authentication, Agent onboarding `REGISTERED`, contract and delegation as separate states.
 2. Attack prompt + provider/model provenance + model proposal + `DENY`.
 3. `REDACT` data-minimization evidence.
 4. Private-reference panel showing `Verified email`, Agent plaintext `NO`, Java plaintext `NO`, T3N egress resolution boundary.
@@ -379,7 +410,7 @@ Screenshots must tell the same authority-separation story as the product, not me
 6. Human authorization separate from execution.
 7. Execution/verification panel showing the state machine.
 8. Verified remediation screenshot only after `Verification = VERIFIED` and `Final state = COMPLETED`.
-9. Evidence Center with T3N_TESTNET metadata/results and optional scenarios honestly PASS/FAIL/NOT RUN.
+9. Evidence Center with T3N_TESTNET metadata/results, Agent Card URI/hash/state and optional scenarios honestly PASS/FAIL/NOT RUN.
 
 Never capture passwords, cookies, T3N keys, provider key, service/capability keys, remediation secret, resolved profile PII, `.env` or raw logs.
 
@@ -387,7 +418,7 @@ Never capture passwords, cookies, T3N keys, provider key, service/capability key
 
 ```text
 0–10s    Product thesis: AI proposes; it does not own authority
-10–25s   Show authenticated tenant/agent/contract/delegation
+10–25s   Show authenticated tenant/agent, REGISTERED onboarding, contract and ACTIVE delegation as distinct facts
 25–50s   Attack prompt -> real provider -> malicious structured proposal
 50–70s   Independent T3N TEE DENY; no protected egress
 70–95s   Show logical private reference instead of private value
@@ -395,7 +426,7 @@ Never capture passwords, cookies, T3N keys, provider key, service/capability key
 115–130s Explicit human authorization
 130–150s Protected execution -> accepted/PENDING_VERIFICATION
 150–165s Independent read-back -> VERIFIED/COMPLETED when available
-165–180s Evidence Center -> exact proof status and NOT_RUN boundaries
+165–180s Evidence Center -> exact proof status, Agent Card linkage and NOT_RUN boundaries
 ```
 
 ## UX and claim wording rules
@@ -405,9 +436,10 @@ The submission must lead with user/business meaning, then expose the technical p
 - **agent proposal**: model-produced structured request, not authorization;
 - **logical private reference**: category such as `verified_email`, not the private value;
 - **resolved by T3N at egress**: only claim for executions where T3N actually resolved the placeholder;
-- **authenticated**: a session identity was authenticated;
+- **authenticated**: a session identity was authenticated and its canonical DID came from that session;
+- **registered**: the public Agent Card resolved through T3N and matched the authenticated Agent DID plus supported card rules; this means discoverability, not authorization or attestation;
 - **resolved**: contract id/version were resolved;
-- **delegated**: an active member grant was observed;
+- **delegated**: an active member grant was observed and is the contract authorization source;
 - **authorized**: human business authorization was persisted;
 - **accepted / pending verification**: the execution endpoint acknowledged the operation; final state is not yet proven;
 - **verified**: independent read-back matched the closed expected state;
@@ -416,7 +448,7 @@ The submission must lead with user/business meaning, then expose the technical p
 - **execution proof**: short-lived server-to-gateway capability, not hardware attestation;
 - **proved live**: matching live evidence/capture exists.
 
-Do not say “guarantees GDPR compliance”, “hardware verified”, “exactly once”, “at most once”, “profile resolution proved live” or “completed from HTTP 2xx” without corresponding evidence/contract.
+Do not say “guarantees GDPR compliance”, “hardware verified”, “exactly once”, “at most once”, “profile resolution proved live”, “registration grants access” or “completed from HTTP 2xx” without corresponding evidence/contract.
 
 This file is the repository source of truth for the public submission narrative and handover model.
 
@@ -431,6 +463,8 @@ For judging and evidence, the claims are deliberately separate:
 - **Trust anchor VERIFIED**: the signed T3N manifest established the cluster trust boundary used for authentication.
 - **Rollback floor PERSISTED**: a valid monotonic manifest-version floor was durably stored and reused across restarts.
 - **Trust manifest version**: the observed high-water version associated with that evidence bundle.
-- **Hardware attestation**: not implied by any of the three states above and not claimed without a separate execution-specific artifact.
+- **Agent onboarding REGISTERED**: the public Agent Card resolved and matched the authenticated Agent DID plus supported public metadata. It is discoverability evidence only.
+- **Member Delegation ACTIVE**: the tenant granted the observed contract functions/scopes/hosts; this is authorization, unlike Agent registration.
+- **Hardware attestation**: not implied by any of the states above and not claimed without a separate execution-specific artifact.
 
-The Evidence Center exposes those sanitized states and the Manual da Tela explains the expected failure cases (`TRUST MANIFEST UNAVAILABLE`, `ROLLBACK REJECTED`, `TRUST FLOOR CORRUPTED`, `VERSION NOT EXPOSED BY SDK`) without exposing trust-manifest contents or credentials.
+The Evidence Center exposes those sanitized states and the Manual da Tela explains the expected failure cases (`TRUST MANIFEST UNAVAILABLE`, `ROLLBACK REJECTED`, `TRUST FLOOR CORRUPTED`, `VERSION NOT EXPOSED BY SDK`, `NOT REGISTERED`, `CARD/DID MISMATCH`, `UNAVAILABLE`) without exposing trust-manifest contents or credentials.
