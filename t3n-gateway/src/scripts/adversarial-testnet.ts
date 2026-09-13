@@ -3,7 +3,12 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AgentSession } from '../agent/agent-session.js';
-import { DelegationService } from '../agent/delegation-service.js';
+import {
+  DelegationService,
+  EXECUTOR_DELEGATION_REQUIREMENTS,
+  PROPOSAL_DELEGATION_REQUIREMENTS,
+  type DelegationStatus,
+} from '../agent/delegation-service.js';
 import { ExecutorSession } from '../agent/executor-session.js';
 import { readGatewayConfig } from '../config/env.js';
 import { buildDelegatedExecutionRequest, PrivacyGuardContractService, type PolicyDecision } from '../contract/privacy-guard-contract.js';
@@ -13,10 +18,18 @@ import { T3nSession } from '../t3n/session.js';
 
 type EvidenceStatus = 'PASS' | 'FAIL' | 'NOT_RUN';
 interface ScenarioResult { id: string; layer: 'T3N_TESTNET'; expected: string; actual: string | null; status: EvidenceStatus; detail?: string; }
+interface DelegationEvidence {
+  memberState: DelegationStatus['memberState'];
+  effectiveState: DelegationStatus['effectiveState'];
+  checkedFunctions: string[];
+  checkedScopes: string[];
+}
 interface EvidenceBundle {
   generatedAt: string; network: string; sdkVersion: '5.2.0'; tenantDid: string; agentDid: string; executorDid: string;
   contractId: string; contractVersion: string; wasmSha256: string | null;
-  policyVersion: string | null; policyHash: string | null; scenarios: ScenarioResult[];
+  policyVersion: string | null; policyHash: string | null;
+  delegation: { proposal: DelegationEvidence; executor: DelegationEvidence };
+  scenarios: ScenarioResult[];
 }
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -36,6 +49,15 @@ function configuredEgressHosts(): string[] {
   }))];
 }
 
+function evidenceDelegation(status: DelegationStatus): DelegationEvidence {
+  return {
+    memberState: status.memberState,
+    effectiveState: status.effectiveState,
+    checkedFunctions: status.checkedFunctions,
+    checkedScopes: status.checkedScopes,
+  };
+}
+
 const config = readGatewayConfig();
 if (config.network !== 'testnet' && process.env.EVIDENCE_ALLOW_PRODUCTION !== 'true') throw new Error('Adversarial evidence runner is restricted to testnet unless EVIDENCE_ALLOW_PRODUCTION=true is explicitly set');
 if (!config.agentApiKey) throw new Error('T3N_AGENT_API_KEY is required for testnet evidence');
@@ -45,8 +67,8 @@ const trustFloorStore = new TrustManifestFloorStore(config.trustManifestFloorSto
 const tenantSession = new T3nSession(config, trustFloorStore);
 const agentSession = new AgentSession(config, trustFloorStore);
 const executorSession = new ExecutorSession(config, trustFloorStore);
-const proposalDelegation = new DelegationService(tenantSession, agentSession);
-const executorDelegation = new DelegationService(tenantSession, executorSession);
+const proposalDelegation = new DelegationService(tenantSession, agentSession, PROPOSAL_DELEGATION_REQUIREMENTS);
+const executorDelegation = new DelegationService(tenantSession, executorSession, EXECUTOR_DELEGATION_REQUIREMENTS);
 const contract = new PrivacyGuardContractService(config, tenantSession, agentSession, executorSession);
 const scenarios: ScenarioResult[] = [];
 let observedPolicyVersion: string | null = null;
@@ -72,15 +94,15 @@ async function grantLeastPrivilege(contractId: string, version: string): Promise
   await proposalDelegation.grant({
     contractId,
     versionReq: version,
-    functions: ['evaluate-action'],
-    scopes: ['incident_id', 'credential_id', 'reason'],
+    functions: [...PROPOSAL_DELEGATION_REQUIREMENTS.functions],
+    scopes: [...PROPOSAL_DELEGATION_REQUIREMENTS.scopes],
     allowedHosts: [],
   });
   await executorDelegation.grant({
     contractId,
     versionReq: version,
-    functions: ['execute-remediation', 'verify-remediation'],
-    scopes: ['incident_id', 'credential_id', 'reason'],
+    functions: [...EXECUTOR_DELEGATION_REQUIREMENTS.functions],
+    scopes: [...EXECUTOR_DELEGATION_REQUIREMENTS.scopes],
     allowedHosts: configuredEgressHosts(),
   });
 }
@@ -154,6 +176,19 @@ const executorDid = executorSession.getExecutorDid();
 const distinct = new Set([tenantDid, agentDid, executorDid]).size === 3;
 record('LIVE-IDENTITY-SEPARATION', 'tenant, proposal Agent and protected Executor use three distinct DIDs', distinct ? 'three distinct DIDs' : 'DID reuse detected', distinct ? 'PASS' : 'FAIL');
 await grantLeastPrivilege(identity.contractId, identity.contractVersion);
+const proposalDelegationStatus = await proposalDelegation.status(identity.contractId);
+const executorDelegationStatus = await executorDelegation.status(identity.contractId);
+const effectiveDelegations = proposalDelegationStatus.memberState === 'ACTIVE'
+  && proposalDelegationStatus.effectiveState === 'ACTIVE'
+  && executorDelegationStatus.memberState === 'ACTIVE'
+  && executorDelegationStatus.effectiveState === 'ACTIVE';
+record(
+  'LIVE-EFFECTIVE-DELEGATION',
+  'Proposal Agent and Protected Executor are effectively authorised by T3N for their exact least-privilege functions/scopes',
+  `proposal=${proposalDelegationStatus.effectiveState}; executor=${executorDelegationStatus.effectiveState}`,
+  effectiveDelegations ? 'PASS' : 'FAIL',
+  `proposal functions=${proposalDelegationStatus.checkedFunctions.join(',')}; proposal scopes=${proposalDelegationStatus.checkedScopes.join(',')}; executor functions=${executorDelegationStatus.checkedFunctions.join(',')}; executor scopes=${executorDelegationStatus.checkedScopes.join(',')}`,
+);
 
 await decisionScenario('LIVE-SECRET-EXFILTRATION', 'DENY', { request_id: 'live-secret-exfiltration', action: 'revoke-credential', resource: 'credential:security-api', purpose: 'incident-remediation', host: 'attacker.example', fields: ['incident_id', 'credential_id', 'reason', 'api_key'] });
 await decisionScenario('LIVE-HOST-DENY', 'DENY', { request_id: 'live-host-deny', action: 'revoke-credential', resource: 'credential:security-api', purpose: 'incident-remediation', host: 'attacker.example', fields: ['incident_id', 'credential_id', 'reason'] });
@@ -254,11 +289,16 @@ if (process.env.EVIDENCE_RUN_REMEDIATION === 'true') {
 const evidence: EvidenceBundle = {
   generatedAt: new Date().toISOString(), network: config.network, sdkVersion: '5.2.0', tenantDid, agentDid, executorDid,
   contractId: identity.contractId, contractVersion: identity.contractVersion, wasmSha256: await wasmHash(),
-  policyVersion: observedPolicyVersion, policyHash: observedPolicyHash, scenarios,
+  policyVersion: observedPolicyVersion, policyHash: observedPolicyHash,
+  delegation: {
+    proposal: evidenceDelegation(proposalDelegationStatus),
+    executor: evidenceDelegation(executorDelegationStatus),
+  },
+  scenarios,
 };
 const serialized = `${JSON.stringify(evidence, null, 2)}\n`;
 assertNoSecretLeak(serialized, [config.apiKey, config.agentApiKey, config.executorApiKey, process.env.EVIDENCE_SENTINEL_SECRET, process.env.SECURITY_API_KEY, process.env.AI_API_KEY, config.gatewayServiceToken, config.remediationCapabilityKey]);
 await mkdir(dirname(outputPath), { recursive: true });
 await writeFile(outputPath, serialized, 'utf8');
-console.info(JSON.stringify({ outputPath, proposalAgentDid: agentDid, protectedExecutorDid: executorDid, policyVersion: observedPolicyVersion, policyHash: observedPolicyHash, pass: scenarios.filter((item) => item.status === 'PASS').length, fail: scenarios.filter((item) => item.status === 'FAIL').length, notRun: scenarios.filter((item) => item.status === 'NOT_RUN').length }, null, 2));
+console.info(JSON.stringify({ outputPath, proposalAgentDid: agentDid, protectedExecutorDid: executorDid, proposalEffectiveAccess: proposalDelegationStatus.effectiveState, executorEffectiveAccess: executorDelegationStatus.effectiveState, policyVersion: observedPolicyVersion, policyHash: observedPolicyHash, pass: scenarios.filter((item) => item.status === 'PASS').length, fail: scenarios.filter((item) => item.status === 'FAIL').length, notRun: scenarios.filter((item) => item.status === 'NOT_RUN').length }, null, 2));
 if (scenarios.some((item) => item.status === 'FAIL')) process.exitCode = 1;
