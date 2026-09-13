@@ -43,12 +43,17 @@ public class GatewayRemediationClient {
     public RemediationResult execute(RemediationRequest request, String capability) {
         if (capability == null || capability.isBlank()) throw new IllegalArgumentException("Remediation capability is required");
         try {
+            String executorDid = requireExecutorDid();
+            RemediationWireRequest wireRequest = new RemediationWireRequest(
+                request.incidentId(), request.actionId(), request.decisionId(), request.requestId(), request.action(), request.resource(), request.purpose(),
+                request.fields(), request.privateRefs(), request.policyVersion(), request.policyHash(), executorDid
+            );
             RemediationResult result = restClient.post()
                 .uri("/internal/contracts/privacy-guard/remediate")
                 .header("X-Gateway-Service-Token", serviceToken)
                 .header("X-Remediation-Capability", capability)
                 .header(TraceContext.HEADER, TraceContext.currentOrGenerate())
-                .body(request)
+                .body(wireRequest)
                 .retrieve()
                 .body(RemediationResult.class);
             if (result == null || !"PENDING_VERIFICATION".equals(result.status())) {
@@ -85,6 +90,20 @@ public class GatewayRemediationClient {
     public record ExecutorStatus(boolean configured, boolean connected, boolean ready, String executorDid, String network) {}
 
     public record RemediationRequest(
+        @JsonProperty("incident_id") String incidentId,
+        @JsonProperty("action_id") String actionId,
+        @JsonProperty("decision_id") String decisionId,
+        @JsonProperty("request_id") String requestId,
+        String action,
+        String resource,
+        String purpose,
+        List<String> fields,
+        @JsonProperty("private_refs") List<String> privateRefs,
+        @JsonProperty("policy_version") String policyVersion,
+        @JsonProperty("policy_hash") String policyHash
+    ) {}
+
+    private record RemediationWireRequest(
         @JsonProperty("incident_id") String incidentId,
         @JsonProperty("action_id") String actionId,
         @JsonProperty("decision_id") String decisionId,
