@@ -3,11 +3,12 @@ package br.com.t3privacyguard.privacy;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import br.com.t3privacyguard.audit.AuditIntegrityService;
 import br.com.t3privacyguard.domain.DecisionType;
 import br.com.t3privacyguard.domain.Severity;
 import br.com.t3privacyguard.persistence.ActionProposalEntity;
 import br.com.t3privacyguard.persistence.ActionProposalRepository;
-import br.com.t3privacyguard.persistence.AuditEventEntity;
+import br.com.t3privacyguard.persistence.AuditChainHeadRepository;
 import br.com.t3privacyguard.persistence.AuditEventRepository;
 import br.com.t3privacyguard.persistence.ExecutionTraceEventEntity;
 import br.com.t3privacyguard.persistence.ExecutionTraceEventRepository;
@@ -32,12 +33,14 @@ class IncidentRetentionServiceTest {
     @Autowired IncidentRetentionService retention;
     @Autowired IncidentRetentionProperties properties;
     @Autowired IncidentService incidentService;
+    @Autowired AuditIntegrityService auditIntegrity;
     @Autowired IncidentRepository incidents;
     @Autowired ActionProposalRepository actions;
     @Autowired PolicyDecisionRepository decisions;
     @Autowired RemediationExecutionRepository remediations;
     @Autowired ExecutionTraceEventRepository traces;
     @Autowired AuditEventRepository audits;
+    @Autowired AuditChainHeadRepository auditHeads;
     @Autowired JdbcTemplate jdbc;
 
     @BeforeEach
@@ -47,11 +50,12 @@ class IncidentRetentionServiceTest {
         traces.deleteAll();
         actions.deleteAll();
         audits.deleteAll();
+        auditHeads.deleteAll();
         incidents.deleteAll();
     }
 
     @Test
-    void expiredIncidentIsHiddenBeforePurgeAndHardDeletedWithDependents() {
+    void expiredIncidentIsHiddenBeforePurgeAndHardDeletedWithDependentsAndAuditAnchor() {
         Instant now = Instant.now();
         String incidentId = "incident-expired";
         String actionId = "action-expired";
@@ -71,8 +75,10 @@ class IncidentRetentionServiceTest {
             "trace-expired", incidentId, actionId, "request-expired", "trace-id-expired",
             "EXTERNAL_VERIFICATION", "VERIFIED", null, 12L, now.minus(Duration.ofDays(8))
         ));
-        audits.save(new AuditEventEntity("audit-expired", incidentId, "INCIDENT_CREATED", "Synthetic audit", now.minus(Duration.ofDays(8))));
+        auditIntegrity.append(incidentId, "INCIDENT_CREATED", "Synthetic audit");
 
+        assertThat(audits.count()).isEqualTo(1);
+        assertThat(auditHeads.findById(incidentId)).isPresent();
         assertThat(incidentService.listIncidents()).isEmpty();
         assertThatThrownBy(() -> incidentService.getIncident(incidentId)).isInstanceOf(IncidentNotFoundException.class);
         assertThat(incidents.count()).isEqualTo(1);
@@ -83,6 +89,7 @@ class IncidentRetentionServiceTest {
         assertThat(traces.count()).isZero();
         assertThat(actions.count()).isZero();
         assertThat(audits.count()).isZero();
+        assertThat(auditHeads.findById(incidentId)).isEmpty();
         assertThat(incidents.count()).isZero();
         assertThat(retention.purgeExpired()).isZero();
     }
@@ -93,9 +100,11 @@ class IncidentRetentionServiceTest {
         incidents.save(new IncidentEntity(
             "incident-active", "Active incident", Severity.LOW, "Synthetic summary", "test", now, now.plus(properties.retention())
         ));
+        auditIntegrity.append("incident-active", "INCIDENT_CREATED", "Synthetic audit");
 
         assertThat(retention.purgeExpired()).isZero();
         assertThat(incidents.count()).isEqualTo(1);
+        assertThat(auditHeads.findById("incident-active")).isPresent();
         assertThat(incidentService.listIncidents()).extracting(item -> item.id()).containsExactly("incident-active");
     }
 
