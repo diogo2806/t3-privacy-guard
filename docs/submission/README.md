@@ -56,6 +56,43 @@ new evaluation + new human authorization required
 
 The independent verification URL may use another hostname because it performs read-back and is not the side-effect destination authorized by the operator. UI wording therefore distinguishes **Policy-allowed destination**, **Approved destination** and **Destination changed**.
 
+## Value-level T3N data minimization
+
+Normal field names and normal field values have different authorities. The model may request names such as `incident_id`, `credential_id`, `reason` or `employee_department`, but it cannot submit `normal_payload` or `normalPayload`. Spring materializes supported demonstration values from a closed server-owned synthetic table and persists that exact map with the action. Secret/credential keys and unknown keys never receive trusted values.
+
+The human capability binds the persisted map through `normalPayloadHash`. Java and TypeScript use the same deterministic UTF-8 canonical representation: keys are canonical lowercase identifiers, sorted by ASCII lexical order, and each entry is encoded as `<keyByteLength>:<key>=<valueByteLength>:<value>\n`. The gateway recomputes SHA-256 from the request body; changing any key or value after authorization produces `CAPABILITY_BODY_MISMATCH` before T3N execution.
+
+Inside `execute-remediation`, Rust validates the bounded trusted map, rejects forbidden secret keys and keys that were not part of the requested field set, re-reads the approved policy version/hash, evaluates the original requested field set, then constructs the outbound map only from `normal_payload ∩ allowed_fields`. For credential revocation, `incident_id`, `credential_id` and `reason` must remain allowed and present. The minimized field set is evaluated again and must resolve to `ALLOW` before `hwp::call`.
+
+```text
+trusted persisted values
+  incident_id          = inc-demo-001
+  credential_id        = cred-demo-001
+  reason               = suspected compromise
+  employee_department  = finance
+            |
+model requests field names only
+            |
+T3N policy -> REDACT employee_department
+            |
+capability binds exact trusted payload hash
+            |
+Rust intersects values with allowed_fields
+            |
+protected HTTP body
+  incident_id
+  credential_id
+  reason
+
+employee_department does not leave
+```
+
+This means `REDACT` is not merely a schema label in the UI: for the protected credential-revocation executor it produces a different serialized value-level egress payload. Private references remain separate; `verified_email` still becomes a T3N profile placeholder only inside the protected boundary and is never copied into the normal payload.
+
+The UI uses four distinct terms to avoid overstating the claim: **Requested fields**, **Allowed for egress**, **Removed before egress** and **Protected egress payload**. Synthetic normal values may be shown because they are demonstration data; private/secret values must not be rendered.
+
+Local regressions prove the closed server value source, cross-runtime hash vector, body-mismatch rejection, model/A2A rejection of privileged payload fields, Rust value-level intersection and textual accessibility of allowed/removed state. Optional live scenario `LIVE-NORMAL-PAYLOAD-MINIMIZATION` remains `NOT_RUN` until a controlled T3N testnet action/read-back endpoint executes it. It uses synthetic sentinels and accepts PASS only when read-back reports `must_egress_seen=true` and `must_not_egress_seen=false`; the sentinel strings themselves are not persisted in public evidence.
+
 ## Why this is more than PII detection
 
 A normal PII filter answers questions such as “does this prompt contain an email address?”. T3 Privacy Guard addresses a larger authority problem:
@@ -218,16 +255,17 @@ Only bounded Member-grant fields and the exact checked function/scope labels are
 7. Click Analyze with agent and inspect the real model proposal.
 8. Observe independent T3N TEE DENY, attacker.example and the exact policy version/hash; no protected execution is available.
 9. Use Prepare safe path. This prepares/evaluates a minimum-scope revoke-credential proposal; it does not authorize or execute it.
-10. Observe T3N ALLOW/REDACT and the minimum-data boundary.
+10. Observe T3N ALLOW/REDACT and the minimum-data boundary. For REDACT, compare Requested fields, Allowed for egress, Removed before egress and the synthetic Protected egress payload.
 11. Before authorization, confirm the panel shows the exact Approved destination hostname in addition to policy provenance.
-12. Click Authorize credential revocation only after ALLOW for that displayed destination; changing the protected destination requires a new evaluation and authorization.
+12. Click Authorize credential revocation only after ALLOW or an executable REDACT minimum for that displayed destination; changing the protected destination requires a new evaluation and authorization.
 13. When the environment supports synthetic egress/read-back, click Execute protected credential revocation and use Verify external state if verification remains pending.
 14. Accept COMPLETED only when the Remediation execution and verification status shows Verification = VERIFIED and Final state = COMPLETED.
 15. Inspect Local audit integrity separately from T3N provenance; use a local trail as proof only when its HMAC state is VERIFIED.
 16. Open Evidence. Read Evidence summary first, then Observed outcomes, then expand Technical provenance.
 17. Confirm 0 FAIL, T3N_TESTNET, full Source commit, Source tree CLEAN, separate Tenant/Proposal Agent/Protected Executor DIDs, Contract version/id, WASM SHA-256, policy provenance and honest NOT RUN boundaries.
 18. If `LIVE-DESTINATION-BINDING` was executed, accept it only as PASS when A and B were both policy-allowed yet the contract reported BLOCKED_BEFORE_HTTP for B after A had been approved.
-19. Optionally return to Protection flow and inspect Account takeover, Record security incident and Notify security contact; preset selection grants no authority and verified_email remains a logical reference rather than plaintext.
+19. If `LIVE-NORMAL-PAYLOAD-MINIMIZATION` was executed, accept it only when controlled read-back reports must_egress_seen=true and must_not_egress_seen=false without exposing either sentinel value.
+20. Optionally return to Protection flow and inspect Account takeover, Record security incident and Notify security contact; preset selection grants no authority and verified_email remains a logical reference rather than plaintext.
 ```
 
 ## Architecture and trust boundaries
@@ -288,18 +326,19 @@ Trust model:
 - **Prompt is untrusted.** It may contain instruction injection and never becomes an authorization source. A high-confidence pre-provider literal guard reduces known structured leakage but is not a complete PII scanner.
 - **Scenario selection is presentation state.** It loads synthetic input and grants no authority.
 - **The model is not a security boundary.** It can only call one proposal tool with a closed JSON schema.
-- **Unknown or privileged model fields are rejected.** Decisions, overrides, identities, credentials, secrets, API keys and literal `{{profile...}}` markers are rejected before T3N evaluation.
+- **Unknown or privileged model fields are rejected.** Decisions, overrides, identities, credentials, secrets, API keys, `normal_payload`/`normalPayload` values and literal `{{profile...}}` markers are rejected before T3N evaluation.
+- **Trusted normal values are application-owned.** The model selects names only; Spring materializes/persists bounded synthetic values and the capability binds their canonical hash.
 - **Private data is referenced, not copied.** The model/application may request `verified_email`; only Rust/WASM can convert it to the official T3N profile marker.
 - **T3N identities are server-derived.** Tenant, Proposal Agent and Protected Executor DIDs come from authenticated sessions.
 - **A Member grant is necessary but not sufficient.** Runtime readiness uses the authenticated principal-side T3N `checkDelegation()` verdict for a fixed least-privilege requirement.
 - **Delegation checks fail closed.** `authorised=false`, malformed verdicts or platform errors cannot become ready states; known non-active Member states do not trigger a positive effective check.
 - **Rust/WASM owns immutable security invariants.** The model and KV policy cannot manufacture authority or relax forbidden-secret/identity/delegation boundaries.
 - **Private T3N KV owns versioned operational rules.** Each accepted decision exposes deterministic version/hash provenance.
-- **Spring Boot owns durable business authorization and execution state.** It persists logical refs, policy provenance, the canonical approved destination, the human authorization transition and the remediation state machine.
+- **Spring Boot owns durable business authorization and execution state.** It persists logical refs, trusted synthetic normal payload, policy provenance, the canonical approved destination, the human authorization transition and the remediation state machine.
 - **Spring Boot also owns local business-audit integrity.** Sanitized audit events are chained with a backend-only HMAC key and authenticated head; broken/unverifiable integrity blocks protected local changes without rewriting history.
-- **Gateway owns T3N sessions and privileged execution.** It requires service authentication and validates/consumes the one-time capability, including exact `approved_host`, before execution.
+- **Gateway owns T3N sessions and privileged execution.** It requires service authentication and validates/consumes the one-time capability, including exact `approved_host` and `normalPayloadHash`, before execution.
 - **Private KV owns remediation credentials/endpoints.** The protected credential, full action URL and verification URL are not browser inputs. The action URL hostname must still equal the operator-approved hostname at execution time.
-- **T3N protected egress is the profile-resolution and remediation boundary.** Responses are minimized before returning to application layers.
+- **T3N protected egress is the normal-payload minimization, profile-resolution and remediation boundary.** Responses are minimized before returning to application layers.
 - **HTTP acceptance is not truth.** Completion is derived from an independent closed read-back, not from the original response code.
 
 ## Authority matrix
@@ -309,6 +348,9 @@ Trust model:
 | Which demo context is selected? | Browser presentation state only |
 | What did the user ask? | Untrusted prompt |
 | What action does the model suggest? | AI proposal |
+| Which normal field names are requested? | AI proposal, still subject to T3N policy |
+| Which normal values are eligible to be executed? | Trusted Spring application context persisted with the action; never model/A2A input |
+| Which normal values actually leave? | Rust/WASM exact intersection of trusted payload and T3N `allowed_fields`, followed by minimized-set re-evaluation |
 | Which Tenant identity is the authorization subject? | Authenticated Tenant session |
 | Which principal proposes policy evaluation? | Authenticated Proposal Agent session |
 | Which principal executes protected remediation? | Authenticated Protected Executor session |
@@ -318,7 +360,7 @@ Trust model:
 | Which critical rules cannot be relaxed? | Rust/WASM invariants |
 | Is action/purpose/host/data allowed? | Rust/WASM evaluation of active policy |
 | Is business remediation approved? | Authenticated human operator bound to action + canonical Approved destination + policy provenance |
-| Is this exact execution authorized now? | Signed one-time capability bound to Approved destination + Protected Executor DID |
+| Is this exact execution authorized now? | Signed one-time capability bound to Approved destination + trusted normal-payload hash + Protected Executor DID |
 | Is the private execution URL still the authorized destination? | Rust/WASM exact equality between `approved_host` and hostname extracted from private `security_api_url` |
 | May a private value be resolved? | Closed Rust mapping + T3N protected boundary |
 | Did the side effect complete? | Independent read-back + Spring state machine |
@@ -329,7 +371,12 @@ Trust model:
 | Claim | Current status | Source of truth |
 |---|---|---|
 | Real configured model produces structured proposals | PROVED LOCAL | provider adapter + agent/backend tests |
-| Tool schema cannot accept decision/override/DID/secret authority fields | PROVED LOCAL | `proposal-schema.test.ts` |
+| Tool schema cannot accept decision/override/DID/secret authority fields or trusted normal-payload values | PROVED LOCAL | `proposal-schema.test.ts` |
+| Trusted normal values are materialized from a closed server-owned source, not model/A2A values | PROVED LOCAL | `TrustedNormalPayloadFactoryTest`, `IncidentServiceTest` |
+| Java/TypeScript canonical normal-payload SHA-256 agrees and value/key mutation is rejected | PROVED LOCAL | `NormalPayloadCanonicalizerTest`, `RemediationAuthorizationSignerTest`, `remediation-authorization.test.ts` |
+| Rust protected execution serializes only trusted values whose keys survive T3N minimization | PROVED LOCAL | `remediation.rs` tests |
+| REDACT removes an actual normal value before protected HTTP egress | PROVED LOCAL; LIVE OPTIONAL | `remediation.rs`, `RemediationPanel.test.tsx`; `LIVE-NORMAL-PAYLOAD-MINIMIZATION` when executed |
+| Controlled live payload-minimization sentinel proof | NOT CLAIMED until matching live run | `LIVE-NORMAL-PAYLOAD-MINIMIZATION` / `L17` |
 | High-confidence prompt literals are blocked before provider execution for the supported classes, with shared Java/TypeScript conformance fixtures | PROVED LOCAL | `prompt-privacy-guard.test.ts`, `agent-service.test.ts`, `IncidentDataMinimizerTest`, `privacy-conformance/sensitive-literal-corpus.json` |
 | Prompt guard is partial/non-semantic and does not certify accepted text as PII-free | PROVED LOCAL | `PROMPT_PRIVACY_GUARD_SCOPE`, frontend copy/tests, Manual da Tela |
 | Four enterprise presets map to existing policy actions without authorizing them | PROVED LOCAL | `scenarioDefinitions.ts` + `EnterpriseScenarioCatalog.test.tsx` |
@@ -394,7 +441,7 @@ The forced tool shape is:
 }
 ```
 
-`private_refs` contains domain-level categories only. The model cannot submit `{{profile...}}`, `profile.*`, a private value, a new private namespace or policy configuration. Provider failure, invalid JSON, missing/multiple tool calls, extra keys or unsafe authority fields fail closed.
+`private_refs` contains domain-level categories only. The model cannot submit `{{profile...}}`, `profile.*`, a private value, a new private namespace, `normal_payload`/`normalPayload` or policy configuration. Provider failure, invalid JSON, missing/multiple tool calls, extra keys or unsafe authority fields fail closed.
 
 The pre-provider guard is a separate defense-in-depth boundary from the tool schema. A matched supported literal is rejected before `provider.propose(...)` and the rejection contains categories only. The absence of a match is not an authorization decision and is not evidence that arbitrary free text contains no PII.
 
@@ -451,23 +498,24 @@ If the profile field is unavailable, user context is missing, placeholder is den
 ## Verified remediation flow
 
 ```text
-T3N TEE ALLOW for revoke-credential + host A
-      | exact policy version/hash
+T3N TEE ALLOW/REDACT for revoke-credential + host A
+      | exact policy version/hash + trusted normal-payload subset
 Authenticated operator authorizes
       | same policy provenance + exact Approved destination A + Executor DID
-Spring checks persisted action + ALLOW
+Spring checks persisted action + executable minimum
       |
-HMAC capability binds fields + private refs + approvedHost + policy provenance + Executor DID
+HMAC capability binds fields + normalPayloadHash + private refs + approvedHost + policy provenance + Executor DID
       |
 Atomic pessimistic claim creates EXECUTING
       |
-Gateway verifies service token + capability + approved_host equality
+Gateway verifies service token + capability + approved_host + normal payload hash equality
       |
 Protected Executor effective access must be ACTIVE
       |
 T3N execute-remediation reads private security_api_url
       | actualHost must equal approvedHost before HTTP
       | current policy/version/hash rechecked against same host
+      | trusted payload intersected with allowed_fields and minimized set re-evaluated
       | requestId -> Idempotency-Key
       v
 PENDING_VERIFICATION + operation_id
@@ -486,6 +534,8 @@ Failure semantics:
 - a fresh `EXECUTING` claim is treated as in progress, not as recovery failure;
 - a stale/recovered execution with no verifiable operation id becomes `UNVERIFIED`;
 - `EXECUTION_DESTINATION_CHANGED` becomes a blocked `FAILED` execution with no protected HTTP call and requires a new evaluation + human authorization;
+- normal payload key/value mutation after authorization fails capability equality before T3N execution;
+- a forbidden secret key, unrequested trusted key, missing required executable field or minimized set that is not `ALLOW` fails before protected HTTP egress;
 - an execution timeout after the request may have reached the provider becomes `UNVERIFIED`, not retryable `FAILED`;
 - missing/mismatched operation id or request id becomes `UNVERIFIED`;
 - missing/invalid/stale policy provenance blocks authorization/execution rather than silently falling back;
@@ -516,6 +566,10 @@ Operational rules are provisioned to private T3N KV under immutable version snap
 ### Remediation destination and verification
 
 The contract exposes separate `execute-remediation` and `verify-remediation` functions. Executor Member Delegation includes both only when required. The full action URL remains in private KV; the one-time human capability contains only the canonical Approved destination from the proposal. `execute-remediation` compares that value with the hostname extracted from the current private action URL before any HTTP call, then rechecks policy. The verification URL is independently configured/read from KV and may have another host because read-back is not the side effect that the operator authorized. Evidence orchestration derives the allowed HTTPS hosts from the configured action and verification endpoints and may add a synthetic B host only for the controlled testnet negative.
+
+### Normal payload minimization
+
+The model/A2A surface supplies field names only. Spring materializes bounded synthetic normal values from a closed table, persists them with the action and signs the deterministic `normalPayloadHash`. TypeScript verifies the same canonical hash before T3N execution. Rust then performs the actual value-level minimization by intersecting persisted values with the active policy's `allowed_fields`; it rejects forbidden secret keys and unrequested keys, requires the credential-revocation minimum and re-evaluates the minimized set before HTTP. The optional testnet evidence records only two controlled booleans proving that one sentinel arrived and one redacted sentinel did not.
 
 ## Tamper-evident local business audit
 
@@ -607,6 +661,8 @@ The live orchestrator captures the source revision before it writes generated ev
 
 With `EVIDENCE_RUN_DESTINATION_BINDING=true`, the testnet runner first proves A and B are independently policy-allowed, mutates the private action URL from A to B, requires the exact pre-HTTP destination mismatch and restores A in `finally`. Outside testnet this mutation is rejected. With `EVIDENCE_RUN_EGRESS_NEGATIVES=true`, the runner revokes Proposal and Executor independently, requires direct principal-side `checkDelegation()` to return `authorised=false`, exercises protected rejection where applicable, and restores the known-good minimum grants in `finally`. Raw grant documents and SDK authorization objects are not persisted in the bundle.
 
+With `EVIDENCE_RUN_PAYLOAD_MINIMIZATION=true`, the testnet runner executes the controlled value-level minimization proof. PASS requires the read-back proof to report that the allowed synthetic sentinel was observed and the redacted synthetic sentinel was not observed. Evidence stores only those booleans; the sentinel strings remain prohibited from public bundle/log output. If the flag/environment is absent, the case remains `NOT_RUN`.
+
 The live remediation scenario is stricter:
 
 ```text
@@ -650,7 +706,7 @@ When preparing egress evidence, configure `SECURITY_API_URL` and the separate `S
 3. Separate Proposal/Executor **Member grant** and **Effective T3N access** states; capture `Operational` only when protected remediation is ready, and show `Evaluation ready · execution blocked` when only Proposal is effectively authorized.
 4. **Protection flow** with Credential compromised selected and the statement that presets are not permissions.
 5. Attack prompt + provider/model provenance + model proposal after **Analyze with agent** + `DENY` + policy version/hash.
-6. `REDACT` data-minimization evidence.
+6. `REDACT` data-minimization evidence showing Requested fields, Allowed for egress, Removed before egress and the synthetic Protected egress payload so value-level removal is visible.
 7. Notify security contact selected, showing logical `verified_email` and no plaintext address/raw placeholder.
 8. **Prepare safe path** result showing legitimate minimum credential-revocation proposal + `ALLOW` + policy provenance.
 9. **Approved destination** visible in the protected-remediation panel before human authorization, without revealing the private full URL.
@@ -672,10 +728,10 @@ Never capture passwords, cookies, T3N keys, provider key, service/capability key
 40–65s   Protection flow -> Credential compromised -> Analyze with agent -> malicious structured proposal
 65–85s   Independent T3N TEE DENY + policy provenance; no protected egress
 85–105s  Switch scenarios; show isolation, record incident and logical verified_email context
-105–125s Prepare safe path -> minimum credential revocation -> ALLOW/REDACT + policy version/hash
+105–125s Prepare safe path -> minimum credential revocation -> ALLOW/REDACT + value-level normal-payload minimization + policy version/hash
 125–140s Show exact Approved destination, then authorize credential revocation
-140–155s Show capability/destination binding + Local audit integrity separately from T3N Activity provenance
-155–170s Execute protected credential revocation -> private-host equality -> active policy recheck -> PENDING_VERIFICATION
+140–155s Show capability/destination/normalPayloadHash binding + Local audit integrity separately from T3N Activity provenance
+155–170s Execute protected credential revocation -> private-host equality -> active policy recheck -> minimized payload -> PENDING_VERIFICATION
 170–175s Verify external state -> VERIFIED/COMPLETED when available
 175–180s Evidence summary -> outcomes -> technical provenance + exact NOT_RUN boundaries
 ```
@@ -686,6 +742,10 @@ The submission must lead with user/business meaning, then expose the technical p
 
 - **enterprise scenario**: synthetic demonstration context and prompt preset, never a permission or policy decision;
 - **agent proposal**: model-produced structured request, not authorization;
+- **Requested fields**: field names selected by the untrusted proposal; not values and not authority by themselves;
+- **Allowed for egress**: normal field keys allowed by the active T3N policy for the execution being constructed;
+- **Removed before egress**: requested keys excluded by minimization and not serialized into the protected HTTP body;
+- **Protected egress payload**: bounded trusted synthetic normal values after T3N minimization, never a model-supplied payload;
 - **pre-provider privacy guard**: high-confidence, partial control for explicitly supported structured literals; not a semantic/exhaustive PII scanner, and an accepted prompt is not certified PII-free or safe;
 - **authenticated**: a T3N session proved a principal identity and yielded its canonical DID;
 - **registered**: the public Proposal Agent Card resolved and matched the authenticated DID; not authorization;
@@ -694,7 +754,7 @@ The submission must lead with user/business meaning, then expose the technical p
 - **Policy-allowed destination**: a hostname belonging to the set permitted by the active policy; not human intent by itself;
 - **Approved destination**: exact canonical hostname shown to the operator and bound to the human authorization/capability;
 - **Destination changed**: private action configuration now resolves to another hostname; execution is blocked and a new evaluation/authorization is required;
-- **human authorized**: business authorization persisted for the exact action, Approved destination, policy provenance and Protected Executor DID;
+- **human authorized**: business authorization persisted for the exact action, Approved destination, policy provenance, trusted normal-payload hash and Protected Executor DID;
 - **local audit integrity VERIFIED**: retained HMAC chain, sequence/linkage and authenticated head validated with configured key versions; not immutable storage, T3N provenance or hardware attestation;
 - **local audit integrity BROKEN**: retained history diverged from the authenticated chain/head; protected changes are blocked and history is not auto-repaired;
 - **LEGACY_UNVERIFIED**: retained pre-HMAC events remain visible but are not presented as cryptographically authenticated history;
@@ -709,10 +769,10 @@ The submission must lead with user/business meaning, then expose the technical p
 - **verified**: independent read-back matched the closed expected state;
 - **completed**: Spring persisted completion only after verified read-back;
 - **unverified**: outcome is ambiguous/not confirmed and no automatic re-execution occurs;
-- **execution proof**: short-lived server-to-gateway capability bound to the exact approved request including destination; not hardware attestation;
+- **execution proof**: short-lived server-to-gateway capability bound to the exact approved request including destination and trusted normal-payload hash; not hardware attestation;
 - **proved live**: matching live evidence/capture exists.
 
-Do not say “Verified source” solely because a Git SHA/tree state is present, “Member grant ACTIVE = authorized”, “registered = authorized”, “Agent Card = attestation”, “policy allows B so the human approved B”, “local audit is immutable/tamper-proof”, “local audit VERIFIED = T3N MATCHED”, “guarantees GDPR compliance”, “hardware verified”, “exactly once”, “at most once”, “profile resolution proved live”, “all four scenarios execute end-to-end”, “prompt is PII-free because it passed the guard” or “completed from HTTP 2xx” without corresponding evidence/contract.
+Do not say “Verified source” solely because a Git SHA/tree state is present, “Member grant ACTIVE = authorized”, “registered = authorized”, “Agent Card = attestation”, “policy allows B so the human approved B”, “REDACT proves value-level minimization” unless the protected executor actually constructs the outbound subset, “local audit is immutable/tamper-proof”, “local audit VERIFIED = T3N MATCHED”, “guarantees GDPR compliance”, “hardware verified”, “exactly once”, “at most once”, “profile resolution proved live”, “all four scenarios execute end-to-end”, “prompt is PII-free because it passed the guard” or “completed from HTTP 2xx” without corresponding evidence/contract.
 
 ## Post-challenge operation and handover
 
