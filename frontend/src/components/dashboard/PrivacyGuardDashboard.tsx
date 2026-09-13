@@ -28,6 +28,7 @@ import { DecisionPanel } from '../policy/DecisionPanel';
 import { RemediationPanel } from '../remediation/RemediationPanel';
 import { EmptyState } from '../states/EmptyState';
 import { SystemStatusBar } from '../status/SystemStatusBar';
+import { TrustFlowSummary } from '../trust/TrustFlowSummary';
 
 function requestId(prefix: string) { return `${prefix}-${crypto.randomUUID()}`; }
 
@@ -218,7 +219,14 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
 
   return (
     <>
-      <SystemStatusBar status={systemStatus} loading={statusLoading} onRefresh={() => void refreshSystem()} />
+      <TrustFlowSummary
+        agentAnalysis={agentAnalysis}
+        decision={decision}
+        selectedAction={selectedAction}
+        remediationExecution={remediationExecution}
+        systemStatus={systemStatus}
+        statusLoading={statusLoading}
+      />
       <DashboardTabs active={view} onChange={setView} />
       {error && <div className="feedback feedback-error" role="alert">{error}</div>}
       {notice && <div className="feedback feedback-success" role="status">{notice}</div>}
@@ -243,6 +251,8 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
           <aside className="dashboard-side"><ExecutionTrace events={executionTrace} action={selectedAction} /><AuditTrail events={history} /></aside>
         </main>
       )}
+
+      <SystemStatusBar status={systemStatus} loading={statusLoading} onRefresh={() => void refreshSystem()} />
     </>
   );
 }
