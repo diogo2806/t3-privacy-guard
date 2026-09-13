@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom/vitest';
+import type { ComponentProps } from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -77,8 +78,10 @@ const evidence = {
   totals: { pass: 12, fail: 0, notRun: 1 },
 } as EvidenceBundle;
 
-function renderExecutive(overrides: Partial<React.ComponentProps<typeof ExecutiveDemoView>> = {}) {
-  const props: React.ComponentProps<typeof ExecutiveDemoView> = {
+type ExecutiveDemoProps = ComponentProps<typeof ExecutiveDemoView>;
+
+function renderExecutive(overrides: Partial<ExecutiveDemoProps> = {}) {
+  const props: ExecutiveDemoProps = {
     scenario: DEFAULT_ENTERPRISE_SCENARIO,
     systemStatus,
     statusLoading: false,
@@ -115,7 +118,8 @@ describe('ExecutiveDemoView', () => {
 
     expect(screen.getByTestId('executive-observed-outcome')).toHaveTextContent(outcome);
     expect(screen.getByTestId('executive-step-t3n-policy')).toHaveTextContent(type);
-    expect(screen.getByTestId('executive-step-executor')).not.toHaveTextContent('EXECUTED');
+    expect(screen.getByTestId('executive-step-executor')).toHaveTextContent('NOT EXECUTED');
+    expect(screen.getByTestId('executive-step-executor')).not.toHaveClass('executive-tone-success');
     expect(screen.getByTestId('executive-step-verify')).toHaveTextContent('WAITING');
   });
 
