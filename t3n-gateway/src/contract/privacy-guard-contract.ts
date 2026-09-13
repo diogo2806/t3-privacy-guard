@@ -44,6 +44,7 @@ export interface RemediationExecutionRequest {
   readonly purpose: string;
   readonly approved_host: string;
   readonly fields: string[];
+  readonly normal_payload: Record<string, string>;
   readonly private_refs?: string[];
   readonly policy_version: string;
   readonly policy_hash: string;
