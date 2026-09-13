@@ -21,7 +21,7 @@ describe('IncidentSummary', () => {
 
     expect(screen.getByLabelText('Data retention')).toBeInTheDocument();
     expect(screen.getByText(/This incident data expires automatically on/i)).toBeInTheDocument();
-    expect(screen.getByText(/High-confidence sensitive literals are rejected before local storage/i)).toBeInTheDocument();
-    expect(screen.getByText(/it is not treated as anonymous data/i)).toBeInTheDocument();
+    expect(screen.getByText(/Recognizable sensitive values are rejected before local storage/i)).toBeInTheDocument();
+    expect(screen.getByText(/it is not anonymous data/i)).toBeInTheDocument();
   });
 });
