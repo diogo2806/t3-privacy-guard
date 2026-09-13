@@ -13,12 +13,14 @@ import { createStatusRouter } from './http/status-router.js';
 import { RemediationAuthorizationVerifier } from './security/remediation-authorization.js';
 import { sanitizeError } from './security/sanitize.js';
 import { requireServiceToken } from './security/service-auth.js';
+import { TrustManifestFloorStore } from './security/trust-manifest-floor-store.js';
 import { ActivityLogService } from './t3n/activity-log-service.js';
 import { T3nSession } from './t3n/session.js';
 
 const config = readGatewayConfig();
-const tenantSession = new T3nSession(config);
-const agentSession = new AgentSession(config);
+const trustFloorStore = new TrustManifestFloorStore(config.trustManifestFloorStorePath);
+const tenantSession = new T3nSession(config, trustFloorStore);
+const agentSession = new AgentSession(config, trustFloorStore);
 const activityLogService = new ActivityLogService(tenantSession);
 const delegationService = new DelegationService(tenantSession, agentSession);
 const contractService = new PrivacyGuardContractService(config, tenantSession, agentSession, activityLogService);
