@@ -2,7 +2,7 @@
 
 **Enterprise trust runtime for AI agents on the Terminal 3 Network.**
 
-T3 Privacy Guard is designed for a simple enterprise assumption: **the AI model can be useful and still be untrusted**. The model may analyze an incident and propose an action, but it is not allowed to become the authority that decides policy, selects trusted identities, retrieves private profile values directly, or declares a critical side effect completed.
+T3 Privacy Guard is designed for a simple enterprise assumption: **the AI model can be useful and still be untrusted**. The model may analyze an incident and propose an action, but it is not allowed to become the authority that decides policy, selects trusted identities, grants itself T3N permissions, retrieves private profile values directly or declares a critical side effect completed.
 
 The product separates those responsibilities across independent controls:
 
@@ -11,16 +11,24 @@ Untrusted AI
     |
     | proposes
     v
+Proposal Agent T3N identity
+    |
+    | exact effective-delegation check
+    v
 T3N policy / Rust WASM
     |
     | DENY / REDACT / ALLOW
     v
 Human authorization
     |
-    | approves business intent
+    | approves exact action + policy + Executor DID
     v
 One-time execution capability
     |
+    v
+Protected Executor T3N identity
+    |
+    | separate exact effective-delegation check
     v
 T3N protected execution
     |
@@ -49,6 +57,8 @@ For private profile data, the application carries logical references such as `ve
 
 For side effects, an HTTP success response is not treated as business completion. The application records `COMPLETED` only after a separate read-back observes the expected closed external state.
 
+For T3N authorization, the existence of a Member Delegation grant is also not treated as operational readiness. The authenticated principal must independently obtain an effective `checkDelegation()` verdict for the exact contract, Tenant DID, functions and scopes it is about to use.
+
 ## Where it applies
 
 The current implementation is demonstrated through security incident response, but the trust pattern is broader. The same architecture is relevant anywhere an AI agent can recommend or trigger actions involving sensitive data or privileged operations, for example:
@@ -63,9 +73,7 @@ The project does **not** claim that all of those vertical workflows are already 
 
 ## 60-second mental model
 
-A judge should be able to understand the system through two opposite scenarios.
-
-### 1. Compromised-agent scenario
+### Compromised-agent path
 
 ```text
 Prompt injection
@@ -76,28 +84,39 @@ AI proposes:
 - attacker.example
    |
    v
+Proposal Agent effective T3N access must already be CONFIRMED
+   |
+   v
 T3N Rust/WASM policy
    |
    v
 DENY
 
+No human authorization.
+No Protected Executor invocation.
 No protected egress.
 No model-controlled override.
 ```
 
-### 2. Legitimate-remediation scenario
+### Legitimate-remediation path
 
 ```text
 AI proposes minimum valid action
    |
    v
-T3N policy -> ALLOW
+Proposal Agent checkDelegation -> authorised=true
    |
    v
-Authenticated human authorizes
+T3N policy -> ALLOW + policy version/hash
    |
    v
-Short-lived one-time capability
+Authenticated human authorizes exact action
+   |
+   v
+Short-lived one-time capability bound to Protected Executor DID
+   |
+   v
+Protected Executor checkDelegation -> authorised=true
    |
    v
 Protected T3N execution
@@ -112,13 +131,32 @@ Independent external read-back
    +--> ambiguous/mismatch      -> UNVERIFIED
 ```
 
-This is why `ALLOW` is not the same thing as execution and why HTTP `2xx` is not the same thing as completion.
+This is why `ALLOW` is not execution, an active Member grant is not effective authorization and HTTP `2xx` is not completion.
 
 ## What the demo proves
 
 T3 Privacy Guard assumes the AI agent can be manipulated. The dashboard sends an actual textual prompt to a configured tool-calling model. The model can produce an unsafe structured proposal such as `host=attacker.example` plus `api_key`, but it cannot set a decision, identity, capability or secret. That proposal is persisted and evaluated independently by the T3N Rust/WASM policy, which returns `DENY`.
 
-A legitimate model proposal can receive `ALLOW`, but `ALLOW` still does not execute anything. An authenticated operator must explicitly authorize remediation. Immediately before execution the Spring backend signs a short-lived, one-time capability bound to the exact persisted action, decision, fields, logical private-data references and the exact policy version/hash that authorized the action. The gateway validates service authentication, signature, expiry, payload equality and replay state before T3N execution.
+The Proposal Agent and Protected Executor are different authenticated T3N principals. The Proposal Agent receives only the evaluation grant. The Protected Executor receives only the protected execution/verification grant. Their DIDs are derived from their authenticated sessions, never hardcoded or supplied by the model.
+
+For each principal, the gateway distinguishes two facts:
+
+```text
+Member grant
+  = configured/read authorization document + validity window
+
+Effective T3N access
+  = authenticated principal calls checkDelegation({
+      contract,
+      pii_did: canonical Tenant DID,
+      functions: exact minimum functions,
+      scopes: exact minimum scopes
+    })
+```
+
+`authorised=true` becomes effective `ACTIVE` / UI `Confirmed`. `authorised=false` becomes `DENIED`. Errors, timeouts and inconclusive payloads become `UNKNOWN`. `DENIED` and `UNKNOWN` always fail closed. A non-active Member grant can never produce effective `ACTIVE`.
+
+A legitimate model proposal can receive `ALLOW`, but `ALLOW` still does not execute anything. An authenticated operator must explicitly authorize remediation. Spring signs a short-lived, one-time capability bound to the exact persisted action, decision, fields, logical private-data references, policy version/hash and authenticated Protected Executor DID. The gateway validates service authentication, signature, expiry, payload equality and replay state before T3N execution.
 
 Private profile values are structural to T3N. The agent, React, Spring Boot and gateway APIs carry only logical references such as `verified_email`; the Rust/WASM contract maps that closed reference to the supported T3N marker `{{profile.verified_contacts.email.value}}`, and T3N resolves the plaintext only during protected egress. The resolved value is never returned to the application.
 
@@ -138,48 +176,51 @@ React / Spring Boot
       v
 Node / TypeScript T3N Gateway
       |
-      | authenticated Agent DID + tenant pii_did
-      v
-T3N / Rust WASM policy
-   DENY | REDACT | ALLOW
-                    |
-              human authorization
-                    |
-              one-time capability
-                    |
-              atomic execution claim
-                    |
-                    v
-        protected execution in T3N
-                    |
-             PENDING_VERIFICATION
-                    |
-                    v
-          independent T3N read-back
-                    |
-        VERIFIED -> COMPLETED
-        otherwise -> UNVERIFIED
+      +--> authenticated Tenant session
+      |       -> canonical Tenant DID / pii_did
+      |
+      +--> authenticated Proposal Agent session
+      |       -> Member grant read-back
+      |       -> checkDelegation(evaluate-action + exact scopes)
+      |       -> T3N Rust/WASM policy
+      |             DENY | REDACT | ALLOW
+      |                              |
+      |                       human authorization
+      |                              |
+      |                       one-time capability
+      |                              |
+      +--> authenticated Protected Executor session
+              -> separate Member grant read-back
+              -> checkDelegation(execute-remediation + verify-remediation + exact scopes)
+              -> protected T3N execution
+                       |
+                PENDING_VERIFICATION
+                       |
+                independent read-back
+                       |
+              VERIFIED -> COMPLETED
+              otherwise -> UNVERIFIED
 ```
 
 - `frontend/`: React/Vite operator dashboard served by Nginx.
 - `backend/`: Java 21/Spring Boot business API, operator sessions and durable business/remediation state.
-- `t3n-gateway/`: isolated T3N SDK adapter, AI provider adapter, separate tenant/agent sessions and anti-replay protection.
+- `t3n-gateway/`: isolated T3N SDK adapter, AI provider adapter, separate Tenant/Proposal/Executor sessions, delegation checks and anti-replay protection.
 - `contracts/privacy-guard/`: Rust/WIT policy, closed private-reference mapping, protected remediation and independent verification for `wasm32-wasip2`.
 
 Each runtime has its own Dockerfile. There is intentionally no `docker-compose.yml`; services are deployed independently in containers.
 
 ## Authority separation
 
-The architecture deliberately prevents the model from owning security authority.
-
 | Responsibility | Authority |
 |---|---|
 | Understand prompt and propose an action | AI model |
-| Authenticate tenant and agent identity | T3N sessions |
-| Publish/resolve public agent discoverability | T3N Agent Card registry |
+| Authenticate Tenant, Proposal Agent and Protected Executor | Separate T3N sessions |
+| Publish/resolve public Proposal Agent discoverability | T3N Agent Card registry |
+| Describe configured principal restrictions | Tenant Member Delegation read-back |
+| Prove current principal/function/scope authorization | Authenticated principal `checkDelegation()` |
 | Decide allowed action/data/host | Rust/WASM policy + versioned private T3N KV policy |
 | Approve business remediation | Authenticated operator |
-| Prove an exact approved execution | Short-lived one-time capability |
+| Prove exact approved execution | Short-lived one-time capability bound to Executor DID |
 | Resolve approved private profile value | T3N protected execution boundary |
 | Decide whether external side effect is complete | Independent read-back + Spring state machine |
 
@@ -198,7 +239,7 @@ AI_MODEL=<tool-calling model>
 
 `AI_PROVIDER=disabled` is the safe default. When disabled or unavailable, agent analysis fails closed; no fixture is promoted as live AI.
 
-The only model tool surface is:
+The model tool surface is limited to:
 
 ```json
 {
@@ -211,64 +252,37 @@ The only model tool surface is:
 }
 ```
 
-Unknown properties are rejected. In particular the model cannot supply `decision`, `allow`, `override`, `approved`, `agent_did`, `pii_did`, API keys, credentials, secrets, remediation capabilities or literal `{{profile...}}` markers. `agent_did` comes only from the authenticated Agent session and `pii_did` only from the authenticated tenant session.
+Unknown properties are rejected. The model cannot supply `decision`, `allow`, `override`, `approved`, `agent_did`, `executor_did`, `pii_did`, API keys, credentials, secrets, remediation capabilities or literal `{{profile...}}` markers.
 
-Real private values must never be placed in demo prompts; the model asks only for an enumerated logical category when a supported private value is needed.
+## T3N identity, onboarding and authorization states
 
-## Public T3N Agent onboarding and discoverability
-
-The agent has three deliberately separate states: **authenticated**, **registered**, and **delegated**. Authentication proves control of the configured agent credential and yields the canonical Agent DID. Registration proves that a public Agent Card for that same DID can be resolved from T3N. Delegation is a separate tenant/data-owner grant that authorizes functions, scopes and hosts. Registration never grants access by itself.
-
-The onboarding flow is:
+The dashboard deliberately keeps these concepts separate:
 
 ```text
-separate T3N agent credential
-        |
-        v
-authenticated AgentSession
-        |
-        v
-canonical did:t3n:... from the session
-        |
-        v
-deterministic safe Agent Card
-        |
-        v
-T3N hosted public card
-        |
-        v
-read-only resolution + schema/DID verification
-        |
-        v
-REGISTERED
-        |
-        v
-Member Delegation remains a separate authorization step
+Authenticated
+  -> session proved control of credential and returned canonical DID
+
+Registered
+  -> public Proposal Agent Card resolved and matched that DID
+
+Member grant
+  -> Tenant-owned authorization document for principal/contract/functions/scopes/hosts/window
+
+Effective T3N access
+  -> principal's exact checkDelegation verdict at runtime
 ```
 
-`buildAgentCardForSession(...)` uses only `AgentSession.getAgentDid()` as the identity source. The card advertises the EIP-8004 registration type used by the installed T3N tooling, one `DID` service pointing to the same canonical DID, `active: true` and `x402Support: false`. It does not advertise A2A, MCP, x402 payment support or private/internal gateway endpoints that this project does not actually expose. Sensitive metadata keys and private-key-shaped values are rejected, and both generated and resolved cards are bounded by the hosted-card size limit.
+Agent Card registration is public discoverability. It is not contract authorization. Likewise, Member grant `ACTIVE` is not sufficient to render the system `Operational`.
 
-Operational commands from `t3n-gateway/`:
+Effective states are:
 
-```bash
-npm run agent:card:verify    # read-only; does not publish or grant permissions
-npm run agent:card:publish   # explicit mutable T3N operation; may consume credits
-```
+- `Confirmed`: `checkDelegation.authorised === true`;
+- `Denied`: `authorised === false`;
+- `Unknown`: error, timeout or inconclusive response.
 
-The publish command authenticates the agent, derives the DID from that session, writes the safe card locally, invokes the installed T3N CLI `agent host-card`, then performs read-only verification until the card resolves as `REGISTERED` or fails. It never takes a DID from `.env` as the canonical identity.
-
-Runtime/evidence states are intentionally precise:
-
-- `REGISTERED`: a valid public card resolved and its DID/service matches the authenticated Agent DID;
-- `NOT_REGISTERED`: the public card endpoint returned no card for the DID;
-- `MISMATCH`: a card was returned but failed the closed schema/DID/service validation;
-- `UNAVAILABLE`: authenticated DID or public resolution could not be verified at that moment.
-
-The dashboard shows onboarding separately from authentication and Member Delegation. Evidence may include the public card URI, SHA-256 of the exact resolved card, verification timestamp and declared service names. Those values are public discoverability provenance, not authorization and not hardware attestation.
+The Proposal and Executor checks are independent. The Proposal check covers only `evaluate-action`; the Executor check covers only `execute-remediation` and `verify-remediation`. Neither result authorizes the other principal.
 
 ## Current policy vocabulary
-
-The current Rust policy contains four concrete security actions:
 
 | Action | Purpose | Minimum normal fields | Private reference |
 |---|---|---|---|
@@ -281,38 +295,21 @@ Extra non-secret fields are minimized with `REDACT`. Forbidden secret fields are
 
 ## Versioned operational policy in private T3N KV
 
-The mutable operational rule set is no longer hardcoded as application state. Contract `0.4.0` reads a canonical `PolicyDocument` from the private T3N KV map `privacy-guard-policy`. The document controls enabled actions, purpose, allowed hosts, normal field allowlists, supported logical private references, host requirement and whether human authorization is required.
+Contract `0.4.0` reads a canonical `PolicyDocument` from the private T3N KV map `privacy-guard-policy`. The document controls enabled actions, purpose, allowed hosts, normal field allowlists, supported logical private references, host requirement and whether human authorization is required.
 
-Critical security invariants remain compiled into Rust/WASM and cannot be relaxed by KV configuration. This includes schema/size ceilings, fail-closed behavior, authenticated T3N identity boundaries, forbidden secret classes, the closed private-reference vocabulary and safe host validation. A policy document cannot make `api_key`, passwords, tokens or private keys valid outbound fields and cannot bypass delegation or identity checks.
+Critical security invariants remain compiled into Rust/WASM and cannot be relaxed by KV configuration. This includes schema/size ceilings, fail-closed behavior, authenticated T3N identity boundaries, forbidden secret classes, the closed private-reference vocabulary and safe host validation.
 
 Every valid policy decision carries:
 
 ```text
-policyVersion   exact immutable policy version
-policyHash      SHA-256 of the canonical policy document
+policyVersion
+policyHash
 requiresHumanAuthorization
 ```
 
-The gateway provisioner stores immutable snapshots as `version:<version>`, maintains `current`, and records publication/rollback history. Publishing different canonical content under an existing version is rejected. Rollback is explicit through `T3N_POLICY_ROLLBACK_VERSION` and may target only a version already persisted in the private map. A missing, malformed, oversized or semantically invalid policy fails closed.
-
-Policy provenance follows the decision through Spring persistence, the API, the dashboard, deployment/evidence metadata and the remediation capability. Protected remediation re-reads the active T3N policy and requires the exact version/hash that was approved. If policy changes after authorization, the old approval cannot be silently reused; the action must be evaluated again.
+The gateway stores immutable version snapshots, a `current` pointer and publication/rollback history. Missing, malformed, oversized or semantically invalid policy data fails closed. Human authorization and protected execution are bound to the same version/hash so a policy change after approval cannot silently reuse stale authority.
 
 `policyHash` is provenance, not a hardware-attestation claim.
-
-## Enterprise scenario catalog
-
-The Protection demo exposes those four policy actions as business-readable, synthetic presets. Selecting a card only changes local demonstration context and the editable prompt; it does not call an API, authorize anything or predict the T3N result.
-
-| Scenario | Proposed action | What the demo proves |
-|---|---|---|
-| Credential compromised | `revoke-credential` | Prompt-injection denial plus a separate minimum-scope revocation path with human authorization, protected execution and independent read-back. |
-| Account takeover | `isolate-account` | The model can propose isolation with synthetic identifiers while T3N independently evaluates action, fields, purpose and destination. |
-| Record security incident | `create-incident` | Incident recording can be evaluated without outbound egress; adding an unexpected destination remains subject to T3N policy. |
-| Notify security contact | `notify-security` | The model requests only logical `verified_email`; no plaintext email or raw `{{profile.*}}` placeholder belongs in browser/model input. |
-
-The current complete execution/read-back contract verifies the closed external state `REVOKED`, so the dashboard exposes protected execution controls only for an actual `revoke-credential` proposal. `isolate-account`, `create-incident` and `notify-security` remain genuine policy-evaluation scenarios; the UI does not claim a verified executor for them.
-
-Switching scenarios clears the previous scenario result in the browser before a new analysis. This prevents a prior decision or execution state from being visually attributed to a different preset.
 
 ## Structural private-data boundary
 
@@ -323,8 +320,6 @@ logical reference: verified_email
 action/purpose:   notify-security / incident-notification
 TEE mapping:       {{profile.verified_contacts.email.value}}
 ```
-
-The literal marker is created inside Rust/WASM from a closed allowlist. Clients cannot submit arbitrary profile namespaces. `verified_email` on an unrelated action is minimized with `REDACT`; unknown references and literal placeholder strings are denied. Spring persists only the reference name, never the email address. Human authorization capabilities bind the private-reference set so it cannot be changed after approval.
 
 Where plaintext may exist:
 
@@ -338,11 +333,9 @@ T3N protected egress           YES, only while resolving the approved placeholde
 Allowed external service       YES, as the intended recipient of the protected egress
 ```
 
-`PlaceholderDenied`, `PlaceholderUnknown` and `PlaceholderNoUserContext` fail closed. Upstream responses are reduced to operation/status metadata before leaving the contract, so an echoed private value is not returned to the application.
+Clients cannot submit arbitrary profile namespaces. `verified_email` on an unrelated action is minimized with `REDACT`; unknown references and literal placeholder strings are denied.
 
 ## Distributed remediation boundary
-
-The persistent state machine is:
 
 ```text
 REMEDIATION_AUTHORIZED
@@ -351,7 +344,7 @@ REMEDIATION_AUTHORIZED
         v
 EXECUTING
         |
-        | external request with requestId as stable Idempotency-Key
+        | protected external request with stable requestId
         v
 PENDING_VERIFICATION
         |
@@ -365,38 +358,127 @@ COMPLETED                       UNVERIFIED
 Rules:
 
 - only one application execution claim can be created per action;
-- a fresh concurrent caller observes the existing `EXECUTING` claim instead of sending a second request;
-- an execution acknowledgement or any HTTP 2xx is only acceptance, never completion;
-- `COMPLETED` requires read-back matching the same `operation_id` and the closed expected state `REVOKED`;
-- a timeout after send, missing operation id, mismatched request id, unavailable verification or contradictory read-back becomes `UNVERIFIED`;
-- `UNVERIFIED` may be re-verified when an operation id exists, but is never automatically re-executed;
-- persisted remediation state can be read after reload/restart without causing egress or a verification attempt;
-- the project does **not** claim exactly-once/at-most-once behavior from an external provider merely because an idempotency key is supplied. Provider support is required for that guarantee.
+- a fresh concurrent caller observes the existing `EXECUTING` claim instead of intentionally sending a second request;
+- an HTTP 2xx is acceptance, never completion;
+- `COMPLETED` requires read-back matching the same operation and closed expected state `REVOKED`;
+- ambiguous outcomes become `UNVERIFIED` and are not automatically re-executed;
+- the project does **not** claim external-provider exactly-once/at-most-once behavior merely because an idempotency key is supplied.
 
 ## Security boundaries
 
-- Operator login is an application identity, not a T3N or AI-provider identity.
-- `T3N_API_KEY`, `T3N_AGENT_API_KEY` and `AI_API_KEY` are gateway-only runtime secrets and are never returned to the browser.
+- `T3N_API_KEY`, `T3N_AGENT_API_KEY`, `T3N_EXECUTOR_API_KEY` and `AI_API_KEY` are gateway-only runtime secrets.
 - `GATEWAY_SERVICE_TOKEN` is a separate service-to-service credential.
 - `REMEDIATION_CAPABILITY_KEY` signs one-time human authorization proofs and is distinct from every T3N/provider/remediation credential.
-- Canonical tenant/agent DIDs come from authenticated T3N sessions.
+- Canonical Tenant, Proposal Agent and Protected Executor DIDs come from authenticated T3N sessions.
 - A public Agent Card is discoverability metadata and never grants functions, scopes, hosts or business authorization.
-- Delegated calls derive `pii_did` internally from the authenticated tenant session.
-- Member delegation restricts contract, functions, scopes, hosts and validity.
-- The model proposes; Rust/WASM policy decides. Provider failure, invalid tool output, invalid/missing versioned policy and T3N failure all fail closed.
+- Member Delegation read-back describes configured restrictions; it does not replace the principal's effective check.
+- Delegation checks and delegated calls derive `pii_did` internally from the authenticated Tenant session.
+- Proposal and Executor checks use minimum explicit functions/scopes, without wildcard broadening.
+- The model proposes; Rust/WASM policy decides. Provider failure, invalid tool output, invalid/missing policy, `DENIED`/`UNKNOWN` effective access and T3N failure all fail closed.
 - The model/application carry only logical private references; only the contract maps them to supported T3N profile markers.
 - `ALLOW` + exact policy provenance + authenticated operator + explicit human authorization + valid one-time capability are required before protected remediation.
-- Consumed capability nonces are persisted at `REMEDIATION_REPLAY_STORE_PATH` so replay protection survives gateway restart when `/data` is persistent.
+- Consumed capability nonces are persisted so replay protection survives gateway restart when `/data` is persistent.
 
 See the threat model and claims matrix in [`docs/submission/README.md`](docs/submission/README.md).
+
+## T3N operational status
+
+The UI reports independent observed states instead of collapsing them into one “connected” flag:
+
+```text
+Gateway                    ONLINE / UNAVAILABLE
+Tenant                     AUTHENTICATED / NOT AUTHENTICATED
+Proposal Agent             AUTHENTICATED / NOT AUTHENTICATED / NOT CONFIGURED
+Proposal Member grant      ACTIVE / SCHEDULED / REVOKED / NOT_GRANTED / UNKNOWN
+Proposal effective access  CONFIRMED / DENIED / UNKNOWN
+Protected Executor         AUTHENTICATED / NOT AUTHENTICATED / NOT CONFIGURED
+Executor Member grant      ACTIVE / SCHEDULED / REVOKED / NOT_GRANTED / UNKNOWN
+Executor effective access  CONFIRMED / DENIED / UNKNOWN
+Onboarding                 REGISTERED / NOT_REGISTERED / MISMATCH / UNAVAILABLE
+Contract                   RESOLVED / UNAVAILABLE
+Proposal evaluation        READY / NOT READY
+Protected remediation      READY / NOT READY
+```
+
+`Proposal evaluation` becomes ready only when Tenant and Proposal sessions are authenticated, the contract is resolved and Proposal effective access is confirmed. `Protected remediation` additionally requires the separate Protected Executor session and its effective access to be confirmed.
+
+No message can report the T3N controls as operational solely because a Member grant exists.
+
+## Evidence
+
+The project distinguishes local controls from live T3N proof. It does not upgrade mocks, unit tests, grant read-backs or unexecuted scenarios into live evidence.
+
+Local controls:
+
+```bash
+bash scripts/run-local-evidence.sh
+```
+
+Live T3N evidence:
+
+```bash
+cd t3n-gateway
+npm install
+npm run evidence:live
+```
+
+The live orchestrator:
+
+1. authenticates Tenant, Proposal Agent and Protected Executor through the verified trust boundary;
+2. resolves the contract and versioned policy;
+3. provisions minimum independent Member grants;
+4. calls `checkDelegation()` through the Proposal Agent for exact evaluation functions/scopes;
+5. calls `checkDelegation()` through the Protected Executor for exact execution/verification functions/scopes;
+6. fails unless both required effective states are `ACTIVE`;
+7. runs the T3N testnet scenarios;
+8. leak-scans generated evidence.
+
+`docs/evidence/testnet-run.json` records only sanitized delegation proof:
+
+```json
+{
+  "delegation": {
+    "proposal": {
+      "memberState": "ACTIVE",
+      "effectiveState": "ACTIVE",
+      "checkedFunctions": ["evaluate-action"],
+      "checkedScopes": ["incident_id", "credential_id", "reason"]
+    },
+    "executor": {
+      "memberState": "ACTIVE",
+      "effectiveState": "ACTIVE",
+      "checkedFunctions": ["execute-remediation", "verify-remediation"],
+      "checkedScopes": ["incident_id", "credential_id", "reason"]
+    }
+  }
+}
+```
+
+The complete Member Delegation document, credentials, private values and secrets are not frontend/evidence fields. `NOT_RUN` is never counted as `PASS`.
+
+For live remediation proof, both action and verification endpoints must be configured/sealed and the Executor host allowlist contains only their derived HTTPS hosts. A live remediation scenario passes only after protected execution plus independent verification. An accepted 2xx without read-back cannot become a completion claim.
+
+Profile-placeholder resolution remains `NOT_RUN` in public evidence until a compatible T3N testnet profile/user context actually executes it.
+
+## Persistent T3N trust-manifest rollback protection
+
+Before Tenant, Proposal Agent or Protected Executor authentication, the gateway verifies the official signed T3N trust manifest and persists the accepted manifest version as a monotonic high-water mark per network. `T3N_TRUST_FLOOR_STORE_PATH` defaults to `/data/t3n-trust-floor.json`; the file contains only public trust metadata, never API keys, cookies or session credentials.
+
+When a floor exists, authentication calls `fetchTrustedManifest(network, { minVersion })`. A lower manifest is rejected. All three sessions share the same `TrustManifestFloorStore`, so they cannot establish independent rollback histories for the same network.
+
+`Trust anchor VERIFIED` and `Rollback floor PERSISTED` describe cluster trust provenance, not per-request hardware attestation.
 
 ## Runtime configuration
 
 Relevant names include:
 
 ```text
+T3N_API_KEY
+T3N_AGENT_API_KEY
+T3N_EXECUTOR_API_KEY
 T3N_CONTRACT_VERSION
 T3N_POLICY_FILE
+T3N_TRUST_FLOOR_STORE_PATH
 OPERATOR_USERNAME
 OPERATOR_PASSWORD
 OPERATOR_SESSION_TIMEOUT
@@ -414,72 +496,7 @@ SECURITY_API_URL
 SECURITY_VERIFICATION_URL
 ```
 
-`T3N_CONTRACT_VERSION` is `0.4.0` for the versioned-policy contract. `T3N_POLICY_FILE` points to the local source document used by the explicit policy provisioning script; the active runtime policy is loaded from private T3N KV.
-
-`SECURITY_API_URL` is the protected action endpoint. `SECURITY_VERIFICATION_URL` is the independent read-back endpoint. Both are seeded into the T3N private map by the setup script; the verification endpoint is not a browser/backend credential.
-
-Business APIs require the Spring Security operator session and CSRF protection. The browser never receives T3N keys, AI provider keys, internal service token, remediation capability, remediation credential or resolved profile PII.
-
-## T3N operational status
-
-The dashboard reports independent observed states:
-
-```text
-Gateway       ONLINE / UNAVAILABLE
-Tenant        AUTHENTICATED / NOT AUTHENTICATED
-Agent         AUTHENTICATED / NOT AUTHENTICATED / NOT CONFIGURED
-Onboarding    REGISTERED / NOT_REGISTERED / MISMATCH / UNAVAILABLE
-Contract      RESOLVED / UNAVAILABLE
-Delegation    ACTIVE / REVOKED / NOT_GRANTED / UNKNOWN
-```
-
-`AUTHENTICATED` means the agent session proved control of its credential and returned the canonical DID. `REGISTERED` means a public T3N Agent Card for that DID was resolved and passed the closed card validation. `ACTIVE` delegation means the tenant/data owner separately granted contract functions/scopes/hosts. None of those terms is used as a synonym for another.
-
-`RESOLVED` means contract id/version were resolved. It is not hardware attestation. Delegated functions and allowed hosts come from the observed grant.
-
-## Policy and remediation exports
-
-The Rust contract exports:
-
-```text
-evaluate-action
-execute-remediation
-verify-remediation
-```
-
-`evaluate-action` returns the exact policy version/hash used by the TEE. `execute-remediation` requires the approved version/hash and revalidates them against the current private KV policy before protected egress. It can return only the acceptance metadata needed for reconciliation. `verify-remediation` accepts a closed expected state and independently checks external operation/state data. A capability is rejected when its signed incident/action/decision/request/action/resource/purpose/fields/privateRefs/policyVersion/policyHash differ from the body, when expired or when its nonce was already consumed.
-
-## Evidence
-
-The project distinguishes local controls from live T3N proof. It does not upgrade mocks, unit tests or unexecuted scenarios into live evidence.
-
-Local controls:
-
-```bash
-bash scripts/run-local-evidence.sh
-```
-
-Live T3N evidence:
-
-```bash
-cd t3n-gateway
-npm install
-npm run evidence:live
-```
-
-Generated artifacts are `docs/evidence/deployment-manifest.json` and `docs/evidence/testnet-run.json`. The orchestrator binds WASM SHA-256, canonical DIDs, contract id/version and policy version/hash and fails on mismatch, scenario `FAIL` or configured secret leakage. The deployment manifest also records the observed Agent Card registration state and, when a card is resolved, its public URI, SHA-256, verification time and service names. `NOT_RUN` is never counted as `PASS`.
-
-Agent Card metadata proves only what was observed during public resolution. `REGISTERED` means the resolved card matched the authenticated Agent DID and supported service schema; it does not prove Member Delegation, policy authorization, TEE execution or hardware attestation.
-
-For live remediation proof, both `SECURITY_API_URL` and `SECURITY_VERIFICATION_URL` must be configured/sealed and the delegation includes only their derived HTTPS hosts. A live remediation scenario passes only on the documented execution plus independent verification sequence. An accepted 2xx without read-back cannot become a passing completion claim.
-
-Profile-placeholder resolution must remain `NOT_RUN` in public evidence until a compatible T3N testnet profile/user context actually executes it. Local Rust/Java/gateway/frontend tests prove the closed-reference architecture but are not mislabeled as live profile-resolution evidence.
-
-The submission capture harness rejects AI/T3N/operator/service/capability secrets in generated metadata and captures a remediation success only after the UI shows independently verified `COMPLETED`.
-
-## Terminal 3 integration findings
-
-The submission guide records the concrete `scopes` documentation inconsistency and the delegated `pii_did` authorization-subject gotcha. This project always sends explicit scopes and derives `pii_did` from the authenticated tenant session.
+Use `.env.example` only as a variable-name template. Never commit Tenant, Proposal Agent or Protected Executor keys, provider keys, operator passwords, service tokens, capability keys, remediation credentials, private profile values or `.env` files.
 
 ## Pinned toolchain
 
@@ -504,16 +521,4 @@ cd ../t3n-gateway && npm install && npm test && npm run typecheck && npm run bui
 cd ../contracts/privacy-guard && cargo test && cargo build --target wasm32-wasip2 --release
 ```
 
-## Environment
-
-Use `.env.example` only as a variable-name template. Never commit tenant keys, agent keys, AI provider keys, operator passwords, service tokens, capability keys, remediation credentials, private profile values or `.env` files.
-
-The project will continue to be operated after the challenge. Future handover provisions new credentials instead of transferring existing private keys.
-
-## Persistent T3N trust-manifest rollback protection
-
-Before tenant or agent authentication, the gateway verifies the official signed T3N trust manifest and persists the accepted manifest version as a monotonic high-water mark per network. `T3N_TRUST_FLOOR_STORE_PATH` defaults to `/data/t3n-trust-floor.json`; the file contains only public trust metadata (`network`, accepted version and timestamp), never API keys, cookies or session credentials.
-
-When a floor already exists, authentication calls `fetchTrustedManifest(network, { minVersion })`. A lower manifest is rejected, the floor is never silently decreased, and malformed or unreadable persisted state fails closed instead of resetting rollback history. Tenant and Agent sessions receive the same `TrustManifestFloorStore` instance in each runtime, so they cannot establish independent floors for the same network. Atomic temp-file + fsync + rename persistence allows the accepted floor to survive process/container restart when `/data` is persistent.
-
-Evidence uses precise wording: `Trust anchor VERIFIED` means the signed manifest established the T3N cluster trust boundary; `Rollback floor PERSISTED` means the version high-water mark was durably stored and reused across restarts. Neither claim is described as per-request hardware attestation.
+The project continues to be operated after the challenge. Future handover provisions new credentials instead of transferring existing private keys.
