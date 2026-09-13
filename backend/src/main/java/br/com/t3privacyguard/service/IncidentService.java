@@ -34,6 +34,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -47,6 +48,8 @@ public class IncidentService {
     private static final String REVOKE_CREDENTIAL_ACTION = "revoke-credential";
     private static final String NOTIFY_SECURITY_ACTION = "notify-security";
     private static final Set<String> SUPPORTED_REMEDIATION_ACTIONS = Set.of(REVOKE_CREDENTIAL_ACTION, NOTIFY_SECURITY_ACTION);
+    private static final Set<String> REVOKE_REQUIRED_FIELDS = Set.of("incident_id", "credential_id", "reason");
+    private static final Set<String> NOTIFY_REQUIRED_FIELDS = Set.of("incident_id", "severity", "summary");
 
     private final IncidentRepository incidents;
     private final ActionProposalRepository actions;
@@ -59,6 +62,7 @@ public class IncidentService {
     private final ExecutionTraceService traces;
     private final IncidentDataMinimizer minimizer;
     private final IncidentRetentionProperties retentionProperties;
+    private final TrustedNormalPayloadFactory normalPayloadFactory;
     private final ObjectMapper mapper;
 
     public IncidentService(
@@ -73,6 +77,7 @@ public class IncidentService {
         ExecutionTraceService traces,
         IncidentDataMinimizer minimizer,
         IncidentRetentionProperties retentionProperties,
+        TrustedNormalPayloadFactory normalPayloadFactory,
         ObjectMapper mapper
     ) {
         this.incidents = incidents;
@@ -86,6 +91,7 @@ public class IncidentService {
         this.traces = traces;
         this.minimizer = minimizer;
         this.retentionProperties = retentionProperties;
+        this.normalPayloadFactory = normalPayloadFactory;
         this.mapper = mapper;
     }
 
@@ -118,10 +124,11 @@ public class IncidentService {
         validateLogicalPrivateRefs(privateRefs);
         String host = blankToNull(request.host());
         if (host != null) host = RemediationAuthorizationSigner.canonicalizeHost(host);
+        Map<String, String> normalPayload = normalPayloadFactory.create(request.fields());
         try {
             ActionProposalEntity entity = actions.saveAndFlush(new ActionProposalEntity(
                 UUID.randomUUID().toString(), incidentId, requestId, request.action().trim(), request.resource().trim(), request.purpose().trim(),
-                host, writeJson(request.fields()), writeJson(privateRefs), Instant.now()
+                host, writeJson(request.fields()), writeJson(normalPayload), writeJson(privateRefs), Instant.now()
             ));
             audit(incidentId, "ACTION_PROPOSED", "Action " + entity.getAction() + " proposed as request " + requestId);
             traces.record(entity, "AGENT_PROPOSAL", "RECEIVED", null, null);
@@ -199,13 +206,14 @@ public class IncidentService {
         ActionProposalEntity action = requireAction(incidentId, actionId);
         requireSupportedRemediationExecutor(action);
         String approvedHost = requireApprovedHost(action);
+        Map<String, String> normalPayload = requireNormalPayload(action);
         PolicyDecisionEntity decision = decisions.findByActionProposalId(actionId).orElseThrow(() -> new ConflictException("Action must be evaluated before remediation"));
-        if (decision.getDecision() != DecisionType.ALLOW) throw new PolicyDeniedException("Remediation requires an ALLOW policy decision");
+        requireExecutableDecision(action, decision, normalPayload);
         requireVersionedPolicy(decision);
         auditIntegrity.assertAppendable(incidentId);
         action.authorizeRemediation();
         actions.save(action);
-        audit(incidentId, "REMEDIATION_AUTHORIZED", "Remediation authorized for request " + action.getRequestId() + " to approved destination " + approvedHost + " under policy " + decision.getPolicyVersion() + " hash " + decision.getPolicyHash());
+        audit(incidentId, "REMEDIATION_AUTHORIZED", "Remediation authorized for request " + action.getRequestId() + " to approved destination " + approvedHost + " with trusted normal payload binding under policy " + decision.getPolicyVersion() + " hash " + decision.getPolicyHash());
         traces.record(action, "HUMAN_AUTHORIZATION", "AUTHORIZED", null, null);
         return new RemediationAuthorizationResponse(incidentId, actionId, action.getRequestId(), action.getStatus().name());
     }
@@ -214,12 +222,13 @@ public class IncidentService {
         ActionProposalEntity action = requireAction(incidentId, actionId);
         requireSupportedRemediationExecutor(action);
         String approvedHost = requireApprovedHost(action);
+        Map<String, String> normalPayload = requireNormalPayload(action);
         if (action.getStatus() != ProposalStatus.REMEDIATION_AUTHORIZED && action.getStatus() != ProposalStatus.REMEDIATED) {
             throw new PolicyDeniedException("Remediation must be explicitly authorized before execution");
         }
         PolicyDecisionEntity decision = decisions.findByActionProposalId(actionId)
             .orElseThrow(() -> new ConflictException("A persisted policy decision is required before remediation"));
-        if (decision.getDecision() != DecisionType.ALLOW) throw new PolicyDeniedException("Remediation requires a persisted ALLOW policy decision");
+        requireExecutableDecision(action, decision, normalPayload);
         requireVersionedPolicy(decision);
         auditIntegrity.assertAppendable(incidentId);
 
@@ -229,16 +238,16 @@ public class IncidentService {
         List<String> fields = readList(action.getFieldsJson());
         List<String> privateRefs = readList(action.getPrivateRefsJson());
         String capability = remediationAuthorizationSigner.issue(
-            incidentId, actionId, action.getRequestId(), decision.getId(), action.getAction(), action.getResource(), action.getPurpose(), approvedHost, fields, privateRefs,
-            decision.getPolicyVersion(), decision.getPolicyHash()
+            incidentId, actionId, action.getRequestId(), decision.getId(), action.getAction(), action.getResource(), action.getPurpose(), approvedHost,
+            fields, normalPayload, privateRefs, decision.getPolicyVersion(), decision.getPolicyHash()
         );
 
         traces.record(action, "PROTECTED_EGRESS", "SENT", null, null);
         long startedAt = System.nanoTime();
         try {
             var result = remediationGateway.execute(new RemediationRequest(
-                incidentId, actionId, decision.getId(), action.getRequestId(), action.getAction(), action.getResource(), action.getPurpose(), approvedHost, fields, privateRefs,
-                decision.getPolicyVersion(), decision.getPolicyHash()
+                incidentId, actionId, decision.getId(), action.getRequestId(), action.getAction(), action.getResource(), action.getPurpose(), approvedHost,
+                fields, normalPayload, privateRefs, decision.getPolicyVersion(), decision.getPolicyHash()
             ), capability);
             if (!action.getRequestId().equals(result.requestId())) {
                 RemediationExecutionEntity state = executionCoordinator.markUnverified(actionId, "REQUEST_ID_MISMATCH");
@@ -246,9 +255,7 @@ public class IncidentService {
                     incidentId,
                     "REMEDIATION_UNVERIFIED",
                     "Execution acknowledgement request id did not match; no automatic retry will occur",
-                    result.activitySequence(),
-                    result.activityHash(),
-                    "execute-remediation"
+                    result.activitySequence(), result.activityHash(), "execute-remediation"
                 );
                 traces.record(action, "EXTERNAL_ACCEPTANCE", "FAILED", "REQUEST_ID_MISMATCH", elapsedMillis(startedAt));
                 return remediationResponse(incidentId, actionId, state);
@@ -257,10 +264,8 @@ public class IncidentService {
             audit(
                 incidentId,
                 "REMEDIATION_ACCEPTED",
-                "External request accepted for approved destination " + approvedHost + " under policy " + decision.getPolicyVersion() + " hash " + decision.getPolicyHash() + "; independent verification is required before completion",
-                result.activitySequence(),
-                result.activityHash(),
-                "execute-remediation"
+                "External request accepted for approved destination " + approvedHost + " under policy " + decision.getPolicyVersion() + " hash " + decision.getPolicyHash() + "; normal payload was minimized to the policy-allowed subset and independent verification is required before completion",
+                result.activitySequence(), result.activityHash(), "execute-remediation"
             );
             traces.record(action, "EXTERNAL_ACCEPTANCE", "ACCEPTED", "HTTP_" + result.httpCode(), elapsedMillis(startedAt));
             return verifyPersistedRemediation(incidentId, action, pending);
@@ -270,9 +275,7 @@ public class IncidentService {
                 incidentId,
                 "REMEDIATION_BLOCKED",
                 "Protected execution was blocked because the configured destination no longer matched the destination approved by the human operator; re-evaluation and re-authorization are required",
-                null,
-                null,
-                "execute-remediation"
+                null, null, "execute-remediation"
             );
             traces.record(action, "PROTECTED_EGRESS", "DENIED", "EXECUTION_DESTINATION_CHANGED", elapsedMillis(startedAt));
             return remediationResponse(incidentId, actionId, state);
@@ -282,9 +285,7 @@ public class IncidentService {
                 incidentId,
                 "REMEDIATION_UNVERIFIED",
                 "Execution outcome is ambiguous or policy binding could not be confirmed; automatic re-execution is blocked",
-                null,
-                null,
-                "execute-remediation"
+                null, null, "execute-remediation"
             );
             traces.record(action, "EXTERNAL_ACCEPTANCE", "UNAVAILABLE", "EXECUTION_RESULT_UNKNOWN", elapsedMillis(startedAt));
             return remediationResponse(incidentId, actionId, state);
@@ -306,9 +307,7 @@ public class IncidentService {
         }
         if (execution.getStatus() == RemediationStatus.EXECUTING && execution.getOperationId() == null) {
             RemediationExecutionEntity state = executionCoordinator.markUnverified(action.getId(), "RECOVERY_EXECUTION_OUTCOME_UNKNOWN");
-            if (state.getStatus() == RemediationStatus.EXECUTING) {
-                return remediationResponse(incidentId, action.getId(), state);
-            }
+            if (state.getStatus() == RemediationStatus.EXECUTING) return remediationResponse(incidentId, action.getId(), state);
             audit(incidentId, "REMEDIATION_UNVERIFIED", "Recovered a stale execution claim without a verifiable operation id; no automatic retry will occur");
             traces.record(action, "EXTERNAL_VERIFICATION", "FAILED", "RECOVERY_EXECUTION_OUTCOME_UNKNOWN", null);
             return remediationResponse(incidentId, action.getId(), state);
@@ -334,14 +333,7 @@ public class IncidentService {
                 : remediationGateway.verify(execution.getRequestId(), execution.getOperationId());
             if (!execution.getRequestId().equals(verification.requestId())) {
                 RemediationExecutionEntity state = executionCoordinator.markUnverified(action.getId(), "VERIFICATION_REQUEST_ID_MISMATCH");
-                audit(
-                    incidentId,
-                    "REMEDIATION_UNVERIFIED",
-                    "Verification response request id did not match; completion remains unverified",
-                    verification.activitySequence(),
-                    verification.activityHash(),
-                    "verify-remediation"
-                );
+                audit(incidentId, "REMEDIATION_UNVERIFIED", "Verification response request id did not match; completion remains unverified", verification.activitySequence(), verification.activityHash(), "verify-remediation");
                 traces.record(action, "EXTERNAL_VERIFICATION", "FAILED", "VERIFICATION_REQUEST_ID_MISMATCH", elapsedMillis(startedAt));
                 return remediationResponse(incidentId, action.getId(), state);
             }
@@ -355,34 +347,18 @@ public class IncidentService {
                     "REMEDIATION_VERIFIED",
                     "Independent read-back confirmed expected external state " + expectedState
                         + (NOTIFY_SECURITY_ACTION.equals(action.getAction()) ? " and confirmed private recipient resolution without returning the recipient value" : ""),
-                    verification.activitySequence(),
-                    verification.activityHash(),
-                    "verify-remediation"
+                    verification.activitySequence(), verification.activityHash(), "verify-remediation"
                 );
                 traces.record(action, "EXTERNAL_VERIFICATION", "VERIFIED", null, elapsedMillis(startedAt));
                 return remediationResponse(incidentId, action.getId(), completed);
             }
             RemediationExecutionEntity state = executionCoordinator.markUnverified(action.getId(), "EXTERNAL_STATE_NOT_VERIFIED");
-            audit(
-                incidentId,
-                "REMEDIATION_UNVERIFIED",
-                "Independent read-back did not confirm the expected external state",
-                verification.activitySequence(),
-                verification.activityHash(),
-                "verify-remediation"
-            );
+            audit(incidentId, "REMEDIATION_UNVERIFIED", "Independent read-back did not confirm the expected external state", verification.activitySequence(), verification.activityHash(), "verify-remediation");
             traces.record(action, "EXTERNAL_VERIFICATION", "FAILED", "EXTERNAL_STATE_NOT_VERIFIED", elapsedMillis(startedAt));
             return remediationResponse(incidentId, action.getId(), state);
         } catch (GatewayUnavailableException ex) {
             RemediationExecutionEntity state = executionCoordinator.markUnverified(action.getId(), "VERIFICATION_UNAVAILABLE");
-            audit(
-                incidentId,
-                "REMEDIATION_UNVERIFIED",
-                "External verification is unavailable; no automatic re-execution will occur",
-                null,
-                null,
-                "verify-remediation"
-            );
+            audit(incidentId, "REMEDIATION_UNVERIFIED", "External verification is unavailable; no automatic re-execution will occur", null, null, "verify-remediation");
             traces.record(action, "EXTERNAL_VERIFICATION", "UNAVAILABLE", "VERIFICATION_UNAVAILABLE", elapsedMillis(startedAt));
             return remediationResponse(incidentId, action.getId(), state);
         }
@@ -426,11 +402,50 @@ public class IncidentService {
         };
     }
 
+    private static Set<String> requiredFieldsForAction(String action) {
+        return switch (action) {
+            case REVOKE_CREDENTIAL_ACTION -> REVOKE_REQUIRED_FIELDS;
+            case NOTIFY_SECURITY_ACTION -> NOTIFY_REQUIRED_FIELDS;
+            default -> Set.of();
+        };
+    }
+
     private String requireApprovedHost(ActionProposalEntity action) {
-        try {
-            return RemediationAuthorizationSigner.canonicalizeHost(action.getHost());
-        } catch (IllegalArgumentException ex) {
-            throw new PolicyDeniedException("Protected remediation requires a valid approved destination; re-evaluate and authorize a new action");
+        try { return RemediationAuthorizationSigner.canonicalizeHost(action.getHost()); }
+        catch (IllegalArgumentException ex) { throw new PolicyDeniedException("Protected remediation requires a valid approved destination; re-evaluate and authorize a new action"); }
+    }
+
+    private Map<String, String> requireNormalPayload(ActionProposalEntity action) {
+        if (action.getNormalPayloadJson() == null || action.getNormalPayloadJson().isBlank()) {
+            throw new ConflictException("This action predates trusted normal payload binding and cannot authorize remediation; create and evaluate a new action");
+        }
+        Map<String, String> payload = readMap(action.getNormalPayloadJson());
+        if (payload.isEmpty()) throw new PolicyDeniedException("Protected remediation requires a trusted normal payload");
+        Set<String> requested = Set.copyOf(readList(action.getFieldsJson()).stream().map(TrustedNormalPayloadFactory::normalizeKey).toList());
+        if (!requested.containsAll(payload.keySet())) throw new ConflictException("Stored normal payload is inconsistent with the requested field set");
+        return payload;
+    }
+
+    private void requireExecutableDecision(ActionProposalEntity action, PolicyDecisionEntity decision, Map<String, String> normalPayload) {
+        if (decision.getDecision() == DecisionType.DENY) throw new PolicyDeniedException("Remediation cannot execute after a DENY policy decision");
+        Set<String> required = requiredFieldsForAction(action.getAction());
+        Set<String> allowed = Set.copyOf(readList(decision.getAllowedFieldsJson()));
+        if (!allowed.containsAll(required)) throw new PolicyDeniedException("Protected remediation no longer has all required normal fields after policy minimization");
+        if (!normalPayload.keySet().containsAll(required)) throw new PolicyDeniedException("Trusted normal payload is missing required remediation values");
+
+        List<String> privateRefs = readList(action.getPrivateRefsJson());
+        if (REVOKE_CREDENTIAL_ACTION.equals(action.getAction())) {
+            if (!"incident-remediation".equals(action.getPurpose()) || !privateRefs.isEmpty()) {
+                throw new PolicyDeniedException("Credential revocation no longer matches its closed protected-execution contract");
+            }
+            return;
+        }
+        if (!"incident-notification".equals(action.getPurpose()) || privateRefs.size() != 1 || !"verified_email".equals(privateRefs.get(0))) {
+            throw new PolicyDeniedException("Security notification requires exactly the logical private reference verified_email");
+        }
+        List<String> allowedPrivateRefs = readList(decision.getAllowedPrivateRefsJson());
+        if (!allowedPrivateRefs.contains("verified_email")) {
+            throw new PolicyDeniedException("Security notification requires verified_email to remain policy-allowed for protected execution");
         }
     }
 
@@ -460,22 +475,13 @@ public class IncidentService {
         }
     }
 
-    private void audit(String incidentId, String type, String message) {
-        audit(incidentId, type, message, null, null, null);
-    }
+    private void audit(String incidentId, String type, String message) { audit(incidentId, type, message, null, null, null); }
 
     private void audit(String incidentId, String type, String message, Long t3nSequence, String t3nHash, String t3nFunction) {
         Long networkSequence = t3nSequence != null && t3nSequence >= 0 ? t3nSequence : null;
         String function = safeNullable(t3nFunction, 120);
         String hash = networkSequence == null ? null : safeNullable(t3nHash, 128);
-        auditIntegrity.append(
-            incidentId,
-            type,
-            minimizer.sanitizeAuditMessage(message),
-            networkSequence,
-            hash,
-            function
-        );
+        auditIntegrity.append(incidentId, type, minimizer.sanitizeAuditMessage(message), networkSequence, hash, function);
     }
 
     private IncidentResponse incidentResponse(IncidentEntity entity) {
@@ -486,9 +492,10 @@ public class IncidentService {
     }
 
     private ActionResponse actionResponse(ActionProposalEntity entity) {
+        Map<String, String> normalPayload = entity.getNormalPayloadJson() == null || entity.getNormalPayloadJson().isBlank() ? Map.of() : readMap(entity.getNormalPayloadJson());
         return new ActionResponse(
             entity.getId(), entity.getIncidentId(), entity.getRequestId(), entity.getAction(), entity.getResource(), entity.getPurpose(), entity.getHost(),
-            readList(entity.getFieldsJson()), readList(entity.getPrivateRefsJson()), entity.getStatus(), entity.getCreatedAt()
+            readList(entity.getFieldsJson()), normalPayload, readList(entity.getPrivateRefsJson()), entity.getStatus(), entity.getCreatedAt()
         );
     }
 
@@ -518,6 +525,11 @@ public class IncidentService {
         catch (JsonProcessingException ex) { throw new IllegalStateException("Stored metadata is invalid", ex); }
     }
 
+    private Map<String, String> readMap(String json) {
+        try { return mapper.readValue(json, new TypeReference<Map<String, String>>() {}); }
+        catch (JsonProcessingException ex) { throw new IllegalStateException("Stored normal payload is invalid", ex); }
+    }
+
     private static String decisionTraceState(DecisionType decision) {
         return switch (decision) {
             case ALLOW -> "ACCEPTED";
@@ -526,10 +538,7 @@ public class IncidentService {
         };
     }
 
-    private static long elapsedMillis(long startedAt) {
-        return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
-    }
-
+    private static long elapsedMillis(long startedAt) { return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt); }
     private static String blankToNull(String value) { return value == null || value.isBlank() ? null : value.trim(); }
     private static String safe(String value, int max) {
         String result = value == null ? "" : value.replaceAll("(?i)(api[_-]?key|password|private[_-]?key|token)\\s*[:=]\\s*\\S+", "$1=[REDACTED]");
