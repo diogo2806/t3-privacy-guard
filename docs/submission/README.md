@@ -54,6 +54,14 @@ Did the external side effect really reach the expected state?
 
 A model can therefore remain useful while being structurally unable to grant itself the missing authority.
 
+### Pre-provider privacy boundary
+
+Free-text prompts are untrusted and users must not paste private values into them. Before a configured remote AI provider is called, the gateway applies a deliberately **high-confidence, partial** sensitive-literal guard. It blocks supported structured classes that can be detected defensibly: e-mail, CPF, checksum-valid CNPJ, strongly signalled phone numbers (E.164 or explicit phone/mobile/telefone/celular labels), public IPv4/IPv6 explicitly labelled as customer/user data, API keys/tokens, Bearer tokens, JWTs, private-key markers, labelled passwords and Luhn-valid card candidates.
+
+The boundary is intentionally narrow. It does not block a technical IP merely because it appears in a URL/host, and it does not use broad regexes to guess names or postal addresses. It is not a semantic or exhaustive PII scanner. Passing the guard does **not** mean a prompt is `PII-free`, `safe` or certified. Rejections expose bounded categories only; matched values and offsets are never returned to the model, browser, audit or evidence surfaces.
+
+The TypeScript gateway and Java incident-persistence boundary share a versioned conformance corpus at `privacy-conformance/sensitive-literal-corpus.json`. Tests in both runtimes consume the same positive and false-positive fixtures so overlapping privacy behavior cannot drift silently. A provider spy additionally proves that newly blocked CNPJ, phone and labelled-public-IP cases are rejected before provider execution.
+
 ## 60-second judge story
 
 ### Attack path
@@ -246,7 +254,7 @@ T3N / Rust WASM policy
 
 Trust model:
 
-- **Prompt is untrusted.** It may contain instruction injection and never becomes an authorization source.
+- **Prompt is untrusted.** It may contain instruction injection and never becomes an authorization source. A high-confidence pre-provider literal guard reduces known structured leakage but is not a complete PII scanner.
 - **Scenario selection is presentation state.** It loads synthetic input and grants no authority.
 - **The model is not a security boundary.** It can only call one proposal tool with a closed JSON schema.
 - **Unknown or privileged model fields are rejected.** Decisions, overrides, identities, credentials, secrets, API keys and literal `{{profile...}}` markers are rejected before T3N evaluation.
@@ -288,6 +296,8 @@ Trust model:
 |---|---|---|
 | Real configured model produces structured proposals | PROVED LOCAL | provider adapter + agent/backend tests |
 | Tool schema cannot accept decision/override/DID/secret authority fields | PROVED LOCAL | `proposal-schema.test.ts` |
+| High-confidence prompt literals are blocked before provider execution for the supported classes, with shared Java/TypeScript conformance fixtures | PROVED LOCAL | `prompt-privacy-guard.test.ts`, `agent-service.test.ts`, `IncidentDataMinimizerTest`, `privacy-conformance/sensitive-literal-corpus.json` |
+| Prompt guard is partial/non-semantic and does not certify accepted text as PII-free | PROVED LOCAL | `PROMPT_PRIVACY_GUARD_SCOPE`, frontend copy/tests, Manual da Tela |
 | Four enterprise presets map to existing policy actions without authorizing them | PROVED LOCAL | `scenarioDefinitions.ts` + `EnterpriseScenarioCatalog.test.tsx` |
 | Scenario selection does not submit the prompt automatically | PROVED LOCAL | `EnterpriseScenarioCatalog.test.tsx` + controlled prompt flow |
 | Tenant DID derives from authenticated T3N session | PROVED LOCAL | gateway session code/tests |
@@ -340,6 +350,8 @@ The forced tool shape is:
 
 `private_refs` contains domain-level categories only. The model cannot submit `{{profile...}}`, `profile.*`, a private value, a new private namespace or policy configuration. Provider failure, invalid JSON, missing/multiple tool calls, extra keys or unsafe authority fields fail closed.
 
+The pre-provider guard is a separate defense-in-depth boundary from the tool schema. A matched supported literal is rejected before `provider.propose(...)` and the rejection contains categories only. The absence of a match is not an authorization decision and is not evidence that arbitrary free text contains no PII.
+
 ## Structural private-data flow
 
 ```text
@@ -373,7 +385,7 @@ External service receives intended value
 Contract returns minimized operation metadata
 ```
 
-Plaintext visibility contract:
+For a private value obtained through this supported logical-reference flow, the plaintext visibility contract is:
 
 - AI/model: **NO**
 - React/browser: **NO**
@@ -382,6 +394,8 @@ Plaintext visibility contract:
 - business audit/evidence: **NO**
 - T3N protected egress: **YES**, transiently for placeholder resolution
 - intended external service: **YES**, because it is the authorized recipient
+
+This visibility contract does not make a blanket claim about arbitrary user-supplied prompt text. Users must not paste private values into prompts; the high-confidence pre-provider guard is partial and deliberately does not claim semantic/exhaustive PII coverage.
 
 If the profile field is unavailable, user context is missing, placeholder is denied, delegation is not effectively authorized, the destination host is not authorized or policy provenance no longer matches, execution fails closed. Error text never returns the resolved value.
 
@@ -584,6 +598,7 @@ The submission must lead with user/business meaning, then expose the technical p
 
 - **enterprise scenario**: synthetic demonstration context and prompt preset, never a permission or policy decision;
 - **agent proposal**: model-produced structured request, not authorization;
+- **pre-provider privacy guard**: high-confidence, partial control for explicitly supported structured literals; not a semantic/exhaustive PII scanner, and an accepted prompt is not certified PII-free or safe;
 - **authenticated**: a T3N session proved a principal identity and yielded its canonical DID;
 - **registered**: the public Proposal Agent Card resolved and matched the authenticated DID; not authorization;
 - **Member grant**: Tenant-side grant record with grantee, contract, functions, scopes, hosts and validity window;
@@ -602,7 +617,7 @@ The submission must lead with user/business meaning, then expose the technical p
 - **execution proof**: short-lived server-to-gateway capability, not hardware attestation;
 - **proved live**: matching live evidence/capture exists.
 
-Do not say “Member grant ACTIVE = authorized”, “registered = authorized”, “Agent Card = attestation”, “guarantees GDPR compliance”, “hardware verified”, “exactly once”, “at most once”, “profile resolution proved live”, “all four scenarios execute end-to-end” or “completed from HTTP 2xx” without corresponding evidence/contract.
+Do not say “Member grant ACTIVE = authorized”, “registered = authorized”, “Agent Card = attestation”, “guarantees GDPR compliance”, “hardware verified”, “exactly once”, “at most once”, “profile resolution proved live”, “all four scenarios execute end-to-end”, “prompt is PII-free because it passed the guard” or “completed from HTTP 2xx” without corresponding evidence/contract.
 
 ## Post-challenge operation and handover
 
