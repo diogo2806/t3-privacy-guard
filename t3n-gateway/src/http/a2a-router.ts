@@ -6,6 +6,7 @@ import {
   type A2aEvaluationResult,
   type A2aEvaluationService,
 } from '../agent/a2a-service.js';
+import { validateA2aPublicUrl } from '../config/env.js';
 import { SensitivePromptError } from '../security/prompt-privacy-guard.js';
 
 export const A2A_PROTOCOL_VERSION = '1.0';
@@ -79,10 +80,11 @@ export function parseA2aRequest(value: unknown): A2aJsonRpcRequest {
 }
 
 export function buildA2aAgentCard(publicUrl: string) {
+  const validatedPublicUrl = validateA2aPublicUrl(publicUrl);
   return {
     name: 'T3 Privacy Guard',
     description: 'External agents can request analysis and a T3N policy decision. Protected remediation remains operator-authorized and is not exposed through A2A.',
-    supportedInterfaces: [{ url: publicUrl, protocolBinding: 'JSONRPC', protocolVersion: A2A_PROTOCOL_VERSION }],
+    supportedInterfaces: [{ url: validatedPublicUrl, protocolBinding: 'JSONRPC', protocolVersion: A2A_PROTOCOL_VERSION }],
     version: '1.0.0',
     capabilities: { streaming: false, pushNotifications: false, extendedAgentCard: false },
     defaultInputModes: ['text/plain'],
@@ -124,9 +126,7 @@ function rpcError(id: string | number | null, code: number, message: string, rea
 
 function requestVersion(request: Request): string | null {
   const header = request.get('A2A-Version');
-  if (header) return header.trim();
-  const query = request.query['A2A-Version'];
-  return typeof query === 'string' ? query.trim() : null;
+  return header ? header.trim() : null;
 }
 
 class FixedWindowRateLimiter {
@@ -153,10 +153,11 @@ class FixedWindowRateLimiter {
 export function createA2aRouter(service: A2aEvaluationService, publicUrl: string): Router {
   const router = Router();
   const limiter = new FixedWindowRateLimiter();
+  const publicAgentCard = buildA2aAgentCard(publicUrl);
 
   router.get('/.well-known/agent-card.json', (_request, response) => {
     response.set('Cache-Control', 'public, max-age=300');
-    response.json(buildA2aAgentCard(publicUrl));
+    response.json(publicAgentCard);
   });
 
   router.post('/a2a', express.json({ limit: '16kb', strict: true, type: ['application/json', 'application/a2a+json'] }), async (request, response) => {
@@ -206,7 +207,7 @@ export function createA2aRouter(service: A2aEvaluationService, publicUrl: string
     }
   });
 
-  const jsonErrorHandler: ErrorRequestHandler = (error, request, response, next) => {
+  const jsonErrorHandler: ErrorRequestHandler = (error, _request, response, next) => {
     const record = asRecord(error);
     if (record?.type === 'entity.too.large' || record?.type === 'entity.parse.failed') {
       response.status(record.type === 'entity.too.large' ? 413 : 400).json(rpcError(null, -32700, record.type === 'entity.too.large' ? 'A2A request body is too large' : 'Invalid JSON', record.type === 'entity.too.large' ? 'BODY_TOO_LARGE' : 'PARSE_ERROR'));
