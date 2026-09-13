@@ -14,9 +14,8 @@ export function AgentProposalPanel({ analysis }: { analysis: AgentAnalysis | nul
   const hasPrivateRefs = proposal.privateRefs.length > 0;
   return (
     <Surface className="agent-proposal-card" aria-labelledby="agent-proposal-title">
-      <SectionHeader eyebrow="Latest model output, not authority" title="Latest agent proposal" titleId="agent-proposal-title" icon={<Bot aria-hidden="true" />} />
+      <SectionHeader eyebrow="Model output, not authority" title="Agent proposal" titleId="agent-proposal-title" icon={<Bot aria-hidden="true" />} />
       <div className="agent-provider-meta"><Cpu aria-hidden="true" /><span>{analysis.provider} · {analysis.model}</span></div>
-      <p className="card-copy">This card shows the most recent provider response. Use Action proposals below to compare every proposal persisted for this incident.</p>
       <dl className="detail-grid">
         <div><dt>Action</dt><dd>{proposal.action}</dd></div>
         <div><dt>Resource</dt><dd>{proposal.resource}</dd></div>
@@ -36,7 +35,7 @@ export function AgentProposalPanel({ analysis }: { analysis: AgentAnalysis | nul
           <p className="card-copy">The agent received a logical reference, not the private value. The application never renders the resolved plaintext.</p>
         </div>
       )}
-      <InlineNotice className="agent-authority-note">This proposal cannot set a decision, DID, capability, placeholder literal or secret. The T3N TEE decision shown below is authoritative.</InlineNotice>
+      <InlineNotice className="agent-authority-note">The model proposes field names only. It cannot supply the operational values that are executed. Synthetic normal values are created and persisted by the trusted backend, while T3N decides which of those values may reach protected egress.</InlineNotice>
     </Surface>
   );
 }

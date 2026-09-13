@@ -11,6 +11,8 @@ interface Props {
   onVerify: () => void;
 }
 
+const REQUIRED_REMEDIATION_FIELDS = ['incident_id', 'credential_id', 'reason'];
+
 function stateCopy(execution: RemediationExecution | null): { execution: string; verification: string; final: string } {
   if (!execution) return { execution: 'NOT SENT', verification: 'NOT STARTED', final: 'NOT STARTED' };
   if (execution.state === 'EXECUTING') return { execution: 'CLAIMED / SENDING', verification: 'NOT STARTED', final: 'IN PROGRESS' };
@@ -20,11 +22,22 @@ function stateCopy(execution: RemediationExecution | null): { execution: string;
   return { execution: 'BLOCKED / FAILED', verification: 'NOT VERIFIED', final: 'FAILED' };
 }
 
+function executableDecision(decision: PolicyDecision | null): boolean {
+  return Boolean(decision
+    && decision.decision !== 'DENY'
+    && REQUIRED_REMEDIATION_FIELDS.every((field) => decision.allowedFields.includes(field)));
+}
+
 export function RemediationPanel({ action, decision, execution, busy, onAuthorize, onExecute, onVerify }: Props) {
   const hasVerifiedExecutor = action?.action === 'revoke-credential';
   const hasApprovedDestination = Boolean(action?.host);
-  const canAuthorize = Boolean(hasVerifiedExecutor && hasApprovedDestination && action && decision?.decision === 'ALLOW' && action.status === 'EVALUATED');
-  const canExecute = Boolean(hasVerifiedExecutor && hasApprovedDestination && action && decision?.decision === 'ALLOW' && action.status === 'REMEDIATION_AUTHORIZED' && !execution);
+  const normalPayload = action?.normalPayload ?? {};
+  const payloadEntries = Object.entries(normalPayload);
+  const allowedPayloadEntries = payloadEntries.filter(([field]) => decision?.allowedFields.includes(field));
+  const removedPayloadEntries = payloadEntries.filter(([field]) => decision?.redactedFields.includes(field));
+  const decisionCanExecute = executableDecision(decision) && REQUIRED_REMEDIATION_FIELDS.every((field) => field in normalPayload);
+  const canAuthorize = Boolean(hasVerifiedExecutor && hasApprovedDestination && action && decisionCanExecute && action.status === 'EVALUATED');
+  const canExecute = Boolean(hasVerifiedExecutor && hasApprovedDestination && action && decisionCanExecute && action.status === 'REMEDIATION_AUTHORIZED' && !execution);
   const canVerify = Boolean(hasVerifiedExecutor && execution && (execution.state === 'PENDING_VERIFICATION' || execution.state === 'UNVERIFIED') && execution.operationId);
   const destinationChanged = execution?.failureCode === 'EXECUTION_DESTINATION_CHANGED';
   const state = stateCopy(execution);
@@ -32,20 +45,33 @@ export function RemediationPanel({ action, decision, execution, busy, onAuthoriz
   return (
     <section className="card remediation-card" aria-labelledby="remediation-title">
       <div className="card-heading compact"><div className="section-icon section-icon-success"><LockKeyhole aria-hidden="true" /></div><div><p className="eyebrow">Secretless remediation</p><h2 id="remediation-title">Protected execution</h2></div></div>
-      <p className="card-copy">The upstream credential stays in the tenant private map. A provider acknowledgement is not called completed until an independent read-back confirms the expected external state.</p>
+      <p className="card-copy">The model selects field names only. Synthetic operational values are created and persisted by the trusted backend, then the T3N policy removes unnecessary fields before protected egress.</p>
       {action && !hasVerifiedExecutor && <p className="inline-notice">This action can be evaluated by the T3N policy, but this demo does not claim a protected executor or independent completion verifier for it. Full execution and read-back are currently implemented only for credential revocation.</p>}
-      {(!action || hasVerifiedExecutor) && decision?.decision !== 'ALLOW' && <p className="inline-notice">A persisted ALLOW decision is required before credential revocation can be authorized.</p>}
-      {hasVerifiedExecutor && action && decision?.decision === 'ALLOW' && (
+      {hasVerifiedExecutor && decision?.decision === 'DENY' && <p className="inline-notice">A DENY decision cannot enter protected remediation.</p>}
+      {hasVerifiedExecutor && decision && decision.decision !== 'DENY' && !decisionCanExecute && <p className="inline-notice">Execution is blocked because the policy-minimized result no longer contains all required remediation fields.</p>}
+
+      {action && decision && (
+        <div role="region" aria-label="T3N payload minimization">
+          <div className="field-list"><span>Requested fields</span>{action.fields.map((field) => <code key={field}>{field}</code>)}</div>
+          {decision.allowedFields.length > 0 && <div className="field-list"><span>Allowed for egress</span>{decision.allowedFields.map((field) => <code key={field}>{field}</code>)}</div>}
+          {decision.redactedFields.length > 0 && <div className="field-list"><span>Removed before egress</span>{decision.redactedFields.map((field) => <code key={field}>{field}</code>)}</div>}
+          {payloadEntries.length > 0 && <div className="field-list"><span>Trusted synthetic values</span>{payloadEntries.map(([field, value]) => <code key={field}>{field}={value}</code>)}</div>}
+          {allowedPayloadEntries.length > 0 && <div className="field-list"><span>Protected egress payload</span>{allowedPayloadEntries.map(([field, value]) => <code key={field}>{field}={value}</code>)}</div>}
+          {removedPayloadEntries.length > 0 && <p className="inline-notice">{removedPayloadEntries.length} trusted value{removedPayloadEntries.length === 1 ? ' was' : 's were'} removed by policy and will not be serialized into the external request.</p>}
+        </div>
+      )}
+
+      {hasVerifiedExecutor && action && decisionCanExecute && (
         <div className="remediation-state-panel" role="region" aria-label="Approved remediation destination and authorization status">
-          <div><span>Policy decision</span><strong>ALLOW</strong></div>
+          <div><span>Policy decision</span><strong>{decision?.decision}</strong></div>
           <div><span>Approved destination</span><strong>{action.host || 'MISSING — BLOCKED'}</strong></div>
           <div><span>Human authorization</span><strong>{action.status === 'REMEDIATION_AUTHORIZED' || action.status === 'REMEDIATED' ? 'AUTHORIZED' : 'NOT AUTHORIZED'}</strong></div>
         </div>
       )}
-      {hasVerifiedExecutor && action && decision?.decision === 'ALLOW' && !action.host && <div className="feedback feedback-error remediation-status-message" role="alert"><CircleAlert aria-hidden="true" /><span>Execution is blocked because this action has no approved destination. Create and evaluate a new action before authorizing remediation.</span></div>}
+      {hasVerifiedExecutor && action && decisionCanExecute && !action.host && <div className="feedback feedback-error remediation-status-message" role="alert"><CircleAlert aria-hidden="true" /><span>Execution is blocked because this action has no approved destination. Create and evaluate a new action before authorizing remediation.</span></div>}
       {canAuthorize && <button className="button button-primary" type="button" onClick={onAuthorize} disabled={busy}><ShieldCheck aria-hidden="true" />Authorize credential revocation</button>}
       {canExecute && <>
-        <div className="success-state"><ShieldCheck aria-hidden="true" /><span>Human authorization is recorded for the exact destination shown above. Changing the protected destination requires a new action, policy evaluation and authorization.</span></div>
+        <div className="success-state"><ShieldCheck aria-hidden="true" /><span>Human authorization binds the exact destination and trusted payload. T3N will serialize only the policy-allowed subset shown above.</span></div>
         <button className="button button-primary" type="button" onClick={onExecute} disabled={busy}><PlayCircle aria-hidden="true" />Execute protected credential revocation</button>
       </>}
 

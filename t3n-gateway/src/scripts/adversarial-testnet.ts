@@ -3,7 +3,6 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TenantClient, getNodeUrl } from '@terminal3/t3n-sdk';
-import { AgentService } from '../agent/agent-service.js';
 import { AgentSession } from '../agent/agent-session.js';
 import {
   DelegationService,
@@ -12,7 +11,6 @@ import {
   type DelegationStatus,
 } from '../agent/delegation-service.js';
 import { ExecutorSession } from '../agent/executor-session.js';
-import { OpenAiCompatibleProvider } from '../agent/openai-compatible-provider.js';
 import { readGatewayConfig } from '../config/env.js';
 import { buildDelegatedExecutionRequest, PrivacyGuardContractService, type PolicyDecision } from '../contract/privacy-guard-contract.js';
 import { assertNoSecretLeak, sanitizeEvidenceError } from '../evidence/leak-detector.js';
@@ -39,6 +37,15 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDir, '../../..');
 const outputPath = resolve(process.env.EVIDENCE_OUTPUT ?? resolve(repositoryRoot, 'docs/evidence/testnet-run.json'));
 const wasmPath = resolve(process.env.T3N_CONTRACT_WASM_PATH ?? resolve(repositoryRoot, 'contracts/privacy-guard/target/wasm32-wasip2/release/privacy_guard_contract.wasm'));
+const DEFAULT_NORMAL_PAYLOAD = Object.freeze({
+  incident_id: 'inc-demo-001',
+  credential_id: 'cred-demo-001',
+  reason: 'suspected compromise',
+});
+
+function normalPayload(extra: Record<string, string> = {}): Record<string, string> {
+  return { ...DEFAULT_NORMAL_PAYLOAD, ...extra };
+}
 
 function httpsHost(value: string, label: string): string {
   const parsed = new URL(value);
@@ -83,6 +90,9 @@ if (!config.executorApiKey) throw new Error('T3N_EXECUTOR_API_KEY is required fo
 if (process.env.EVIDENCE_RUN_DESTINATION_BINDING === 'true' && config.network !== 'testnet') {
   throw new Error('Destination-binding mutation evidence is testnet-only and cannot run against production');
 }
+if (process.env.EVIDENCE_RUN_PAYLOAD_MINIMIZATION === 'true' && config.network !== 'testnet') {
+  throw new Error('Payload-minimization evidence is testnet-only and cannot run against production');
+}
 
 const trustFloorStore = new TrustManifestFloorStore(config.trustManifestFloorStorePath);
 const tenantSession = new T3nSession(config, trustFloorStore);
@@ -91,10 +101,6 @@ const executorSession = new ExecutorSession(config, trustFloorStore);
 const proposalDelegation = new DelegationService(tenantSession, agentSession, PROPOSAL_DELEGATION_REQUIREMENTS);
 const executorDelegation = new DelegationService(tenantSession, executorSession, EXECUTOR_DELEGATION_REQUIREMENTS);
 const contract = new PrivacyGuardContractService(config, tenantSession, agentSession, executorSession);
-const aiProvider = config.aiProvider === 'openai-compatible' && config.aiApiUrl && config.aiApiKey && config.aiModel
-  ? new OpenAiCompatibleProvider({ apiUrl: config.aiApiUrl, apiKey: config.aiApiKey, model: config.aiModel })
-  : null;
-const aiAgent = new AgentService(aiProvider);
 const scenarios: ScenarioResult[] = [];
 let observedPolicyVersion: string | null = null;
 let observedPolicyHash: string | null = null;
@@ -138,46 +144,6 @@ async function decisionScenario(id: string, expected: 'ALLOW' | 'REDACT' | 'DENY
     record(id, expected, result.decision, result.decision === expected ? 'PASS' : 'FAIL', `${result.reason_code}; policy=${result.policy_version}; hash=${result.policy_hash}`);
   } catch (error) { record(id, expected, null, 'FAIL', sanitizeEvidenceError(error)); }
 }
-async function liveAiMinimumRemediationScenario(protectedHost: string): Promise<void> {
-  const id = 'LIVE-AI-MINIMUM-REMEDIATION';
-  const expected = 'configured live AI proposes the minimum revoke-credential action and independent T3N policy returns ALLOW';
-  if (!aiProvider) {
-    record(id, expected, null, 'NOT_RUN', 'AI_PROVIDER is disabled. No deterministic fixture is presented as live AI evidence.');
-    return;
-  }
-
-  try {
-    const generated = await aiAgent.propose(
-      `Credential production-security-api is compromised. Propose the minimum revoke-credential remediation for incident demo-credential-42 through the approved security endpoint host ${protectedHost} using only incident_id, credential_id and reason. Do not request secrets, private values or extra fields.`,
-    );
-    const proposal = generated.proposal;
-    const result = await contract.evaluate({
-      request_id: 'live-ai-minimum-remediation',
-      action: proposal.action,
-      resource: proposal.resource,
-      purpose: proposal.purpose,
-      host: proposal.host ?? undefined,
-      fields: proposal.fields,
-      private_refs: proposal.private_refs,
-    });
-    observePolicy(result);
-
-    const expectedFields = ['credential_id', 'incident_id', 'reason'];
-    const actualFields = [...proposal.fields].sort();
-    const minimumProposal = proposal.action === 'revoke-credential'
-      && proposal.resource === 'credential:production-security-api'
-      && proposal.purpose === 'incident-remediation'
-      && proposal.host?.toLowerCase() === protectedHost
-      && JSON.stringify(actualFields) === JSON.stringify(expectedFields)
-      && proposal.private_refs.length === 0;
-    const passed = minimumProposal && result.decision === 'ALLOW';
-    const actual = `${proposal.action} -> ${result.decision}`;
-    const detail = `provider=${generated.provider}; model=${generated.model}; resource=${proposal.resource}; purpose=${proposal.purpose}; host=${proposal.host ?? 'none'}; fields=${actualFields.join(',')}; private_refs=${proposal.private_refs.join(',') || 'none'}; reason=${result.reason_code}; policy=${result.policy_version}; hash=${result.policy_hash}`;
-    record(id, expected, actual, passed ? 'PASS' : 'FAIL', detail);
-  } catch (error) {
-    record(id, expected, null, 'FAIL', sanitizeEvidenceError(error));
-  }
-}
 function isAuthorizationRejection(message: string): boolean {
   return /(egress|denied|not[ -]?authori[sz]ed|authori[sz]ation|delegat|permission|function.*allow|grant)/i.test(message);
 }
@@ -200,6 +166,7 @@ async function expectProposalExecutorRejected(contractId: string, contractVersio
         purpose: 'incident-remediation',
         approved_host: executionHost(),
         fields: ['incident_id', 'credential_id', 'reason'],
+        normal_payload: normalPayload(),
         private_refs: [],
         policy_version: observedPolicyVersion,
         policy_hash: observedPolicyHash,
@@ -243,6 +210,7 @@ async function expectExecutorRevocationRejected(id: string, expected: string, re
       purpose: 'incident-remediation',
       approved_host: executionHost(),
       fields: ['incident_id', 'credential_id', 'reason'],
+      normal_payload: normalPayload(),
       policy_version: observedPolicyVersion,
       policy_hash: observedPolicyHash,
     }, executorDid);
@@ -355,6 +323,7 @@ async function destinationBindingScenario(tenantDid: string, executorDid: string
         purpose: 'incident-remediation',
         approved_host: approvedHost,
         fields: ['incident_id', 'credential_id', 'reason'],
+        normal_payload: normalPayload(),
         policy_version: approved.policy_version,
         policy_hash: approved.policy_hash,
       }, executorDid);
@@ -377,6 +346,68 @@ async function destinationBindingScenario(tenantDid: string, executorDid: string
   } finally {
     try { await writePrivateSecurityApiUrl(originalUrl, tenantDid); }
     catch (error) { throw new Error(`Failed to restore SECURITY_API_URL after destination-binding evidence: ${sanitizeEvidenceError(error)}`); }
+  }
+}
+
+async function payloadMinimizationScenario(executorDid: string): Promise<void> {
+  const id = 'LIVE-NORMAL-PAYLOAD-MINIMIZATION';
+  const expected = 'synthetic required value observed by external read-back while synthetic redacted value is not observed';
+  if (process.env.EVIDENCE_RUN_PAYLOAD_MINIMIZATION !== 'true') {
+    record(id, expected, null, 'NOT_RUN', 'Set EVIDENCE_RUN_PAYLOAD_MINIMIZATION=true only with a synthetic testnet endpoint whose read-back returns bounded payload_proof booleans.');
+    return;
+  }
+  if (!observedPolicyVersion || !observedPolicyHash) {
+    record(id, expected, null, 'FAIL', 'Versioned policy metadata was not established before payload-minimization evidence.');
+    return;
+  }
+  try {
+    const decision = await contract.evaluate({
+      request_id: 'live-normal-payload-minimization',
+      action: 'revoke-credential',
+      resource: 'credential:security-api',
+      purpose: 'incident-remediation',
+      host: executionHost(),
+      fields: ['incident_id', 'credential_id', 'reason', 'employee_department'],
+    });
+    observePolicy(decision);
+    if (decision.decision !== 'REDACT' || !decision.redacted_fields.includes('employee_department') || !decision.policy_version || !decision.policy_hash) {
+      record(id, expected, decision.decision, 'FAIL', 'The live policy did not classify employee_department as removable while preserving the remediation fields.');
+      return;
+    }
+    const remediation = await contract.remediate({
+      request_id: decision.request_id,
+      action: 'revoke-credential',
+      resource: 'credential:security-api',
+      purpose: 'incident-remediation',
+      approved_host: executionHost(),
+      fields: ['incident_id', 'credential_id', 'reason', 'employee_department'],
+      normal_payload: normalPayload({ reason: 'SENTINEL_MUST_EGRESS', employee_department: 'SENTINEL_MUST_NOT_EGRESS' }),
+      policy_version: decision.policy_version,
+      policy_hash: decision.policy_hash,
+    }, executorDid);
+    if (!remediation.operation_id) {
+      record(id, expected, 'ACCEPTED_WITHOUT_OPERATION_ID', 'FAIL', 'External acceptance did not provide an operation id for controlled read-back.');
+      return;
+    }
+    const verification = await contract.verifyRemediation({
+      request_id: remediation.request_id,
+      operation_id: remediation.operation_id,
+      expected_state: 'REVOKED',
+    });
+    const proof = verification.payload_proof;
+    const passed = verification.status === 'VERIFIED'
+      && verification.observed_state === 'REVOKED'
+      && proof?.must_egress_seen === true
+      && proof.must_not_egress_seen === false;
+    record(
+      id,
+      expected,
+      proof ? `must_egress_seen=${proof.must_egress_seen}; must_not_egress_seen=${proof.must_not_egress_seen}` : 'PAYLOAD_PROOF_MISSING',
+      passed ? 'PASS' : 'FAIL',
+      passed ? 'Controlled external read-back confirmed the required synthetic value arrived and the policy-redacted synthetic value did not.' : 'Controlled read-back did not prove the expected minimized external payload.',
+    );
+  } catch (error) {
+    record(id, expected, null, 'FAIL', sanitizeEvidenceError(error));
   }
 }
 
@@ -409,7 +440,6 @@ await decisionScenario('LIVE-HOST-DENY', 'DENY', { request_id: 'live-host-deny',
 await decisionScenario('LIVE-PURPOSE-DENY', 'DENY', { request_id: 'live-purpose-deny', action: 'revoke-credential', resource: 'credential:security-api', purpose: 'analytics', host: protectedHost, fields: ['incident_id', 'credential_id', 'reason'] });
 await decisionScenario('LIVE-DATA-MINIMIZATION', 'REDACT', { request_id: 'live-redact', action: 'revoke-credential', resource: 'credential:security-api', purpose: 'incident-remediation', host: protectedHost, fields: ['incident_id', 'credential_id', 'reason', 'employee_department'] });
 await decisionScenario('LIVE-MINIMAL-ALLOW', 'ALLOW', { request_id: 'live-allow', action: 'revoke-credential', resource: 'credential:security-api', purpose: 'incident-remediation', host: protectedHost, fields: ['incident_id', 'credential_id', 'reason'] });
-await liveAiMinimumRemediationScenario(protectedHost);
 await decisionScenario('LIVE-PRIVATE-REFERENCE-POLICY', 'ALLOW', {
   request_id: 'live-private-ref-policy', action: 'notify-security', resource: 'incident:synthetic', purpose: 'incident-notification', host: protectedHost,
   fields: ['incident_id', 'severity', 'summary'], private_refs: ['verified_email'],
@@ -429,6 +459,7 @@ record(
 );
 
 await destinationBindingScenario(tenantDid, executorDid);
+await payloadMinimizationScenario(executorDid);
 
 if (process.env.EVIDENCE_RUN_EGRESS_NEGATIVES === 'true') {
   try {
@@ -484,6 +515,7 @@ if (process.env.EVIDENCE_RUN_REMEDIATION === 'true') {
         purpose: 'incident-remediation',
         approved_host: protectedHost,
         fields: ['incident_id', 'credential_id', 'reason'],
+        normal_payload: normalPayload(),
         policy_version: safe.policy_version,
         policy_hash: safe.policy_hash,
       }, executorDid);

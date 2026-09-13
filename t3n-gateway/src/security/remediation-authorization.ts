@@ -12,6 +12,7 @@ export interface RemediationBody {
   purpose: string;
   approved_host: string;
   fields: string[];
+  normal_payload: Record<string, string>;
   private_refs: string[];
   policy_version: string;
   policy_hash: string;
@@ -28,6 +29,7 @@ interface Claims {
   purpose: string;
   approvedHost: string;
   fieldsHash: string;
+  normalPayloadHash: string;
   privateRefsHash: string;
   policyVersion: string;
   policyHash: string;
@@ -41,6 +43,31 @@ interface ReplayEntry { nonce: string; expiresAt: number }
 
 function listHash(values: string[] | undefined): string {
   return createHash('sha256').update(JSON.stringify([...(values ?? [])].map((value) => value.trim()).sort())).digest('hex');
+}
+
+function lexicalCompare(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
+export function canonicalNormalPayload(value: unknown): string {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('CAPABILITY_INVALID');
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length > 16) throw new Error('CAPABILITY_INVALID');
+  return entries
+    .sort(([left], [right]) => lexicalCompare(left, right))
+    .map(([key, raw]) => {
+      if (!/^[a-z][a-z0-9_]{0,79}$/.test(key) || typeof raw !== 'string' || !raw.trim() || Buffer.byteLength(raw, 'utf8') > 512) {
+        throw new Error('CAPABILITY_INVALID');
+      }
+      return `${Buffer.byteLength(key, 'utf8')}:${key}=${Buffer.byteLength(raw, 'utf8')}:${raw}\n`;
+    })
+    .join('');
+}
+
+export function normalPayloadHash(value: unknown): string {
+  return createHash('sha256').update(canonicalNormalPayload(value), 'utf8').digest('hex');
 }
 
 export function canonicalizeApprovedHost(value: unknown): string {
@@ -77,6 +104,7 @@ export class RemediationAuthorizationVerifier {
     if (claims.authorizedAt > this.now() + 5_000) throw new Error('CAPABILITY_INVALID');
     if (!claims.policyVersion || !/^[a-f0-9]{64}$/.test(claims.policyHash ?? '')) throw new Error('CAPABILITY_INVALID');
     if (!claims.executorDid?.startsWith('did:t3n:')) throw new Error('CAPABILITY_INVALID');
+    if (!/^[a-f0-9]{64}$/.test(claims.normalPayloadHash ?? '')) throw new Error('CAPABILITY_INVALID');
     const approvedHost = canonicalizeApprovedHost(body.approved_host);
     const claimApprovedHost = canonicalizeApprovedHost(claims.approvedHost);
 
@@ -89,6 +117,7 @@ export class RemediationAuthorizationVerifier {
       || claims.purpose !== body.purpose
       || claimApprovedHost !== approvedHost
       || claims.fieldsHash !== listHash(body.fields)
+      || claims.normalPayloadHash !== normalPayloadHash(body.normal_payload)
       || claims.privateRefsHash !== listHash(body.private_refs)
       || claims.policyVersion !== body.policy_version
       || claims.policyHash !== body.policy_hash

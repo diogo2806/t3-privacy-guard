@@ -1,8 +1,16 @@
-use crate::policy::{self, AppliedPolicy, Decision, PolicyEvaluationRequest};
+use crate::policy::{self, AppliedPolicy, Decision, PolicyDecision, PolicyEvaluationRequest};
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
 
 const VERIFIED_EMAIL_MARKER: &str = "{{profile.verified_contacts.email.value}}";
 const SUPPORTED_EXECUTION_ACTION: &str = "revoke-credential";
+const MAX_NORMAL_PAYLOAD_ENTRIES: usize = 16;
+const MAX_NORMAL_KEY_LEN: usize = 80;
+const MAX_NORMAL_VALUE_BYTES: usize = 512;
+const FORBIDDEN_NORMAL_PAYLOAD_KEYS: &[&str] = &[
+    "api_key", "card_number", "credential", "cpf", "password", "private_key", "secret", "ssn", "token",
+];
+const REQUIRED_NORMAL_FIELDS: &[&str] = &["incident_id", "credential_id", "reason"];
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RemediationExecutionRequest {
@@ -14,6 +22,8 @@ pub struct RemediationExecutionRequest {
     pub approved_host: String,
     #[serde(default)]
     pub fields: Vec<String>,
+    #[serde(default)]
+    pub normal_payload: BTreeMap<String, String>,
     #[serde(default)]
     pub private_refs: Vec<String>,
     pub policy_version: String,
@@ -30,6 +40,12 @@ pub struct RemediationResult {
     pub policy_hash: String,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct PayloadMinimizationProof {
+    pub must_egress_seen: bool,
+    pub must_not_egress_seen: bool,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RemediationVerificationRequest {
     pub request_id: String,
@@ -42,6 +58,8 @@ pub struct RemediationVerificationResult {
     pub request_id: String,
     pub status: String,
     pub observed_state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payload_proof: Option<PayloadMinimizationProof>,
 }
 
 pub fn execute_remediation(input: &[u8]) -> Result<Vec<u8>, String> {
@@ -82,11 +100,44 @@ pub fn verify_remediation(input: &[u8]) -> Result<Vec<u8>, String> {
     }
 }
 
+fn normalized(value: &str) -> String { value.trim().to_ascii_lowercase() }
+
+fn valid_normal_key(key: &str) -> bool {
+    let bytes = key.as_bytes();
+    if bytes.is_empty() || bytes.len() > MAX_NORMAL_KEY_LEN || !bytes[0].is_ascii_lowercase() {
+        return false;
+    }
+    bytes.iter().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || *byte == b'_')
+}
+
+fn validate_normal_payload(request: &RemediationExecutionRequest) -> Result<(), String> {
+    if request.normal_payload.is_empty() || request.normal_payload.len() > MAX_NORMAL_PAYLOAD_ENTRIES {
+        return Err("trusted normal payload is missing or exceeds the item limit".to_string());
+    }
+    let requested_fields: BTreeSet<String> = request.fields.iter().map(|field| normalized(field)).collect();
+    for (key, value) in &request.normal_payload {
+        if !valid_normal_key(key) || key != &normalized(key) {
+            return Err("trusted normal payload contains an invalid key".to_string());
+        }
+        if FORBIDDEN_NORMAL_PAYLOAD_KEYS.contains(&key.as_str()) {
+            return Err("trusted normal payload contains a forbidden secret field".to_string());
+        }
+        if value.trim().is_empty() || value.as_bytes().len() > MAX_NORMAL_VALUE_BYTES {
+            return Err("trusted normal payload contains an invalid value".to_string());
+        }
+        if !requested_fields.contains(key) {
+            return Err("trusted normal payload contains a field that was not requested".to_string());
+        }
+    }
+    Ok(())
+}
+
 fn validate_execution_request(request: &RemediationExecutionRequest) -> Result<(), String> {
     if request.action != SUPPORTED_EXECUTION_ACTION {
         return Err("protected remediation executor is not implemented for this action".to_string());
     }
     canonicalize_hostname(&request.approved_host)?;
+    validate_normal_payload(request)?;
     Ok(())
 }
 
@@ -156,6 +207,14 @@ fn extract_operation_id(payload: &[u8]) -> Option<String> {
         .and_then(|value| value.get("operation_id").and_then(|entry| entry.as_str()).map(str::to_string))
 }
 
+fn extract_payload_proof(parsed: &serde_json::Value) -> Option<PayloadMinimizationProof> {
+    let proof = parsed.get("payload_proof")?.as_object()?;
+    Some(PayloadMinimizationProof {
+        must_egress_seen: proof.get("must_egress_seen")?.as_bool()?,
+        must_not_egress_seen: proof.get("must_not_egress_seen")?.as_bool()?,
+    })
+}
+
 fn verification_from_payload(request: &RemediationVerificationRequest, payload: &[u8]) -> RemediationVerificationResult {
     let parsed = serde_json::from_slice::<serde_json::Value>(payload).ok();
     let observed_operation = parsed.as_ref()
@@ -165,13 +224,97 @@ fn verification_from_payload(request: &RemediationVerificationRequest, payload: 
         .and_then(|value| value.get("state"))
         .and_then(|value| value.as_str())
         .map(str::to_string);
+    let payload_proof = parsed.as_ref().and_then(extract_payload_proof);
     let verified = observed_operation == Some(request.operation_id.as_str())
         && observed_state.as_deref() == Some(request.expected_state.as_str());
     RemediationVerificationResult {
         request_id: request.request_id.clone(),
         status: if verified { "VERIFIED" } else { "UNVERIFIED" }.to_string(),
         observed_state,
+        payload_proof,
     }
+}
+
+fn original_policy_request(request: &RemediationExecutionRequest, host: &str) -> PolicyEvaluationRequest {
+    PolicyEvaluationRequest {
+        request_id: request.request_id.clone(),
+        agent_did: request.agent_did.clone(),
+        action: request.action.clone(),
+        resource: request.resource.clone(),
+        purpose: request.purpose.clone(),
+        host: Some(host.to_string()),
+        fields: request.fields.clone(),
+        private_refs: request.private_refs.clone(),
+    }
+}
+
+fn minimized_payload(
+    request: &RemediationExecutionRequest,
+    decision: &PolicyDecision,
+) -> Result<BTreeMap<String, String>, String> {
+    if decision.decision == Decision::Deny {
+        return Err(format!("remediation denied: {}", decision.reason_code));
+    }
+    let allowed: BTreeSet<&str> = decision.allowed_fields.iter().map(String::as_str).collect();
+    for required in REQUIRED_NORMAL_FIELDS {
+        if !allowed.contains(required) {
+            return Err(format!("remediation denied: required field {required} was not allowed"));
+        }
+        if !request.normal_payload.contains_key(*required) {
+            return Err(format!("remediation denied: trusted payload is missing required field {required}"));
+        }
+    }
+    Ok(request.normal_payload.iter()
+        .filter(|(key, _)| allowed.contains(key.as_str()))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect())
+}
+
+fn build_minimized_egress(
+    request: &RemediationExecutionRequest,
+    applied_policy: &AppliedPolicy,
+    host: &str,
+) -> Result<(serde_json::Value, PolicyEvaluationRequest), String> {
+    validate_execution_request(request)?;
+    validate_policy_binding(request, applied_policy)?;
+
+    let requested = original_policy_request(request, host);
+    let initial_decision = policy::evaluate_with_policy(&requested, applied_policy);
+    let normal_payload = minimized_payload(request, &initial_decision)?;
+
+    let effective_request = PolicyEvaluationRequest {
+        request_id: requested.request_id.clone(),
+        agent_did: requested.agent_did.clone(),
+        action: requested.action.clone(),
+        resource: requested.resource.clone(),
+        purpose: requested.purpose.clone(),
+        host: requested.host.clone(),
+        fields: initial_decision.allowed_fields.clone(),
+        private_refs: initial_decision.allowed_private_refs.clone(),
+    };
+    let effective_decision = policy::evaluate_with_policy(&effective_request, applied_policy);
+    if effective_decision.decision != Decision::Allow {
+        return Err(format!("remediation denied after minimization: {}", effective_decision.reason_code));
+    }
+
+    let mut body = serde_json::json!({
+        "request_id": request.request_id,
+        "action": request.action,
+        "resource": request.resource,
+        "purpose": request.purpose
+    });
+    let object = body.as_object_mut().ok_or("failed to construct remediation payload")?;
+    for (key, value) in normal_payload {
+        object.insert(key, serde_json::Value::String(value));
+    }
+    for logical_ref in &effective_request.private_refs {
+        let marker = profile_marker(logical_ref)?;
+        match logical_ref.as_str() {
+            "verified_email" => { object.insert("recipient".to_string(), serde_json::Value::String(marker.to_string())); }
+            _ => return Err("private-data reference has no output mapping".to_string()),
+        }
+    }
+    Ok((body, effective_request))
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -198,41 +341,10 @@ fn execute_wasm(request: RemediationExecutionRequest) -> Result<RemediationResul
     let resolved_host = extract_https_host(&api_url)?;
     let host = ensure_execution_destination(&approved_host, &resolved_host)?;
     let applied_policy = read_current_policy()?;
-    validate_policy_binding(&request, &applied_policy)?;
-    let policy_request = PolicyEvaluationRequest {
-        request_id: request.request_id.clone(),
-        agent_did: request.agent_did,
-        action: request.action.clone(),
-        resource: request.resource.clone(),
-        purpose: request.purpose.clone(),
-        host: Some(host),
-        fields: request.fields,
-        private_refs: request.private_refs.clone(),
-    };
-    let decision = policy::evaluate_with_policy(&policy_request, &applied_policy);
-    if decision.decision != Decision::Allow {
-        return Err(alloc::format!("remediation denied: {}", decision.reason_code));
-    }
+    let (body, effective_request) = build_minimized_egress(&request, &applied_policy, &host)?;
 
     let api_key = read_secret("security_api_key")?;
-    let mut body = serde_json::json!({
-        "request_id": request.request_id,
-        "action": request.action,
-        "resource": request.resource,
-        "purpose": request.purpose
-    });
-    if !request.private_refs.is_empty() {
-        let object = body.as_object_mut().ok_or("failed to construct remediation payload")?;
-        for logical_ref in &request.private_refs {
-            let marker = profile_marker(logical_ref)?;
-            match logical_ref.as_str() {
-                "verified_email" => { object.insert("recipient".to_string(), serde_json::Value::String(marker.to_string())); }
-                _ => return Err("private-data reference has no output mapping".to_string()),
-            }
-        }
-    }
-
-    let _ = logging::info("Executing approved privacy-guard remediation with bound policy metadata and approved destination");
+    let _ = logging::info("Executing T3N-minimized remediation payload with bound policy metadata and approved destination");
     let response = hwp::call(&hwp::Request {
         method: hwp::Verb::Post,
         url: api_url,
@@ -240,7 +352,7 @@ fn execute_wasm(request: RemediationExecutionRequest) -> Result<RemediationResul
             ("Authorization".to_string(), alloc::format!("Bearer {api_key}")),
             ("Accept".to_string(), "application/json".to_string()),
             ("Content-Type".to_string(), "application/json".to_string()),
-            ("Idempotency-Key".to_string(), policy_request.request_id.clone()),
+            ("Idempotency-Key".to_string(), effective_request.request_id.clone()),
         ]),
         payload: Some(serde_json::to_vec(&body).map_err(|_| "failed to encode remediation request".to_string())?),
     })
@@ -251,7 +363,7 @@ fn execute_wasm(request: RemediationExecutionRequest) -> Result<RemediationResul
     }
 
     Ok(RemediationResult {
-        request_id: policy_request.request_id,
+        request_id: effective_request.request_id,
         status: "PENDING_VERIFICATION".to_string(),
         http_code: response.code,
         operation_id: extract_operation_id(&response.payload),
@@ -312,7 +424,6 @@ fn format_http_error(error: hwp::HttpError) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeMap;
 
     fn applied_policy() -> AppliedPolicy {
         let mut actions = BTreeMap::new();
@@ -331,11 +442,20 @@ mod tests {
         }
     }
 
+    fn normal_payload() -> BTreeMap<String, String> {
+        BTreeMap::from([
+            ("incident_id".into(), "inc-demo-001".into()),
+            ("credential_id".into(), "cred-demo-001".into()),
+            ("reason".into(), "suspected compromise".into()),
+        ])
+    }
+
     fn execution_request() -> RemediationExecutionRequest {
         RemediationExecutionRequest {
             request_id: "r1".into(), agent_did: "did:t3n:a".into(), action: "revoke-credential".into(),
             resource: "credential:test".into(), purpose: "incident-remediation".into(), approved_host: "postman-echo.com".into(),
-            fields: vec![], private_refs: vec![], policy_version: "2026-09-12.1".into(), policy_hash: "a".repeat(64),
+            fields: vec!["incident_id".into(), "credential_id".into(), "reason".into()],
+            normal_payload: normal_payload(), private_refs: vec![], policy_version: "2026-09-12.1".into(), policy_hash: "a".repeat(64),
         }
     }
 
@@ -363,6 +483,59 @@ mod tests {
         assert_eq!(extract_https_host("https://postman-echo.com/post").unwrap(), "postman-echo.com");
         assert!(extract_https_host("https://postman-echo.com:443/post").is_err());
         assert!(canonicalize_hostname("https://postman-echo.com/post").is_err());
+    }
+
+    #[test]
+    fn exact_allowed_normal_payload_is_materialized_for_egress() {
+        let request = execution_request();
+        let (body, effective) = build_minimized_egress(&request, &applied_policy(), "postman-echo.com").unwrap();
+        assert_eq!(effective.fields, vec!["credential_id", "incident_id", "reason"]);
+        assert_eq!(body.get("incident_id").and_then(|value| value.as_str()), Some("inc-demo-001"));
+        assert_eq!(body.get("credential_id").and_then(|value| value.as_str()), Some("cred-demo-001"));
+        assert_eq!(body.get("reason").and_then(|value| value.as_str()), Some("suspected compromise"));
+    }
+
+    #[test]
+    fn redacted_normal_value_never_enters_the_egress_body() {
+        let mut request = execution_request();
+        request.fields.push("employee_department".into());
+        request.normal_payload.insert("employee_department".into(), "finance".into());
+        let initial = policy::evaluate_with_policy(&original_policy_request(&request, "postman-echo.com"), &applied_policy());
+        assert_eq!(initial.decision, Decision::Redact);
+        assert_eq!(initial.redacted_fields, vec!["employee_department"]);
+
+        let (body, effective) = build_minimized_egress(&request, &applied_policy(), "postman-echo.com").unwrap();
+        assert_eq!(policy::evaluate_with_policy(&effective, &applied_policy()).decision, Decision::Allow);
+        assert!(body.get("employee_department").is_none());
+        assert_eq!(body.get("reason").and_then(|value| value.as_str()), Some("suspected compromise"));
+    }
+
+    #[test]
+    fn secret_or_unrequested_normal_payload_fields_fail_before_egress() {
+        let mut secret = execution_request();
+        secret.fields.push("api_key".into());
+        secret.normal_payload.insert("api_key".into(), "synthetic-secret-must-not-egress".into());
+        assert!(validate_execution_request(&secret).unwrap_err().contains("forbidden secret field"));
+
+        let mut unrequested = execution_request();
+        unrequested.normal_payload.insert("employee_department".into(), "finance".into());
+        assert!(validate_execution_request(&unrequested).unwrap_err().contains("was not requested"));
+    }
+
+    #[test]
+    fn bounded_payload_proof_exposes_only_booleans() {
+        let request = RemediationVerificationRequest { request_id: "r1".into(), operation_id: "op-1".into(), expected_state: "REVOKED".into() };
+        let sentinel = "SENTINEL_MUST_NOT_LEAK_BACK";
+        let payload = serde_json::json!({
+            "operation_id": "op-1",
+            "state": "REVOKED",
+            "payload_proof": { "must_egress_seen": true, "must_not_egress_seen": false },
+            "debug": sentinel
+        });
+        let result = verification_from_payload(&request, &serde_json::to_vec(&payload).unwrap());
+        assert_eq!(result.payload_proof, Some(PayloadMinimizationProof { must_egress_seen: true, must_not_egress_seen: false }));
+        let serialized = serde_json::to_string(&result).unwrap();
+        assert!(!serialized.contains(sentinel));
     }
 
     #[test]
@@ -394,16 +567,14 @@ mod tests {
         let verified = verification_from_payload(&request, br#"{"operation_id":"op-1","state":"REVOKED","secret":"do-not-return"}"#);
         assert_eq!(verified.status, "VERIFIED");
         assert_eq!(verified.observed_state.as_deref(), Some("REVOKED"));
+        assert!(verified.payload_proof.is_none());
         let wrong = verification_from_payload(&request, br#"{"operation_id":"op-1","state":"ACTIVE"}"#);
         assert_eq!(wrong.status, "UNVERIFIED");
     }
 
     #[test]
     fn native_execution_never_simulates_secret_egress() {
-        let input = serde_json::to_vec(&RemediationExecutionRequest {
-            fields: vec!["incident_id".into(), "credential_id".into(), "reason".into()],
-            ..execution_request()
-        }).unwrap();
+        let input = serde_json::to_vec(&execution_request()).unwrap();
         assert!(execute_remediation(&input).unwrap_err().contains("only implemented on the wasm32 target"));
     }
 
