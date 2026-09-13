@@ -5,7 +5,8 @@ import { ConfigurationError, readGatewayConfig } from './env.js';
 const baseEnv = {
   T3N_API_KEY: 'tenant-secret',
   GATEWAY_SERVICE_TOKEN: 'gateway-service-token-1234567890123456',
-  REMEDIATION_CAPABILITY_KEY: 'remediation-capability-key-123456789012',
+  REMEDIATION_AUTH_PUBLIC_KEY: 'd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a',
+  REMEDIATION_AUTH_KEY_ID: 'primary-v2',
 };
 
 function aiEnv(url: string) {
@@ -21,7 +22,8 @@ function aiEnv(url: string) {
 test('rejects missing tenant API key', () => {
   assert.throws(() => readGatewayConfig({
     GATEWAY_SERVICE_TOKEN: baseEnv.GATEWAY_SERVICE_TOKEN,
-    REMEDIATION_CAPABILITY_KEY: baseEnv.REMEDIATION_CAPABILITY_KEY,
+    REMEDIATION_AUTH_PUBLIC_KEY: baseEnv.REMEDIATION_AUTH_PUBLIC_KEY,
+    REMEDIATION_AUTH_KEY_ID: baseEnv.REMEDIATION_AUTH_KEY_ID,
   }), ConfigurationError);
 });
 
@@ -32,6 +34,8 @@ test('defaults to testnet, disabled AI, no public A2A, persistent trust floor an
   assert.equal(config.agentApiKey, null);
   assert.equal(config.executorApiKey, null);
   assert.equal(config.contractVersion, '0.4.0');
+  assert.equal(config.remediationAuthorizationPublicKey, baseEnv.REMEDIATION_AUTH_PUBLIC_KEY);
+  assert.equal(config.remediationAuthorizationKeyId, 'primary-v2');
   assert.equal(config.remediationReplayStorePath, '/data/remediation-capability-nonces.json');
   assert.equal(config.trustManifestFloorStorePath, '/data/t3n-trust-floor.json');
   assert.equal(config.aiProvider, 'disabled');
@@ -141,10 +145,11 @@ test('rejects reuse of proposal-agent key as executor key', () => {
   );
 });
 
-test('rejects missing or weak internal security secrets', () => {
+test('rejects missing or malformed internal security configuration', () => {
   assert.throws(() => readGatewayConfig({ T3N_API_KEY: 'tenant-secret' }), ConfigurationError);
   assert.throws(() => readGatewayConfig({ ...baseEnv, GATEWAY_SERVICE_TOKEN: 'short' }), ConfigurationError);
-  assert.throws(() => readGatewayConfig({ ...baseEnv, REMEDIATION_CAPABILITY_KEY: 'short' }), ConfigurationError);
+  assert.throws(() => readGatewayConfig({ ...baseEnv, REMEDIATION_AUTH_PUBLIC_KEY: 'not-a-key' }), ConfigurationError);
+  assert.throws(() => readGatewayConfig({ ...baseEnv, REMEDIATION_AUTH_KEY_ID: 'invalid key id' }), ConfigurationError);
 });
 
 test('rejects unknown network', () => {
