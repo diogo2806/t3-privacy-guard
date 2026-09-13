@@ -5,12 +5,12 @@ import br.com.t3privacyguard.persistence.AuditChainHeadEntity;
 import br.com.t3privacyguard.persistence.AuditChainHeadRepository;
 import br.com.t3privacyguard.persistence.AuditEventEntity;
 import br.com.t3privacyguard.persistence.AuditEventRepository;
+import br.com.t3privacyguard.persistence.IncidentRepository;
 import br.com.t3privacyguard.privacy.IncidentDataMinimizer;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
@@ -29,12 +29,14 @@ public class AuditIntegrityService {
 
     private final AuditEventRepository audits;
     private final AuditChainHeadRepository heads;
+    private final IncidentRepository incidents;
     private final IncidentDataMinimizer minimizer;
     private final byte[] key;
 
     public AuditIntegrityService(
         AuditEventRepository audits,
         AuditChainHeadRepository heads,
+        IncidentRepository incidents,
         IncidentDataMinimizer minimizer,
         @Value("${privacy-guard.audit-integrity.key}") String integrityKey,
         @Value("${privacy-guard.gateway.service-token:}") String gatewayServiceToken,
@@ -61,6 +63,7 @@ public class AuditIntegrityService {
         }
         this.audits = audits;
         this.heads = heads;
+        this.incidents = incidents;
         this.minimizer = minimizer;
         this.key = integrityKey.getBytes(StandardCharsets.UTF_8);
     }
@@ -74,6 +77,7 @@ public class AuditIntegrityService {
         String t3nHash,
         String t3nFunction
     ) {
+        String normalizedType = boundedRequired(type, 64);
         String sanitizedMessage = minimizer.sanitizeAuditMessage(message);
         AuditChainHeadEntity head = headForAppend(incidentId);
         if (!INTEGRITY_VERSION.equals(head.getIntegrityVersion())) {
@@ -83,7 +87,7 @@ public class AuditIntegrityService {
         long sequence = head.getLastSequence() + 1;
         String previousMac = sequence == 1 ? GENESIS_MAC : head.getLastMac();
         Instant createdAt = Instant.now();
-        String eventMac = calculateMac(key, incidentId, sequence, type, createdAt, sanitizedMessage, previousMac);
+        String eventMac = calculateMac(key, incidentId, sequence, normalizedType, createdAt, sanitizedMessage, previousMac);
         Long normalizedT3nSequence = t3nSequence != null && t3nSequence >= 0 ? t3nSequence : null;
         String normalizedT3nHash = normalizedT3nSequence == null ? null : bounded(t3nHash, 128);
         String normalizedT3nFunction = bounded(t3nFunction, 120);
@@ -91,7 +95,7 @@ public class AuditIntegrityService {
         AuditEventEntity event = audits.saveAndFlush(new AuditEventEntity(
             java.util.UUID.randomUUID().toString(),
             incidentId,
-            boundedRequired(type, 64),
+            normalizedType,
             sanitizedMessage,
             createdAt,
             normalizedT3nSequence,
@@ -203,6 +207,8 @@ public class AuditIntegrityService {
     }
 
     private AuditChainHeadEntity headForAppend(String incidentId) {
+        incidents.findForAuditUpdate(incidentId)
+            .orElseThrow(() -> new IllegalStateException("Cannot append audit for a missing incident"));
         AuditChainHeadEntity existing = heads.findForUpdate(incidentId).orElse(null);
         if (existing != null) return existing;
         if (audits.existsByIncidentIdAndIntegritySequenceIsNotNull(incidentId)) {
