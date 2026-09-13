@@ -19,6 +19,7 @@ import br.com.t3privacyguard.service.RemediationQueryService;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -83,8 +84,12 @@ public class IncidentController {
         @PathVariable String actionId,
         Authentication authentication
     ) {
-        if (authentication == null || !authentication.isAuthenticated()) throw new IllegalArgumentException("Authenticated operator principal is required");
-        return service.authorizeRemediation(incidentId, actionId, authentication.getName());
+        String principal = authentication == null ? null : authentication.getName();
+        if (authentication == null || !authentication.isAuthenticated() || authentication instanceof AnonymousAuthenticationToken
+            || principal == null || principal.isBlank()) {
+            throw new IllegalArgumentException("Authenticated operator principal is required");
+        }
+        return service.authorizeRemediation(incidentId, actionId, principal);
     }
 
     @PostMapping("/{incidentId}/actions/{actionId}/execute-remediation")
