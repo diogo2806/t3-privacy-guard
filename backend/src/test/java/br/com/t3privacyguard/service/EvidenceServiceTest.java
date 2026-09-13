@@ -17,7 +17,7 @@ class EvidenceServiceTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
-    void readsAllowlistedPolicyTrustAndAgentCardEvidence() throws Exception {
+    void readsAllowlistedPolicyTrustAgentAndExecutorEvidence() throws Exception {
         Path manifest = tempDir.resolve("deployment-manifest.json");
         Path testnet = tempDir.resolve("testnet-run.json");
         String wasmHash = "a".repeat(64);
@@ -34,6 +34,8 @@ class EvidenceServiceTest {
         assertThat(result.metadata().source()).isEqualTo("T3N_TESTNET");
         assertThat(result.metadata().policyVersion()).isEqualTo("2026-09-12.1");
         assertThat(result.metadata().policyHash()).isEqualTo(policyHash);
+        assertThat(result.metadata().agentDid()).isEqualTo("did:t3n:proposal-agent");
+        assertThat(result.metadata().executorDid()).isEqualTo("did:t3n:protected-executor");
         assertThat(result.metadata().agentRegistrationState()).isEqualTo("REGISTERED");
         assertThat(result.metadata().agentCardUri()).startsWith("https://");
         assertThat(result.metadata().agentCardSha256()).hasSize(64);
@@ -49,6 +51,22 @@ class EvidenceServiceTest {
     void missingLiveEvidenceIsExplicitlyNotFound() {
         var service = new EvidenceService(mapper, tempDir.resolve("missing-manifest.json").toString(), tempDir.resolve("missing-run.json").toString());
         assertThatThrownBy(service::latest).isInstanceOf(EvidenceNotFoundException.class);
+    }
+
+    @Test
+    void reusedProposalAndExecutorDidFailsClosed() throws Exception {
+        Path manifest = tempDir.resolve("manifest-duplicate-did.json");
+        Path testnet = tempDir.resolve("run-duplicate-did.json");
+        String wasmHash = "9".repeat(64);
+        String policyHash = "8".repeat(64);
+        Map<String, Object> invalid = validManifest(wasmHash, "2026-09-12.1", policyHash);
+        invalid.put("executorDid", "did:t3n:proposal-agent");
+        write(manifest, invalid);
+        Map<String, Object> run = validRun(wasmHash, "2026-09-12.1", policyHash, List.of());
+        run.put("executorDid", "did:t3n:proposal-agent");
+        write(testnet, run);
+        assertThatThrownBy(() -> new EvidenceService(mapper, manifest.toString(), testnet.toString()).latest())
+            .isInstanceOf(IllegalStateException.class).hasMessageContaining("invalid or inconsistent");
     }
 
     @Test
@@ -94,8 +112,8 @@ class EvidenceServiceTest {
     private Map<String, Object> validManifest(String wasmHash, String policyVersion, String policyHash) {
         Map<String, Object> value = new LinkedHashMap<>();
         value.put("source", "T3N_TESTNET"); value.put("generatedAt", "2026-09-12T00:00:00Z"); value.put("network", "testnet"); value.put("sdkVersion", "5.2.0");
-        value.put("tenantDid", "did:t3n:tenant"); value.put("agentDid", "did:t3n:agent");
-        value.put("agentRegistrationState", "REGISTERED"); value.put("agentCardUri", "https://node.example/agent-card/did:t3n:agent");
+        value.put("tenantDid", "did:t3n:tenant"); value.put("agentDid", "did:t3n:proposal-agent"); value.put("executorDid", "did:t3n:protected-executor");
+        value.put("agentRegistrationState", "REGISTERED"); value.put("agentCardUri", "https://node.example/agent-card/did:t3n:proposal-agent");
         value.put("agentCardSha256", "3".repeat(64)); value.put("agentCardVerifiedAt", "2026-09-12T00:00:01Z"); value.put("agentCardServices", List.of("DID"));
         value.put("contractId", "z:tenant:privacy-guard"); value.put("contractVersion", "0.4.0"); value.put("wasmSha256", wasmHash);
         value.put("policyVersion", policyVersion); value.put("policyHash", policyHash);
@@ -105,7 +123,7 @@ class EvidenceServiceTest {
 
     private Map<String, Object> validRun(String wasmHash, String policyVersion, String policyHash, List<Map<String, Object>> scenarios) {
         Map<String, Object> value = new LinkedHashMap<>();
-        value.put("network", "testnet"); value.put("sdkVersion", "5.2.0"); value.put("tenantDid", "did:t3n:tenant"); value.put("agentDid", "did:t3n:agent");
+        value.put("network", "testnet"); value.put("sdkVersion", "5.2.0"); value.put("tenantDid", "did:t3n:tenant"); value.put("agentDid", "did:t3n:proposal-agent"); value.put("executorDid", "did:t3n:protected-executor");
         value.put("contractId", "z:tenant:privacy-guard"); value.put("contractVersion", "0.4.0"); value.put("wasmSha256", wasmHash);
         value.put("policyVersion", policyVersion); value.put("policyHash", policyHash); value.put("scenarios", scenarios);
         return value;
