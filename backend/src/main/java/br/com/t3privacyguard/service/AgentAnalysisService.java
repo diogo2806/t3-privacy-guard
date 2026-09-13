@@ -3,8 +3,10 @@ package br.com.t3privacyguard.service;
 import br.com.t3privacyguard.api.ApiModels.AgentAnalysisResponse;
 import br.com.t3privacyguard.api.ApiModels.CreateActionRequest;
 import br.com.t3privacyguard.api.ApiModels.CreateIncidentRequest;
+import br.com.t3privacyguard.api.ApiModels.IncidentResponse;
 import br.com.t3privacyguard.domain.Severity;
 import br.com.t3privacyguard.integration.GatewayAgentClient;
+import br.com.t3privacyguard.integration.GatewayAgentClient.AgentProposalResult;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -20,22 +22,34 @@ public class AgentAnalysisService {
     }
 
     public AgentAnalysisResponse analyze(String prompt) {
-        String normalized = prompt == null ? "" : prompt.trim();
-        if (normalized.isBlank() || normalized.length() > 4000) {
-            throw new IllegalArgumentException("Prompt must contain between 1 and 4000 characters");
-        }
-
-        var generated = agentGateway.propose(normalized);
-        var proposal = generated.proposal();
-        List<String> fields = proposal.fields() == null ? List.of() : proposal.fields();
-        List<String> privateRefs = proposal.privateRefs() == null ? List.of() : proposal.privateRefs();
-
+        AgentProposalResult generated = propose(prompt);
         var incident = incidents.createIncident(new CreateIncidentRequest(
             "AI agent action proposal",
             Severity.CRITICAL,
             "An untrusted prompt was interpreted by the configured AI agent. The incident keeps a minimized operational description for a bounded retention period; resolved private profile values remain outside the model and application layers.",
             "AI agent " + generated.provider()
         ));
+        return persistAndEvaluate(incident, generated);
+    }
+
+    public AgentAnalysisResponse analyzeExistingIncident(String incidentId, String prompt) {
+        IncidentResponse incident = incidents.getIncident(incidentId);
+        AgentProposalResult generated = propose(prompt);
+        return persistAndEvaluate(incident, generated);
+    }
+
+    private AgentProposalResult propose(String prompt) {
+        String normalized = prompt == null ? "" : prompt.trim();
+        if (normalized.isBlank() || normalized.length() > 4000) {
+            throw new IllegalArgumentException("Prompt must contain between 1 and 4000 characters");
+        }
+        return agentGateway.propose(normalized);
+    }
+
+    private AgentAnalysisResponse persistAndEvaluate(IncidentResponse incident, AgentProposalResult generated) {
+        var proposal = generated.proposal();
+        List<String> fields = proposal.fields() == null ? List.of() : proposal.fields();
+        List<String> privateRefs = proposal.privateRefs() == null ? List.of() : proposal.privateRefs();
         var action = incidents.addAction(incident.id(), new CreateActionRequest(
             "ai-" + UUID.randomUUID(),
             proposal.action(),
