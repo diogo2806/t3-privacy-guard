@@ -214,14 +214,14 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
   const authorize = () => run(async () => {
     if (!incident || !selectedAction) return;
     await privacyGuardApi.authorizeRemediation(incident.id, selectedAction.id); await refreshIncident(incident, selectedAction.id);
-    setNotice('Human authorization recorded. Protected execution still requires the bound executor and one-time proof.');
+    setNotice('Human authorization recorded. Protected execution still requires the bound Executor DID and a one-time proof verified by both the gateway and T3N contract.');
   });
 
   const executionNotice = (result: RemediationExecution) => {
     if (result.state === 'COMPLETED') return 'Independent read-back verified the expected external state. Remediation is COMPLETED.';
-    if (result.state === 'PENDING_VERIFICATION') return 'External execution was accepted. Completion is still pending independent verification.';
+    if (result.state === 'PENDING_VERIFICATION') return 'Both authorization boundaries accepted the one-time proof and external execution was accepted. Completion is still pending independent verification.';
     if (result.state === 'UNVERIFIED') return 'The external outcome is unverified. No automatic re-execution will occur; use Verify external state when an operation id is available.';
-    if (result.state === 'FAILED') return 'Execution failed without verified completion. Review the audit trail before creating a new action.';
+    if (result.state === 'FAILED') return 'Execution failed without verified completion. Review the proof status and audit trail before creating a new action.';
     return 'Execution has been claimed and is in progress. A retry will reconcile this claim instead of sending a second side effect.';
   };
 
@@ -277,7 +277,7 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
               <IncidentSummary incident={incident} />
               {showSafePath && <NextRequiredAction busy={busy} onPrepareSafePath={() => void prepareSafeRemediation()} />}
               <div className="two-column"><ActionProposalPanel actions={actions} selectedActionId={selectedAction?.id ?? null} onSelect={selectAction} /><DecisionPanel decision={decision} /></div>
-              <RemediationPanel action={selectedAction} decision={decision} execution={remediationExecution} busy={busy} onAuthorize={authorize} onExecute={execute} onVerify={verifyExternalState} />
+              <RemediationPanel action={selectedAction} decision={decision} execution={remediationExecution} executorDid={systemStatus?.executorDid} busy={busy} onAuthorize={authorize} onExecute={execute} onVerify={verifyExternalState} />
             </>}
           </div>
           <aside className="dashboard-side" aria-label="Live activity"><ExecutionTrace events={executionTrace} action={selectedAction} /><AuditTrail events={history} /></aside>
