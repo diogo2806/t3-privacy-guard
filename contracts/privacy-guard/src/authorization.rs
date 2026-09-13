@@ -56,6 +56,25 @@ fn valid_key_id(value: &str) -> bool {
     !value.is_empty() && value.len() <= 32 && value.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
 }
 
+fn validate_key_window(
+    claimed_key_id: &str,
+    active_key_id: &str,
+    previous_valid_until_ms: Option<u64>,
+    now_ms: u64,
+) -> Result<(), String> {
+    if !valid_key_id(claimed_key_id) || !valid_key_id(active_key_id) {
+        return Err("authorization verification key id is invalid".to_string());
+    }
+    if claimed_key_id == active_key_id {
+        return Ok(());
+    }
+    match previous_valid_until_ms {
+        Some(valid_until) if valid_until > now_ms => Ok(()),
+        Some(_) => Err("authorization verification key rotation window expired".to_string()),
+        None => Err("authorization verification key version is not active".to_string()),
+    }
+}
+
 fn list_hash(values: &[String]) -> Result<String, String> {
     let mut canonical: Vec<String> = values.iter().map(|value| value.trim().to_string()).collect();
     canonical.sort();
@@ -198,13 +217,40 @@ fn now_millis() -> Result<u64, String> {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn read_verification_key(key_id: &str) -> Result<String, String> {
+fn read_secret_entry(map_name: &str, key: &str) -> Result<Option<Vec<u8>>, String> {
+    kv_store::get(map_name, key.as_bytes())
+        .map_err(|_| "authorization verification key store is unavailable".to_string())
+}
+
+#[cfg(target_arch = "wasm32")]
+fn read_verification_key(key_id: &str, now_ms: u64) -> Result<String, String> {
     if !valid_key_id(key_id) { return Err("authorization proof key id is invalid".to_string()); }
     let tid = tenant_context::tenant_did();
     let map_name = alloc::format!("z:{}:secrets", hex::encode(&tid));
+
+    let active_bytes = read_secret_entry(&map_name, "remediation_auth_active_key_id")?
+        .ok_or_else(|| "authorization active verification key id is not provisioned".to_string())?;
+    let active_key_id = String::from_utf8(active_bytes)
+        .map_err(|_| "authorization active verification key id is invalid".to_string())?;
+
+    let previous_valid_until_ms = if key_id == active_key_id {
+        None
+    } else {
+        let expiry_key = alloc::format!("remediation_auth_key_valid_until:{key_id}");
+        match read_secret_entry(&map_name, &expiry_key)? {
+            Some(bytes) => {
+                let value = String::from_utf8(bytes)
+                    .map_err(|_| "authorization verification key rotation window is invalid".to_string())?;
+                Some(value.trim().parse::<u64>()
+                    .map_err(|_| "authorization verification key rotation window is invalid".to_string())?)
+            }
+            None => None,
+        }
+    };
+    validate_key_window(key_id, active_key_id.trim(), previous_valid_until_ms, now_ms)?;
+
     let key = alloc::format!("remediation_auth_public_key_spki:{key_id}");
-    let bytes = kv_store::get(&map_name, key.as_bytes())
-        .map_err(|_| "authorization verification key store is unavailable".to_string())?
+    let bytes = read_secret_entry(&map_name, &key)?
         .ok_or_else(|| "authorization verification key version is not provisioned".to_string())?;
     String::from_utf8(bytes).map_err(|_| "authorization verification key is invalid".to_string())
 }
@@ -230,7 +276,7 @@ fn consume_nonce(claims: &AuthorizationClaims, now_ms: u64) -> Result<(), String
 pub fn verify_and_consume(request: &RemediationExecutionRequest) -> Result<(), String> {
     let now_ms = now_millis()?;
     let key_id = extract_key_id(&request.authorization_proof)?;
-    let public_key = read_verification_key(&key_id)?;
+    let public_key = read_verification_key(&key_id, now_ms)?;
     let claims = verify_proof(&request.authorization_proof, request, &public_key, now_ms)?;
     consume_nonce(&claims, now_ms)
 }
@@ -287,6 +333,15 @@ mod tests {
         assert_eq!(verified.operator_principal_hash, "b".repeat(64));
         assert!(verified.authorized_at <= verified.issued_at);
         assert_eq!(extract_key_id(&request.authorization_proof).unwrap(), "primary");
+    }
+
+    #[test]
+    fn previous_key_is_accepted_only_inside_explicit_rotation_window() {
+        assert!(validate_key_window("primary", "primary", None, NOW).is_ok());
+        assert!(validate_key_window("previous", "primary", Some(NOW + 1), NOW).is_ok());
+        assert!(validate_key_window("previous", "primary", Some(NOW), NOW).unwrap_err().contains("expired"));
+        assert!(validate_key_window("previous", "primary", None, NOW).unwrap_err().contains("not active"));
+        assert!(validate_key_window("../bad", "primary", Some(NOW + 1), NOW).is_err());
     }
 
     #[test]
