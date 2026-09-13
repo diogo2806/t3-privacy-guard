@@ -32,18 +32,23 @@ public class SystemStatusService {
         String authenticatedAgentDid = agent.map(AgentStatus::agentDid).orElse(null);
         String registrationState = registrationState(registration, authenticatedAgentDid);
         boolean contractResolved = contract.isPresent();
-        String delegationState = delegation.map(DelegationStatus::state).orElse("UNKNOWN");
-        boolean controlsReady = tenantAuthenticated && agentAuthenticated && contractResolved && "ACTIVE".equals(delegationState);
+        String memberDelegationState = delegation.map(DelegationStatus::memberState).orElse("UNKNOWN");
+        String effectiveDelegationState = delegation.map(DelegationStatus::state).orElse("UNKNOWN");
+        boolean controlsReady = tenantAuthenticated && agentAuthenticated && contractResolved && "ACTIVE".equals(effectiveDelegationState);
 
         String message;
         if (!gatewayReachable) {
             message = "T3N gateway is unreachable.";
-        } else if ("SCHEDULED".equals(delegationState)) {
-            message = "Delegation exists, but its authorization window has not begun.";
+        } else if ("SCHEDULED".equals(memberDelegationState)) {
+            message = "Member delegation exists, but its authorization window has not begun.";
+        } else if ("INCOMPLETE".equals(effectiveDelegationState)) {
+            message = "Member delegation was observed, but T3N did not confirm effective delegated access for the authenticated Agent.";
+        } else if ("UNKNOWN".equals(effectiveDelegationState) && "ACTIVE".equals(memberDelegationState)) {
+            message = "Member delegation is active, but effective delegated access could not be verified with T3N.";
         } else if (controlsReady && "REGISTERED".equals(registrationState)) {
-            message = "T3N controls are ready, and the public Agent Card is registered for the authenticated Agent DID.";
+            message = "T3N controls are ready, effective delegated access is confirmed, and the public Agent Card is registered for the authenticated Agent DID.";
         } else if (controlsReady) {
-            message = "T3N controls are ready, but public Agent onboarding is not confirmed as REGISTERED.";
+            message = "T3N controls and effective delegated access are ready, but public Agent onboarding is not confirmed as REGISTERED.";
         } else {
             message = "Gateway is online, but one or more T3N identity, contract, or delegation controls are not confirmed as ready.";
         }
@@ -64,9 +69,13 @@ public class SystemStatusService {
             contractResolved,
             contract.map(ContractIdentity::contractId).orElse(null),
             contract.map(ContractIdentity::contractVersion).orElse(null),
-            delegationState,
+            memberDelegationState,
+            effectiveDelegationState,
             delegation.map(DelegationStatus::functions).orElse(List.of()),
+            delegation.map(DelegationStatus::scopes).orElse(List.of()),
             delegation.map(DelegationStatus::allowedHosts).orElse(List.of()),
+            delegation.map(DelegationStatus::satisfied).orElse(List.of()),
+            delegation.map(DelegationStatus::missing).orElse(List.of()),
             message
         );
     }
@@ -94,9 +103,13 @@ public class SystemStatusService {
         boolean contractResolved,
         String contractId,
         String contractVersion,
+        String memberDelegationState,
         String delegationState,
         List<String> delegatedFunctions,
+        List<String> delegatedScopes,
         List<String> allowedHosts,
+        List<String> delegationSatisfied,
+        List<String> delegationMissing,
         String message
     ) {}
 }
