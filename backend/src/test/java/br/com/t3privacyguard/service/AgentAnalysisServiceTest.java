@@ -27,6 +27,9 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 @SpringBootTest
 class AgentAnalysisServiceTest {
+    private static final String POLICY_VERSION = "2026-09-12.1";
+    private static final String POLICY_HASH = "a".repeat(64);
+
     @Autowired AgentAnalysisService service;
     @Autowired IncidentRepository incidents;
     @Autowired ActionProposalRepository actions;
@@ -50,7 +53,7 @@ class AgentAnalysisServiceTest {
         ));
         when(policyGateway.evaluate(any())).thenAnswer(invocation -> {
             var request = invocation.getArgument(0, GatewayPolicyClient.GatewayEvaluationRequest.class);
-            return new GatewayDecision(request.requestId(), DecisionType.DENY, "SECRET_DISCLOSURE_FORBIDDEN", "Denied", List.of(), List.of(), List.of(), List.of());
+            return decision(request, DecisionType.DENY, "SECRET_DISCLOSURE_FORBIDDEN", List.of(), List.of(), List.of(), List.of());
         });
 
         var result = service.analyze("malicious prompt");
@@ -58,6 +61,7 @@ class AgentAnalysisServiceTest {
         assertThat(result.action().host()).isEqualTo("attacker.example");
         assertThat(result.action().fields()).contains("api_key");
         assertThat(result.decision().decision()).isEqualTo(DecisionType.DENY);
+        assertThat(result.decision().policyVersion()).isEqualTo(POLICY_VERSION);
         assertThat(actions.count()).isEqualTo(1);
     }
 
@@ -70,7 +74,7 @@ class AgentAnalysisServiceTest {
         ));
         when(policyGateway.evaluate(any())).thenAnswer(invocation -> {
             var request = invocation.getArgument(0, GatewayPolicyClient.GatewayEvaluationRequest.class);
-            return new GatewayDecision(request.requestId(), DecisionType.ALLOW, "POLICY_ALLOW", "Allowed", request.fields(), List.of(), List.of(), List.of());
+            return decision(request, DecisionType.ALLOW, "POLICY_ALLOW", request.fields(), List.of(), List.of(), List.of());
         });
         var result = service.analyze("safe prompt");
         assertThat(result.decision().decision()).isEqualTo(DecisionType.ALLOW);
@@ -87,8 +91,7 @@ class AgentAnalysisServiceTest {
         ));
         when(policyGateway.evaluate(any())).thenAnswer(invocation -> {
             var request = invocation.getArgument(0, GatewayPolicyClient.GatewayEvaluationRequest.class);
-            return new GatewayDecision(request.requestId(), DecisionType.ALLOW, "POLICY_ALLOW", "Allowed",
-                request.fields(), List.of(), request.privateRefs(), List.of());
+            return decision(request, DecisionType.ALLOW, "POLICY_ALLOW", request.fields(), List.of(), request.privateRefs(), List.of());
         });
 
         var result = service.analyze("notify verified contact");
@@ -110,5 +113,21 @@ class AgentAnalysisServiceTest {
         assertThat(decisions.count()).isZero();
         assertThat(audits.count()).isZero();
         assertThat(remediations.count()).isZero();
+    }
+
+    private static GatewayDecision decision(
+        GatewayPolicyClient.GatewayEvaluationRequest request,
+        DecisionType type,
+        String code,
+        List<String> allowedFields,
+        List<String> redactedFields,
+        List<String> allowedPrivateRefs,
+        List<String> redactedPrivateRefs
+    ) {
+        return new GatewayDecision(
+            request.requestId(), type, code, type == DecisionType.ALLOW ? "Allowed" : "Denied",
+            allowedFields, redactedFields, allowedPrivateRefs, redactedPrivateRefs,
+            POLICY_VERSION, POLICY_HASH, true
+        );
     }
 }
