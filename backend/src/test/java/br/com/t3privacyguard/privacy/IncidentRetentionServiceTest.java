@@ -9,6 +9,8 @@ import br.com.t3privacyguard.persistence.ActionProposalEntity;
 import br.com.t3privacyguard.persistence.ActionProposalRepository;
 import br.com.t3privacyguard.persistence.AuditEventEntity;
 import br.com.t3privacyguard.persistence.AuditEventRepository;
+import br.com.t3privacyguard.persistence.ExecutionTraceEventEntity;
+import br.com.t3privacyguard.persistence.ExecutionTraceEventRepository;
 import br.com.t3privacyguard.persistence.IncidentEntity;
 import br.com.t3privacyguard.persistence.IncidentRepository;
 import br.com.t3privacyguard.persistence.PolicyDecisionEntity;
@@ -34,6 +36,7 @@ class IncidentRetentionServiceTest {
     @Autowired ActionProposalRepository actions;
     @Autowired PolicyDecisionRepository decisions;
     @Autowired RemediationExecutionRepository remediations;
+    @Autowired ExecutionTraceEventRepository traces;
     @Autowired AuditEventRepository audits;
     @Autowired JdbcTemplate jdbc;
 
@@ -41,6 +44,7 @@ class IncidentRetentionServiceTest {
     void clear() {
         remediations.deleteAll();
         decisions.deleteAll();
+        traces.deleteAll();
         actions.deleteAll();
         audits.deleteAll();
         incidents.deleteAll();
@@ -63,6 +67,10 @@ class IncidentRetentionServiceTest {
             "[\"incident_id\"]", "[]", "[]", "[]", now.minus(Duration.ofDays(8))
         ));
         remediations.save(new RemediationExecutionEntity("remediation-expired", actionId, "request-expired", now.minus(Duration.ofDays(8))));
+        traces.save(new ExecutionTraceEventEntity(
+            "trace-expired", incidentId, actionId, "request-expired", "trace-id-expired",
+            "EXTERNAL_VERIFICATION", "VERIFIED", null, 12L, now.minus(Duration.ofDays(8))
+        ));
         audits.save(new AuditEventEntity("audit-expired", incidentId, "INCIDENT_CREATED", "Synthetic audit", now.minus(Duration.ofDays(8))));
 
         assertThat(incidentService.listIncidents()).isEmpty();
@@ -72,6 +80,7 @@ class IncidentRetentionServiceTest {
         assertThat(retention.purgeExpired()).isEqualTo(1);
         assertThat(remediations.count()).isZero();
         assertThat(decisions.count()).isZero();
+        assertThat(traces.count()).isZero();
         assertThat(actions.count()).isZero();
         assertThat(audits.count()).isZero();
         assertThat(incidents.count()).isZero();
