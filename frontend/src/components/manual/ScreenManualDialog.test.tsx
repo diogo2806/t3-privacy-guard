@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { ScreenManualDialog } from './ScreenManualDialog';
 
 describe('ScreenManualDialog', () => {
-  it('traps focus and explains identity, policy, execution, audit and evidence without conflating onboarding with authorization', async () => {
+  it('traps focus and distinguishes Member grant from effective T3N authorization', async () => {
     const user = userEvent.setup();
     render(<div><button type="button">Outside action</button><ScreenManualDialog /></div>);
 
@@ -17,8 +17,12 @@ describe('ScreenManualDialog', () => {
     const dialog = screen.getByRole('dialog', { name: 'Incident Response Dashboard' });
     const closeButton = screen.getByRole('button', { name: 'Close Screen Manual' });
     expect(dialog).toHaveAttribute('aria-modal', 'true');
-    expect(screen.getByText('Identidade, onboarding e autorização')).toBeInTheDocument();
-    expect(screen.getByText(/registrar o Agent Card aumenta descoberta pública, mas não concede acesso/i)).toBeInTheDocument();
+    expect(screen.getByText('Identidade, Member grant e autorização efetiva')).toBeInTheDocument();
+    expect(screen.getByText(/Member grant.*não é apresentado como prova suficiente/i)).toBeInTheDocument();
+    expect(screen.getByText(/checkDelegation\(\).*cliente autenticado do próprio principal/i)).toBeInTheDocument();
+    expect(screen.getByText(/Confirmed.*authorised=true/i)).toBeInTheDocument();
+    expect(screen.getByText(/Denied e Unknown sempre falham fechado/i)).toBeInTheDocument();
+    expect(screen.getByText(/Proposal Agent e Protected Executor têm checks independentes/i)).toBeInTheDocument();
     expect(screen.getByText('Policy e decisão')).toBeInTheDocument();
     expect(screen.getByText('Dados privados e retenção')).toBeInTheDocument();
     expect(screen.getByText('Audit provenance e T3N Activity Log')).toBeInTheDocument();
