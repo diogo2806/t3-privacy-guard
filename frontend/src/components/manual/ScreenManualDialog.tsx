@@ -102,7 +102,7 @@ export function ScreenManualDialog() {
           </section>
           <section>
             <h3>Dados privados e retenção</h3>
-            <p>A proposta contém somente ação, recurso, finalidade, host opcional, nomes de campos e referências privadas lógicas suportadas. Valores privados não passam pelo navegador nem pelo modelo. Título, resumo e origem do incidente são minimizados no servidor; literais sensíveis de alta confiança são rejeitados antes da persistência. Cada incidente recebe <strong>expiresAt</strong> controlado pelo servidor. Após expirar, deixa de ser retornado e o purge remove os registros relacionados na ordem segura.</p>
+            <p>A proposta contém somente ação, recurso, finalidade, host opcional, nomes de campos e referências privadas lógicas suportadas. Valores privados não passam pelo navegador nem pelo modelo. Título, resumo e origem do incidente são minimizados no servidor; literais sensíveis de alta confiança são rejeitados antes da persistência. Cada incidente recebe <strong>expiresAt</strong> controlado pelo servidor. Após expirar, deixa de ser retornado e o purge remove os registros relacionados, inclusive eventos de audit e o head da cadeia de integridade; nenhum conteúdo é mantido apenas para preservar a cadeia.</p>
           </section>
           <section>
             <h3>Autorização humana e execução protegida</h3>
@@ -113,8 +113,9 @@ export function ScreenManualDialog() {
             <p><strong>Trace ID</strong> identifica uma tentativa HTTP e <strong>Request ID</strong> identifica a operação lógica idempotente. Retentativas recebem novo Trace ID sem mudar o Request ID. A linha do tempo guarda somente identificadores limitados, etapa, estado, motivo, timestamp e duração quando disponível; nunca guarda body bruto, headers, capabilities, chaves ou valores privados.</p>
           </section>
           <section>
-            <h3>Audit provenance e T3N Activity Log</h3>
-            <p>O audit local registra eventos de negócio sanitizados. O T3N Activity Log é uma segunda fonte read-only de provenance de rede. <strong>MATCHED</strong> exige correspondência exata de sequence/hash e identidade técnica esperada. <strong>UNMATCHED</strong> significa que havia provenance esperada sem confirmação exata. <strong>LOCAL ONLY</strong> é normal para eventos apenas da aplicação. <strong>T3N ONLY</strong> indica evento T3N relevante sem vínculo local. Uma janela truncada nunca é apresentada como prova de ausência.</p>
+            <h3>Integridade do audit local e T3N Activity Log</h3>
+            <p>Cada novo evento de negócio sanitizado recebe sequência monotônica por incidente e um HMAC-SHA-256 calculado sobre payload canônico, incluindo o MAC anterior. <strong>VERIFIED</strong> significa que a cadeia local retida foi recalculada com a chave de integridade configurada e o head persistido confere. <strong>BROKEN</strong> indica alteração, lacuna, duplicidade, link ou MAC inconsistente. <strong>LEGACY UNVERIFIED</strong> identifica eventos anteriores à implantação da cadeia; eles não são reescritos retroativamente. <strong>NOT AVAILABLE</strong> significa ausência de eventos retidos verificáveis. Após o purge de retenção, a aplicação não preserva audit apenas para manter prova histórica.</p>
+            <p>Esse HMAC detecta adulteração no armazenamento apenas enquanto a chave separada permanece confiável; não torna o banco imutável nem é chamado de tamper-proof. O T3N Activity Log continua sendo uma segunda fonte read-only independente. <strong>MATCHED</strong> exige correspondência exata de sequence/hash e identidade técnica esperada. <strong>UNMATCHED</strong> significa que havia provenance esperada sem confirmação exata. <strong>LOCAL ONLY</strong> é normal para eventos apenas da aplicação. <strong>T3N ONLY</strong> indica evento T3N relevante sem vínculo local. Uma janela truncada nunca é apresentada como prova de ausência.</p>
           </section>
           <section>
             <h3>Proof &amp; evidence</h3>
@@ -122,15 +123,15 @@ export function ScreenManualDialog() {
           </section>
           <section>
             <h3>Permissões e regras</h3>
-            <p>Login na aplicação não concede autoridade T3N. A Agent DID vem da sessão autenticada, nunca de valor hardcoded. O Agent Card não concede funções. Member Delegation continua sendo a fonte de autorização. Rotas internas usam service token. A interface não promove DENY/REDACT para execução, não inventa receipt T3N e não transforma indisponibilidade em sucesso.</p>
+            <p>Login na aplicação não concede autoridade T3N. A Agent DID vem da sessão autenticada, nunca de valor hardcoded. O Agent Card não concede funções. Member Delegation continua sendo a fonte de autorização. Rotas internas usam service token. A chave <code>AUDIT_INTEGRITY_KEY</code> é separada das demais credenciais e nunca é devolvida pela API ou exibida na interface. A interface não promove DENY/REDACT para execução, não inventa receipt T3N e não transforma indisponibilidade em sucesso.</p>
           </section>
           <section>
             <h3>Fluxo principal</h3>
-            <p>1. Entre na aplicação. 2. Confira status de tenant e agente. 3. Diferencie Agent onboarding de Delegation. 4. Escolha um cenário e revise o prompt. 5. Use Ask agent. 6. Inspecione a proposta real. 7. Leia a decisão T3N e sua policy version/hash. 8. Se houver ALLOW para revogação suportada, registre autorização humana. 9. Execute uma vez. 10. Verifique o estado externo. 11. Consulte Execution Trace e audit provenance. 12. Consulte Proof &amp; evidence e, quando necessário, os detalhes técnicos.</p>
+            <p>1. Entre na aplicação. 2. Confira status de tenant e agente. 3. Diferencie Agent onboarding de Delegation. 4. Escolha um cenário e revise o prompt. 5. Use Ask agent. 6. Inspecione a proposta real. 7. Leia a decisão T3N e sua policy version/hash. 8. Se houver ALLOW para revogação suportada, registre autorização humana. 9. Execute uma vez. 10. Verifique o estado externo. 11. Consulte Execution Trace e audit provenance, verificando separadamente integridade local e provenance T3N. 12. Consulte Proof &amp; evidence e, quando necessário, os detalhes técnicos.</p>
           </section>
           <section>
             <h3>Mensagens e estados de erro</h3>
-            <p>Conteúdo sensível é rejeitado sem ecoar o literal. Falha de provedor, T3N, Agent Card, policy KV ou trust boundary não é apresentada como sucesso. Card ausente gera <strong>NOT REGISTERED</strong>; divergência de DID/schema gera <strong>CARD/DID MISMATCH</strong>; indisponibilidade de resolução gera <strong>UNAVAILABLE</strong>. Falha no Activity Log mantém o audit local disponível e marca a provenance de rede como não verificada. Mudança de policy após autorização bloqueia execução protegida. Sessão expirada exige novo login.</p>
+            <p>Conteúdo sensível é rejeitado sem ecoar o literal. Falha de provedor, T3N, Agent Card, policy KV ou trust boundary não é apresentada como sucesso. Card ausente gera <strong>NOT REGISTERED</strong>; divergência de DID/schema gera <strong>CARD/DID MISMATCH</strong>; indisponibilidade de resolução gera <strong>UNAVAILABLE</strong>. <strong>Integrity broken</strong> é exibido quando a cadeia HMAC local não confere e não é mascarado por um T3N Activity Log saudável. Eventos legados são identificados como não verificados, e falha no Activity Log não altera o resultado da verificação HMAC local. Mudança de policy após autorização bloqueia execução protegida. Sessão expirada exige novo login.</p>
           </section>
         </div>
       </section>
