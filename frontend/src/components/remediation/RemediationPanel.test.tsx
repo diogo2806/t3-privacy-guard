@@ -107,12 +107,19 @@ describe('RemediationPanel', () => {
 
   it('shows the private notification boundary without rendering plaintext recipient data', () => {
     renderPanel(null, vi.fn(), notificationAction());
-    expect(screen.getByText('verified_email')).toBeInTheDocument();
+    expect(screen.getAllByText('verified_email')).toHaveLength(2);
     expect(screen.getByText('T3N PROTECTED EXECUTION')).toBeInTheDocument();
     expect(screen.getByText('NO')).toBeInTheDocument();
     expect(screen.getByText('DELIVERED')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Execute protected security notification' })).toBeInTheDocument();
     expect(document.body.textContent).not.toContain('{{profile.');
+  });
+
+  it('blocks malformed private notification before human authorization', () => {
+    renderPanel(null, vi.fn(), { ...notificationAction('EVALUATED'), privateRefs: [] });
+    expect(screen.getByRole('alert')).toHaveTextContent(/requires exactly the logical private reference verified_email/i);
+    expect(screen.queryByRole('button', { name: 'Authorize security notification' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Execute protected security notification' })).not.toBeInTheDocument();
   });
 
   it('labels notification completion as verified delivery and private resolution', () => {
