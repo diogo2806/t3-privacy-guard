@@ -1,8 +1,14 @@
 import { Router } from 'express';
-import type { PolicyEvaluationRequest, PrivacyGuardContractService, RemediationVerificationRequest } from '../contract/privacy-guard-contract.js';
+import type { PolicyDecisionType, PolicyEvaluationRequest, PrivacyGuardContractService, RemediationVerificationRequest } from '../contract/privacy-guard-contract.js';
 import { logTraceStage, traceRequest } from '../observability/trace.js';
 import type { RemediationAuthorizationVerifier, RemediationBody } from '../security/remediation-authorization.js';
 import { requireServiceToken } from '../security/service-auth.js';
+
+function policyTraceState(decision: PolicyDecisionType): string {
+  if (decision === 'ALLOW') return 'ACCEPTED';
+  if (decision === 'REDACT') return 'REDACTED';
+  return 'DENIED';
+}
 
 export function createContractRouter(
   service: PrivacyGuardContractService,
@@ -20,7 +26,7 @@ export function createContractRouter(
     const requestId = request.body?.request_id;
     try {
       const result = await service.evaluate(request.body as Omit<PolicyEvaluationRequest, 'agent_did'>);
-      logTraceStage(response, 'T3N_TEE_EVALUATION', requestId, result.decision);
+      logTraceStage(response, 'T3N_TEE_EVALUATION', requestId, policyTraceState(result.decision));
       response.json(result);
     } catch {
       logTraceStage(response, 'T3N_TEE_EVALUATION', requestId, 'UNAVAILABLE');
@@ -42,7 +48,7 @@ export function createContractRouter(
         fields: body.fields,
         private_refs: body.private_refs ?? [],
       });
-      logTraceStage(response, 'PROTECTED_EGRESS', requestId, result.status);
+      logTraceStage(response, 'PROTECTED_EGRESS', requestId, 'ACCEPTED');
       response.json(result);
     } catch (error) {
       const code = error instanceof Error ? error.message : 'UNKNOWN';
