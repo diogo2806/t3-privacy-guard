@@ -45,6 +45,7 @@ export function createContractRouter(
         action: body.action,
         resource: body.resource,
         purpose: body.purpose,
+        approved_host: body.approved_host,
         fields: body.fields,
         private_refs: body.private_refs ?? [],
         policy_version: body.policy_version,
@@ -56,8 +57,9 @@ export function createContractRouter(
       const code = error instanceof Error ? error.message : 'UNKNOWN';
       if (code === 'CAPABILITY_REPLAY') response.status(409).json({ error: 'Remediation authorization proof was already consumed' });
       else if (code.startsWith('CAPABILITY_')) response.status(403).json({ error: 'Remediation authorization proof is invalid or unavailable' });
+      else if (code === 'EXECUTION_DESTINATION_CHANGED') response.status(409).json({ error: 'Protected destination changed after approval; re-evaluate and authorize the action again' });
       else response.status(503).json({ error: 'Protected remediation could not be accepted under the approved policy' });
-      logTraceStage(response, 'PROTECTED_EGRESS', requestId, code.startsWith('CAPABILITY_') ? 'DENIED' : 'UNAVAILABLE');
+      logTraceStage(response, 'PROTECTED_EGRESS', requestId, code.startsWith('CAPABILITY_') || code === 'EXECUTION_DESTINATION_CHANGED' ? 'DENIED' : 'UNAVAILABLE');
     }
   });
 
