@@ -1,4 +1,4 @@
-import { FileCheck2, RefreshCw, ShieldCheck, ShieldX, CircleDashed } from 'lucide-react';
+import { CircleDashed, FileCheck2, RefreshCw, ShieldCheck, ShieldX } from 'lucide-react';
 import type { EvidenceBundle, EvidenceScenario } from '../../services/privacyGuardApi';
 
 interface Props { evidence: EvidenceBundle | null; loading: boolean; error: string | null; onRefresh: () => void; }
@@ -51,15 +51,20 @@ export function EvidenceCenter({ evidence, loading, error, onRefresh }: Props) {
           <div><dt>Trust anchor</dt><dd>{trustAnchorState}</dd></div>
           <div><dt>Rollback floor</dt><dd>{rollbackFloorState}</dd></div>
           <div><dt>Trust manifest version</dt><dd>{evidence.metadata.trustManifestVersion}</dd></div>
+          <div><dt>Agent onboarding</dt><dd>{evidence.metadata.agentRegistrationState}</dd></div>
+          <div><dt>Agent Card verified</dt><dd>{new Date(evidence.metadata.agentCardVerifiedAt).toLocaleString()}</dd></div>
+          <div><dt>Agent services</dt><dd>{evidence.metadata.agentCardServices.join(', ')}</dd></div>
           <div><dt>Contract version</dt><dd>{evidence.metadata.contractVersion}</dd></div>
           <div><dt>Policy version</dt><dd>{evidence.metadata.policyVersion}</dd></div>
+          <div className="evidence-wide"><dt>Agent Card URI</dt><dd><code>{evidence.metadata.agentCardUri}</code></dd></div>
+          <div className="evidence-wide"><dt>Agent Card SHA-256</dt><dd><code>{evidence.metadata.agentCardSha256}</code></dd></div>
           <div className="evidence-wide"><dt>Contract</dt><dd><code>{evidence.metadata.contractId}</code></dd></div>
           <div className="evidence-wide"><dt>Policy SHA-256</dt><dd><code>{evidence.metadata.policyHash}</code></dd></div>
           <div className="evidence-wide"><dt>WASM SHA-256</dt><dd><code>{evidence.metadata.wasmSha256}</code></dd></div>
           <div className="evidence-wide"><dt>Tenant DID</dt><dd><code>{evidence.metadata.tenantDid}</code></dd></div>
           <div className="evidence-wide"><dt>Agent DID</dt><dd><code>{evidence.metadata.agentDid}</code></dd></div>
         </dl>
-        <p className="evidence-disclaimer">Policy version/hash identify the canonical operational policy used by this evidence run. Trust anchor VERIFIED means the T3N signed manifest established the cluster trust boundary for these authenticated sessions. Rollback floor PERSISTED means the accepted manifest version was stored across gateway restarts. These are policy/trust provenance signals, not a claim of per-request hardware attestation.</p>
+        <p className="evidence-disclaimer">Agent onboarding REGISTERED means the public Agent Card resolved at evidence time, matched the authenticated Agent DID, was active and advertised only the implemented DID service. It is discovery evidence, not delegation or contract permission. Policy version/hash identify the canonical operational policy used by this evidence run. Trust anchor VERIFIED means the T3N signed manifest established the cluster trust boundary for these authenticated sessions. Rollback floor PERSISTED means the accepted manifest version was stored across gateway restarts. These are policy/trust provenance signals, not a claim of per-request hardware attestation.</p>
       </div>
 
       <div className="card">
