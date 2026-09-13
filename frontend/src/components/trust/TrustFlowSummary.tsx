@@ -27,22 +27,20 @@ interface TrustStep {
 }
 
 function t3nReady(status: SystemStatus | null): boolean {
-  return Boolean(
-    status?.gatewayReachable
-      && status.tenantAuthenticated
-      && status.agentAuthenticated
-      && status.executorAuthenticated
-      && status.contractResolved
-      && status.delegationState === 'ACTIVE'
-      && status.executorDelegationState === 'ACTIVE',
-  );
+  return Boolean(status?.protectedRemediationReady);
 }
 
 function readinessState(status: SystemStatus | null, loading: boolean, ready: boolean): { className: string; label: string } {
   if (loading) return { className: 'trust-readiness-pending', label: 'Checking T3N' };
   if (ready) return { className: 'trust-readiness-ready', label: 'T3N controls ready' };
-  if (status?.delegationState === 'SCHEDULED' || status?.executorDelegationState === 'SCHEDULED') {
-    return { className: 'trust-readiness-pending', label: 'Delegation scheduled' };
+  if (status?.proposalMemberState === 'SCHEDULED' || status?.executorMemberState === 'SCHEDULED') {
+    return { className: 'trust-readiness-pending', label: 'Member grant scheduled' };
+  }
+  if (status?.proposalEffectiveState === 'DENIED' || status?.executorEffectiveState === 'DENIED') {
+    return { className: 'trust-readiness-unavailable', label: 'Effective access denied' };
+  }
+  if (status?.proposalEffectiveState === 'UNKNOWN' || status?.executorEffectiveState === 'UNKNOWN') {
+    return { className: 'trust-readiness-unavailable', label: 'Effective access unknown' };
   }
   return { className: 'trust-readiness-unavailable', label: 'T3N controls unavailable' };
 }
@@ -135,10 +133,16 @@ function resultMessage(
   proposalReceived: boolean,
   systemStatus: SystemStatus | null,
 ): string {
-  if (!statusLoading && (systemStatus?.delegationState === 'SCHEDULED' || systemStatus?.executorDelegationState === 'SCHEDULED')) {
-    return 'A T3N delegation is scheduled, but its authorization window has not begun. Proposal evaluation or protected execution is not reported as ready.';
+  if (!statusLoading && (systemStatus?.proposalMemberState === 'SCHEDULED' || systemStatus?.executorMemberState === 'SCHEDULED')) {
+    return 'A Member grant is scheduled, but its authorization window has not begun. Effective T3N access is not considered confirmed.';
   }
-  if (!statusLoading && !ready) return 'T3N controls are unavailable or incomplete. Proposal evaluation or protected execution cannot be proven until both delegated principals are ready.';
+  if (!statusLoading && (systemStatus?.proposalEffectiveState === 'DENIED' || systemStatus?.executorEffectiveState === 'DENIED')) {
+    return 'A Member grant alone is not proof of authorization. T3N denied effective access for at least one required principal, so the protected flow remains closed.';
+  }
+  if (!statusLoading && (systemStatus?.proposalEffectiveState === 'UNKNOWN' || systemStatus?.executorEffectiveState === 'UNKNOWN')) {
+    return 'Effective T3N access could not be confirmed for at least one required principal. Unknown authorization fails closed.';
+  }
+  if (!statusLoading && !ready) return 'T3N controls are unavailable or incomplete. Protected execution cannot be proven until both principals have confirmed effective access.';
   if (!proposalReceived) return 'Start with a prompt. The AI may propose an action, but the Proposal Agent has no authority to execute it.';
   if (!decision) return 'An action proposal is available. T3N policy has not produced a decision yet.';
   if (decision.decision === 'DENY') return 'Policy blocked the proposal before protected egress. No execution is claimed.';
