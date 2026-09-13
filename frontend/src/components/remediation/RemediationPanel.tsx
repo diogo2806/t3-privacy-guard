@@ -5,6 +5,7 @@ interface Props {
   action: ActionProposal | null;
   decision: PolicyDecision | null;
   execution: RemediationExecution | null;
+  executorDid?: string | null;
   busy: boolean;
   onAuthorize: () => void;
   onExecute: () => void;
@@ -33,7 +34,7 @@ function authorizationTimestamp(value: string): string {
   return Number.isNaN(date.getTime()) ? 'INVALID — BLOCKED' : date.toLocaleString();
 }
 
-export function RemediationPanel({ action, decision, execution, busy, onAuthorize, onExecute, onVerify }: Props) {
+export function RemediationPanel({ action, decision, execution, executorDid, busy, onAuthorize, onExecute, onVerify }: Props) {
   const hasVerifiedExecutor = action?.action === 'revoke-credential';
   const hasApprovedDestination = Boolean(action?.host);
   const normalPayload = action?.normalPayload ?? {};
@@ -51,6 +52,20 @@ export function RemediationPanel({ action, decision, execution, busy, onAuthoriz
     && action.status === 'REMEDIATION_AUTHORIZED' && hasBoundAuthorization && !execution);
   const canVerify = Boolean(hasVerifiedExecutor && execution && (execution.state === 'PENDING_VERIFICATION' || execution.state === 'UNVERIFIED') && execution.operationId);
   const destinationChanged = execution?.failureCode === 'EXECUTION_DESTINATION_CHANGED';
+  const proofBoundaryObserved = Boolean(execution && (
+    execution.httpCode
+    || destinationChanged
+    || execution.state === 'PENDING_VERIFICATION'
+    || execution.state === 'COMPLETED'
+  ));
+  const oneTimeProofState = !statusAuthorized
+    ? 'NOT ISSUED'
+    : !execution
+      ? 'ISSUED ON EXECUTE'
+      : proofBoundaryObserved
+        ? 'ISSUED / CONSUMED'
+        : 'ISSUE RESULT NOT CONFIRMED';
+  const proofCheckState = proofBoundaryObserved ? 'VERIFIED' : execution ? 'NOT CONFIRMED' : 'NOT RUN';
   const state = stateCopy(execution);
 
   return (
@@ -76,16 +91,21 @@ export function RemediationPanel({ action, decision, execution, busy, onAuthoriz
         <div className="remediation-state-panel" role="region" aria-label="Approved remediation destination and authorization status">
           <div><span>Policy decision</span><strong>{decision?.decision}</strong></div>
           <div><span>Approved destination</span><strong>{action.host || 'MISSING — BLOCKED'}</strong></div>
-          <div><span>Human authorization</span><strong>{authorizationState}</strong></div>
+          <div><span>Human authorization recorded</span><strong>{authorizationState}</strong></div>
+          <div><span>One-time authorization proof</span><strong>{oneTimeProofState}</strong></div>
+          <div><span>Gateway proof check</span><strong>{proofCheckState}</strong></div>
+          <div><span>T3N execution proof check</span><strong>{proofCheckState}</strong></div>
+          <div><span>Protected Executor identity</span><strong>{executorDid || 'NOT AVAILABLE'}</strong></div>
           {hasBoundAuthorization && <div><span>Authorized by</span><strong>{action.remediationAuthorizedBy}</strong></div>}
           {hasBoundAuthorization && action.remediationAuthorizedAt && <div><span>Authorized at</span><strong>{authorizationTimestamp(action.remediationAuthorizedAt)}</strong></div>}
         </div>
       )}
+      {hasVerifiedExecutor && action && decisionCanExecute && <p className="inline-notice">Protected egress is eligible only when the delegated Protected Executor identity and the backend-signed one-time human-authorization proof both pass. The proof is checked first by the gateway and independently again inside T3N/WASM before protected secrets or HTTP egress are used.</p>}
       {legacyAuthorizationNeedsRebind && <div className="feedback feedback-error remediation-status-message" role="alert"><CircleAlert aria-hidden="true" /><span>This authorization predates operator provenance binding. Re-authorize it with the current authenticated operator before protected execution.</span></div>}
       {hasVerifiedExecutor && action && decisionCanExecute && !action.host && <div className="feedback feedback-error remediation-status-message" role="alert"><CircleAlert aria-hidden="true" /><span>Execution is blocked because this action has no approved destination. Create and evaluate a new action before authorizing remediation.</span></div>}
       {canAuthorize && <button className="button button-primary" type="button" onClick={onAuthorize} disabled={busy}><ShieldCheck aria-hidden="true" />{legacyAuthorizationNeedsRebind ? 'Re-authorize credential revocation' : 'Authorize credential revocation'}</button>}
       {canExecute && <>
-        <div className="success-state"><ShieldCheck aria-hidden="true" /><span>Human authorization binds the authenticated operator, exact destination and trusted payload. T3N will serialize only the policy-allowed subset shown above.</span></div>
+        <div className="success-state"><ShieldCheck aria-hidden="true" /><span>Human authorization binds the authenticated operator, exact destination and trusted payload. Executing creates a short-lived signed proof; T3N must verify and consume it before the policy-approved egress can continue.</span></div>
         <button className="button button-primary" type="button" onClick={onExecute} disabled={busy}><PlayCircle aria-hidden="true" />Execute protected credential revocation</button>
       </>}
 
