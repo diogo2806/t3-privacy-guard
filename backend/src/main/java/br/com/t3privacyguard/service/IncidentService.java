@@ -34,7 +34,9 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -44,6 +46,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class IncidentService {
     private static final String SUPPORTED_REMEDIATION_ACTION = "revoke-credential";
+    private static final Set<String> REQUIRED_REMEDIATION_FIELDS = Set.of("incident_id", "credential_id", "reason");
 
     private final IncidentRepository incidents;
     private final ActionProposalRepository actions;
@@ -56,6 +59,7 @@ public class IncidentService {
     private final ExecutionTraceService traces;
     private final IncidentDataMinimizer minimizer;
     private final IncidentRetentionProperties retentionProperties;
+    private final TrustedNormalPayloadFactory normalPayloadFactory;
     private final ObjectMapper mapper;
 
     public IncidentService(
@@ -70,6 +74,7 @@ public class IncidentService {
         ExecutionTraceService traces,
         IncidentDataMinimizer minimizer,
         IncidentRetentionProperties retentionProperties,
+        TrustedNormalPayloadFactory normalPayloadFactory,
         ObjectMapper mapper
     ) {
         this.incidents = incidents;
@@ -83,6 +88,7 @@ public class IncidentService {
         this.traces = traces;
         this.minimizer = minimizer;
         this.retentionProperties = retentionProperties;
+        this.normalPayloadFactory = normalPayloadFactory;
         this.mapper = mapper;
     }
 
@@ -115,10 +121,11 @@ public class IncidentService {
         validateLogicalPrivateRefs(privateRefs);
         String host = blankToNull(request.host());
         if (host != null) host = RemediationAuthorizationSigner.canonicalizeHost(host);
+        Map<String, String> normalPayload = normalPayloadFactory.create(request.fields());
         try {
             ActionProposalEntity entity = actions.saveAndFlush(new ActionProposalEntity(
                 UUID.randomUUID().toString(), incidentId, requestId, request.action().trim(), request.resource().trim(), request.purpose().trim(),
-                host, writeJson(request.fields()), writeJson(privateRefs), Instant.now()
+                host, writeJson(request.fields()), writeJson(normalPayload), writeJson(privateRefs), Instant.now()
             ));
             audit(incidentId, "ACTION_PROPOSED", "Action " + entity.getAction() + " proposed as request " + requestId);
             traces.record(entity, "AGENT_PROPOSAL", "RECEIVED", null, null);
@@ -196,13 +203,14 @@ public class IncidentService {
         ActionProposalEntity action = requireAction(incidentId, actionId);
         requireSupportedRemediationExecutor(action);
         String approvedHost = requireApprovedHost(action);
+        Map<String, String> normalPayload = requireNormalPayload(action);
         PolicyDecisionEntity decision = decisions.findByActionProposalId(actionId).orElseThrow(() -> new ConflictException("Action must be evaluated before remediation"));
-        if (decision.getDecision() != DecisionType.ALLOW) throw new PolicyDeniedException("Remediation requires an ALLOW policy decision");
+        requireExecutableDecision(decision, normalPayload);
         requireVersionedPolicy(decision);
         auditIntegrity.assertAppendable(incidentId);
         action.authorizeRemediation();
         actions.save(action);
-        audit(incidentId, "REMEDIATION_AUTHORIZED", "Remediation authorized for request " + action.getRequestId() + " to approved destination " + approvedHost + " under policy " + decision.getPolicyVersion() + " hash " + decision.getPolicyHash());
+        audit(incidentId, "REMEDIATION_AUTHORIZED", "Remediation authorized for request " + action.getRequestId() + " to approved destination " + approvedHost + " with trusted normal payload binding under policy " + decision.getPolicyVersion() + " hash " + decision.getPolicyHash());
         traces.record(action, "HUMAN_AUTHORIZATION", "AUTHORIZED", null, null);
         return new RemediationAuthorizationResponse(incidentId, actionId, action.getRequestId(), action.getStatus().name());
     }
@@ -211,12 +219,13 @@ public class IncidentService {
         ActionProposalEntity action = requireAction(incidentId, actionId);
         requireSupportedRemediationExecutor(action);
         String approvedHost = requireApprovedHost(action);
+        Map<String, String> normalPayload = requireNormalPayload(action);
         if (action.getStatus() != ProposalStatus.REMEDIATION_AUTHORIZED && action.getStatus() != ProposalStatus.REMEDIATED) {
             throw new PolicyDeniedException("Remediation must be explicitly authorized before execution");
         }
         PolicyDecisionEntity decision = decisions.findByActionProposalId(actionId)
             .orElseThrow(() -> new ConflictException("A persisted policy decision is required before remediation"));
-        if (decision.getDecision() != DecisionType.ALLOW) throw new PolicyDeniedException("Remediation requires a persisted ALLOW policy decision");
+        requireExecutableDecision(decision, normalPayload);
         requireVersionedPolicy(decision);
         auditIntegrity.assertAppendable(incidentId);
 
@@ -226,16 +235,16 @@ public class IncidentService {
         List<String> fields = readList(action.getFieldsJson());
         List<String> privateRefs = readList(action.getPrivateRefsJson());
         String capability = remediationAuthorizationSigner.issue(
-            incidentId, actionId, action.getRequestId(), decision.getId(), action.getAction(), action.getResource(), action.getPurpose(), approvedHost, fields, privateRefs,
-            decision.getPolicyVersion(), decision.getPolicyHash()
+            incidentId, actionId, action.getRequestId(), decision.getId(), action.getAction(), action.getResource(), action.getPurpose(), approvedHost,
+            fields, normalPayload, privateRefs, decision.getPolicyVersion(), decision.getPolicyHash()
         );
 
         traces.record(action, "PROTECTED_EGRESS", "SENT", null, null);
         long startedAt = System.nanoTime();
         try {
             var result = remediationGateway.execute(new RemediationRequest(
-                incidentId, actionId, decision.getId(), action.getRequestId(), action.getAction(), action.getResource(), action.getPurpose(), approvedHost, fields, privateRefs,
-                decision.getPolicyVersion(), decision.getPolicyHash()
+                incidentId, actionId, decision.getId(), action.getRequestId(), action.getAction(), action.getResource(), action.getPurpose(), approvedHost,
+                fields, normalPayload, privateRefs, decision.getPolicyVersion(), decision.getPolicyHash()
             ), capability);
             if (!action.getRequestId().equals(result.requestId())) {
                 RemediationExecutionEntity state = executionCoordinator.markUnverified(actionId, "REQUEST_ID_MISMATCH");
@@ -254,7 +263,7 @@ public class IncidentService {
             audit(
                 incidentId,
                 "REMEDIATION_ACCEPTED",
-                "External request accepted for approved destination " + approvedHost + " under policy " + decision.getPolicyVersion() + " hash " + decision.getPolicyHash() + "; independent verification is required before completion",
+                "External request accepted for approved destination " + approvedHost + " under policy " + decision.getPolicyVersion() + " hash " + decision.getPolicyHash() + "; normal payload was minimized to the policy-allowed subset and independent verification is required before completion",
                 result.activitySequence(),
                 result.activityHash(),
                 "execute-remediation"
@@ -418,6 +427,32 @@ public class IncidentService {
         }
     }
 
+    private Map<String, String> requireNormalPayload(ActionProposalEntity action) {
+        if (action.getNormalPayloadJson() == null || action.getNormalPayloadJson().isBlank()) {
+            throw new ConflictException("This action predates trusted normal payload binding and cannot authorize remediation; create and evaluate a new action");
+        }
+        Map<String, String> payload = readMap(action.getNormalPayloadJson());
+        if (payload.isEmpty()) throw new PolicyDeniedException("Protected remediation requires a trusted normal payload");
+        Set<String> requested = Set.copyOf(readList(action.getFieldsJson()).stream().map(TrustedNormalPayloadFactory::normalizeKey).toList());
+        if (!requested.containsAll(payload.keySet())) {
+            throw new ConflictException("Stored normal payload is inconsistent with the requested field set");
+        }
+        return payload;
+    }
+
+    private void requireExecutableDecision(PolicyDecisionEntity decision, Map<String, String> normalPayload) {
+        if (decision.getDecision() == DecisionType.DENY) {
+            throw new PolicyDeniedException("Remediation cannot execute after a DENY policy decision");
+        }
+        Set<String> allowed = Set.copyOf(readList(decision.getAllowedFieldsJson()));
+        if (!allowed.containsAll(REQUIRED_REMEDIATION_FIELDS)) {
+            throw new PolicyDeniedException("Remediation requires incident_id, credential_id and reason to remain allowed after minimization");
+        }
+        if (!normalPayload.keySet().containsAll(REQUIRED_REMEDIATION_FIELDS)) {
+            throw new PolicyDeniedException("Trusted normal payload is missing required remediation values");
+        }
+    }
+
     private void validateLogicalPrivateRefs(List<String> refs) {
         for (String ref : refs) {
             String normalized = ref == null ? "" : ref.trim().toLowerCase();
@@ -470,9 +505,12 @@ public class IncidentService {
     }
 
     private ActionResponse actionResponse(ActionProposalEntity entity) {
+        Map<String, String> normalPayload = entity.getNormalPayloadJson() == null || entity.getNormalPayloadJson().isBlank()
+            ? Map.of()
+            : readMap(entity.getNormalPayloadJson());
         return new ActionResponse(
             entity.getId(), entity.getIncidentId(), entity.getRequestId(), entity.getAction(), entity.getResource(), entity.getPurpose(), entity.getHost(),
-            readList(entity.getFieldsJson()), readList(entity.getPrivateRefsJson()), entity.getStatus(), entity.getCreatedAt()
+            readList(entity.getFieldsJson()), normalPayload, readList(entity.getPrivateRefsJson()), entity.getStatus(), entity.getCreatedAt()
         );
     }
 
@@ -500,6 +538,11 @@ public class IncidentService {
     private List<String> readList(String json) {
         try { return mapper.readValue(json, new TypeReference<List<String>>() {}); }
         catch (JsonProcessingException ex) { throw new IllegalStateException("Stored metadata is invalid", ex); }
+    }
+
+    private Map<String, String> readMap(String json) {
+        try { return mapper.readValue(json, new TypeReference<Map<String, String>>() {}); }
+        catch (JsonProcessingException ex) { throw new IllegalStateException("Stored normal payload is invalid", ex); }
     }
 
     private static String decisionTraceState(DecisionType decision) {
