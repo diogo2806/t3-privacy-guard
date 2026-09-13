@@ -93,11 +93,11 @@ export function BusinessOutcomeSummary({ scenario, incident, selectedAction, dec
   const threatAction = agentAnalysis?.action ?? selectedAction;
   const threatDecision = agentAnalysis?.decision ?? decision;
   const policyDecisionTime = formatObservedDuration(elapsedMs(threatAction?.createdAt, threatDecision?.evaluatedAt));
-  const verifiedOutcomeMs = remediationExecution?.state === 'COMPLETED'
+  const verifiedOutcomeMs = remediationExecution?.state === 'COMPLETED' && remediationExecution.completedAt
     ? elapsedMs(selectedAction?.createdAt, remediationExecution.completedAt)
     : null;
-  const verifiedOutcomeTime = remediationExecution?.state === 'COMPLETED'
-    ? (verifiedOutcomeMs === null ? NOT_OBSERVED : formatObservedDuration(verifiedOutcomeMs))
+  const verifiedOutcomeTime = remediationExecution?.state === 'COMPLETED' && remediationExecution.completedAt && verifiedOutcomeMs !== null
+    ? formatObservedDuration(verifiedOutcomeMs)
     : NOT_VERIFIED;
   const authorized = isAuthorized(selectedAction);
   const outcomeText = currentResult(threatDecision, selectedAction, decision, remediationExecution);
