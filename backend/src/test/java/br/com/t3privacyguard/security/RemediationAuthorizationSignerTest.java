@@ -1,6 +1,7 @@
 package br.com.t3privacyguard.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
@@ -18,11 +19,11 @@ class RemediationAuthorizationSignerTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
-    void capabilityIsSignedAndBoundToActionPrivateReferencesPolicyAndExecutor() throws Exception {
+    void capabilityIsSignedAndBoundToActionPrivateReferencesPolicyDestinationAndExecutor() throws Exception {
         var signer = new RemediationAuthorizationSigner(mapper, KEY, 60, () -> EXECUTOR_DID);
         String token = signer.issue(
             "incident-1", "action-1", "request-1", "decision-1",
-            "notify-security", "incident:test", "incident-notification",
+            "notify-security", "incident:test", "incident-notification", "Security-A.Example",
             List.of("summary", "incident_id", "severity"), List.of("verified_email"),
             POLICY_VERSION, POLICY_HASH
         );
@@ -32,6 +33,7 @@ class RemediationAuthorizationSignerTest {
         var claims = mapper.readTree(Base64.getUrlDecoder().decode(parts[0]));
         assertThat(claims.get("incidentId").asText()).isEqualTo("incident-1");
         assertThat(claims.get("decisionId").asText()).isEqualTo("decision-1");
+        assertThat(claims.get("approvedHost").asText()).isEqualTo("security-a.example");
         assertThat(claims.get("fieldsHash").asText()).hasSize(64);
         assertThat(claims.get("privateRefsHash").asText()).hasSize(64);
         assertThat(claims.get("policyVersion").asText()).isEqualTo(POLICY_VERSION);
@@ -45,5 +47,18 @@ class RemediationAuthorizationSignerTest {
         String expected = Base64.getUrlEncoder().withoutPadding()
             .encodeToString(mac.doFinal(parts[0].getBytes(StandardCharsets.US_ASCII)));
         assertThat(parts[1]).isEqualTo(expected);
+    }
+
+    @Test
+    void destinationCanonicalizationRejectsUrlsPortsCredentialsAndInvalidDns() {
+        assertThat(RemediationAuthorizationSigner.canonicalizeHost("Security-A.Example")).isEqualTo("security-a.example");
+        assertThatThrownBy(() -> RemediationAuthorizationSigner.canonicalizeHost("https://security-a.example/remediate"))
+            .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> RemediationAuthorizationSigner.canonicalizeHost("security-a.example:443"))
+            .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> RemediationAuthorizationSigner.canonicalizeHost("user@security-a.example"))
+            .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> RemediationAuthorizationSigner.canonicalizeHost("-invalid.example"))
+            .isInstanceOf(IllegalArgumentException.class);
     }
 }
