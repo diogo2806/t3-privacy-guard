@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { TenantClient, getNodeUrl } from '@terminal3/t3n-sdk';
 import { AgentSession } from '../agent/agent-session.js';
 import {
   DelegationService,
@@ -37,16 +38,23 @@ const repositoryRoot = resolve(scriptDir, '../../..');
 const outputPath = resolve(process.env.EVIDENCE_OUTPUT ?? resolve(repositoryRoot, 'docs/evidence/testnet-run.json'));
 const wasmPath = resolve(process.env.T3N_CONTRACT_WASM_PATH ?? resolve(repositoryRoot, 'contracts/privacy-guard/target/wasm32-wasip2/release/privacy_guard_contract.wasm'));
 
+function httpsHost(value: string, label: string): string {
+  const parsed = new URL(value);
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.port) throw new Error(`${label} must be an HTTPS URL with a canonical hostname and no credentials or explicit port`);
+  return parsed.hostname.toLowerCase();
+}
+
+function executionHost(): string {
+  const configured = process.env.SECURITY_API_URL?.trim();
+  return configured ? httpsHost(configured, 'SECURITY_API_URL') : 'postman-echo.com';
+}
+
 function configuredEgressHosts(): string[] {
-  const configured = [process.env.SECURITY_API_URL, process.env.SECURITY_VERIFICATION_URL]
+  const configured = [process.env.SECURITY_API_URL, process.env.SECURITY_VERIFICATION_URL, process.env.EVIDENCE_DESTINATION_B_URL]
     .map((value) => value?.trim())
     .filter((value): value is string => Boolean(value));
   if (configured.length === 0) return ['postman-echo.com'];
-  return [...new Set(configured.map((value) => {
-    const parsed = new URL(value);
-    if (parsed.protocol !== 'https:') throw new Error('Evidence egress endpoints must use HTTPS');
-    return parsed.hostname;
-  }))];
+  return [...new Set(configured.map((value) => httpsHost(value, 'Evidence egress endpoint')))];
 }
 
 function evidenceDelegation(status: DelegationStatus): DelegationEvidence {
@@ -68,6 +76,9 @@ const config = readGatewayConfig();
 if (config.network !== 'testnet' && process.env.EVIDENCE_ALLOW_PRODUCTION !== 'true') throw new Error('Adversarial evidence runner is restricted to testnet unless EVIDENCE_ALLOW_PRODUCTION=true is explicitly set');
 if (!config.agentApiKey) throw new Error('T3N_AGENT_API_KEY is required for testnet evidence');
 if (!config.executorApiKey) throw new Error('T3N_EXECUTOR_API_KEY is required for testnet evidence');
+if (process.env.EVIDENCE_RUN_DESTINATION_BINDING === 'true' && config.network !== 'testnet') {
+  throw new Error('Destination-binding mutation evidence is testnet-only and cannot run against production');
+}
 
 const trustFloorStore = new TrustManifestFloorStore(config.trustManifestFloorStorePath);
 const tenantSession = new T3nSession(config, trustFloorStore);
@@ -139,6 +150,7 @@ async function expectProposalExecutorRejected(contractId: string, contractVersio
         action: 'revoke-credential',
         resource: 'credential:security-api',
         purpose: 'incident-remediation',
+        approved_host: executionHost(),
         fields: ['incident_id', 'credential_id', 'reason'],
         private_refs: [],
         policy_version: observedPolicyVersion,
@@ -181,6 +193,7 @@ async function expectExecutorRevocationRejected(id: string, expected: string, re
       action: 'revoke-credential',
       resource: 'credential:security-api',
       purpose: 'incident-remediation',
+      approved_host: executionHost(),
       fields: ['incident_id', 'credential_id', 'reason'],
       policy_version: observedPolicyVersion,
       policy_hash: observedPolicyHash,
@@ -230,6 +243,95 @@ async function expectRevokedExecutorCheckDenied(contractId: string, tenantDid: s
   }
 }
 
+async function writePrivateSecurityApiUrl(url: string, tenantDid: string): Promise<void> {
+  const tenant = new TenantClient({ t3n: tenantSession.getClient(), baseUrl: getNodeUrl(), tenantDid });
+  await tenant.tenant.me();
+  const mapName = tenant.canonicalName('secrets');
+  await tenant.executeControl('map-entry-set', { map_name: mapName, key: 'security_api_url', value: url });
+}
+
+async function destinationBindingScenario(tenantDid: string, executorDid: string): Promise<void> {
+  const id = 'LIVE-DESTINATION-BINDING';
+  const expected = 'approved host A remains authoritative after private KV changes to policy-allowed host B; execution is blocked before HTTP egress';
+  if (process.env.EVIDENCE_RUN_DESTINATION_BINDING !== 'true') {
+    record(id, expected, null, 'NOT_RUN', 'Set EVIDENCE_RUN_DESTINATION_BINDING=true with EVIDENCE_DESTINATION_B_URL on T3N testnet only.');
+    return;
+  }
+  if (config.network !== 'testnet') {
+    record(id, expected, null, 'FAIL', 'Destination-binding mutation evidence is forbidden outside T3N testnet.');
+    return;
+  }
+  const originalUrl = process.env.SECURITY_API_URL?.trim();
+  const alternateUrl = process.env.EVIDENCE_DESTINATION_B_URL?.trim();
+  if (!originalUrl || !alternateUrl) {
+    record(id, expected, null, 'FAIL', 'SECURITY_API_URL and EVIDENCE_DESTINATION_B_URL are required for destination-binding evidence.');
+    return;
+  }
+  const approvedHost = httpsHost(originalUrl, 'SECURITY_API_URL');
+  const alternateHost = httpsHost(alternateUrl, 'EVIDENCE_DESTINATION_B_URL');
+  if (approvedHost === alternateHost) {
+    record(id, expected, null, 'FAIL', 'Destination A and B must use different hostnames.');
+    return;
+  }
+
+  try {
+    const approved = await contract.evaluate({
+      request_id: 'live-destination-a-approval',
+      action: 'revoke-credential',
+      resource: 'credential:security-api',
+      purpose: 'incident-remediation',
+      host: approvedHost,
+      fields: ['incident_id', 'credential_id', 'reason'],
+    });
+    observePolicy(approved);
+    const alternate = await contract.evaluate({
+      request_id: 'live-destination-b-policy-check',
+      action: 'revoke-credential',
+      resource: 'credential:security-api',
+      purpose: 'incident-remediation',
+      host: alternateHost,
+      fields: ['incident_id', 'credential_id', 'reason'],
+    });
+    observePolicy(alternate);
+    if (approved.decision !== 'ALLOW' || alternate.decision !== 'ALLOW' || !approved.policy_version || !approved.policy_hash) {
+      record(id, expected, `${approvedHost}=${approved.decision}; ${alternateHost}=${alternate.decision}`, 'FAIL', 'Both destinations must be independently policy-allowed so the negative proves human destination binding rather than the policy host allowlist.');
+      return;
+    }
+
+    await writePrivateSecurityApiUrl(alternateUrl, tenantDid);
+    try {
+      const result = await contract.remediate({
+        request_id: 'live-destination-binding-deny',
+        action: 'revoke-credential',
+        resource: 'credential:security-api',
+        purpose: 'incident-remediation',
+        approved_host: approvedHost,
+        fields: ['incident_id', 'credential_id', 'reason'],
+        policy_version: approved.policy_version,
+        policy_hash: approved.policy_hash,
+      }, executorDid);
+      record(id, expected, result.status, 'FAIL', 'Protected execution unexpectedly accepted host B after host A had been approved.');
+    } catch (error) {
+      const detail = sanitizeEvidenceError(error);
+      const blockedBeforeEgress = detail.includes('EXECUTION_DESTINATION_CHANGED');
+      record(
+        id,
+        expected,
+        blockedBeforeEgress ? 'BLOCKED_BEFORE_HTTP' : 'REJECTED_OTHER_REASON',
+        blockedBeforeEgress ? 'PASS' : 'FAIL',
+        blockedBeforeEgress
+          ? `approved=${approvedHost}; resolved=${alternateHost}; contract rejected at the destination equality guard before policy re-evaluation and before hwp::call`
+          : detail,
+      );
+    }
+  } catch (error) {
+    record(id, expected, null, 'FAIL', sanitizeEvidenceError(error));
+  } finally {
+    try { await writePrivateSecurityApiUrl(originalUrl, tenantDid); }
+    catch (error) { throw new Error(`Failed to restore SECURITY_API_URL after destination-binding evidence: ${sanitizeEvidenceError(error)}`); }
+  }
+}
+
 await tenantSession.connect();
 await Promise.all([agentSession.connect(), executorSession.connect()]);
 const identity = await contract.identity();
@@ -253,13 +355,14 @@ record(
   `proposal functions=${proposalDelegationStatus.checkedFunctions.join(',')}; proposal scopes=${proposalDelegationStatus.checkedScopes.join(',')}; executor functions=${executorDelegationStatus.checkedFunctions.join(',')}; executor scopes=${executorDelegationStatus.checkedScopes.join(',')}`,
 );
 
+const protectedHost = executionHost();
 await decisionScenario('LIVE-SECRET-EXFILTRATION', 'DENY', { request_id: 'live-secret-exfiltration', action: 'revoke-credential', resource: 'credential:security-api', purpose: 'incident-remediation', host: 'attacker.example', fields: ['incident_id', 'credential_id', 'reason', 'api_key'] });
 await decisionScenario('LIVE-HOST-DENY', 'DENY', { request_id: 'live-host-deny', action: 'revoke-credential', resource: 'credential:security-api', purpose: 'incident-remediation', host: 'attacker.example', fields: ['incident_id', 'credential_id', 'reason'] });
-await decisionScenario('LIVE-PURPOSE-DENY', 'DENY', { request_id: 'live-purpose-deny', action: 'revoke-credential', resource: 'credential:security-api', purpose: 'analytics', host: 'postman-echo.com', fields: ['incident_id', 'credential_id', 'reason'] });
-await decisionScenario('LIVE-DATA-MINIMIZATION', 'REDACT', { request_id: 'live-redact', action: 'revoke-credential', resource: 'credential:security-api', purpose: 'incident-remediation', host: 'postman-echo.com', fields: ['incident_id', 'credential_id', 'reason', 'employee_department'] });
-await decisionScenario('LIVE-MINIMAL-ALLOW', 'ALLOW', { request_id: 'live-allow', action: 'revoke-credential', resource: 'credential:security-api', purpose: 'incident-remediation', host: 'postman-echo.com', fields: ['incident_id', 'credential_id', 'reason'] });
+await decisionScenario('LIVE-PURPOSE-DENY', 'DENY', { request_id: 'live-purpose-deny', action: 'revoke-credential', resource: 'credential:security-api', purpose: 'analytics', host: protectedHost, fields: ['incident_id', 'credential_id', 'reason'] });
+await decisionScenario('LIVE-DATA-MINIMIZATION', 'REDACT', { request_id: 'live-redact', action: 'revoke-credential', resource: 'credential:security-api', purpose: 'incident-remediation', host: protectedHost, fields: ['incident_id', 'credential_id', 'reason', 'employee_department'] });
+await decisionScenario('LIVE-MINIMAL-ALLOW', 'ALLOW', { request_id: 'live-allow', action: 'revoke-credential', resource: 'credential:security-api', purpose: 'incident-remediation', host: protectedHost, fields: ['incident_id', 'credential_id', 'reason'] });
 await decisionScenario('LIVE-PRIVATE-REFERENCE-POLICY', 'ALLOW', {
-  request_id: 'live-private-ref-policy', action: 'notify-security', resource: 'incident:synthetic', purpose: 'incident-notification', host: 'postman-echo.com',
+  request_id: 'live-private-ref-policy', action: 'notify-security', resource: 'incident:synthetic', purpose: 'incident-notification', host: protectedHost,
   fields: ['incident_id', 'severity', 'summary'], private_refs: ['verified_email'],
 });
 record(
@@ -275,6 +378,8 @@ record(
   'NOT_RUN',
   'Requires a dedicated synthetic T3N profile with verified email and compatible delegated scope/user context. Local mapping tests do not count as live resolution proof.',
 );
+
+await destinationBindingScenario(tenantDid, executorDid);
 
 if (process.env.EVIDENCE_RUN_EGRESS_NEGATIVES === 'true') {
   try {
@@ -316,7 +421,7 @@ if (process.env.EVIDENCE_RUN_REMEDIATION === 'true') {
       action: 'revoke-credential',
       resource: 'credential:security-api',
       purpose: 'incident-remediation',
-      host: 'postman-echo.com',
+      host: protectedHost,
       fields: ['incident_id', 'credential_id', 'reason'],
     });
     observePolicy(safe);
@@ -328,6 +433,7 @@ if (process.env.EVIDENCE_RUN_REMEDIATION === 'true') {
         action: 'revoke-credential',
         resource: 'credential:security-api',
         purpose: 'incident-remediation',
+        approved_host: protectedHost,
         fields: ['incident_id', 'credential_id', 'reason'],
         policy_version: safe.policy_version,
         policy_hash: safe.policy_hash,
