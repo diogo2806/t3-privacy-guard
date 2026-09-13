@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { EvidenceCenter } from './EvidenceCenter';
 
 describe('EvidenceCenter', () => {
-  it('renders trust provenance and PASS/NOT RUN without overstating attestation', () => {
+  it('explains proof semantics and renders trust provenance without overstating attestation', () => {
     render(<EvidenceCenter evidence={{
       metadata: {
         source: 'T3N_TESTNET', generatedAt: '2026-09-12T00:00:00Z', network: 'testnet', sdkVersion: '5.2.0',
@@ -19,6 +19,8 @@ describe('EvidenceCenter', () => {
       totals: { pass: 1, fail: 0, notRun: 1 },
     }} loading={false} error={null} onRefresh={vi.fn()} />);
 
+    expect(screen.getByText('What this proves')).toBeInTheDocument();
+    expect(screen.getByText('Observed security outcomes on T3N testnet')).toBeInTheDocument();
     expect(screen.getByText('1 PASS')).toBeInTheDocument();
     expect(screen.getByText('1 NOT RUN')).toBeInTheDocument();
     expect(screen.getByText('VERIFIED')).toBeInTheDocument();
@@ -28,8 +30,9 @@ describe('EvidenceCenter', () => {
     expect(screen.getByText(/never counted as PASS/i)).toBeInTheDocument();
   });
 
-  it('shows explicit empty live-evidence copy', () => {
+  it('shows the proof meaning before an explicit empty live-evidence state', () => {
     render(<EvidenceCenter evidence={null} loading={false} error={null} onRefresh={vi.fn()} />);
+    expect(screen.getByText('What this proves')).toBeInTheDocument();
     expect(screen.getByText('No live T3N evidence has been generated yet.')).toBeInTheDocument();
   });
 });

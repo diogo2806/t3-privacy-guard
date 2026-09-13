@@ -2,6 +2,12 @@
 
 This directory separates local regression controls from real Terminal 3 testnet evidence. Nothing is labelled live unless the T3N runner actually executed it.
 
+## Dashboard proof view
+
+The operator dashboard presents evidence in business-first order. The **Proof & evidence** view explains what the bundle proves before showing technical metadata: `PASS` is an observed outcome that matched the expected security result, `FAIL` is an observed mismatch, and `NOT_RUN` means the scenario was not executed and is never counted as proof. Contract, DID, SDK, network, trust-anchor, rollback-floor and WASM metadata remain available below that explanation so a judge can first understand the outcome and then inspect the technical linkage.
+
+The dashboard trust flow follows the same claim boundary as the evidence bundle: `ALLOW` is not execution, accepted external execution is not completion, and `COMPLETED` is shown only after independent read-back verifies the expected external state. T3N control-plane or trust-boundary unavailability is surfaced explicitly rather than rendered as a successful state.
+
 ## Local automated evidence
 
 From the repository root:
