@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { EnterpriseIntegrationReadinessService } from '../contract/enterprise-integration-readiness.js';
 import type { PolicyDecisionType, PolicyEvaluationRequest, PrivacyGuardContractService, RemediationVerificationRequest } from '../contract/privacy-guard-contract.js';
 import { logTraceStage, traceRequest } from '../observability/trace.js';
 import type { RemediationAuthorizationVerifier, RemediationBody } from '../security/remediation-authorization.js';
@@ -14,12 +15,17 @@ export function createContractRouter(
   service: PrivacyGuardContractService,
   verifier: RemediationAuthorizationVerifier,
   serviceToken: string,
+  enterpriseIntegrationReadiness: EnterpriseIntegrationReadinessService,
 ): Router {
   const router = Router();
 
   router.get('/identity', async (_request, response) => {
     try { response.json(await service.identity()); }
     catch { response.status(503).json({ error: 'Registered T3N contract is unavailable' }); }
+  });
+
+  router.get('/enterprise-integration-readiness', async (_request, response) => {
+    response.json(await enterpriseIntegrationReadiness.status());
   });
 
   router.post('/evaluate', requireServiceToken(serviceToken), traceRequest, async (request, response) => {
