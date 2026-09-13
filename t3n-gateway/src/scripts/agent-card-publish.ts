@@ -18,7 +18,7 @@ const agentSession = new AgentSession(config, trustFloorStore);
 await agentSession.connect();
 const agentDid = agentSession.getAgentDid();
 const cardPath = resolve(process.env.AGENT_CARD_OUTPUT ?? resolve(gatewayRoot, 'agent-card.json'));
-await writeFile(cardPath, serializeAgentCard(buildAgentCardForSession(agentSession)), { encoding: 'utf8', mode: 0o600 });
+await writeFile(cardPath, serializeAgentCard(buildAgentCardForSession(agentSession, config.a2aPublicUrl)), { encoding: 'utf8', mode: 0o600 });
 
 const binaryName = process.platform === 'win32' ? 't3n.cmd' : 't3n';
 const cliPath = resolve(gatewayRoot, 'node_modules', '.bin', binaryName);
@@ -33,7 +33,7 @@ const publish = spawnSync(cliPath, ['agent', 'host-card', '--file', cardPath, '-
 });
 if (publish.error || publish.status !== 0) throw new Error('T3N Agent Card publication failed');
 
-const registry = new AgentCardRegistry(agentSession);
+const registry = new AgentCardRegistry(agentSession, undefined, undefined, config.a2aPublicUrl);
 let registration = await registry.verify();
 for (let attempt = 1; registration.state !== 'REGISTERED' && attempt < 4; attempt += 1) {
   await new Promise((resolveDelay) => setTimeout(resolveDelay, 1_000));
