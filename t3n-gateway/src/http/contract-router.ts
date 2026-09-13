@@ -41,6 +41,9 @@ export function createContractRouter(
       const body = request.body as RemediationBody;
       verifier.verifyAndConsume(capability, body);
       const result = await service.remediate({
+        incident_id: body.incident_id,
+        action_id: body.action_id,
+        decision_id: body.decision_id,
         request_id: body.request_id,
         action: body.action,
         resource: body.resource,
@@ -51,20 +54,24 @@ export function createContractRouter(
         private_refs: body.private_refs ?? [],
         policy_version: body.policy_version,
         policy_hash: body.policy_hash,
+        executor_did: body.executor_did,
+        operator_principal_hash: body.operator_principal_hash,
+        authorization_recorded_at: body.authorization_recorded_at,
+        authorization_proof: capability,
       }, body.executor_did);
       logTraceStage(response, 'PROTECTED_EGRESS', requestId, 'ACCEPTED');
       response.json(result);
     } catch (error) {
       const code = error instanceof Error ? error.message : 'UNKNOWN';
       const destinationChanged = code.includes('EXECUTION_DESTINATION_CHANGED');
-      if (code === 'CAPABILITY_REPLAY') response.status(409).json({ error: 'Remediation authorization proof was already consumed' });
-      else if (code.startsWith('CAPABILITY_')) response.status(403).json({ error: 'Remediation authorization proof is invalid or unavailable' });
+      if (code === 'CAPABILITY_REPLAY' || code.includes('CAPABILITY_REPLAY')) response.status(409).json({ error: 'Remediation authorization proof was already consumed' });
+      else if (code.startsWith('CAPABILITY_') || code.includes('CAPABILITY_')) response.status(403).json({ error: 'Remediation authorization proof is invalid or unavailable' });
       else if (destinationChanged) response.status(409).json({
         code: 'EXECUTION_DESTINATION_CHANGED',
         error: 'Protected destination changed after approval; create a new action, evaluate it, and authorize the intended destination again',
       });
       else response.status(503).json({ error: 'Protected remediation could not be accepted under the approved policy' });
-      logTraceStage(response, 'PROTECTED_EGRESS', requestId, code.startsWith('CAPABILITY_') || destinationChanged ? 'DENIED' : 'UNAVAILABLE');
+      logTraceStage(response, 'PROTECTED_EGRESS', requestId, code.includes('CAPABILITY_') || destinationChanged ? 'DENIED' : 'UNAVAILABLE');
     }
   });
 
