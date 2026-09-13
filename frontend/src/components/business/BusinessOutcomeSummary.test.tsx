@@ -92,11 +92,20 @@ function section(name: string) {
   return within(heading.closest('section') as HTMLElement);
 }
 
+function expectValue(label: string, value: string) {
+  expect(screen.getByText(label).closest('div')).toHaveTextContent(value);
+}
+
 describe('BusinessOutcomeSummary', () => {
   it('does not invent an observed threat or successful result before analysis', () => {
     renderSummary();
     expect(screen.getByRole('status')).toHaveTextContent('No threat has been analyzed yet.');
     expect(section('T3N control outcome').getByText('NOT OBSERVED')).toBeInTheDocument();
+    expectValue('Requested destination', 'Not yet observed');
+    expectValue('Human authorization', 'Not yet observed');
+    expectValue('Approved destination', 'Not yet observed');
+    expectValue('External action', 'Not yet observed');
+    expectValue('Verification attempts', 'Not yet observed');
     expect(section('Authorized response').getByText('NOT VERIFIED')).toBeInTheDocument();
     expect(screen.queryByText('REVOKED — VERIFIED')).not.toBeInTheDocument();
   });
@@ -105,7 +114,7 @@ describe('BusinessOutcomeSummary', () => {
     renderSummary({ incident: INCIDENT, selectedAction: THREAT_ACTION, decision: policyDecision(THREAT_ACTION, 'DENY'), agentAnalysis: analysis('DENY') });
     expect(screen.getByRole('status')).toHaveTextContent('blocked the proposed action before protected egress');
     expect(section('T3N control outcome').getByText('DENY')).toBeInTheDocument();
-    expect(section('Authorized response').getByText('NOT APPLICABLE')).toBeInTheDocument();
+    expect(section('Authorized response').getAllByText('NOT APPLICABLE')).toHaveLength(2);
     expect(section('Authorized response').getByText('NOT VERIFIED')).toBeInTheDocument();
   });
 
