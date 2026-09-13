@@ -84,4 +84,24 @@ class SystemStatusServiceTest {
         assertThat(result.delegationState()).isEqualTo("UNKNOWN");
         assertThat(result.message()).contains("not confirmed as ready");
     }
+
+    @Test
+    void scheduledDelegationNeverBecomesReadyMessage() {
+        when(gateway.health()).thenReturn(true);
+        when(gateway.tenantStatus()).thenReturn(Optional.of(new TenantStatus(true, true, "did:t3n:tenant", "testnet")));
+        when(gateway.agentStatus()).thenReturn(Optional.of(new AgentStatus(true, true, true, "did:t3n:agent", "testnet")));
+        when(gateway.agentRegistration()).thenReturn(Optional.of(new AgentRegistrationStatus(
+            "did:t3n:agent", "REGISTERED", "https://node.example/card", "a".repeat(64), "2026-09-12T20:00:00Z", List.of("DID")
+        )));
+        when(gateway.contractIdentity()).thenReturn(Optional.of(new ContractIdentity("z:tenant:privacy-guard", "0.3.0")));
+        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(new DelegationStatus(
+            "SCHEDULED", List.of("evaluate-action"), List.of("security.example")
+        )));
+
+        var result = service.status();
+
+        assertThat(result.delegationState()).isEqualTo("SCHEDULED");
+        assertThat(result.message()).isEqualTo("Delegation exists, but its authorization window has not begun.");
+        assertThat(result.message()).doesNotContain("controls are ready");
+    }
 }
