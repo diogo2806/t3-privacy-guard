@@ -1,9 +1,11 @@
 package br.com.t3privacyguard.service;
 
 import br.com.t3privacyguard.api.ApiModels.AuditEvidenceResponse;
+import br.com.t3privacyguard.api.ApiModels.AuditIntegrityEvidence;
 import br.com.t3privacyguard.api.ApiModels.AuditProvenance;
 import br.com.t3privacyguard.api.ApiModels.LocalAuditEvidence;
 import br.com.t3privacyguard.api.ApiModels.T3nActivityEvidence;
+import br.com.t3privacyguard.audit.AuditIntegrityService;
 import br.com.t3privacyguard.domain.AuditReconciliationStatus;
 import br.com.t3privacyguard.integration.GatewaySystemClient;
 import br.com.t3privacyguard.integration.GatewaySystemClient.ActivityEvent;
@@ -37,11 +39,18 @@ public class AuditEvidenceService {
     private final IncidentRepository incidents;
     private final AuditEventRepository audits;
     private final GatewaySystemClient gateway;
+    private final AuditIntegrityService auditIntegrity;
 
-    public AuditEvidenceService(IncidentRepository incidents, AuditEventRepository audits, GatewaySystemClient gateway) {
+    public AuditEvidenceService(
+        IncidentRepository incidents,
+        AuditEventRepository audits,
+        GatewaySystemClient gateway,
+        AuditIntegrityService auditIntegrity
+    ) {
         this.incidents = incidents;
         this.audits = audits;
         this.gateway = gateway;
+        this.auditIntegrity = auditIntegrity;
     }
 
     @Transactional(readOnly = true)
@@ -50,6 +59,7 @@ public class AuditEvidenceService {
         IncidentEntity incident = incidents.findById(incidentId)
             .orElseThrow(() -> new IncidentNotFoundException("Incident not found"));
         List<AuditEventEntity> local = audits.findByIncidentIdOrderByCreatedAtAsc(incidentId);
+        AuditIntegrityEvidence integrity = integrityEvidence(auditIntegrity.verify(incidentId, local));
 
         Optional<GatewaySystemClient.TenantStatus> tenant = gateway.tenantStatus();
         Optional<GatewaySystemClient.AgentStatus> agent = gateway.agentStatus();
@@ -62,13 +72,13 @@ public class AuditEvidenceService {
             .flatMap(ignored -> gateway.activity(fromMs, toMs, requestedLimit));
 
         if (activity.isEmpty() || tenant.isEmpty() || agent.isEmpty() || contract.isEmpty()) {
-            return degraded(local, requestedLimit);
+            return degraded(local, integrity, requestedLimit);
         }
 
         String tenantDid = tenant.get().tenantDid();
         String agentDid = agent.get().agentDid();
         String contractId = contract.get().contractId();
-        if (blank(tenantDid) || blank(agentDid) || blank(contractId)) return degraded(local, requestedLimit);
+        if (blank(tenantDid) || blank(agentDid) || blank(contractId)) return degraded(local, integrity, requestedLimit);
 
         ActivityPage page = activity.get();
         List<ActivityEvent> relevant = page.events().stream()
@@ -124,10 +134,10 @@ public class AuditEvidenceService {
             ? "T3N activity is available. Reconciliation requires exact sequence, hash, contract, agent and function identifiers."
             : "T3N activity is available, but the bounded activity window was truncated. Unmatched evidence is not proof that no network event exists.";
         AuditProvenance provenance = new AuditProvenance(true, true, page.complete(), matched, unmatched, localOnly, t3nOnly, message);
-        return new AuditEvidenceResponse(localEvidence, t3nEvidence, provenance, page.nextSequence(), requestedLimit);
+        return new AuditEvidenceResponse(localEvidence, t3nEvidence, integrity, provenance, page.nextSequence(), requestedLimit);
     }
 
-    private AuditEvidenceResponse degraded(List<AuditEventEntity> local, int limit) {
+    private AuditEvidenceResponse degraded(List<AuditEventEntity> local, AuditIntegrityEvidence integrity, int limit) {
         List<LocalAuditEvidence> localEvidence = local.stream().map(event -> {
             AuditReconciliationStatus status = event.getT3nFunction() == null
                 ? AuditReconciliationStatus.LOCAL_ONLY
@@ -146,7 +156,11 @@ public class AuditEvidenceService {
             0,
             "T3N activity temporarily unavailable. Local business audit remains available; network provenance was not verified."
         );
-        return new AuditEvidenceResponse(localEvidence, List.of(), provenance, null, limit);
+        return new AuditEvidenceResponse(localEvidence, List.of(), integrity, provenance, null, limit);
+    }
+
+    private static AuditIntegrityEvidence integrityEvidence(AuditIntegrityService.AuditIntegrityResult result) {
+        return new AuditIntegrityEvidence(result.state(), result.eventsChecked(), result.head(), result.version(), result.message());
     }
 
     private static LocalAuditEvidence localEvidence(AuditEventEntity event, AuditReconciliationStatus status, Long matchedSequence) {
