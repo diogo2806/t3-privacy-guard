@@ -13,6 +13,7 @@ export interface GatewayConfig {
   readonly contractVersion: string;
   readonly gatewayServiceToken: string;
   readonly remediationAuthorizationPublicKeySpki: string;
+  readonly remediationAuthorizationKeyId: string;
   readonly remediationReplayStorePath: string;
   readonly trustManifestFloorStorePath: string;
   readonly aiProvider: AiProvider;
@@ -33,6 +34,12 @@ export class ConfigurationError extends Error {
 function requiredSecret(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name]?.trim();
   if (!value || value.length < 32) throw new ConfigurationError(`${name} is required and must contain at least 32 characters`);
+  return value;
+}
+
+function requiredKeyId(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
+  const value = env[name]?.trim() || fallback;
+  if (!/^[A-Za-z0-9._-]{1,32}$/.test(value)) throw new ConfigurationError(`${name} must match [A-Za-z0-9._-]{1,32}`);
   return value;
 }
 
@@ -176,6 +183,7 @@ export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): Gateway
     contractVersion,
     gatewayServiceToken: requiredSecret(env, 'GATEWAY_SERVICE_TOKEN'),
     remediationAuthorizationPublicKeySpki: requiredEd25519PublicKey(env, 'REMEDIATION_AUTH_PUBLIC_KEY_SPKI'),
+    remediationAuthorizationKeyId: requiredKeyId(env, 'REMEDIATION_AUTH_KEY_ID', 'primary'),
     remediationReplayStorePath: requiredPath(env, 'REMEDIATION_REPLAY_STORE_PATH', '/data/remediation-capability-nonces.json'),
     trustManifestFloorStorePath: requiredPath(env, 'T3N_TRUST_FLOOR_STORE_PATH', '/data/t3n-trust-floor.json'),
     aiProvider: aiProviderValue,
