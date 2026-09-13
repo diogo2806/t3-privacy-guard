@@ -33,16 +33,20 @@ function t3nReady(status: SystemStatus | null): boolean {
       && status.agentAuthenticated
       && status.executorAuthenticated
       && status.contractResolved
-      && status.delegationState === 'ACTIVE'
-      && status.executorDelegationState === 'ACTIVE',
+      && status.delegationEffectiveState === 'ACTIVE'
+      && status.executorDelegationEffectiveState === 'ACTIVE',
   );
 }
 
 function readinessState(status: SystemStatus | null, loading: boolean, ready: boolean): { className: string; label: string } {
   if (loading) return { className: 'trust-readiness-pending', label: 'Checking T3N' };
   if (ready) return { className: 'trust-readiness-ready', label: 'T3N controls ready' };
-  if (status?.delegationState === 'SCHEDULED' || status?.executorDelegationState === 'SCHEDULED') {
-    return { className: 'trust-readiness-pending', label: 'Delegation scheduled' };
+  if (status?.delegationMemberState === 'SCHEDULED' || status?.executorDelegationMemberState === 'SCHEDULED') {
+    return { className: 'trust-readiness-pending', label: 'Member grant scheduled' };
+  }
+  if ((status?.delegationMemberState === 'ACTIVE' && status.delegationEffectiveState !== 'ACTIVE')
+      || (status?.executorDelegationMemberState === 'ACTIVE' && status.executorDelegationEffectiveState !== 'ACTIVE')) {
+    return { className: 'trust-readiness-unavailable', label: 'Effective access not confirmed' };
   }
   return { className: 'trust-readiness-unavailable', label: 'T3N controls unavailable' };
 }
@@ -135,10 +139,20 @@ function resultMessage(
   proposalReceived: boolean,
   systemStatus: SystemStatus | null,
 ): string {
-  if (!statusLoading && (systemStatus?.delegationState === 'SCHEDULED' || systemStatus?.executorDelegationState === 'SCHEDULED')) {
-    return 'A T3N delegation is scheduled, but its authorization window has not begun. Proposal evaluation or protected execution is not reported as ready.';
+  if (!statusLoading && (systemStatus?.delegationMemberState === 'SCHEDULED' || systemStatus?.executorDelegationMemberState === 'SCHEDULED')) {
+    return 'A T3N Member grant is scheduled, but its authorization window has not begun. Effective access is not active, so proposal evaluation or protected execution is not reported as ready.';
   }
-  if (!statusLoading && !ready) return 'T3N controls are unavailable or incomplete. Proposal evaluation or protected execution cannot be proven until both delegated principals are ready.';
+  if (!statusLoading && systemStatus?.delegationMemberState === 'ACTIVE' && systemStatus.delegationEffectiveState === 'INCOMPLETE') {
+    return 'The Proposal Agent Member grant is active, but T3N checkDelegation did not authorize effective access. Proposal evaluation is not reported as ready.';
+  }
+  if (!statusLoading && systemStatus?.executorDelegationMemberState === 'ACTIVE' && systemStatus.executorDelegationEffectiveState === 'INCOMPLETE') {
+    return 'The Protected Executor Member grant is active, but T3N checkDelegation did not authorize effective access. Protected execution is not reported as ready.';
+  }
+  if (!statusLoading && ((systemStatus?.delegationMemberState === 'ACTIVE' && systemStatus.delegationEffectiveState === 'UNKNOWN')
+      || (systemStatus?.executorDelegationMemberState === 'ACTIVE' && systemStatus.executorDelegationEffectiveState === 'UNKNOWN'))) {
+    return 'A Member grant is active, but the T3N effective delegation verdict is unavailable. The system fails closed and does not report protected operations as ready.';
+  }
+  if (!statusLoading && !ready) return 'T3N controls are unavailable or incomplete. Proposal evaluation or protected execution cannot be proven until both principals have T3N-confirmed effective access.';
   if (!proposalReceived) return 'Start with a prompt. The AI may propose an action, but the Proposal Agent has no authority to execute it.';
   if (!decision) return 'An action proposal is available. T3N policy has not produced a decision yet.';
   if (decision.decision === 'DENY') return 'Policy blocked the proposal before protected egress. No execution is claimed.';
