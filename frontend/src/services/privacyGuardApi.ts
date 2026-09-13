@@ -10,7 +10,7 @@ export type AuditReconciliationStatus = 'LOCAL_ONLY' | 'T3N_ONLY' | 'MATCHED' | 
 export type AuditIntegrityState = 'VERIFIED' | 'BROKEN' | 'KEY_MISMATCH' | 'LEGACY_UNVERIFIED' | 'PURGED' | 'NOT_AVAILABLE';
 
 export interface Incident { id: string; title: string; severity: Severity; summary: string; source: string; status: string; createdAt: string; expiresAt: string; retentionState: 'ACTIVE'; }
-export interface ActionProposal { id: string; incidentId: string; requestId: string; action: string; resource: string; purpose: string; host?: string | null; fields: string[]; privateRefs: string[]; status: ProposalStatus; createdAt: string; }
+export interface ActionProposal { id: string; incidentId: string; requestId: string; action: string; resource: string; purpose: string; host?: string | null; fields: string[]; normalPayload?: Record<string, string>; privateRefs: string[]; status: ProposalStatus; createdAt: string; }
 export interface PolicyDecision {
   id: string;
   actionProposalId: string;

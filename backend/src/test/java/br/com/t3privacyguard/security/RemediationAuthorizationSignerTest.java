@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.junit.jupiter.api.Test;
@@ -19,12 +20,17 @@ class RemediationAuthorizationSignerTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
-    void capabilityIsSignedAndBoundToActionPrivateReferencesPolicyDestinationAndExecutor() throws Exception {
+    void capabilityIsSignedAndBoundToActionPrivateReferencesPolicyDestinationPayloadAndExecutor() throws Exception {
         var signer = new RemediationAuthorizationSigner(mapper, KEY, 60, () -> EXECUTOR_DID);
+        Map<String, String> normalPayload = Map.of(
+            "incident_id", "inc-demo-001",
+            "reason", "suspected compromise",
+            "credential_id", "cred-demo-001"
+        );
         String token = signer.issue(
             "incident-1", "action-1", "request-1", "decision-1",
             "notify-security", "incident:test", "incident-notification", "Security-A.Example",
-            List.of("summary", "incident_id", "severity"), List.of("verified_email"),
+            List.of("summary", "incident_id", "severity"), normalPayload, List.of("verified_email"),
             POLICY_VERSION, POLICY_HASH
         );
 
@@ -35,6 +41,7 @@ class RemediationAuthorizationSignerTest {
         assertThat(claims.get("decisionId").asText()).isEqualTo("decision-1");
         assertThat(claims.get("approvedHost").asText()).isEqualTo("security-a.example");
         assertThat(claims.get("fieldsHash").asText()).hasSize(64);
+        assertThat(claims.get("normalPayloadHash").asText()).isEqualTo(NormalPayloadCanonicalizer.sha256(normalPayload));
         assertThat(claims.get("privateRefsHash").asText()).hasSize(64);
         assertThat(claims.get("policyVersion").asText()).isEqualTo(POLICY_VERSION);
         assertThat(claims.get("policyHash").asText()).isEqualTo(POLICY_HASH);

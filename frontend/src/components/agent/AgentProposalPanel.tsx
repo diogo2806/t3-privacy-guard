@@ -35,7 +35,7 @@ export function AgentProposalPanel({ analysis }: { analysis: AgentAnalysis | nul
           <p className="card-copy">The agent received a logical reference, not the private value. The application never renders the resolved plaintext.</p>
         </div>
       )}
-      <InlineNotice className="agent-authority-note">This proposal cannot set a decision, DID, capability, placeholder literal or secret. The T3N TEE decision shown below is authoritative.</InlineNotice>
+      <InlineNotice className="agent-authority-note">The model proposes field names only. It cannot supply the operational values that are executed. Synthetic normal values are created and persisted by the trusted backend, while T3N decides which of those values may reach protected egress.</InlineNotice>
     </Surface>
   );
 }

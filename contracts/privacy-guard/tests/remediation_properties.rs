@@ -42,6 +42,8 @@ proptest! {
             status: "PENDING_VERIFICATION".into(),
             http_code,
             operation_id: Some("property-operation".into()),
+            policy_version: "2026-09-12.1".into(),
+            policy_hash: "a".repeat(64),
         };
         let serialized = serde_json::to_string(&result).unwrap();
         prop_assert!(!serialized.contains(&sentinel));

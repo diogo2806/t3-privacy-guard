@@ -10,6 +10,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 public final class ApiModels {
     private ApiModels() {}
@@ -52,6 +53,7 @@ public final class ApiModels {
         String purpose,
         String host,
         List<String> fields,
+        Map<String, String> normalPayload,
         List<String> privateRefs,
         ProposalStatus status,
         Instant createdAt

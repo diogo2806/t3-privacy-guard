@@ -47,6 +47,7 @@ export function createContractRouter(
         purpose: body.purpose,
         approved_host: body.approved_host,
         fields: body.fields,
+        normal_payload: body.normal_payload,
         private_refs: body.private_refs ?? [],
         policy_version: body.policy_version,
         policy_hash: body.policy_hash,

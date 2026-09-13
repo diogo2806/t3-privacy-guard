@@ -19,8 +19,9 @@ export function DecisionPanel({ decision }: { decision: PolicyDecision | null })
         <div><dt>Human authorization</dt><dd>{humanAuthorization}</dd></div>
       </dl>
       {!decision.policyHash && <InlineNotice>This stored decision has no verifiable policy metadata and cannot authorize protected remediation.</InlineNotice>}
-      {decision.redactedFields.length > 0 && <div className="field-list"><span>Fields removed by minimization</span>{decision.redactedFields.map((field) => <code key={field}>{field}</code>)}</div>}
-      {decision.allowedFields.length > 0 && <div className="field-list"><span>Allowed field names</span>{decision.allowedFields.map((field) => <code key={field}>{field}</code>)}</div>}
+      {decision.redactedFields.length > 0 && <div className="field-list"><span>Removed before egress</span>{decision.redactedFields.map((field) => <code key={field}>{field}</code>)}</div>}
+      {decision.allowedFields.length > 0 && <div className="field-list"><span>Allowed for egress</span>{decision.allowedFields.map((field) => <code key={field}>{field}</code>)}</div>}
+      {decision.decision === 'REDACT' && <InlineNotice>REDACT is an executable minimization result only when the remaining allowed fields still satisfy the protected action. Removed fields are not serialized into the external request.</InlineNotice>}
     </Surface>
   );
 }

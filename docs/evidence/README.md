@@ -8,7 +8,7 @@ The operator dashboard presents evidence in business-first order. The **Proof & 
 
 `Source commit` is the full 40-character Git revision captured before evidence generation starts. `Source tree` is `CLEAN` only when that revision had no tracked or untracked working-tree changes at capture time; otherwise it is explicitly `DIRTY`. This source identity links the bundle to public code, but it does not replace the WASM SHA-256 or policy hash and is not an independent code audit.
 
-The dashboard trust flow follows the same claim boundary as the evidence bundle: `ALLOW` is not execution, accepted external execution is not completion, `REGISTERED` Agent onboarding is not delegation, an observed `ACTIVE` Member grant is not by itself effective delegated authority, and `COMPLETED` is shown only after independent read-back verifies the expected external state. T3N control-plane or trust-boundary unavailability is surfaced explicitly rather than rendered as a successful state. Operational readiness requires T3N `checkDelegation()` to confirm effective access for the authenticated Proposal Agent and Protected Executor.
+The dashboard trust flow follows the same claim boundary as the evidence bundle: `ALLOW` is not execution, `REDACT` is not proof that a removed value stayed out of the real HTTP body, accepted external execution is not completion, `REGISTERED` Agent onboarding is not delegation, an observed `ACTIVE` Member grant is not by itself effective delegated authority, and `COMPLETED` is shown only after independent read-back verifies the expected external state. T3N control-plane or trust-boundary unavailability is surfaced explicitly rather than rendered as a successful state. Operational readiness requires T3N `checkDelegation()` to confirm effective access for the authenticated Proposal Agent and Protected Executor.
 
 The dashboard also presents **local audit integrity** separately from T3N Activity Log provenance. `VERIFIED` means the retained application HMAC chain and authenticated head verified with configured key versions. It does not mean immutable storage, T3N execution proof or hardware attestation. A T3N `MATCHED` event and a local `BROKEN` chain are different signals and can coexist.
 
@@ -31,6 +31,44 @@ Optional sentinel scan:
 ```bash
 EVIDENCE_SENTINEL_SECRET='a-long-synthetic-value' bash scripts/run-local-evidence.sh
 ```
+
+## Trusted normal-payload evidence boundary
+
+The agent/model remains a selector of action metadata and field names. It cannot submit `normal_payload` or `normalPayload`; the proposal schema rejects both as privileged fields. Spring creates the supported normal values from a closed synthetic vocabulary and persists the full map with the action. Secret-shaped requested names such as `api_key`, `password`, `token` and `private_key` never receive a trusted normal value.
+
+Human authorization binds the complete persisted map with a cross-runtime canonical SHA-256. Java and TypeScript use the same encoding: ASCII-lowercase keys, lexical byte-compatible key order and one line per entry using `<key-byte-length>:<key>=<value-byte-length>:<value>\n`. The fixed regression vector is:
+
+```text
+13:credential_id=13:cred-demo-001
+11:incident_id=12:inc-demo-001
+6:reason=20:suspected compromise
+```
+
+```text
+normalPayloadHash = 39ba6c4944b8e22ae8bb5bb1ebc7d98839593f17d51acd5d5aff31c81ebaa8ae
+```
+
+Gateway verification rejects any post-authorization key or value mutation as `CAPABILITY_BODY_MISMATCH`. Rust then validates the trusted map, evaluates the originally requested field set, computes the exact intersection with `allowed_fields`, and re-evaluates the minimized field set. No HTTP call occurs unless that exact minimized set is `ALLOW`. For credential revocation, `incident_id`, `credential_id` and `reason` must all survive. A normal value belonging to a `redacted_field` is never serialized into the external JSON body.
+
+Local tests therefore prove the structural/value-level invariant but do not become live evidence. The optional `LIVE-NORMAL-PAYLOAD-MINIMIZATION` scenario exists for a controlled T3N testnet endpoint that can report only bounded proof booleans after receiving the external request. It sends synthetic values:
+
+```text
+reason              = SENTINEL_MUST_EGRESS
+employee_department = SENTINEL_MUST_NOT_EGRESS
+```
+
+The policy must return `REDACT` for `employee_department` while keeping the three mandatory remediation fields. The side effect executes only with the minimized body, and the independent read-back must return:
+
+```json
+{
+  "payload_proof": {
+    "must_egress_seen": true,
+    "must_not_egress_seen": false
+  }
+}
+```
+
+`PASS` additionally requires the normal remediation read-back to be `VERIFIED` with state `REVOKED`. The actual sentinels are never copied into `testnet-run.json`; the bundle records only the booleans. Without `EVIDENCE_RUN_PAYLOAD_MINIMIZATION=true` and a compatible synthetic testnet endpoint, this case remains `NOT_RUN`.
 
 ## Incident-data privacy lifecycle
 
@@ -184,7 +222,8 @@ Prerequisites:
 - a clean Git working tree for submission evidence;
 - `T3N_CONTRACT_NUMERIC_ID` when the configured contract version already exists and an operation needs its numeric id;
 - synthetic `SECURITY_API_KEY`, `SECURITY_API_URL` and `SECURITY_VERIFICATION_URL` only when protected egress/read-back is enabled;
-- a synthetic second HTTPS endpoint in `EVIDENCE_DESTINATION_B_URL` only when the destination-binding negative is enabled.
+- a synthetic second HTTPS endpoint in `EVIDENCE_DESTINATION_B_URL` only when the destination-binding negative is enabled;
+- a controlled synthetic endpoint/read-back that returns bounded `payload_proof` booleans only when `EVIDENCE_RUN_PAYLOAD_MINIMIZATION=true`.
 
 From `t3n-gateway/`:
 
@@ -211,9 +250,10 @@ The orchestrator:
 14. calls `checkDelegation()` independently through each authenticated delegated principal for its fixed requirements and fails before scenario execution unless both Member state and effective state are `ACTIVE`;
 15. invokes the existing `evidence:testnet` runner, records sanitized Proposal/Executor Member/effective states and exact checked restrictions, and writes the same captured source SHA/tree state into `testnet-run.json`;
 16. when `EVIDENCE_RUN_DESTINATION_BINDING=true`, requires T3N testnet, independently proves policy ALLOW for distinct hosts A and B, temporarily changes private `security_api_url` from A to B, requires `EXECUTION_DESTINATION_CHANGED` before `hwp::call`, and restores A in `finally`;
-17. when `EVIDENCE_RUN_EGRESS_NEGATIVES=true`, revokes Proposal and Executor grants independently, requires direct principal-side `checkDelegation()` to return `authorised=false`, exercises protected rejection where applicable, and restores the known-good minimum grants in `finally`;
-18. verifies that testnet evidence and deployment manifest have the same source SHA/tree state, network, SDK, DIDs, contract id/version, WASM hash and policy provenance, and that recorded delegation evidence matches the live positive checks;
-19. fails if the runner reports failure, effective delegation is not confirmed, negative revocation/destination evidence fails, source identity is absent/malformed/mismatched, identities mismatch, trust/policy metadata is inconsistent, or leak detection finds configured secret material.
+17. when `EVIDENCE_RUN_PAYLOAD_MINIMIZATION=true`, requires T3N testnet, obtains `REDACT` for the extra normal field, executes with allowed/removed synthetic sentinels and requires independent `payload_proof` booleans showing only the allowed sentinel arrived;
+18. when `EVIDENCE_RUN_EGRESS_NEGATIVES=true`, revokes Proposal and Executor grants independently, requires direct principal-side `checkDelegation()` to return `authorised=false`, exercises protected rejection where applicable, and restores the known-good minimum grants in `finally`;
+19. verifies that testnet evidence and deployment manifest have the same source SHA/tree state, network, SDK, DIDs, contract id/version, WASM hash and policy provenance, and that recorded delegation evidence matches the live positive checks;
+20. fails if the runner reports failure, effective delegation is not confirmed, negative revocation/destination/payload evidence fails, source identity is absent/malformed/mismatched, identities mismatch, trust/policy metadata is inconsistent, or leak detection finds configured secret material.
 
 The evidence chain is:
 
@@ -313,6 +353,33 @@ proposal host A
 
 The independent `SECURITY_VERIFICATION_URL` is not substituted into this check. It is a read-back endpoint and may have a different host; `approved_host` binds the execution side effect only.
 
+## Controlled real-payload minimization proof
+
+This scenario exists specifically to distinguish “T3N returned a list of allowed field names” from “the protected external service actually received only allowed values”. Use only a synthetic testnet service whose verification endpoint can inspect the previously received request and return the two bounded proof booleans.
+
+```bash
+SECURITY_API_URL='https://<synthetic-action-host>/<action-path>' \
+SECURITY_VERIFICATION_URL='https://<synthetic-readback-host>/<verification-path>' \
+EVIDENCE_PREPARE_EGRESS=true \
+EVIDENCE_RUN_PAYLOAD_MINIMIZATION=true \
+npm run evidence:live
+```
+
+The runner asks policy to evaluate `incident_id`, `credential_id`, `reason` and `employee_department`. It requires `REDACT` with `employee_department` explicitly removed. The trusted normal map supplied to `execute-remediation` contains `reason=SENTINEL_MUST_EGRESS` and `employee_department=SENTINEL_MUST_NOT_EGRESS`. Rust intersects that map with `allowed_fields`, re-evaluates the exact minimized field set and constructs the HTTP body only from the surviving values.
+
+The verification response may contain the operation/state plus:
+
+```json
+{
+  "payload_proof": {
+    "must_egress_seen": true,
+    "must_not_egress_seen": false
+  }
+}
+```
+
+The Rust result schema deliberately retains only those booleans and discards arbitrary debug/reflected content. The testnet evidence runner records only `must_egress_seen=true; must_not_egress_seen=false`, never the synthetic sentinel values. `PASS` requires `VERIFIED`, `REVOKED`, true for the required value and false for the redacted value. Missing proof, contradictory proof, transport failure or an unexpected policy decision is `FAIL`; disabled execution is `NOT_RUN`.
+
 ## Idempotency claim boundary
 
 The application creates a durable, pessimistically locked execution claim before initiating protected egress. `requestId` is propagated as a stable `Idempotency-Key`, and replays reconcile the persisted execution state instead of intentionally initiating another egress.
@@ -385,7 +452,7 @@ The `limit` is server-validated between 1 and 200. The same response keeps `inte
 - policy version/hash;
 - WASM SHA-256.
 
-`testnet-run.json` contains the same `sourceCommitSha` and `sourceTreeClean` values plus live scenario outcomes including PASS/FAIL/NOT_RUN and the sanitized delegation evidence for Proposal/Executor. Missing, malformed or mismatched source provenance invalidates the bundle. Optional scenarios that were not executed stay `NOT_RUN`; they are never converted into PASS.
+`testnet-run.json` contains the same `sourceCommitSha` and `sourceTreeClean` values plus live scenario outcomes including PASS/FAIL/NOT_RUN and the sanitized delegation evidence for Proposal/Executor. Missing, malformed or mismatched source provenance invalidates the bundle. Optional scenarios that were not executed stay `NOT_RUN`; they are never converted into PASS. The payload-minimization case stores only bounded boolean observations, never the sentinels themselves.
 
 Both artifacts pass leak detection against configured Tenant/Proposal Agent/Protected Executor keys, remediation key, AI provider key, service token, capability signing key and optional sentinel before being accepted. Submission-capture metadata additionally treats `AUDIT_INTEGRITY_KEY` as prohibited secret material. Neither artifact contains `.env` contents, API keys, tokens, private keys, audit-integrity key material or raw Member Delegation documents.
 
@@ -407,12 +474,16 @@ The UI and evidence API deliberately distinguish these concepts:
 - **Effective access ACTIVE**: `checkDelegation()` executed as the authenticated grantee returned `authorised=true` for that principal's canonical contract, Tenant DID and fixed minimum functions/scopes. Only this state may contribute to operational readiness.
 - **Effective access DENIED**: `authorised=false`, or a known non-active Member state, prevents readiness.
 - **Effective access UNKNOWN**: the Member state or platform verdict could not be validated; readiness remains false.
+- **Requested fields**: field names proposed by the model; not values and not authorization.
+- **Allowed for egress**: names that survived the active T3N policy.
+- **Removed before egress**: names whose corresponding trusted normal values are excluded from the external request.
+- **Protected egress payload**: the trusted normal values actually materialized after the Rust intersection and second ALLOW check; private placeholders remain a separate T3N mechanism.
 - **Approved destination**: canonical hostname persisted in the action, evaluated by policy, shown to the operator and signed into the remediation capability. It is narrower than a policy allowlist and must equal the current private execution URL hostname before egress.
 - **Destination changed**: the protected action URL resolved to a different hostname after approval. This is a fail-closed authorization mismatch requiring a new evaluation and human authorization, not a generic transport outage.
 - **Local audit integrity VERIFIED**: the retained HMAC chain, sequence/linkage and authenticated head validated using configured key versions. This is an application integrity signal, not T3N/hardware attestation.
 - **Local audit integrity BROKEN/KEY_MISMATCH/LEGACY_UNVERIFIED**: local history is not eligible for a positive integrity claim; protected local changes fail closed where required.
 
-These labels do not mean “hardware execution verified”. A public Agent Card hash is not authorization or attestation, a clean source tree is not a code audit, and a per-request hardware-attestation claim would require separate execution-specific evidence.
+These labels do not mean “hardware execution verified”. A public Agent Card hash is not authorization or attestation, a clean source tree is not a code audit, a local payload-minimization unit test is not live external proof, and a per-request hardware-attestation claim would require separate execution-specific evidence.
 
 If trust-manifest retrieval, rollback validation, persisted state validation, version extraction or effective-delegation verification fails, readiness remains false. Agent Card resolution has its own explicit negative states (`NOT_REGISTERED`, `MISMATCH`, `UNAVAILABLE`) and is never silently rendered as `REGISTERED`. `authorised=false` produces effective `DENIED`; a failed or malformed platform verdict produces `UNKNOWN`. Local audit verification failure is surfaced independently and is never auto-repaired or relabelled as T3N provenance failure.
 
@@ -422,6 +493,6 @@ The policy-level logical-reference scenario can run independently. Actual `verif
 
 ## What is not live evidence
 
-Mocks, unit tests, property tests, generated cases, screenshots, docs and unexecuted commands are not T3N testnet proof. A Git commit SHA by itself is not live proof and `CLEAN` is not a security certification; they only link a generated bundle to a source revision. A locally generated Agent Card is not proof that it was hosted; `REGISTERED` requires read-only public resolution of the authenticated DID. An observed Member grant is not proof of effective authority; runtime readiness additionally requires the authenticated principal-side T3N `checkDelegation()` verdict. The generated deployment manifest plus matching successful `testnet-run.json` are the live evidence source of truth for contract scenarios. A screenshot of a 2xx response is not remediation completion proof; the matching verification state is required. A persisted trust floor is cluster-trust rollback protection, not execution-specific hardware attestation. Activity reconciliation is provenance for T3N-observed operations, not a replacement for local HMAC integrity. Local HMAC integrity is not live T3N proof, immutable storage or hardware attestation.
+Mocks, unit tests, property tests, generated cases, screenshots, docs and unexecuted commands are not T3N testnet proof. A Git commit SHA by itself is not live proof and `CLEAN` is not a security certification; they only link a generated bundle to a source revision. A locally generated Agent Card is not proof that it was hosted; `REGISTERED` requires read-only public resolution of the authenticated DID. An observed Member grant is not proof of effective authority; runtime readiness additionally requires the authenticated principal-side T3N `checkDelegation()` verdict. A local Rust assertion proving that `employee_department` is absent from a constructed body is not the same as the optional live read-back proving the external synthetic endpoint did not receive its sentinel. The generated deployment manifest plus matching successful `testnet-run.json` are the live evidence source of truth for contract scenarios. A screenshot of a 2xx response is not remediation completion proof; the matching verification state is required. A persisted trust floor is cluster-trust rollback protection, not execution-specific hardware attestation. Activity reconciliation is provenance for T3N-observed operations, not a replacement for local HMAC integrity. Local HMAC integrity is not live T3N proof, immutable storage or hardware attestation.
 
 See `scenario-matrix.md` for the security-scenario mapping.

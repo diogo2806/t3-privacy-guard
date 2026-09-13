@@ -3,6 +3,7 @@ package br.com.t3privacyguard.integration;
 import br.com.t3privacyguard.observability.TraceContext;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
+import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -44,11 +45,12 @@ public class GatewayRemediationClient {
     public RemediationResult execute(RemediationRequest request, String capability) {
         if (capability == null || capability.isBlank()) throw new IllegalArgumentException("Remediation capability is required");
         if (request.approvedHost() == null || request.approvedHost().isBlank()) throw new IllegalArgumentException("Approved remediation destination is required");
+        if (request.normalPayload() == null || request.normalPayload().isEmpty()) throw new IllegalArgumentException("Trusted normal remediation payload is required");
         try {
             String executorDid = requireExecutorDid();
             RemediationWireRequest wireRequest = new RemediationWireRequest(
                 request.incidentId(), request.actionId(), request.decisionId(), request.requestId(), request.action(), request.resource(), request.purpose(),
-                request.approvedHost(), request.fields(), request.privateRefs(), request.policyVersion(), request.policyHash(), executorDid
+                request.approvedHost(), request.fields(), request.normalPayload(), request.privateRefs(), request.policyVersion(), request.policyHash(), executorDid
             );
             RemediationResult result = restClient.post()
                 .uri("/internal/contracts/privacy-guard/remediate")
@@ -107,6 +109,7 @@ public class GatewayRemediationClient {
         String purpose,
         @JsonProperty("approved_host") String approvedHost,
         List<String> fields,
+        @JsonProperty("normal_payload") Map<String, String> normalPayload,
         @JsonProperty("private_refs") List<String> privateRefs,
         @JsonProperty("policy_version") String policyVersion,
         @JsonProperty("policy_hash") String policyHash
@@ -122,6 +125,7 @@ public class GatewayRemediationClient {
         String purpose,
         @JsonProperty("approved_host") String approvedHost,
         List<String> fields,
+        @JsonProperty("normal_payload") Map<String, String> normalPayload,
         @JsonProperty("private_refs") List<String> privateRefs,
         @JsonProperty("policy_version") String policyVersion,
         @JsonProperty("policy_hash") String policyHash,
