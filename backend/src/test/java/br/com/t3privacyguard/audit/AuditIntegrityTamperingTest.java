@@ -3,9 +3,12 @@ package br.com.t3privacyguard.audit;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import br.com.t3privacyguard.domain.AuditIntegrityState;
+import br.com.t3privacyguard.domain.Severity;
 import br.com.t3privacyguard.persistence.AuditChainHeadRepository;
 import br.com.t3privacyguard.persistence.AuditEventEntity;
 import br.com.t3privacyguard.persistence.AuditEventRepository;
+import br.com.t3privacyguard.persistence.IncidentEntity;
+import br.com.t3privacyguard.persistence.IncidentRepository;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -18,15 +21,18 @@ class AuditIntegrityTamperingTest {
     @Autowired AuditIntegrityService service;
     @Autowired AuditEventRepository audits;
     @Autowired AuditChainHeadRepository heads;
+    @Autowired IncidentRepository incidents;
 
     @AfterEach
     void clean() {
         audits.deleteAll();
         heads.deleteAll();
+        incidents.deleteAll();
     }
 
     @Test
     void changedTypeTimestampPreviousMacOrEventMacIsBroken() {
+        createIncident("incident-fields");
         AuditEventEntity original = service.append("incident-fields", "INCIDENT_CREATED", "Created", null, null, null);
 
         assertBroken(copy(original, "CHANGED_TYPE", original.getCreatedAt(), original.getIntegritySequence(), original.getPreviousMac(), original.getEventMac()));
@@ -37,6 +43,7 @@ class AuditIntegrityTamperingTest {
 
     @Test
     void duplicateSequenceIsBrokenEvenIfRowsAreSuppliedOutOfBand() {
+        createIncident("incident-duplicate");
         AuditEventEntity first = service.append("incident-duplicate", "INCIDENT_CREATED", "Created", null, null, null);
         AuditEventEntity second = service.append("incident-duplicate", "ACTION_PROPOSED", "Proposed", null, null, null);
         AuditEventEntity duplicate = copy(
@@ -55,6 +62,7 @@ class AuditIntegrityTamperingTest {
 
     @Test
     void deletedMiddleRowProducesGapAndIsBroken() {
+        createIncident("incident-middle-delete");
         AuditEventEntity first = service.append("incident-middle-delete", "INCIDENT_CREATED", "Created", null, null, null);
         service.append("incident-middle-delete", "ACTION_PROPOSED", "Proposed", null, null, null);
         AuditEventEntity third = service.append("incident-middle-delete", "POLICY_DECISION", "Denied", null, null, null);
@@ -67,6 +75,19 @@ class AuditIntegrityTamperingTest {
     private void assertBroken(AuditEventEntity tampered) {
         var result = service.verify(tampered.getIncidentId(), List.of(tampered));
         assertThat(result.state()).isEqualTo(AuditIntegrityState.BROKEN);
+    }
+
+    private void createIncident(String id) {
+        Instant now = Instant.now();
+        incidents.saveAndFlush(new IncidentEntity(
+            id,
+            "Audit tampering test",
+            Severity.MEDIUM,
+            "Synthetic summary",
+            "test",
+            now,
+            now.plusSeconds(3600)
+        ));
     }
 
     private static AuditEventEntity copy(
