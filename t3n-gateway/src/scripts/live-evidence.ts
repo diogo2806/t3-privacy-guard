@@ -155,7 +155,16 @@ const manifest: DeploymentManifest = {
 assertManifestIdentity(manifest);
 if (manifest.contractVersion !== config.contractVersion) throw new Error('Deployment manifest contract version differs from configured version');
 
-const sensitiveValues = [config.apiKey, config.agentApiKey, config.executorApiKey, process.env.SECURITY_API_KEY, process.env.EVIDENCE_SENTINEL_SECRET, process.env.AI_API_KEY, config.gatewayServiceToken, config.remediationCapabilityKey];
+const sensitiveValues = [
+  config.apiKey,
+  config.agentApiKey,
+  config.executorApiKey,
+  process.env.SECURITY_API_KEY,
+  process.env.EVIDENCE_SENTINEL_SECRET,
+  process.env.AI_API_KEY,
+  config.gatewayServiceToken,
+  process.env.REMEDIATION_AUTH_PRIVATE_KEY,
+];
 const serializedManifest = `${JSON.stringify(manifest, null, 2)}\n`;
 assertNoSecretLeak(serializedManifest, sensitiveValues);
 await mkdir(dirname(manifestPath), { recursive: true });
