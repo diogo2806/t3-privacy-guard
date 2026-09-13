@@ -34,9 +34,10 @@ const secretsMapName = await ensurePrivateContractMap('secrets');
 await tenant.executeControl('map-entry-set', { map_name: secretsMapName, key: 'security_api_key', value: securityApiKey });
 await tenant.executeControl('map-entry-set', { map_name: secretsMapName, key: 'security_api_url', value: securityApiUrl });
 await tenant.executeControl('map-entry-set', { map_name: secretsMapName, key: 'security_verification_url', value: securityVerificationUrl });
+const verificationKeyEntry = `remediation_auth_public_key_spki:${config.remediationAuthorizationKeyId}`;
 await tenant.executeControl('map-entry-set', {
   map_name: secretsMapName,
-  key: 'remediation_auth_public_key_spki',
+  key: verificationKeyEntry,
   value: config.remediationAuthorizationPublicKeySpki,
 });
 
@@ -45,6 +46,7 @@ console.info(JSON.stringify({
   secretsMapName,
   replayMapName,
   contractId: numericContractId,
-  seededKeys: ['security_api_key', 'security_api_url', 'security_verification_url', 'remediation_auth_public_key_spki'],
+  seededKeys: ['security_api_key', 'security_api_url', 'security_verification_url', verificationKeyEntry],
+  remediationAuthorizationKeyId: config.remediationAuthorizationKeyId,
   remediationAuthorizationPublicKeyFingerprint: authorizationPublicKeyFingerprint(config.remediationAuthorizationPublicKeySpki),
 }));
