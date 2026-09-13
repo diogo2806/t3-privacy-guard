@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { ScreenManualDialog } from './ScreenManualDialog';
 
 describe('ScreenManualDialog', () => {
-  it('traps focus and explains effective authorization, business outcome, A2A, privacy, local integrity and T3N provenance', async () => {
+  it('traps focus and explains effective authorization, human provenance, business outcome, privacy and T3N provenance', async () => {
     const user = userEvent.setup();
     render(<div><button type="button">Outside action</button><ScreenManualDialog /></div>);
 
@@ -26,6 +26,13 @@ describe('ScreenManualDialog', () => {
     expect(dialog).toHaveTextContent(/checkDelegation.*cliente autenticado do próprio principal/i);
     expect(dialog).toHaveTextContent(/evaluate-action.*execute-remediation.*verify-remediation/i);
     expect(dialog).toHaveTextContent(/Confirmed.*Denied.*Unknown/i);
+    expect(screen.getByText('Operador autenticado e provenance da autorização humana')).toBeInTheDocument();
+    expect(dialog).toHaveTextContent(/Authorized by.*conta autenticada da aplicação/i);
+    expect(dialog).toHaveTextContent(/SecurityContext.*nunca.*browser/i);
+    expect(dialog).toHaveTextContent(/não é a DID do Proposal Agent.*não é a DID do Protected Executor/i);
+    expect(dialog).toHaveTextContent(/operatorPrincipalHash.*SHA-256.*authorizedAt.*issuedAt/i);
+    expect(dialog).toHaveTextContent(/LEGACY UNBOUND.*reautorização explícita/i);
+    expect(dialog).toHaveTextContent(/não entra em Agent Card.*bundle público de evidence.*T3N Activity Log/i);
     expect(screen.getByText('Readiness')).toBeInTheDocument();
     expect(dialog).toHaveTextContent(/Proposal evaluation.*Protected remediation/i);
     expect(screen.getByText('Agent Card e A2A público')).toBeInTheDocument();
