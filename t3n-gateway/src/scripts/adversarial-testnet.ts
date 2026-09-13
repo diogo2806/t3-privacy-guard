@@ -37,6 +37,24 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDir, '../../..');
 const outputPath = resolve(process.env.EVIDENCE_OUTPUT ?? resolve(repositoryRoot, 'docs/evidence/testnet-run.json'));
 const wasmPath = resolve(process.env.T3N_CONTRACT_WASM_PATH ?? resolve(repositoryRoot, 'contracts/privacy-guard/target/wasm32-wasip2/release/privacy_guard_contract.wasm'));
+const DEFAULT_NORMAL_PAYLOAD = Object.freeze({
+  incident_id: 'inc-demo-001',
+  credential_id: 'cred-demo-001',
+  reason: 'suspected compromise',
+});
+const DEFAULT_NOTIFICATION_NORMAL_PAYLOAD = Object.freeze({
+  incident_id: 'inc-demo-001',
+  severity: 'critical',
+  summary: 'synthetic security incident',
+});
+
+function normalPayload(extra: Record<string, string> = {}): Record<string, string> {
+  return { ...DEFAULT_NORMAL_PAYLOAD, ...extra };
+}
+
+function notificationNormalPayload(): Record<string, string> {
+  return { ...DEFAULT_NOTIFICATION_NORMAL_PAYLOAD };
+}
 
 function httpsHost(value: string, label: string): string {
   const parsed = new URL(value);
@@ -80,6 +98,9 @@ if (!config.agentApiKey) throw new Error('T3N_AGENT_API_KEY is required for test
 if (!config.executorApiKey) throw new Error('T3N_EXECUTOR_API_KEY is required for testnet evidence');
 if (process.env.EVIDENCE_RUN_DESTINATION_BINDING === 'true' && config.network !== 'testnet') {
   throw new Error('Destination-binding mutation evidence is testnet-only and cannot run against production');
+}
+if (process.env.EVIDENCE_RUN_PAYLOAD_MINIMIZATION === 'true' && config.network !== 'testnet') {
+  throw new Error('Payload-minimization evidence is testnet-only and cannot run against production');
 }
 if (process.env.EVIDENCE_RUN_PROFILE_PLACEHOLDER === 'true' && config.network !== 'testnet') {
   throw new Error('Private placeholder resolution evidence is testnet-only and cannot run against production');
@@ -157,6 +178,7 @@ async function expectProposalExecutorRejected(contractId: string, contractVersio
         purpose: 'incident-remediation',
         approved_host: executionHost(),
         fields: ['incident_id', 'credential_id', 'reason'],
+        normal_payload: normalPayload(),
         private_refs: [],
         policy_version: observedPolicyVersion,
         policy_hash: observedPolicyHash,
@@ -201,6 +223,7 @@ async function expectExecutorRevocationRejected(id: string, expected: string, re
       purpose: 'incident-remediation',
       approved_host: executionHost(),
       fields: ['incident_id', 'credential_id', 'reason'],
+      normal_payload: normalPayload(),
       policy_version: observedPolicyVersion,
       policy_hash: observedPolicyHash,
     }, executorDid);
@@ -282,21 +305,13 @@ async function destinationBindingScenario(tenantDid: string, executorDid: string
 
   try {
     const approved = await contract.evaluate({
-      request_id: 'live-destination-a-approval',
-      action: 'revoke-credential',
-      resource: 'credential:security-api',
-      purpose: 'incident-remediation',
-      host: approvedHost,
-      fields: ['incident_id', 'credential_id', 'reason'],
+      request_id: 'live-destination-a-approval', action: 'revoke-credential', resource: 'credential:security-api', purpose: 'incident-remediation',
+      host: approvedHost, fields: ['incident_id', 'credential_id', 'reason'],
     });
     observePolicy(approved);
     const alternate = await contract.evaluate({
-      request_id: 'live-destination-b-policy-check',
-      action: 'revoke-credential',
-      resource: 'credential:security-api',
-      purpose: 'incident-remediation',
-      host: alternateHost,
-      fields: ['incident_id', 'credential_id', 'reason'],
+      request_id: 'live-destination-b-policy-check', action: 'revoke-credential', resource: 'credential:security-api', purpose: 'incident-remediation',
+      host: alternateHost, fields: ['incident_id', 'credential_id', 'reason'],
     });
     observePolicy(alternate);
     if (approved.decision !== 'ALLOW' || alternate.decision !== 'ALLOW' || !approved.policy_version || !approved.policy_hash) {
@@ -307,34 +322,68 @@ async function destinationBindingScenario(tenantDid: string, executorDid: string
     await writePrivateSecurityApiUrl(alternateUrl, tenantDid);
     try {
       const result = await contract.remediate({
-        request_id: 'live-destination-binding-deny',
-        action: 'revoke-credential',
-        resource: 'credential:security-api',
-        purpose: 'incident-remediation',
-        approved_host: approvedHost,
-        fields: ['incident_id', 'credential_id', 'reason'],
-        policy_version: approved.policy_version,
-        policy_hash: approved.policy_hash,
+        request_id: 'live-destination-binding-deny', action: 'revoke-credential', resource: 'credential:security-api', purpose: 'incident-remediation',
+        approved_host: approvedHost, fields: ['incident_id', 'credential_id', 'reason'], normal_payload: normalPayload(),
+        policy_version: approved.policy_version, policy_hash: approved.policy_hash,
       }, executorDid);
       record(id, expected, result.status, 'FAIL', 'Protected execution unexpectedly accepted host B after host A had been approved.');
     } catch (error) {
       const detail = sanitizeEvidenceError(error);
       const blockedBeforeEgress = detail.includes('EXECUTION_DESTINATION_CHANGED');
-      record(
-        id,
-        expected,
-        blockedBeforeEgress ? 'BLOCKED_BEFORE_HTTP' : 'REJECTED_OTHER_REASON',
-        blockedBeforeEgress ? 'PASS' : 'FAIL',
-        blockedBeforeEgress
-          ? `approved=${approvedHost}; resolved=${alternateHost}; contract rejected at the destination equality guard before policy re-evaluation and before hwp::call`
-          : detail,
-      );
+      record(id, expected, blockedBeforeEgress ? 'BLOCKED_BEFORE_HTTP' : 'REJECTED_OTHER_REASON', blockedBeforeEgress ? 'PASS' : 'FAIL',
+        blockedBeforeEgress ? `approved=${approvedHost}; resolved=${alternateHost}; contract rejected at the destination equality guard before policy re-evaluation and before hwp::call` : detail);
     }
   } catch (error) {
     record(id, expected, null, 'FAIL', sanitizeEvidenceError(error));
   } finally {
     try { await writePrivateSecurityApiUrl(originalUrl, tenantDid); }
     catch (error) { throw new Error(`Failed to restore SECURITY_API_URL after destination-binding evidence: ${sanitizeEvidenceError(error)}`); }
+  }
+}
+
+async function payloadMinimizationScenario(executorDid: string): Promise<void> {
+  const id = 'LIVE-NORMAL-PAYLOAD-MINIMIZATION';
+  const expected = 'synthetic required value observed by external read-back while synthetic redacted value is not observed';
+  if (process.env.EVIDENCE_RUN_PAYLOAD_MINIMIZATION !== 'true') {
+    record(id, expected, null, 'NOT_RUN', 'Set EVIDENCE_RUN_PAYLOAD_MINIMIZATION=true only with a synthetic testnet endpoint whose read-back returns bounded payload_proof booleans.');
+    return;
+  }
+  if (!observedPolicyVersion || !observedPolicyHash) {
+    record(id, expected, null, 'FAIL', 'Versioned policy metadata was not established before payload-minimization evidence.');
+    return;
+  }
+  try {
+    const decision = await contract.evaluate({
+      request_id: 'live-normal-payload-minimization', action: 'revoke-credential', resource: 'credential:security-api', purpose: 'incident-remediation',
+      host: executionHost(), fields: ['incident_id', 'credential_id', 'reason', 'employee_department'],
+    });
+    observePolicy(decision);
+    if (decision.decision !== 'REDACT' || !decision.redacted_fields.includes('employee_department') || !decision.policy_version || !decision.policy_hash) {
+      record(id, expected, decision.decision, 'FAIL', 'The live policy did not classify employee_department as removable while preserving the remediation fields.');
+      return;
+    }
+    const remediation = await contract.remediate({
+      request_id: decision.request_id, action: 'revoke-credential', resource: 'credential:security-api', purpose: 'incident-remediation',
+      approved_host: executionHost(), fields: ['incident_id', 'credential_id', 'reason', 'employee_department'],
+      normal_payload: normalPayload({ reason: 'SENTINEL_MUST_EGRESS', employee_department: 'SENTINEL_MUST_NOT_EGRESS' }),
+      policy_version: decision.policy_version, policy_hash: decision.policy_hash,
+    }, executorDid);
+    if (!remediation.operation_id) {
+      record(id, expected, 'ACCEPTED_WITHOUT_OPERATION_ID', 'FAIL', 'External acceptance did not provide an operation id for controlled read-back.');
+      return;
+    }
+    const verification = await contract.verifyRemediation({ request_id: remediation.request_id, operation_id: remediation.operation_id, action: 'revoke-credential', expected_state: 'REVOKED' });
+    const proof = verification.payload_proof;
+    const passed = verification.status === 'VERIFIED'
+      && verification.observed_state === 'REVOKED'
+      && proof?.must_egress_seen === true
+      && proof.must_not_egress_seen === false;
+    record(id, expected,
+      proof ? `must_egress_seen=${proof.must_egress_seen}; must_not_egress_seen=${proof.must_not_egress_seen}` : 'PAYLOAD_PROOF_MISSING',
+      passed ? 'PASS' : 'FAIL',
+      passed ? 'Controlled external read-back confirmed the required synthetic value arrived and the policy-redacted synthetic value did not.' : 'Controlled read-back did not prove the expected minimized external payload.');
+  } catch (error) {
+    record(id, expected, null, 'FAIL', sanitizeEvidenceError(error));
   }
 }
 
@@ -345,10 +394,6 @@ async function profilePlaceholderResolutionScenario(executorDid: string): Promis
     record(id, expected, null, 'NOT_RUN', 'Set EVIDENCE_RUN_PROFILE_PLACEHOLDER=true only with a synthetic T3N profile containing a verified email and controlled execution/verification endpoints.');
     return;
   }
-  if (config.network !== 'testnet') {
-    record(id, expected, null, 'FAIL', 'Private placeholder resolution evidence is forbidden outside T3N testnet.');
-    return;
-  }
   if (!process.env.SECURITY_API_URL?.trim() || !process.env.SECURITY_VERIFICATION_URL?.trim()) {
     record(id, expected, null, 'FAIL', 'SECURITY_API_URL and SECURITY_VERIFICATION_URL are required for live private placeholder evidence.');
     return;
@@ -356,13 +401,8 @@ async function profilePlaceholderResolutionScenario(executorDid: string): Promis
 
   try {
     const decision = await contract.evaluate({
-      request_id: 'live-private-placeholder-notify',
-      action: 'notify-security',
-      resource: 'incident:synthetic',
-      purpose: 'incident-notification',
-      host: executionHost(),
-      fields: ['incident_id', 'severity', 'summary'],
-      private_refs: ['verified_email'],
+      request_id: 'live-private-placeholder-notify', action: 'notify-security', resource: 'incident:synthetic', purpose: 'incident-notification',
+      host: executionHost(), fields: ['incident_id', 'severity', 'summary'], private_refs: ['verified_email'],
     });
     observePolicy(decision);
     if (decision.decision !== 'ALLOW' || !decision.policy_version || !decision.policy_hash) {
@@ -371,15 +411,9 @@ async function profilePlaceholderResolutionScenario(executorDid: string): Promis
     }
 
     const remediation = await contract.remediate({
-      request_id: decision.request_id,
-      action: 'notify-security',
-      resource: 'incident:synthetic',
-      purpose: 'incident-notification',
-      approved_host: executionHost(),
-      fields: ['incident_id', 'severity', 'summary'],
-      private_refs: ['verified_email'],
-      policy_version: decision.policy_version,
-      policy_hash: decision.policy_hash,
+      request_id: decision.request_id, action: 'notify-security', resource: 'incident:synthetic', purpose: 'incident-notification',
+      approved_host: executionHost(), fields: ['incident_id', 'severity', 'summary'], normal_payload: notificationNormalPayload(),
+      private_refs: ['verified_email'], policy_version: decision.policy_version, policy_hash: decision.policy_hash,
     }, executorDid);
     if (!remediation.operation_id) {
       record(id, expected, `${decision.decision} -> ${remediation.status}`, 'FAIL', 'Controlled notification endpoint did not return an operation id; independent delivery verification is impossible.');
@@ -387,23 +421,17 @@ async function profilePlaceholderResolutionScenario(executorDid: string): Promis
     }
 
     const verification = await contract.verifyRemediation({
-      request_id: remediation.request_id,
-      operation_id: remediation.operation_id,
-      action: 'notify-security',
-      expected_state: 'DELIVERED',
+      request_id: remediation.request_id, operation_id: remediation.operation_id, action: 'notify-security', expected_state: 'DELIVERED',
     });
     const passed = verification.status === 'VERIFIED'
       && verification.observed_state === 'DELIVERED'
       && verification.recipient_resolved === true;
-    record(
-      id,
-      expected,
+    record(id, expected,
       `${decision.decision} -> ${remediation.status} -> ${verification.status} (${verification.observed_state ?? 'NO_STATE'}); recipient_resolved=${verification.recipient_resolved === true}`,
       passed ? 'PASS' : 'FAIL',
       passed
         ? 'Controlled read-back confirmed delivery and private recipient resolution. Evidence contains only the boolean resolution assertion; recipient plaintext and placeholder literals are not returned by the contract result.'
-        : 'Independent read-back did not confirm both DELIVERED and recipient_resolved=true.',
-    );
+        : 'Independent read-back did not confirm both DELIVERED and recipient_resolved=true.');
   } catch (error) {
     record(id, expected, null, 'FAIL', sanitizeEvidenceError(error));
   }
@@ -449,8 +477,8 @@ record(
   observedPolicyVersion && observedPolicyHash ? 'PASS' : 'FAIL',
 );
 await profilePlaceholderResolutionScenario(executorDid);
-
 await destinationBindingScenario(tenantDid, executorDid);
+await payloadMinimizationScenario(executorDid);
 
 if (process.env.EVIDENCE_RUN_EGRESS_NEGATIVES === 'true') {
   try {
@@ -479,52 +507,32 @@ if (process.env.EVIDENCE_RUN_EGRESS_NEGATIVES === 'true') {
 if (process.env.EVIDENCE_RUN_REMEDIATION === 'true') {
   try {
     const attack = await contract.evaluate({
-      request_id: 'live-attack-before-remediation',
-      action: 'revoke-credential',
-      resource: 'credential:security-api',
-      purpose: 'incident-remediation',
-      host: 'attacker.example',
-      fields: ['incident_id', 'credential_id', 'reason', 'api_key'],
+      request_id: 'live-attack-before-remediation', action: 'revoke-credential', resource: 'credential:security-api', purpose: 'incident-remediation',
+      host: 'attacker.example', fields: ['incident_id', 'credential_id', 'reason', 'api_key'],
     });
     observePolicy(attack);
     const safe = await contract.evaluate({
-      request_id: 'live-safe-after-attack',
-      action: 'revoke-credential',
-      resource: 'credential:security-api',
-      purpose: 'incident-remediation',
-      host: protectedHost,
-      fields: ['incident_id', 'credential_id', 'reason'],
+      request_id: 'live-safe-after-attack', action: 'revoke-credential', resource: 'credential:security-api', purpose: 'incident-remediation',
+      host: protectedHost, fields: ['incident_id', 'credential_id', 'reason'],
     });
     observePolicy(safe);
     if (attack.decision !== 'DENY' || safe.decision !== 'ALLOW' || !safe.policy_version || !safe.policy_hash) {
       record('LIVE-SAFE-AFTER-ATTACK', 'DENY -> ALLOW -> accepted execution -> independent VERIFIED read-back', `${attack.decision} -> ${safe.decision}`, 'FAIL');
     } else {
       const remediation = await contract.remediate({
-        request_id: safe.request_id,
-        action: 'revoke-credential',
-        resource: 'credential:security-api',
-        purpose: 'incident-remediation',
-        approved_host: protectedHost,
-        fields: ['incident_id', 'credential_id', 'reason'],
-        policy_version: safe.policy_version,
-        policy_hash: safe.policy_hash,
+        request_id: safe.request_id, action: 'revoke-credential', resource: 'credential:security-api', purpose: 'incident-remediation',
+        approved_host: protectedHost, fields: ['incident_id', 'credential_id', 'reason'], normal_payload: normalPayload(),
+        policy_version: safe.policy_version, policy_hash: safe.policy_hash,
       }, executorDid);
       if (!remediation.operation_id) {
         record('LIVE-SAFE-AFTER-ATTACK', 'DENY -> ALLOW -> accepted execution -> independent VERIFIED read-back', `${attack.decision} -> ${safe.decision} -> ${remediation.status}`, 'FAIL', 'External acceptance did not return an operation id; completion cannot be verified.');
       } else {
         const verification = await contract.verifyRemediation({
-          request_id: remediation.request_id,
-          operation_id: remediation.operation_id,
-          action: 'revoke-credential',
-          expected_state: 'REVOKED',
+          request_id: remediation.request_id, operation_id: remediation.operation_id, action: 'revoke-credential', expected_state: 'REVOKED',
         });
         const actual = `${attack.decision} -> ${safe.decision} -> ${remediation.status} -> ${verification.status}${verification.observed_state ? ` (${verification.observed_state})` : ''}`;
-        record(
-          'LIVE-SAFE-AFTER-ATTACK',
-          'DENY -> ALLOW -> accepted execution -> independent VERIFIED read-back',
-          actual,
-          verification.status === 'VERIFIED' && verification.observed_state === 'REVOKED' ? 'PASS' : 'FAIL',
-        );
+        record('LIVE-SAFE-AFTER-ATTACK', 'DENY -> ALLOW -> accepted execution -> independent VERIFIED read-back', actual,
+          verification.status === 'VERIFIED' && verification.observed_state === 'REVOKED' ? 'PASS' : 'FAIL');
       }
     }
   } catch (error) {
