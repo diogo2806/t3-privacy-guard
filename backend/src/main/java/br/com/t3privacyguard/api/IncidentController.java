@@ -16,6 +16,7 @@ import br.com.t3privacyguard.service.RemediationQueryService;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -62,7 +63,14 @@ public class IncidentController {
     public DecisionResponse decision(@PathVariable String incidentId, @PathVariable String actionId) { return service.getDecision(incidentId, actionId); }
 
     @PostMapping("/{incidentId}/actions/{actionId}/authorize-remediation")
-    public RemediationAuthorizationResponse authorizeRemediation(@PathVariable String incidentId, @PathVariable String actionId) { return service.authorizeRemediation(incidentId, actionId); }
+    public RemediationAuthorizationResponse authorizeRemediation(
+        @PathVariable String incidentId,
+        @PathVariable String actionId,
+        Authentication authentication
+    ) {
+        if (authentication == null || !authentication.isAuthenticated()) throw new IllegalArgumentException("Authenticated operator principal is required");
+        return service.authorizeRemediation(incidentId, actionId, authentication.getName());
+    }
 
     @PostMapping("/{incidentId}/actions/{actionId}/execute-remediation")
     public RemediationExecutionResponse executeRemediation(@PathVariable String incidentId, @PathVariable String actionId) { return service.executeRemediation(incidentId, actionId); }
