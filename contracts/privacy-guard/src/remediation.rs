@@ -1,4 +1,7 @@
-use crate::policy::{self, AppliedPolicy, Decision, PolicyEvaluationRequest};
+use crate::{
+    authorization::{self, AuthorizationBinding},
+    policy::{self, AppliedPolicy, Decision, PolicyEvaluationRequest},
+};
 use serde::{Deserialize, Serialize};
 
 const VERIFIED_EMAIL_MARKER: &str = "{{profile.verified_contacts.email.value}}";
@@ -6,8 +9,12 @@ const SUPPORTED_EXECUTION_ACTION: &str = "revoke-credential";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RemediationExecutionRequest {
+    pub incident_id: String,
+    pub action_id: String,
     pub request_id: String,
+    pub decision_id: String,
     pub agent_did: String,
+    pub executor_did: String,
     pub action: String,
     pub resource: String,
     pub purpose: String,
@@ -18,6 +25,7 @@ pub struct RemediationExecutionRequest {
     pub private_refs: Vec<String>,
     pub policy_version: String,
     pub policy_hash: String,
+    pub authorization_proof: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -87,6 +95,17 @@ fn validate_execution_request(request: &RemediationExecutionRequest) -> Result<(
         return Err("protected remediation executor is not implemented for this action".to_string());
     }
     canonicalize_hostname(&request.approved_host)?;
+    if request.authorization_proof.is_empty() || request.authorization_proof.len() > authorization::MAX_PROOF_BYTES {
+        return Err("signed human authorization proof is required for protected remediation".to_string());
+    }
+    if request.incident_id.trim().is_empty()
+        || request.action_id.trim().is_empty()
+        || request.request_id.trim().is_empty()
+        || request.decision_id.trim().is_empty()
+        || !request.executor_did.starts_with("did:t3n:")
+    {
+        return Err("protected remediation authorization binding is incomplete".to_string());
+    }
     Ok(())
 }
 
@@ -194,19 +213,42 @@ fn read_current_policy() -> Result<AppliedPolicy, String> {
 fn execute_wasm(request: RemediationExecutionRequest) -> Result<RemediationResult, String> {
     validate_execution_request(&request)?;
     let approved_host = canonicalize_hostname(&request.approved_host)?;
-    let api_url = read_secret("security_api_url")?;
-    let resolved_host = extract_https_host(&api_url)?;
-    let host = ensure_execution_destination(&approved_host, &resolved_host)?;
+
+    let now = tenant_context::cluster_timestamp_secs();
+    let key_id = authorization::key_id_from_proof(&request.authorization_proof)?;
+    let public_key = authorization::load_active_verification_key(&key_id)?;
+    let claims = authorization::verify_proof(&request.authorization_proof, &public_key, &key_id, now)?;
+    let caller_did = authorization::current_executor_did()?;
+    if caller_did != request.executor_did {
+        return Err("AUTHORIZATION_EXECUTOR_CALLER_MISMATCH".to_string());
+    }
+    authorization::validate_binding(&claims, &AuthorizationBinding {
+        incident_id: &request.incident_id,
+        action_id: &request.action_id,
+        request_id: &request.request_id,
+        decision_id: &request.decision_id,
+        action: &request.action,
+        resource: &request.resource,
+        purpose: &request.purpose,
+        approved_host: &approved_host,
+        fields: &request.fields,
+        private_refs: &request.private_refs,
+        policy_version: &request.policy_version,
+        policy_hash: &request.policy_hash,
+        executor_did: &caller_did,
+    })?;
+    authorization::consume_nonce(&claims, now)?;
+
     let applied_policy = read_current_policy()?;
     validate_policy_binding(&request, &applied_policy)?;
     let policy_request = PolicyEvaluationRequest {
         request_id: request.request_id.clone(),
-        agent_did: request.agent_did,
+        agent_did: request.agent_did.clone(),
         action: request.action.clone(),
         resource: request.resource.clone(),
         purpose: request.purpose.clone(),
-        host: Some(host),
-        fields: request.fields,
+        host: Some(approved_host.clone()),
+        fields: request.fields.clone(),
         private_refs: request.private_refs.clone(),
     };
     let decision = policy::evaluate_with_policy(&policy_request, &applied_policy);
@@ -214,6 +256,9 @@ fn execute_wasm(request: RemediationExecutionRequest) -> Result<RemediationResul
         return Err(alloc::format!("remediation denied: {}", decision.reason_code));
     }
 
+    let api_url = read_secret("security_api_url")?;
+    let resolved_host = extract_https_host(&api_url)?;
+    ensure_execution_destination(&approved_host, &resolved_host)?;
     let api_key = read_secret("security_api_key")?;
     let mut body = serde_json::json!({
         "request_id": request.request_id,
@@ -232,7 +277,7 @@ fn execute_wasm(request: RemediationExecutionRequest) -> Result<RemediationResul
         }
     }
 
-    let _ = logging::info("Executing approved privacy-guard remediation with bound policy metadata and approved destination");
+    let _ = logging::info("Executing privacy-guard remediation after T3N verified the one-time human authorization proof");
     let response = hwp::call(&hwp::Request {
         method: hwp::Verb::Post,
         url: api_url,
@@ -333,9 +378,11 @@ mod tests {
 
     fn execution_request() -> RemediationExecutionRequest {
         RemediationExecutionRequest {
-            request_id: "r1".into(), agent_did: "did:t3n:a".into(), action: "revoke-credential".into(),
+            incident_id: "incident-1".into(), action_id: "action-1".into(), request_id: "r1".into(), decision_id: "decision-1".into(),
+            agent_did: "did:t3n:a".into(), executor_did: "did:t3n:executor".into(), action: "revoke-credential".into(),
             resource: "credential:test".into(), purpose: "incident-remediation".into(), approved_host: "postman-echo.com".into(),
             fields: vec![], private_refs: vec![], policy_version: "2026-09-12.1".into(), policy_hash: "a".repeat(64),
+            authorization_proof: "v2.placeholder.placeholder".into(),
         }
     }
 
@@ -378,6 +425,12 @@ mod tests {
     fn execution_without_approved_destination_fails_closed() {
         let input = serde_json::to_vec(&RemediationExecutionRequest { approved_host: "".into(), ..execution_request() }).unwrap();
         assert!(execute_remediation(&input).unwrap_err().contains("approved remediation destination"));
+    }
+
+    #[test]
+    fn direct_executor_call_without_human_proof_fails_before_wasm_egress() {
+        let input = serde_json::to_vec(&RemediationExecutionRequest { authorization_proof: "".into(), ..execution_request() }).unwrap();
+        assert_eq!(execute_remediation(&input).unwrap_err(), "signed human authorization proof is required for protected remediation");
     }
 
     #[test]
