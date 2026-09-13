@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { AgentCardRegistrationService } from '../agent/agent-card.js';
 import type { AgentSession } from '../agent/agent-session.js';
 import type { DelegationGrantRequest, DelegationService } from '../agent/delegation-service.js';
 import { requireServiceToken } from '../security/service-auth.js';
@@ -6,20 +7,22 @@ import { requireServiceToken } from '../security/service-auth.js';
 export function createAgentRouter(
   agentSession: AgentSession,
   delegationService: DelegationService,
+  registrationService: AgentCardRegistrationService,
   serviceToken: string,
 ): Router {
   const router = Router();
   const privileged = requireServiceToken(serviceToken);
 
-  router.get('/status', (_request, response) => {
+  router.get('/status', async (_request, response) => {
     const status = agentSession.getStatus();
-    response.status(status.ready ? 200 : 503).json(status);
+    const registration = await registrationService.verify();
+    response.status(status.ready ? 200 : 503).json({ ...status, ...registration });
   });
 
   router.post('/connect', privileged, async (_request, response) => {
     try {
       await agentSession.connect();
-      response.json(agentSession.getStatus());
+      response.json({ ...agentSession.getStatus(), ...await registrationService.verify() });
     } catch {
       response.status(503).json({ ...agentSession.getStatus(), error: 'Agent connection failed' });
     }
