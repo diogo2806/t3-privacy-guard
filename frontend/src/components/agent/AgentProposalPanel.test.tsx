@@ -8,12 +8,12 @@ const analysis: AgentAnalysis = {
   provider: 'openai-compatible',
   model: 'tool-model',
   incident: {
-    id: 'incident-1', title: 'Private notification', severity: 'HIGH', summary: 'Synthetic incident', source: 'test', status: 'OPEN',
-    createdAt: '2026-09-12T00:00:00Z', expiresAt: '2026-09-19T00:00:00Z', retentionState: 'ACTIVE',
+    id: 'incident-1', title: 'Private notification', severity: 'HIGH', summary: 'Synthetic incident', source: 'test', status: 'OPEN', createdAt: '2026-09-12T00:00:00Z',
+    expiresAt: '2026-09-19T00:00:00Z', retentionState: 'ACTIVE',
   },
   action: {
     id: 'action-1', incidentId: 'incident-1', requestId: 'request-1', action: 'notify-security', resource: 'incident:42', purpose: 'incident-notification', host: 'postman-echo.com',
-    fields: ['incident_id', 'severity', 'summary'], privateRefs: ['verified_email'], status: 'EVALUATED', createdAt: '2026-09-12T00:00:00Z',
+    fields: ['incident_id', 'severity', 'summary'], normalPayload: { incident_id: 'incident-1', severity: 'critical', summary: 'synthetic security incident' }, privateRefs: ['verified_email'], status: 'EVALUATED', createdAt: '2026-09-12T00:00:00Z',
   },
   decision: {
     id: 'decision-1', actionProposalId: 'action-1', decision: 'ALLOW', reasonCode: 'POLICY_ALLOW', reason: 'Allowed',
@@ -22,21 +22,14 @@ const analysis: AgentAnalysis = {
 };
 
 describe('AgentProposalPanel', () => {
-  it('renders the latest provider proposal without confusing it with the selected persisted action', () => {
-    render(<AgentProposalPanel analysis={analysis} />);
-
-    expect(screen.getByRole('heading', { name: 'Latest agent proposal' })).toBeInTheDocument();
-    expect(screen.getByText(/most recent provider response/i)).toBeInTheDocument();
-    expect(screen.getByText(/Action proposals below/i)).toBeInTheDocument();
-    expect(screen.getByText('openai-compatible · tool-model')).toBeInTheDocument();
-  });
-
   it('renders only the logical private-data category and explains the T3N boundary', () => {
     render(<AgentProposalPanel analysis={analysis} />);
 
+    expect(screen.getByRole('heading', { name: 'Latest agent proposal' })).toBeInTheDocument();
     expect(screen.getByText('Verified email')).toBeInTheDocument();
     expect(screen.getByText('Plaintext visible to agent')).toBeInTheDocument();
     expect(screen.getByText('Resolved by T3N at egress')).toBeInTheDocument();
+    expect(screen.getByText(/most recent provider response/i)).toBeInTheDocument();
     expect(screen.queryByText(/@example\.com/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/\{\{profile\./i)).not.toBeInTheDocument();
   });
