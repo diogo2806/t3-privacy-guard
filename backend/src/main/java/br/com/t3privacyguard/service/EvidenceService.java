@@ -43,6 +43,11 @@ public class EvidenceService {
                 required(manifest, "sdkVersion"),
                 required(manifest, "tenantDid"),
                 required(manifest, "agentDid"),
+                required(manifest, "agentRegistrationState"),
+                required(manifest, "agentCardUri"),
+                required(manifest, "agentCardSha256"),
+                required(manifest, "agentCardVerifiedAt"),
+                requiredTextArray(manifest, "agentCardServices"),
                 required(manifest, "contractId"),
                 required(manifest, "contractVersion"),
                 required(manifest, "wasmSha256"),
@@ -94,6 +99,9 @@ public class EvidenceService {
     private static void validateMetadata(Metadata value) {
         if (!value.tenantDid().startsWith("did:t3n:") || !value.agentDid().startsWith("did:t3n:")) throw new IllegalStateException("Evidence DIDs are invalid");
         if (value.tenantDid().equals(value.agentDid())) throw new IllegalStateException("Evidence tenant and agent DIDs must differ");
+        if (!"REGISTERED".equals(value.agentRegistrationState())) throw new IllegalStateException("Evidence Agent Card is not registered");
+        if (!value.agentCardUri().startsWith("https://") || !value.agentCardSha256().matches("[a-f0-9]{64}")) throw new IllegalStateException("Evidence Agent Card provenance is invalid");
+        if (!value.agentCardServices().equals(List.of("DID"))) throw new IllegalStateException("Evidence Agent Card advertises unsupported services");
         if (!value.wasmSha256().matches("[a-f0-9]{64}")) throw new IllegalStateException("Evidence WASM SHA-256 is invalid");
         if (value.policyVersion().isBlank() || !value.policyHash().matches("[a-f0-9]{64}")) throw new IllegalStateException("Evidence policy provenance is invalid");
         if (!value.trustAnchorVerified()) throw new IllegalStateException("Evidence trust anchor is not verified");
@@ -105,6 +113,17 @@ public class EvidenceService {
         JsonNode value = node.get(field);
         if (value == null || !value.isTextual() || value.asText().isBlank()) throw new IllegalStateException("Missing evidence field: " + field);
         return value.asText();
+    }
+
+    private static List<String> requiredTextArray(JsonNode node, String field) {
+        JsonNode value = node.get(field);
+        if (value == null || !value.isArray()) throw new IllegalStateException("Missing evidence array field: " + field);
+        List<String> result = new ArrayList<>();
+        for (JsonNode item : value) {
+            if (!item.isTextual() || item.asText().isBlank()) throw new IllegalStateException("Invalid evidence array field: " + field);
+            result.add(item.asText());
+        }
+        return List.copyOf(result);
     }
 
     private static boolean requiredBoolean(JsonNode node, String field) {
@@ -138,6 +157,11 @@ public class EvidenceService {
         String sdkVersion,
         String tenantDid,
         String agentDid,
+        String agentRegistrationState,
+        String agentCardUri,
+        String agentCardSha256,
+        String agentCardVerifiedAt,
+        List<String> agentCardServices,
         String contractId,
         String contractVersion,
         String wasmSha256,
