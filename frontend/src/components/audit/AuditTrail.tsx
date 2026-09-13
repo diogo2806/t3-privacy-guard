@@ -61,8 +61,8 @@ export function AuditTrail({ events }: { events: AuditEvent[] }) {
       </>}
 
       <section className="audit-source" aria-labelledby="local-audit-title">
-        <div className="audit-source-heading"><FileClock aria-hidden="true" /><div><h3 id="local-audit-title">Local business audit</h3><p>Application events persisted by the incident workflow.</p></div></div>
-        {(evidence?.localEvents ?? events).length === 0 ? <p className="empty-copy">No local audit events yet.</p> : (
+        <div className="audit-source-heading"><FileClock aria-hidden="true" /><div><h3 id="local-audit-title">Sanitized business audit</h3><p>Application events persisted by the incident workflow.</p></div></div>
+        {(evidence?.localEvents ?? events).length === 0 ? <p className="empty-copy">No business audit events yet.</p> : (
           <ol className="audit-list">
             {(evidence?.localEvents ?? events).map((event) => {
               const reconciled = 'status' in event ? event : null;
