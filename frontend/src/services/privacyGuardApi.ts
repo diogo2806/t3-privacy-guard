@@ -10,7 +10,11 @@ export type AuditReconciliationStatus = 'LOCAL_ONLY' | 'T3N_ONLY' | 'MATCHED' | 
 export type AuditIntegrityState = 'VERIFIED' | 'BROKEN' | 'KEY_MISMATCH' | 'LEGACY_UNVERIFIED' | 'PURGED' | 'NOT_AVAILABLE';
 
 export interface Incident { id: string; title: string; severity: Severity; summary: string; source: string; status: string; createdAt: string; expiresAt: string; retentionState: 'ACTIVE'; }
-export interface ActionProposal { id: string; incidentId: string; requestId: string; action: string; resource: string; purpose: string; host?: string | null; fields: string[]; normalPayload?: Record<string, string>; privateRefs: string[]; status: ProposalStatus; createdAt: string; }
+export interface ActionProposal {
+  id: string; incidentId: string; requestId: string; action: string; resource: string; purpose: string;
+  host?: string | null; fields: string[]; normalPayload?: Record<string, string>; privateRefs: string[]; status: ProposalStatus;
+  remediationAuthorizedBy?: string | null; remediationAuthorizedAt?: string | null; createdAt: string;
+}
 export interface PolicyDecision {
   id: string;
   actionProposalId: string;
@@ -102,6 +106,7 @@ export interface EvidenceMetadata {
 }
 export interface EvidenceScenario { id: string; expected: string; actual?: string | null; status: EvidenceScenarioStatus; detail?: string | null; }
 export interface EvidenceBundle { metadata: EvidenceMetadata; scenarios: EvidenceScenario[]; totals: { pass: number; fail: number; notRun: number }; }
+export interface RemediationAuthorization { incidentId: string; actionId: string; requestId: string; state: ProposalStatus; authorizedBy: string; authorizedAt: string; }
 
 interface CsrfState { token: string; headerName: string; }
 let csrfState: CsrfState | null = null;
@@ -166,7 +171,7 @@ export const privacyGuardApi = {
   createAction: (incidentId: string, input: { requestId: string; action: string; resource: string; purpose: string; host?: string; fields: string[]; privateRefs?: string[] }) => api<ActionProposal>(`/api/incidents/${encodeURIComponent(incidentId)}/actions`, { method: 'POST', body: JSON.stringify(input) }),
   evaluate: (incidentId: string, actionId: string) => api<PolicyDecision>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/evaluate`, { method: 'POST' }),
   getDecision: (incidentId: string, actionId: string) => api<PolicyDecision>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/decision`),
-  authorizeRemediation: (incidentId: string, actionId: string) => api<{ incidentId: string; actionId: string; requestId: string; state: ProposalStatus }>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/authorize-remediation`, { method: 'POST' }),
+  authorizeRemediation: (incidentId: string, actionId: string) => api<RemediationAuthorization>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/authorize-remediation`, { method: 'POST' }),
   getRemediation: (incidentId: string, actionId: string) => api<RemediationExecution>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/remediation`),
   executeRemediation: (incidentId: string, actionId: string) => api<RemediationExecution>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/execute-remediation`, { method: 'POST' }),
   verifyRemediation: (incidentId: string, actionId: string) => api<RemediationExecution>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/verify-remediation`, { method: 'POST' }),
