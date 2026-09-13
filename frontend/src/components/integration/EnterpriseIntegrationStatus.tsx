@@ -13,12 +13,10 @@ function integrationPillState(state?: EnterpriseIntegrationState): PillState {
   return 'off';
 }
 
-function booleanLabel(value: boolean | undefined): string {
-  return value ? 'Yes' : 'No';
-}
-
-function booleanPill(value: boolean | undefined) {
-  return <StatusPill state={value ? 'ok' : 'off'} label={booleanLabel(value)} />;
+function booleanPill(value: boolean | undefined, loading: boolean) {
+  if (loading) return <StatusPill state="pending" label="Checking" />;
+  if (value === undefined) return <StatusPill state="off" label="Unknown" />;
+  return <StatusPill state={value ? 'ok' : 'off'} label={value ? 'Yes' : 'No'} />;
 }
 
 export function EnterpriseIntegrationStatus({ status, loading }: Props) {
@@ -43,14 +41,14 @@ export function EnterpriseIntegrationStatus({ status, loading }: Props) {
       </div>
 
       <div className="status-grid">
-        <div className="status-item"><Link2 aria-hidden="true" /><div><span>Execution endpoint configured</span>{booleanPill(status?.enterpriseExecutionConfigured)}</div></div>
-        <div className="status-item"><Link2 aria-hidden="true" /><div><span>Independent verification configured</span>{booleanPill(status?.enterpriseVerificationConfigured)}</div></div>
-        <div className="status-item"><KeyRound aria-hidden="true" /><div><span>Execution credential configured</span>{booleanPill(status?.enterpriseCredentialConfigured)}</div></div>
-        <div className="status-item"><ShieldCheck aria-hidden="true" /><div><span>Policy allows execution host</span>{booleanPill(status?.enterprisePolicyAllowsExecutionHost)}</div></div>
-        <div className="status-item"><ShieldCheck aria-hidden="true" /><div><span>Policy allows verification host</span>{booleanPill(status?.enterprisePolicyAllowsVerificationHost)}</div></div>
-        <div className="status-item"><ShieldCheck aria-hidden="true" /><div><span>Executor delegation allows execution host</span>{booleanPill(status?.enterpriseExecutorDelegationAllowsExecutionHost)}</div></div>
-        <div className="status-item"><ShieldCheck aria-hidden="true" /><div><span>Executor delegation allows verification host</span>{booleanPill(status?.enterpriseExecutorDelegationAllowsVerificationHost)}</div></div>
-        <div className="status-item"><BadgeCheck aria-hidden="true" /><div><span>Operational protected workflow</span><StatusPill state={operational ? 'ok' : 'off'} label={operational ? 'READY' : 'NOT READY'} /></div></div>
+        <div className="status-item"><Link2 aria-hidden="true" /><div><span>Execution endpoint configured</span>{booleanPill(status?.enterpriseExecutionConfigured, loading)}</div></div>
+        <div className="status-item"><Link2 aria-hidden="true" /><div><span>Independent verification configured</span>{booleanPill(status?.enterpriseVerificationConfigured, loading)}</div></div>
+        <div className="status-item"><KeyRound aria-hidden="true" /><div><span>Execution credential configured</span>{booleanPill(status?.enterpriseCredentialConfigured, loading)}</div></div>
+        <div className="status-item"><ShieldCheck aria-hidden="true" /><div><span>Policy allows execution host</span>{booleanPill(status?.enterprisePolicyAllowsExecutionHost, loading)}</div></div>
+        <div className="status-item"><ShieldCheck aria-hidden="true" /><div><span>Policy allows verification host</span>{booleanPill(status?.enterprisePolicyAllowsVerificationHost, loading)}</div></div>
+        <div className="status-item"><ShieldCheck aria-hidden="true" /><div><span>Executor delegation allows execution host</span>{booleanPill(status?.enterpriseExecutorDelegationAllowsExecutionHost, loading)}</div></div>
+        <div className="status-item"><ShieldCheck aria-hidden="true" /><div><span>Executor delegation allows verification host</span>{booleanPill(status?.enterpriseExecutorDelegationAllowsVerificationHost, loading)}</div></div>
+        <div className="status-item"><BadgeCheck aria-hidden="true" /><div><span>Operational protected workflow</span><StatusPill state={loading ? 'pending' : operational ? 'ok' : 'off'} label={loading ? 'CHECKING' : operational ? 'READY' : 'NOT READY'} /></div></div>
       </div>
 
       <div className="status-meta">
