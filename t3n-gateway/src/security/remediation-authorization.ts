@@ -14,6 +14,7 @@ export interface RemediationBody {
   private_refs: string[];
   policy_version: string;
   policy_hash: string;
+  executor_did: string;
 }
 
 interface Claims {
@@ -28,6 +29,7 @@ interface Claims {
   privateRefsHash: string;
   policyVersion: string;
   policyHash: string;
+  executorDid: string;
   authorizedAt: number;
   expiresAt: number;
   nonce: string;
@@ -58,6 +60,7 @@ export class RemediationAuthorizationVerifier {
     if (!claims.nonce || !claims.expiresAt || claims.expiresAt <= this.now()) throw new Error('CAPABILITY_EXPIRED');
     if (claims.authorizedAt > this.now() + 5_000) throw new Error('CAPABILITY_INVALID');
     if (!claims.policyVersion || !/^[a-f0-9]{64}$/.test(claims.policyHash ?? '')) throw new Error('CAPABILITY_INVALID');
+    if (!claims.executorDid?.startsWith('did:t3n:')) throw new Error('CAPABILITY_INVALID');
 
     const mismatched = claims.incidentId !== body.incident_id
       || claims.actionId !== body.action_id
@@ -69,7 +72,8 @@ export class RemediationAuthorizationVerifier {
       || claims.fieldsHash !== listHash(body.fields)
       || claims.privateRefsHash !== listHash(body.private_refs)
       || claims.policyVersion !== body.policy_version
-      || claims.policyHash !== body.policy_hash;
+      || claims.policyHash !== body.policy_hash
+      || claims.executorDid !== body.executor_did;
     if (mismatched) throw new Error('CAPABILITY_BODY_MISMATCH');
 
     const entries = this.loadEntries().filter((entry) => entry.expiresAt > this.now());
