@@ -23,6 +23,10 @@ public class TrustedNormalPayloadFactory {
         Map.entry("source", "t3-privacy-guard")
     );
 
+    public Map<String, String> create(List<String> requestedFields) {
+        return create("inc-demo-001", requestedFields);
+    }
+
     public Map<String, String> create(String incidentId, List<String> requestedFields) {
         if (incidentId == null || incidentId.isBlank()) throw new IllegalArgumentException("Persisted incident id is required for trusted payload generation");
         LinkedHashMap<String, String> result = new LinkedHashMap<>();
