@@ -1,7 +1,8 @@
 export type Severity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 export type DecisionType = 'ALLOW' | 'REDACT' | 'DENY';
 export type ProposalStatus = 'PENDING' | 'EVALUATED' | 'REMEDIATION_AUTHORIZED' | 'REMEDIATED';
-export type DelegationState = 'ACTIVE' | 'SCHEDULED' | 'REVOKED' | 'NOT_GRANTED' | 'UNKNOWN';
+export type MemberDelegationState = 'ACTIVE' | 'SCHEDULED' | 'REVOKED' | 'NOT_GRANTED' | 'UNKNOWN';
+export type DelegationState = 'ACTIVE' | 'INCOMPLETE' | 'UNKNOWN';
 export type AgentRegistrationState = 'REGISTERED' | 'NOT_REGISTERED' | 'MISMATCH' | 'UNAVAILABLE';
 export type EvidenceScenarioStatus = 'PASS' | 'FAIL' | 'NOT_RUN';
 export type RemediationState = 'EXECUTING' | 'PENDING_VERIFICATION' | 'COMPLETED' | 'UNVERIFIED' | 'FAILED';
@@ -49,9 +50,13 @@ export interface SystemStatus {
   contractResolved: boolean;
   contractId?: string | null;
   contractVersion?: string | null;
+  memberDelegationState: MemberDelegationState;
   delegationState: DelegationState;
   delegatedFunctions: string[];
+  delegatedScopes: string[];
   allowedHosts: string[];
+  delegationSatisfied: string[];
+  delegationMissing: string[];
   message: string;
 }
 export interface EvidenceMetadata {
