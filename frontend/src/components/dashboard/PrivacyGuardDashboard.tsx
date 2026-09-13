@@ -32,8 +32,6 @@ import { SystemStatusBar } from '../status/SystemStatusBar';
 import { NextRequiredAction } from '../trust/NextRequiredAction';
 import { TrustFlowSummary } from '../trust/TrustFlowSummary';
 
-function requestId(prefix: string) { return `${prefix}-${crypto.randomUUID()}`; }
-
 export function PrivacyGuardDashboard() {
   const [session, setSession] = useState<OperatorSession | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
@@ -196,12 +194,25 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
     setNotice(`${scenario.title} loaded with synthetic demo data. No API call or authorization has occurred yet.`);
   };
 
-  const prepareSafeRemediation = () => run(async () => {
-    if (!incident || selectedScenario.id !== 'credential-compromised') return;
-    const safeAction = await privacyGuardApi.createAction(incident.id, { requestId: requestId('remediation'), action: 'revoke-credential', resource: 'credential:production-security-api', purpose: 'incident-remediation', host: 'postman-echo.com', fields: ['incident_id', 'credential_id', 'reason'] });
-    const result = await privacyGuardApi.evaluate(incident.id, safeAction.id);
-    setRemediationExecution(null); await refreshIncident(incident, safeAction.id); setDecision(result);
-    setNotice(result.decision === 'ALLOW' ? 'Minimum-scope revocation passed policy. Human authorization is still required before protected execution.' : `Credential revocation received ${result.decision}; execution remains blocked.`);
+  const askAgentForRemediation = () => run(async () => {
+    if (!incident || !selectedScenario.remediationPrompt) return;
+    const result = await privacyGuardApi.analyzeAgentInIncident(incident.id, selectedScenario.remediationPrompt);
+    setAgentAnalysis(result);
+    setRemediationExecution(null);
+    setIncident(result.incident);
+    setSelectedAction(result.action);
+    setDecision(result.decision);
+    await refreshIncident(result.incident, result.action.id);
+
+    if (result.decision.decision === 'DENY') {
+      setNotice('The agent produced a new remediation proposal, but T3N denied it. No fallback action was created.');
+    } else if (result.decision.decision === 'REDACT') {
+      setNotice('The agent produced a new remediation proposal, but T3N requires further minimization. No fallback action was created.');
+    } else if (result.action.action !== 'revoke-credential') {
+      setNotice(`T3N allowed the agent proposal for ${result.action.action}, but protected execution in this demo exists only for revoke-credential. No fallback action was created.`);
+    } else {
+      setNotice('The agent proposed a credential revocation and T3N allowed it. Human authorization is still required before protected execution.');
+    }
   });
 
   const retryEvaluation = () => run(async () => {
@@ -243,7 +254,7 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
     else { setDecision(null); setRemediationExecution(null); setExecutionTrace([]); }
   };
 
-  const showSafePath = selectedScenario.id === 'credential-compromised' && decision?.decision === 'DENY' && Boolean(incident);
+  const showSafePath = Boolean(selectedScenario.remediationPrompt) && decision?.decision === 'DENY' && Boolean(incident);
 
   return (
     <>
@@ -275,7 +286,7 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
             <AgentProposalPanel analysis={agentAnalysis} />
             {!incident ? <EmptyState /> : <>
               <IncidentSummary incident={incident} />
-              {showSafePath && <NextRequiredAction busy={busy} onPrepareSafePath={() => void prepareSafeRemediation()} />}
+              {showSafePath && <NextRequiredAction busy={busy} onAskAgent={() => void askAgentForRemediation()} />}
               <div className="two-column"><ActionProposalPanel actions={actions} selectedActionId={selectedAction?.id ?? null} onSelect={selectAction} /><DecisionPanel decision={decision} /></div>
               <RemediationPanel action={selectedAction} decision={decision} execution={remediationExecution} busy={busy} onAuthorize={authorize} onExecute={execute} onVerify={verifyExternalState} />
             </>}
