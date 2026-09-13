@@ -50,7 +50,7 @@ describe('RemediationPanel', () => {
     renderPanel(null);
     expect(screen.getByText('Approved destination')).toBeInTheDocument();
     expect(screen.getByText('postman-echo.com')).toBeInTheDocument();
-    expect(screen.getByText(/Changing the protected destination requires a new evaluation and authorization/i)).toBeInTheDocument();
+    expect(screen.getByText(/requires a new action, policy evaluation and authorization/i)).toBeInTheDocument();
   });
 
   it('blocks authorization and execution when a supported action has no approved destination', () => {
@@ -61,10 +61,11 @@ describe('RemediationPanel', () => {
     expect(screen.queryByRole('button', { name: /Execute protected credential revocation/i })).not.toBeInTheDocument();
   });
 
-  it('explains destination substitution as re-evaluation and re-authorization, not a generic outage', () => {
+  it('explains destination substitution as a new evaluation and authorization, not a generic outage', () => {
     renderPanel(execution('FAILED', { failureCode: 'EXECUTION_DESTINATION_CHANGED', operationId: null, httpCode: null }));
     expect(screen.getByRole('alert')).toHaveTextContent(/Destination changed/i);
-    expect(screen.getByRole('alert')).toHaveTextContent(/Re-evaluate and authorize/i);
+    expect(screen.getByRole('alert')).toHaveTextContent(/Create a new action/i);
+    expect(screen.getByRole('alert')).toHaveTextContent(/authorize it before executing again/i);
   });
 
   it('does not call accepted execution completed while verification is pending', () => {
