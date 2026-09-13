@@ -60,14 +60,16 @@ export function createContractRouter(
     } catch (error) {
       const code = error instanceof Error ? error.message : 'UNKNOWN';
       const destinationChanged = code.includes('EXECUTION_DESTINATION_CHANGED');
-      if (code === 'CAPABILITY_REPLAY') response.status(409).json({ error: 'Remediation authorization proof was already consumed' });
-      else if (code.startsWith('CAPABILITY_')) response.status(403).json({ error: 'Remediation authorization proof is invalid or unavailable' });
+      const replay = code === 'CAPABILITY_REPLAY' || code.includes('AUTHORIZATION_REPLAY');
+      const authorizationDenied = code.startsWith('CAPABILITY_') || code.includes('AUTHORIZATION_');
+      if (replay) response.status(409).json({ error: 'Remediation authorization proof was already consumed' });
+      else if (authorizationDenied) response.status(403).json({ error: 'Remediation authorization proof is invalid or unavailable' });
       else if (destinationChanged) response.status(409).json({
         code: 'EXECUTION_DESTINATION_CHANGED',
         error: 'Protected destination changed after approval; create a new action, evaluate it, and authorize the intended destination again',
       });
       else response.status(503).json({ error: 'Protected remediation could not be accepted under the approved policy' });
-      logTraceStage(response, 'PROTECTED_EGRESS', requestId, code.startsWith('CAPABILITY_') || destinationChanged ? 'DENIED' : 'UNAVAILABLE');
+      logTraceStage(response, 'PROTECTED_EGRESS', requestId, authorizationDenied || destinationChanged ? 'DENIED' : 'UNAVAILABLE');
     }
   });
 
