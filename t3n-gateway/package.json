@@ -13,7 +13,7 @@
     "contract:setup-remediation": "tsx src/scripts/setup-remediation-secrets.ts",
     "agent:card:verify": "tsx src/scripts/agent-card-verify.ts",
     "agent:card:publish": "tsx src/scripts/agent-card-publish.ts",
-    "evidence:testnet": "tsx src/scripts/adversarial-testnet.ts",
+    "evidence:testnet": "tsx src/scripts/adversarial-testnet.ts && tsx src/scripts/profile-placeholder-evidence.ts",
     "evidence:live": "tsx src/scripts/live-evidence.ts",
     "start": "node dist/index.js"
   },

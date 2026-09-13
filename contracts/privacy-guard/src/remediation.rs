@@ -3,14 +3,16 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 const VERIFIED_EMAIL_MARKER: &str = "{{profile.verified_contacts.email.value}}";
-const SUPPORTED_EXECUTION_ACTION: &str = "revoke-credential";
+const REVOKE_CREDENTIAL_ACTION: &str = "revoke-credential";
+const NOTIFY_SECURITY_ACTION: &str = "notify-security";
 const MAX_NORMAL_PAYLOAD_ENTRIES: usize = 16;
 const MAX_NORMAL_KEY_LEN: usize = 80;
 const MAX_NORMAL_VALUE_BYTES: usize = 512;
 const FORBIDDEN_NORMAL_PAYLOAD_KEYS: &[&str] = &[
     "api_key", "card_number", "credential", "cpf", "password", "private_key", "secret", "ssn", "token",
 ];
-const REQUIRED_NORMAL_FIELDS: &[&str] = &["incident_id", "credential_id", "reason"];
+const REVOKE_REQUIRED_NORMAL_FIELDS: &[&str] = &["incident_id", "credential_id", "reason"];
+const NOTIFY_REQUIRED_NORMAL_FIELDS: &[&str] = &["incident_id", "severity", "summary"];
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RemediationExecutionRequest {
@@ -50,6 +52,7 @@ pub struct PayloadMinimizationProof {
 pub struct RemediationVerificationRequest {
     pub request_id: String,
     pub operation_id: String,
+    pub action: String,
     pub expected_state: String,
 }
 
@@ -58,6 +61,8 @@ pub struct RemediationVerificationResult {
     pub request_id: String,
     pub status: String,
     pub observed_state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recipient_resolved: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub payload_proof: Option<PayloadMinimizationProof>,
 }
@@ -110,6 +115,14 @@ fn valid_normal_key(key: &str) -> bool {
     bytes.iter().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || *byte == b'_')
 }
 
+fn required_normal_fields(action: &str) -> Result<&'static [&'static str], String> {
+    match action {
+        REVOKE_CREDENTIAL_ACTION => Ok(REVOKE_REQUIRED_NORMAL_FIELDS),
+        NOTIFY_SECURITY_ACTION => Ok(NOTIFY_REQUIRED_NORMAL_FIELDS),
+        _ => Err("protected remediation executor is not implemented for this action".to_string()),
+    }
+}
+
 fn validate_normal_payload(request: &RemediationExecutionRequest) -> Result<(), String> {
     if request.normal_payload.is_empty() || request.normal_payload.len() > MAX_NORMAL_PAYLOAD_ENTRIES {
         return Err("trusted normal payload is missing or exceeds the item limit".to_string());
@@ -133,20 +146,41 @@ fn validate_normal_payload(request: &RemediationExecutionRequest) -> Result<(), 
 }
 
 fn validate_execution_request(request: &RemediationExecutionRequest) -> Result<(), String> {
-    if request.action != SUPPORTED_EXECUTION_ACTION {
-        return Err("protected remediation executor is not implemented for this action".to_string());
+    match request.action.as_str() {
+        REVOKE_CREDENTIAL_ACTION => {
+            if request.purpose != "incident-remediation" || !request.private_refs.is_empty() {
+                return Err("revoke-credential executor received an invalid closed execution contract".to_string());
+            }
+        }
+        NOTIFY_SECURITY_ACTION => {
+            if request.purpose != "incident-notification"
+                || request.private_refs.len() != 1
+                || request.private_refs[0] != "verified_email"
+            {
+                return Err("notify-security requires exactly the logical private reference verified_email for incident-notification".to_string());
+            }
+        }
+        _ => return Err("protected remediation executor is not implemented for this action".to_string()),
     }
     canonicalize_hostname(&request.approved_host)?;
     validate_normal_payload(request)?;
     Ok(())
 }
 
+fn expected_state_for_action(action: &str) -> Result<&'static str, String> {
+    match action {
+        REVOKE_CREDENTIAL_ACTION => Ok("REVOKED"),
+        NOTIFY_SECURITY_ACTION => Ok("DELIVERED"),
+        _ => Err("verification action is not supported".to_string()),
+    }
+}
+
 fn validate_verification_request(request: &RemediationVerificationRequest) -> Result<(), String> {
     if request.request_id.trim().is_empty() || request.operation_id.trim().is_empty() {
         return Err("verification identifiers are required".to_string());
     }
-    if request.expected_state != "REVOKED" {
-        return Err("verification expected_state is not supported".to_string());
+    if request.expected_state != expected_state_for_action(&request.action)? {
+        return Err("verification expected_state does not match the remediation action".to_string());
     }
     Ok(())
 }
@@ -224,13 +258,19 @@ fn verification_from_payload(request: &RemediationVerificationRequest, payload: 
         .and_then(|value| value.get("state"))
         .and_then(|value| value.as_str())
         .map(str::to_string);
+    let recipient_resolved = parsed.as_ref()
+        .and_then(|value| value.get("recipient_resolved"))
+        .and_then(|value| value.as_bool());
     let payload_proof = parsed.as_ref().and_then(extract_payload_proof);
+    let private_resolution_verified = request.action != NOTIFY_SECURITY_ACTION || recipient_resolved == Some(true);
     let verified = observed_operation == Some(request.operation_id.as_str())
-        && observed_state.as_deref() == Some(request.expected_state.as_str());
+        && observed_state.as_deref() == Some(request.expected_state.as_str())
+        && private_resolution_verified;
     RemediationVerificationResult {
         request_id: request.request_id.clone(),
         status: if verified { "VERIFIED" } else { "UNVERIFIED" }.to_string(),
         observed_state,
+        recipient_resolved,
         payload_proof,
     }
 }
@@ -256,7 +296,7 @@ fn minimized_payload(
         return Err(format!("remediation denied: {}", decision.reason_code));
     }
     let allowed: BTreeSet<&str> = decision.allowed_fields.iter().map(String::as_str).collect();
-    for required in REQUIRED_NORMAL_FIELDS {
+    for required in required_normal_fields(&request.action)? {
         if !allowed.contains(required) {
             return Err(format!("remediation denied: required field {required} was not allowed"));
         }
@@ -281,6 +321,11 @@ fn build_minimized_egress(
     let requested = original_policy_request(request, host);
     let initial_decision = policy::evaluate_with_policy(&requested, applied_policy);
     let normal_payload = minimized_payload(request, &initial_decision)?;
+    if request.action == NOTIFY_SECURITY_ACTION
+        && initial_decision.allowed_private_refs.as_slice() != ["verified_email"]
+    {
+        return Err("remediation denied: verified_email was not allowed for private notification".to_string());
+    }
 
     let effective_request = PolicyEvaluationRequest {
         request_id: requested.request_id.clone(),
@@ -380,6 +425,7 @@ fn verify_wasm(request: RemediationVerificationRequest) -> Result<RemediationVer
     let body = serde_json::json!({
         "request_id": request.request_id,
         "operation_id": request.operation_id,
+        "action": request.action,
         "expected_state": request.expected_state
     });
     let _ = logging::info("Verifying privacy-guard remediation through independent read-back");
@@ -414,8 +460,8 @@ fn read_secret(key: &str) -> Result<String, String> {
 fn format_http_error(error: hwp::HttpError) -> String {
     match error {
         hwp::HttpError::EgressDenied(host) => alloc::format!("egress denied for host {host}"),
-        hwp::HttpError::PlaceholderDenied(marker) => alloc::format!("placeholder not permitted: {marker}"),
-        hwp::HttpError::PlaceholderUnknown(field) => alloc::format!("profile field unavailable: {field}"),
+        hwp::HttpError::PlaceholderDenied(_) => "profile placeholder resolution was denied".to_string(),
+        hwp::HttpError::PlaceholderUnknown(_) => "required verified profile value is unavailable".to_string(),
         hwp::HttpError::PlaceholderNoUserContext => "no user context for placeholder resolution".to_string(),
         hwp::HttpError::UpstreamError(_) => "upstream transport failed".to_string(),
     }
@@ -427,11 +473,19 @@ mod tests {
 
     fn applied_policy() -> AppliedPolicy {
         let mut actions = BTreeMap::new();
-        actions.insert("revoke-credential".to_string(), policy::ActionPolicy {
+        actions.insert(REVOKE_CREDENTIAL_ACTION.to_string(), policy::ActionPolicy {
             purpose: "incident-remediation".into(),
             allowed_fields: vec!["credential_id".into(), "incident_id".into(), "reason".into()],
             allowed_hosts: vec!["postman-echo.com".into()],
             allowed_private_refs: vec![],
+            requires_host: true,
+            requires_human_authorization: true,
+        });
+        actions.insert(NOTIFY_SECURITY_ACTION.to_string(), policy::ActionPolicy {
+            purpose: "incident-notification".into(),
+            allowed_fields: vec!["incident_id".into(), "severity".into(), "summary".into()],
+            allowed_hosts: vec!["postman-echo.com".into()],
+            allowed_private_refs: vec!["verified_email".into()],
             requires_host: true,
             requires_human_authorization: true,
         });
@@ -450,12 +504,28 @@ mod tests {
         ])
     }
 
+    fn notification_normal_payload() -> BTreeMap<String, String> {
+        BTreeMap::from([
+            ("incident_id".into(), "inc-demo-001".into()),
+            ("severity".into(), "critical".into()),
+            ("summary".into(), "synthetic security incident".into()),
+        ])
+    }
+
     fn execution_request() -> RemediationExecutionRequest {
         RemediationExecutionRequest {
-            request_id: "r1".into(), agent_did: "did:t3n:a".into(), action: "revoke-credential".into(),
+            request_id: "r1".into(), agent_did: "did:t3n:a".into(), action: REVOKE_CREDENTIAL_ACTION.into(),
             resource: "credential:test".into(), purpose: "incident-remediation".into(), approved_host: "postman-echo.com".into(),
             fields: vec!["incident_id".into(), "credential_id".into(), "reason".into()],
             normal_payload: normal_payload(), private_refs: vec![], policy_version: "2026-09-12.1".into(), policy_hash: "a".repeat(64),
+        }
+    }
+
+    fn notification_execution_request() -> RemediationExecutionRequest {
+        RemediationExecutionRequest {
+            request_id: "r2".into(), action: NOTIFY_SECURITY_ACTION.into(), resource: "incident:test".into(), purpose: "incident-notification".into(),
+            fields: vec!["incident_id".into(), "severity".into(), "summary".into()], normal_payload: notification_normal_payload(),
+            private_refs: vec!["verified_email".into()], ..execution_request()
         }
     }
 
@@ -464,6 +534,17 @@ mod tests {
         assert_eq!(profile_marker("verified_email").unwrap(), VERIFIED_EMAIL_MARKER);
         assert!(profile_marker("{{profile.verified_contacts.email.value}}").is_err());
         assert!(profile_marker("unknown_private_value").is_err());
+    }
+
+    #[test]
+    fn notify_security_requires_the_exact_logical_private_reference_and_purpose() {
+        assert!(validate_execution_request(&notification_execution_request()).is_ok());
+        let missing_ref = RemediationExecutionRequest { private_refs: vec![], ..notification_execution_request() };
+        assert!(validate_execution_request(&missing_ref).is_err());
+        let literal_marker = RemediationExecutionRequest { private_refs: vec![VERIFIED_EMAIL_MARKER.into()], ..notification_execution_request() };
+        assert!(validate_execution_request(&literal_marker).is_err());
+        let wrong_purpose = RemediationExecutionRequest { purpose: "analytics".into(), ..notification_execution_request() };
+        assert!(validate_execution_request(&wrong_purpose).is_err());
     }
 
     #[test]
@@ -496,6 +577,17 @@ mod tests {
     }
 
     #[test]
+    fn notification_combines_minimized_normal_values_with_private_placeholder_only_inside_egress() {
+        let request = notification_execution_request();
+        let (body, effective) = build_minimized_egress(&request, &applied_policy(), "postman-echo.com").unwrap();
+        assert_eq!(effective.private_refs, vec!["verified_email"]);
+        assert_eq!(body.get("incident_id").and_then(|value| value.as_str()), Some("inc-demo-001"));
+        assert_eq!(body.get("severity").and_then(|value| value.as_str()), Some("critical"));
+        assert_eq!(body.get("summary").and_then(|value| value.as_str()), Some("synthetic security incident"));
+        assert_eq!(body.get("recipient").and_then(|value| value.as_str()), Some(VERIFIED_EMAIL_MARKER));
+    }
+
+    #[test]
     fn redacted_normal_value_never_enters_the_egress_body() {
         let mut request = execution_request();
         request.fields.push("employee_department".into());
@@ -503,7 +595,6 @@ mod tests {
         let initial = policy::evaluate_with_policy(&original_policy_request(&request, "postman-echo.com"), &applied_policy());
         assert_eq!(initial.decision, Decision::Redact);
         assert_eq!(initial.redacted_fields, vec!["employee_department"]);
-
         let (body, effective) = build_minimized_egress(&request, &applied_policy(), "postman-echo.com").unwrap();
         assert_eq!(policy::evaluate_with_policy(&effective, &applied_policy()).decision, Decision::Allow);
         assert!(body.get("employee_department").is_none());
@@ -516,7 +607,6 @@ mod tests {
         secret.fields.push("api_key".into());
         secret.normal_payload.insert("api_key".into(), "synthetic-secret-must-not-egress".into());
         assert!(validate_execution_request(&secret).unwrap_err().contains("forbidden secret field"));
-
         let mut unrequested = execution_request();
         unrequested.normal_payload.insert("employee_department".into(), "finance".into());
         assert!(validate_execution_request(&unrequested).unwrap_err().contains("was not requested"));
@@ -524,13 +614,11 @@ mod tests {
 
     #[test]
     fn bounded_payload_proof_exposes_only_booleans() {
-        let request = RemediationVerificationRequest { request_id: "r1".into(), operation_id: "op-1".into(), expected_state: "REVOKED".into() };
+        let request = RemediationVerificationRequest { request_id: "r1".into(), operation_id: "op-1".into(), action: REVOKE_CREDENTIAL_ACTION.into(), expected_state: "REVOKED".into() };
         let sentinel = "SENTINEL_MUST_NOT_LEAK_BACK";
         let payload = serde_json::json!({
-            "operation_id": "op-1",
-            "state": "REVOKED",
-            "payload_proof": { "must_egress_seen": true, "must_not_egress_seen": false },
-            "debug": sentinel
+            "operation_id": "op-1", "state": "REVOKED",
+            "payload_proof": { "must_egress_seen": true, "must_not_egress_seen": false }, "debug": sentinel
         });
         let result = verification_from_payload(&request, &serde_json::to_vec(&payload).unwrap());
         assert_eq!(result.payload_proof, Some(PayloadMinimizationProof { must_egress_seen: true, must_not_egress_seen: false }));
@@ -540,7 +628,7 @@ mod tests {
 
     #[test]
     fn execution_rejects_actions_without_a_verified_completion_contract_before_egress() {
-        for action in ["isolate-account", "create-incident", "notify-security"] {
+        for action in ["isolate-account", "create-incident"] {
             let input = serde_json::to_vec(&RemediationExecutionRequest { action: action.into(), ..execution_request() }).unwrap();
             let error = execute_remediation(&input).unwrap_err();
             assert_eq!(error, "protected remediation executor is not implemented for this action");
@@ -554,28 +642,38 @@ mod tests {
     }
 
     #[test]
-    fn verification_requires_closed_expected_state() {
-        let valid = RemediationVerificationRequest { request_id: "r1".into(), operation_id: "op-1".into(), expected_state: "REVOKED".into() };
-        assert!(validate_verification_request(&valid).is_ok());
-        let invalid = RemediationVerificationRequest { expected_state: "anything.*".into(), ..valid };
-        assert!(validate_verification_request(&invalid).is_err());
+    fn verification_expected_state_is_closed_per_action() {
+        let revoke = RemediationVerificationRequest { request_id: "r1".into(), operation_id: "op-1".into(), action: REVOKE_CREDENTIAL_ACTION.into(), expected_state: "REVOKED".into() };
+        assert!(validate_verification_request(&revoke).is_ok());
+        let notify = RemediationVerificationRequest { request_id: "r2".into(), operation_id: "op-2".into(), action: NOTIFY_SECURITY_ACTION.into(), expected_state: "DELIVERED".into() };
+        assert!(validate_verification_request(&notify).is_ok());
+        let mismatched = RemediationVerificationRequest { expected_state: "REVOKED".into(), ..notify };
+        assert!(validate_verification_request(&mismatched).is_err());
     }
 
     #[test]
-    fn independent_readback_must_match_operation_and_state() {
-        let request = RemediationVerificationRequest { request_id: "r1".into(), operation_id: "op-1".into(), expected_state: "REVOKED".into() };
-        let verified = verification_from_payload(&request, br#"{"operation_id":"op-1","state":"REVOKED","secret":"do-not-return"}"#);
+    fn independent_readback_must_match_operation_state_and_private_resolution() {
+        let revoke = RemediationVerificationRequest { request_id: "r1".into(), operation_id: "op-1".into(), action: REVOKE_CREDENTIAL_ACTION.into(), expected_state: "REVOKED".into() };
+        let verified = verification_from_payload(&revoke, br#"{"operation_id":"op-1","state":"REVOKED","secret":"do-not-return"}"#);
         assert_eq!(verified.status, "VERIFIED");
         assert_eq!(verified.observed_state.as_deref(), Some("REVOKED"));
-        assert!(verified.payload_proof.is_none());
-        let wrong = verification_from_payload(&request, br#"{"operation_id":"op-1","state":"ACTIVE"}"#);
-        assert_eq!(wrong.status, "UNVERIFIED");
+        let notify = RemediationVerificationRequest { request_id: "r2".into(), operation_id: "op-2".into(), action: NOTIFY_SECURITY_ACTION.into(), expected_state: "DELIVERED".into() };
+        let delivered = verification_from_payload(&notify, br#"{"operation_id":"op-2","state":"DELIVERED","recipient_resolved":true,"recipient":"private@example.test"}"#);
+        assert_eq!(delivered.status, "VERIFIED");
+        assert_eq!(delivered.recipient_resolved, Some(true));
+        let unresolved = verification_from_payload(&notify, br#"{"operation_id":"op-2","state":"DELIVERED","recipient_resolved":false}"#);
+        assert_eq!(unresolved.status, "UNVERIFIED");
+        let serialized = serde_json::to_string(&delivered).unwrap();
+        assert!(!serialized.contains('@'));
+        assert!(!serialized.contains(VERIFIED_EMAIL_MARKER));
     }
 
     #[test]
     fn native_execution_never_simulates_secret_egress() {
         let input = serde_json::to_vec(&execution_request()).unwrap();
         assert!(execute_remediation(&input).unwrap_err().contains("only implemented on the wasm32 target"));
+        let notification = serde_json::to_vec(&notification_execution_request()).unwrap();
+        assert!(execute_remediation(&notification).unwrap_err().contains("only implemented on the wasm32 target"));
     }
 
     #[test] fn malformed_input_fails_closed() { assert!(execute_remediation(b"bad").is_err()); }

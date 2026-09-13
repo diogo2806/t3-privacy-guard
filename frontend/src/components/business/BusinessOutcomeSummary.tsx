@@ -15,6 +15,10 @@ interface Props {
 
 const NOT_OBSERVED = 'Not yet observed';
 const NOT_VERIFIED = 'Not verified yet';
+const REQUIRED_FIELDS: Record<string, string[]> = {
+  'revoke-credential': ['incident_id', 'credential_id', 'reason'],
+  'notify-security': ['incident_id', 'severity', 'summary'],
+};
 
 function elapsedMs(start?: string | null, end?: string | null): number | null {
   if (!start || !end) return null;
@@ -41,28 +45,44 @@ function isAuthorized(action: ActionProposal | null): boolean {
   return action?.status === 'REMEDIATION_AUTHORIZED' || action?.status === 'REMEDIATED';
 }
 
+function isProtectedAction(action: ActionProposal | null): boolean {
+  return action?.action === 'revoke-credential' || action?.action === 'notify-security';
+}
+
+function executableProtectedDecision(action: ActionProposal | null, decision: PolicyDecision | null): boolean {
+  if (!action || !decision || !isProtectedAction(action) || decision.decision === 'DENY') return false;
+  const required = REQUIRED_FIELDS[action.action] ?? [];
+  if (required.length === 0 || !required.every((field) => decision.allowedFields.includes(field) && field in (action.normalPayload ?? {}))) return false;
+  if (action.action === 'notify-security') {
+    return action.privateRefs.length === 1
+      && action.privateRefs[0] === 'verified_email'
+      && decision.allowedPrivateRefs.includes('verified_email');
+  }
+  return action.privateRefs.length === 0;
+}
+
 function humanAuthorization(action: ActionProposal | null, decision: PolicyDecision | null): string {
   if (!action) return NOT_OBSERVED;
   if (isAuthorized(action)) return 'AUTHORIZED';
-  if (action.action === 'revoke-credential' && decision?.decision === 'ALLOW') return 'REQUIRED';
+  if (executableProtectedDecision(action, decision)) return 'REQUIRED';
   return 'NOT APPLICABLE';
 }
 
 function approvedDestination(action: ActionProposal | null, decision: PolicyDecision | null): string {
   if (!action) return NOT_OBSERVED;
   if (isAuthorized(action)) return action.host ?? 'MISSING — BLOCKED';
-  if (action.action === 'revoke-credential' && decision?.decision === 'ALLOW') return action.host ? 'Not authorized yet' : 'MISSING — BLOCKED';
+  if (executableProtectedDecision(action, decision)) return action.host ? 'Not authorized yet' : 'MISSING — BLOCKED';
   return 'NOT APPLICABLE';
 }
 
 function policyAllowedDestination(action: ActionProposal | null, decision: PolicyDecision | null): string {
   if (!action || !decision) return NOT_OBSERVED;
-  if (decision.decision !== 'ALLOW') return 'NOT ESTABLISHED';
+  if (decision.decision === 'DENY') return 'NOT ESTABLISHED';
   return action.host ?? 'No destination requested';
 }
 
 function policyAllowedAction(action: ActionProposal | null, decision: PolicyDecision | null): string {
-  if (!action || decision?.decision !== 'ALLOW') return NOT_OBSERVED;
+  if (!action || !decision || decision.decision === 'DENY') return NOT_OBSERVED;
   return action.action;
 }
 
@@ -78,7 +98,9 @@ function externalAction(action: ActionProposal | null, execution: RemediationExe
 
 function verifiedFinalState(action: ActionProposal | null, execution: RemediationExecution | null): string {
   if (execution?.state !== 'COMPLETED') return 'NOT VERIFIED';
-  return action?.action === 'revoke-credential' ? 'REVOKED — VERIFIED' : 'VERIFIED';
+  if (action?.action === 'revoke-credential') return 'REVOKED — VERIFIED';
+  if (action?.action === 'notify-security') return 'DELIVERED — VERIFIED';
+  return 'VERIFIED';
 }
 
 function currentResult(
@@ -87,13 +109,21 @@ function currentResult(
   responseDecision: PolicyDecision | null,
   execution: RemediationExecution | null,
 ): string {
-  if (execution?.state === 'COMPLETED') return 'Independent read-back verified the expected external state.';
+  if (execution?.state === 'COMPLETED') {
+    return responseAction?.action === 'notify-security'
+      ? 'Independent read-back verified delivery and private recipient resolution.'
+      : 'Independent read-back verified the expected external state.';
+  }
   if (execution?.state === 'PENDING_VERIFICATION') return 'External action accepted. Completion is not yet verified.';
   if (execution?.state === 'UNVERIFIED') return 'The external outcome remains unverified. No successful remediation is claimed.';
   if (execution?.state === 'FAILED') return 'Execution failed without a verified external outcome.';
   if (execution?.state === 'EXECUTING') return 'Protected execution is in progress. No final outcome is claimed yet.';
   if (isAuthorized(responseAction)) return 'Authorized. Protected execution has not started.';
-  if (responseAction?.action === 'revoke-credential' && responseDecision?.decision === 'ALLOW') return 'Policy allows the action. Human authorization is still required.';
+  if (executableProtectedDecision(responseAction, responseDecision)) {
+    return responseDecision?.decision === 'REDACT'
+      ? 'T3N minimized the request to an executable minimum. Human authorization is still required.'
+      : 'Policy allows the action. Human authorization is still required.';
+  }
   if (responseDecision?.decision === 'REDACT') return 'T3N requires a smaller data scope before execution.';
   if (responseDecision?.decision === 'DENY') return 'T3N blocked the proposed action before protected egress.';
   if (threatDecision?.decision === 'DENY') return 'T3N blocked the proposed action before protected egress.';
@@ -115,6 +145,10 @@ function policyDestination(action: ActionProposal | null, decision: PolicyDecisi
   return `${action.host} — policy evaluated`;
 }
 
+function completedTitle(action: ActionProposal | null): string {
+  return action?.action === 'notify-security' ? 'Security notification delivered' : 'Credential compromise contained';
+}
+
 export function BusinessOutcomeSummary({ scenario, incident, selectedAction, decision, remediationExecution, agentAnalysis }: Props) {
   const threatAction = agentAnalysis?.action ?? selectedAction;
   const threatDecision = agentAnalysis?.decision ?? decision;
@@ -133,7 +167,7 @@ export function BusinessOutcomeSummary({ scenario, incident, selectedAction, dec
     <Surface className="business-outcome-card" aria-labelledby="business-outcome-title">
       <SectionHeader
         eyebrow="Business outcome"
-        title={successful ? 'Credential compromise contained' : 'Risk → control → observed result'}
+        title={successful ? completedTitle(selectedAction) : 'Risk → control → observed result'}
         titleId="business-outcome-title"
         icon={successful ? <CheckCircle2 aria-hidden="true" /> : unresolved ? <CircleAlert aria-hidden="true" /> : <BriefcaseBusiness aria-hidden="true" />}
         tone={successful ? 'success' : unresolved ? 'danger' : 'default'}
@@ -172,7 +206,7 @@ export function BusinessOutcomeSummary({ scenario, incident, selectedAction, dec
             <div><dt>Policy-redacted private refs</dt><dd>{threatDecision ? `${threatDecision.redactedPrivateRefs.length} · ${list(threatDecision.redactedPrivateRefs)}` : NOT_OBSERVED}</dd></div>
             <div><dt>Policy decision time</dt><dd>{policyDecisionTime}</dd></div>
           </dl>
-          <p className="business-outcome-note">Field entries describe policy decisions over field names. Private refs are logical categories, not resolved private values. Neither is presented as proof that normal field values crossed or were removed from protected egress.</p>
+          <p className="business-outcome-note">Field entries describe policy decisions over field names. Private refs are logical categories, not resolved private values. Value-level minimization and private resolution are proven separately by the protected remediation flow.</p>
         </section>
 
         <section className="business-outcome-section" aria-labelledby="authorized-response-title">

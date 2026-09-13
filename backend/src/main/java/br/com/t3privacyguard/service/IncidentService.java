@@ -45,8 +45,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class IncidentService {
-    private static final String SUPPORTED_REMEDIATION_ACTION = "revoke-credential";
-    private static final Set<String> REQUIRED_REMEDIATION_FIELDS = Set.of("incident_id", "credential_id", "reason");
+    private static final String REVOKE_CREDENTIAL_ACTION = "revoke-credential";
+    private static final String NOTIFY_SECURITY_ACTION = "notify-security";
+    private static final Set<String> SUPPORTED_REMEDIATION_ACTIONS = Set.of(REVOKE_CREDENTIAL_ACTION, NOTIFY_SECURITY_ACTION);
+    private static final Set<String> REVOKE_REQUIRED_FIELDS = Set.of("incident_id", "credential_id", "reason");
+    private static final Set<String> NOTIFY_REQUIRED_FIELDS = Set.of("incident_id", "severity", "summary");
 
     private final IncidentRepository incidents;
     private final ActionProposalRepository actions;
@@ -211,7 +214,7 @@ public class IncidentService {
         String approvedHost = requireApprovedHost(action);
         Map<String, String> normalPayload = requireNormalPayload(action);
         PolicyDecisionEntity decision = decisions.findByActionProposalId(actionId).orElseThrow(() -> new ConflictException("Action must be evaluated before remediation"));
-        requireExecutableDecision(decision, normalPayload);
+        requireExecutableDecision(action, decision, normalPayload);
         requireVersionedPolicy(decision);
         auditIntegrity.assertAppendable(incidentId);
         final boolean newlyAuthorized;
@@ -253,7 +256,7 @@ public class IncidentService {
         }
         PolicyDecisionEntity decision = decisions.findByActionProposalId(actionId)
             .orElseThrow(() -> new ConflictException("A persisted policy decision is required before remediation"));
-        requireExecutableDecision(decision, normalPayload);
+        requireExecutableDecision(action, decision, normalPayload);
         requireVersionedPolicy(decision);
         auditIntegrity.assertAppendable(incidentId);
 
@@ -364,8 +367,11 @@ public class IncidentService {
 
         executionCoordinator.markVerificationAttempt(action.getId());
         long startedAt = System.nanoTime();
+        String expectedState = expectedStateForAction(action.getAction());
         try {
-            var verification = remediationGateway.verify(execution.getRequestId(), execution.getOperationId());
+            var verification = NOTIFY_SECURITY_ACTION.equals(action.getAction())
+                ? remediationGateway.verifyDelivery(execution.getRequestId(), execution.getOperationId())
+                : remediationGateway.verify(execution.getRequestId(), execution.getOperationId());
             if (!execution.getRequestId().equals(verification.requestId())) {
                 RemediationExecutionEntity state = executionCoordinator.markUnverified(action.getId(), "VERIFICATION_REQUEST_ID_MISMATCH");
                 audit(
@@ -379,14 +385,16 @@ public class IncidentService {
                 traces.record(action, "EXTERNAL_VERIFICATION", "FAILED", "VERIFICATION_REQUEST_ID_MISMATCH", elapsedMillis(startedAt));
                 return remediationResponse(incidentId, action.getId(), state);
             }
-            if ("VERIFIED".equals(verification.status()) && "REVOKED".equals(verification.observedState())) {
+            boolean privateResolutionVerified = !NOTIFY_SECURITY_ACTION.equals(action.getAction()) || Boolean.TRUE.equals(verification.recipientResolved());
+            if ("VERIFIED".equals(verification.status()) && expectedState.equals(verification.observedState()) && privateResolutionVerified) {
                 RemediationExecutionEntity completed = executionCoordinator.markCompleted(action.getId());
                 action.markRemediated();
                 actions.save(action);
                 audit(
                     incidentId,
                     "REMEDIATION_VERIFIED",
-                    "Independent read-back confirmed expected external state REVOKED",
+                    "Independent read-back confirmed expected external state " + expectedState
+                        + (NOTIFY_SECURITY_ACTION.equals(action.getAction()) ? " and confirmed private recipient resolution without returning the recipient value" : ""),
                     verification.activitySequence(),
                     verification.activityHash(),
                     "verify-remediation"
@@ -445,9 +453,25 @@ public class IncidentService {
     }
 
     private void requireSupportedRemediationExecutor(ActionProposalEntity action) {
-        if (!SUPPORTED_REMEDIATION_ACTION.equals(action.getAction())) {
+        if (!SUPPORTED_REMEDIATION_ACTIONS.contains(action.getAction())) {
             throw new PolicyDeniedException("Protected remediation is not implemented for this action");
         }
+    }
+
+    private static String expectedStateForAction(String action) {
+        return switch (action) {
+            case REVOKE_CREDENTIAL_ACTION -> "REVOKED";
+            case NOTIFY_SECURITY_ACTION -> "DELIVERED";
+            default -> throw new PolicyDeniedException("Protected remediation verification is not implemented for this action");
+        };
+    }
+
+    private static Set<String> requiredFieldsForAction(String action) {
+        return switch (action) {
+            case REVOKE_CREDENTIAL_ACTION -> REVOKE_REQUIRED_FIELDS;
+            case NOTIFY_SECURITY_ACTION -> NOTIFY_REQUIRED_FIELDS;
+            default -> Set.of();
+        };
     }
 
     private String requireApprovedHost(ActionProposalEntity action) {
@@ -471,16 +495,32 @@ public class IncidentService {
         return payload;
     }
 
-    private void requireExecutableDecision(PolicyDecisionEntity decision, Map<String, String> normalPayload) {
+    private void requireExecutableDecision(ActionProposalEntity action, PolicyDecisionEntity decision, Map<String, String> normalPayload) {
         if (decision.getDecision() == DecisionType.DENY) {
             throw new PolicyDeniedException("Remediation cannot execute after a DENY policy decision");
         }
+        Set<String> required = requiredFieldsForAction(action.getAction());
         Set<String> allowed = Set.copyOf(readList(decision.getAllowedFieldsJson()));
-        if (!allowed.containsAll(REQUIRED_REMEDIATION_FIELDS)) {
-            throw new PolicyDeniedException("Remediation requires incident_id, credential_id and reason to remain allowed after minimization");
+        if (!allowed.containsAll(required)) {
+            throw new PolicyDeniedException("Protected remediation no longer has all required normal fields after policy minimization");
         }
-        if (!normalPayload.keySet().containsAll(REQUIRED_REMEDIATION_FIELDS)) {
+        if (!normalPayload.keySet().containsAll(required)) {
             throw new PolicyDeniedException("Trusted normal payload is missing required remediation values");
+        }
+
+        List<String> privateRefs = readList(action.getPrivateRefsJson());
+        if (REVOKE_CREDENTIAL_ACTION.equals(action.getAction())) {
+            if (!"incident-remediation".equals(action.getPurpose()) || !privateRefs.isEmpty()) {
+                throw new PolicyDeniedException("Credential revocation no longer matches its closed protected-execution contract");
+            }
+            return;
+        }
+        if (!"incident-notification".equals(action.getPurpose()) || privateRefs.size() != 1 || !"verified_email".equals(privateRefs.get(0))) {
+            throw new PolicyDeniedException("Security notification requires exactly the logical private reference verified_email");
+        }
+        List<String> allowedPrivateRefs = readList(decision.getAllowedPrivateRefsJson());
+        if (!allowedPrivateRefs.contains("verified_email")) {
+            throw new PolicyDeniedException("Security notification requires verified_email to remain policy-allowed for protected execution");
         }
     }
 

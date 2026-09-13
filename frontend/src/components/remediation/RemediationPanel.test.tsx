@@ -66,7 +66,7 @@ describe('RemediationPanel', () => {
     expect(screen.getByText('Trusted synthetic values')).toBeInTheDocument();
     expect(screen.getByText('Protected egress payload')).toBeInTheDocument();
     expect(screen.getAllByText('reason=suspected compromise').length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText(/binds the authenticated operator, exact destination and trusted payload/i)).toBeInTheDocument();
+    expect(screen.getByText(/binds the authenticated operator, exact destination/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Execute protected credential revocation' })).toBeInTheDocument();
   });
 
@@ -118,7 +118,7 @@ describe('RemediationPanel', () => {
     const currentAction = { ...action, status: 'EVALUATED' as const, remediationAuthorizedBy: null, remediationAuthorizedAt: null };
     const currentDecision = { ...decision, decision: 'REDACT' as const, allowedFields: ['incident_id', 'reason'], redactedFields: ['credential_id'] };
     renderPanel(null, vi.fn(), currentAction, currentDecision);
-    expect(screen.getByText(/no longer contains all required remediation fields/i)).toBeInTheDocument();
+    expect(screen.getByText(/no longer satisfies the action-specific required fields/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Authorize credential revocation' })).not.toBeInTheDocument();
   });
 
@@ -128,6 +128,69 @@ describe('RemediationPanel', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/no approved destination/i);
     expect(screen.queryByRole('button', { name: /Authorize credential revocation/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Execute protected credential revocation/i })).not.toBeInTheDocument();
+  });
+
+  it('shows only the logical private reference and protected resolution boundary for notify-security', () => {
+    const notifyAction: ActionProposal = {
+      ...action,
+      id: 'action-notify',
+      requestId: 'request-notify',
+      action: 'notify-security',
+      resource: 'incident:test',
+      purpose: 'incident-notification',
+      fields: ['incident_id', 'severity', 'summary'],
+      normalPayload: { incident_id: 'inc-demo-001', severity: 'critical', summary: 'synthetic security incident' },
+      privateRefs: ['verified_email'],
+    };
+    const notifyDecision: PolicyDecision = {
+      ...decision,
+      id: 'decision-notify',
+      actionProposalId: notifyAction.id,
+      allowedFields: notifyAction.fields,
+      allowedPrivateRefs: ['verified_email'],
+    };
+    renderPanel(null, vi.fn(), notifyAction, notifyDecision);
+
+    expect(screen.getByText('Logical private reference')).toBeInTheDocument();
+    expect(screen.getAllByText('verified_email').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('T3N PROTECTED EGRESS')).toBeInTheDocument();
+    expect(screen.getByText('Plaintext in browser')).toBeInTheDocument();
+    expect(screen.getByText('Plaintext in backend')).toBeInTheDocument();
+    expect(screen.getAllByText('NO')).toHaveLength(2);
+    expect(screen.getByText(/Plaintext is not returned to the application/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Execute protected security notification' })).toBeInTheDocument();
+    expect(screen.queryByText(/@/)).not.toBeInTheDocument();
+  });
+
+  it('labels notify-security completed only as independently verified delivery', () => {
+    const notifyAction: ActionProposal = {
+      ...action,
+      id: 'action-notify-completed',
+      requestId: 'request-notify-completed',
+      action: 'notify-security',
+      resource: 'incident:test',
+      purpose: 'incident-notification',
+      fields: ['incident_id', 'severity', 'summary'],
+      normalPayload: { incident_id: 'inc-demo-001', severity: 'critical', summary: 'synthetic security incident' },
+      privateRefs: ['verified_email'],
+      status: 'REMEDIATED',
+    };
+    const notifyDecision: PolicyDecision = {
+      ...decision,
+      actionProposalId: notifyAction.id,
+      allowedFields: notifyAction.fields,
+      allowedPrivateRefs: ['verified_email'],
+    };
+    renderPanel(execution('COMPLETED', {
+      actionId: notifyAction.id,
+      requestId: notifyAction.requestId,
+      completedAt: '2026-09-12T18:00:03Z',
+    }), vi.fn(), notifyAction, notifyDecision);
+
+    expect(screen.getByText('DELIVERED')).toBeInTheDocument();
+    expect(screen.getAllByText('VERIFIED').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/Delivery verified/i)).toBeInTheDocument();
+    expect(screen.getByText(/private recipient resolution inside T3N protected egress/i)).toBeInTheDocument();
   });
 
   it('explains destination substitution as a new evaluation and authorization, not a generic outage', () => {
@@ -157,7 +220,7 @@ describe('RemediationPanel', () => {
     renderPanel(execution('COMPLETED', { completedAt: '2026-09-12T18:00:03Z' }));
     expect(screen.getByText('VERIFIED')).toBeInTheDocument();
     expect(screen.getByText('COMPLETED')).toBeInTheDocument();
-    expect(screen.getByText(/Independent read-back verified the expected external state/i)).toBeInTheDocument();
+    expect(screen.getByText(/Independent read-back verified REVOKED/i)).toBeInTheDocument();
   });
 
   it('does not offer authorization or execution for actions without a verified completion contract', () => {
