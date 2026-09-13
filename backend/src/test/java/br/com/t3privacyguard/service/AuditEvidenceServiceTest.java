@@ -32,7 +32,8 @@ class AuditEvidenceServiceTest {
         audits = mock(AuditEventRepository.class);
         gateway = mock(GatewaySystemClient.class);
         service = new AuditEvidenceService(incidents, audits, gateway);
-        incident = new IncidentEntity("incident-1", "Test", Severity.HIGH, "Summary", "test", Instant.now().minusSeconds(60));
+        Instant createdAt = Instant.now().minusSeconds(60);
+        incident = new IncidentEntity("incident-1", "Test", Severity.HIGH, "Summary", "test", createdAt, createdAt.plusSeconds(3600));
         when(incidents.findById("incident-1")).thenReturn(Optional.of(incident));
     }
 
