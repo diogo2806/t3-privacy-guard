@@ -5,6 +5,8 @@ import type { AgentRegistrationState } from '../agent/agent-card.js';
 export interface DeploymentManifest {
   source: 'T3N_TESTNET';
   generatedAt: string;
+  sourceCommitSha: string;
+  sourceTreeClean: boolean;
   network: string;
   sdkVersion: '5.2.0';
   tenantDid: string;
@@ -28,6 +30,8 @@ export interface DeploymentManifest {
 
 export interface TestnetEvidenceIdentity {
   source?: string;
+  sourceCommitSha: string;
+  sourceTreeClean: boolean;
   network: string;
   sdkVersion: string;
   tenantDid: string;
@@ -45,6 +49,12 @@ export async function sha256File(path: string): Promise<string> {
 }
 
 export function assertManifestIdentity(manifest: DeploymentManifest): void {
+  if (!/^[a-f0-9]{40}$/.test(manifest.sourceCommitSha)) {
+    throw new Error('Deployment manifest contains an invalid source commit SHA');
+  }
+  if (typeof manifest.sourceTreeClean !== 'boolean') {
+    throw new Error('Deployment manifest requires an explicit source tree state');
+  }
   if (!manifest.tenantDid.startsWith('did:t3n:') || !manifest.agentDid.startsWith('did:t3n:') || !manifest.executorDid.startsWith('did:t3n:')) {
     throw new Error('Deployment manifest requires canonical T3N DIDs');
   }
@@ -79,6 +89,8 @@ export function assertManifestIdentity(manifest: DeploymentManifest): void {
 export function assertEvidenceMatchesDeployment(manifest: DeploymentManifest, evidence: TestnetEvidenceIdentity): void {
   const checks: Array<[string, unknown, unknown]> = [
     ['source', 'T3N_TESTNET', evidence.source ?? 'T3N_TESTNET'],
+    ['sourceCommitSha', manifest.sourceCommitSha, evidence.sourceCommitSha],
+    ['sourceTreeClean', manifest.sourceTreeClean, evidence.sourceTreeClean],
     ['network', manifest.network, evidence.network],
     ['sdkVersion', manifest.sdkVersion, evidence.sdkVersion],
     ['tenantDid', manifest.tenantDid, evidence.tenantDid],
