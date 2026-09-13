@@ -55,4 +55,21 @@ describe('ScreenManualDialog', () => {
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
+
+  it('documents all enterprise scenarios, trust rollback protection and the real execution boundary', async () => {
+    const user = userEvent.setup();
+    render(<ScreenManualDialog />);
+
+    await user.click(screen.getByRole('button', { name: 'Open Screen Manual' }));
+
+    expect(screen.getByText(/Credential compromised/)).toBeInTheDocument();
+    expect(screen.getByText(/Account takeover/)).toBeInTheDocument();
+    expect(screen.getByText(/Record security incident/)).toBeInTheDocument();
+    expect(screen.getByText(/Notify security contact/)).toBeInTheDocument();
+    expect(screen.getByText(/verified_email/)).toBeInTheDocument();
+    expect(screen.getByText(/only current scenario with protected execution/i)).toBeInTheDocument();
+    expect(screen.getByText(/Policy evaluation only/i)).toBeInTheDocument();
+    expect(screen.getByText(/Rollback floor PERSISTED/i)).toBeInTheDocument();
+    expect(screen.getByText(/TRUST FLOOR CORRUPTED/i)).toBeInTheDocument();
+  });
 });
