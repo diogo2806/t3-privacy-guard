@@ -25,7 +25,7 @@ public class SystemStatusService {
         Optional<TenantStatus> tenant = gateway.tenantStatus();
         Optional<AgentStatus> agent = gateway.agentStatus();
         Optional<ExecutorStatus> executor = gateway.executorStatus();
-        Optional<AgentRegistrationStatus> registration = agent.filter(AgentStatus::ready).flatMap(ignored -> gateway.agentRegistration());
+        Optional<AgentRegistrationStatus> registration = gatewayReachable ? gateway.agentRegistration() : Optional.empty();
         Optional<ContractIdentity> contract = gateway.contractIdentity();
         Optional<DelegationStatus> proposalDelegation = contract.flatMap(value -> gateway.delegationStatus(value.contractId()));
         Optional<DelegationStatus> executorDelegation = contract.flatMap(value -> gateway.executorDelegationStatus(value.contractId()));
@@ -89,6 +89,9 @@ public class SystemStatusService {
             registration.map(AgentRegistrationStatus::cardSha256).orElse(null),
             registration.map(AgentRegistrationStatus::verifiedAt).orElse(null),
             registration.map(AgentRegistrationStatus::services).map(SystemStatusService::safeList).orElse(List.of()),
+            registration.map(AgentRegistrationStatus::a2aConfigured).orElse(false),
+            registration.map(AgentRegistrationStatus::a2aPublicUrl).orElse(null),
+            registration.map(AgentRegistrationStatus::a2aConfigurationCheckedAt).orElse(null),
             contractResolved,
             contract.map(ContractIdentity::contractId).orElse(null),
             contract.map(ContractIdentity::contractVersion).orElse(null),
@@ -113,7 +116,8 @@ public class SystemStatusService {
     private static String registrationState(Optional<AgentRegistrationStatus> registration, String authenticatedAgentDid) {
         if (registration.isEmpty()) return "UNAVAILABLE";
         AgentRegistrationStatus value = registration.get();
-        if (authenticatedAgentDid == null || value.agentDid() == null || !authenticatedAgentDid.equals(value.agentDid())) return "MISMATCH";
+        if (authenticatedAgentDid == null || authenticatedAgentDid.isBlank()) return "UNAVAILABLE";
+        if (value.agentDid() == null || !authenticatedAgentDid.equals(value.agentDid())) return "MISMATCH";
         return REGISTRATION_STATES.contains(value.state()) ? value.state() : "UNAVAILABLE";
     }
 
@@ -137,6 +141,9 @@ public class SystemStatusService {
         String agentCardSha256,
         String agentCardVerifiedAt,
         List<String> agentCardServices,
+        boolean a2aConfigured,
+        String a2aPublicUrl,
+        String a2aConfigurationCheckedAt,
         boolean contractResolved,
         String contractId,
         String contractVersion,

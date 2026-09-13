@@ -30,9 +30,7 @@ class SystemStatusServiceTest {
         when(gateway.tenantStatus()).thenReturn(Optional.of(new TenantStatus(true, true, "did:t3n:tenant", "testnet")));
         when(gateway.agentStatus()).thenReturn(Optional.of(new AgentStatus(true, true, true, "did:t3n:proposal-agent", "testnet")));
         when(gateway.executorStatus()).thenReturn(Optional.of(new ExecutorStatus(true, true, true, "did:t3n:protected-executor", "testnet")));
-        when(gateway.agentRegistration()).thenReturn(Optional.of(new AgentRegistrationStatus(
-            "did:t3n:proposal-agent", "REGISTERED", "https://node.example/api/agent-card/did:t3n:proposal-agent", "a".repeat(64), "2026-09-12T20:00:00Z", List.of("DID")
-        )));
+        when(gateway.agentRegistration()).thenReturn(Optional.of(registration("did:t3n:proposal-agent", "REGISTERED")));
         when(gateway.contractIdentity()).thenReturn(Optional.of(new ContractIdentity("z:tenant:privacy-guard", "0.4.0")));
     }
 
@@ -53,6 +51,10 @@ class SystemStatusServiceTest {
         assertThat(result.executorAuthenticated()).isTrue();
         assertThat(result.executorDid()).isEqualTo("did:t3n:protected-executor");
         assertThat(result.agentRegistrationState()).isEqualTo("REGISTERED");
+        assertThat(result.agentCardServices()).containsExactly("A2A", "DID");
+        assertThat(result.a2aConfigured()).isTrue();
+        assertThat(result.a2aPublicUrl()).isEqualTo("https://guard.example/a2a");
+        assertThat(result.a2aConfigurationCheckedAt()).isEqualTo("2026-09-13T11:00:00Z");
         assertThat(result.contractResolved()).isTrue();
         assertThat(result.delegationMemberState()).isEqualTo("ACTIVE");
         assertThat(result.delegationEffectiveState()).isEqualTo("ACTIVE");
@@ -63,6 +65,20 @@ class SystemStatusServiceTest {
         assertThat(result.executorDelegatedFunctions()).containsExactly("execute-remediation", "verify-remediation");
         assertThat(result.executorAllowedHosts()).containsExactly("security.example", "verification.example");
         assertThat(result.message()).contains("effective least-privilege access");
+    }
+
+    @Test
+    void keepsA2aConfigurationVisibleWhenProposalAgentSessionIsUnavailable() {
+        when(gateway.agentStatus()).thenReturn(Optional.of(new AgentStatus(true, false, false, null, "testnet")));
+        when(gateway.agentRegistration()).thenReturn(Optional.of(registration("", "UNAVAILABLE")));
+
+        var result = service.status();
+
+        assertThat(result.agentAuthenticated()).isFalse();
+        assertThat(result.agentRegistrationState()).isEqualTo("UNAVAILABLE");
+        assertThat(result.a2aConfigured()).isTrue();
+        assertThat(result.a2aPublicUrl()).isEqualTo("https://guard.example/a2a");
+        assertThat(result.a2aConfigurationCheckedAt()).isEqualTo("2026-09-13T11:00:00Z");
     }
 
     @Test
@@ -117,7 +133,7 @@ class SystemStatusServiceTest {
 
     @Test
     void registrationDidMismatchDoesNotReclassifyConfirmedEffectiveAccess() {
-        when(gateway.agentRegistration()).thenReturn(Optional.of(new AgentRegistrationStatus("did:t3n:other", "REGISTERED", "https://node.example/card", "a".repeat(64), "2026-09-12T20:00:00Z", List.of("DID"))));
+        when(gateway.agentRegistration()).thenReturn(Optional.of(registration("did:t3n:other", "REGISTERED")));
         when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
             "ACTIVE", "ACTIVE", List.of("evaluate-action"), List.of("incident_id"), List.of()
         )));
@@ -165,6 +181,20 @@ class SystemStatusServiceTest {
         assertThat(result.executorDelegationEffectiveState()).isEqualTo("INCOMPLETE");
         assertThat(result.message()).contains("authorization window has not begun");
         assertThat(result.message()).doesNotContain("controls are ready");
+    }
+
+    private static AgentRegistrationStatus registration(String did, String state) {
+        return new AgentRegistrationStatus(
+            did,
+            state,
+            "https://node.example/api/agent-card/" + did,
+            "a".repeat(64),
+            "2026-09-13T11:00:00Z",
+            List.of("A2A", "DID"),
+            true,
+            "https://guard.example/a2a",
+            "2026-09-13T11:00:00Z"
+        );
     }
 
     private static DelegationStatus delegation(String memberState, String effectiveState, List<String> functions, List<String> scopes, List<String> allowedHosts) {

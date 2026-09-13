@@ -15,7 +15,7 @@ function evidenceWithRegistrationState(agentRegistrationState: AgentRegistration
       agentRegistrationState,
       agentCardUri: registered ? 'https://node.example/card' : null,
       agentCardSha256: registered ? 'c'.repeat(64) : null,
-      agentCardVerifiedAt: '2026-09-12T00:00:01Z', agentCardServices: registered ? ['DID'] : [],
+      agentCardVerifiedAt: '2026-09-12T00:00:01Z', agentCardServices: registered ? ['A2A', 'DID'] : [],
       contractId: 'z:tenant:privacy-guard', contractVersion: '0.4.0', wasmSha256: 'a'.repeat(64),
       policyVersion: '2026-09-12.1', policyHash: 'b'.repeat(64),
       trustAnchorVerified: true, trustManifestFloorPersisted: true, trustManifestVersion: 42,
@@ -26,7 +26,7 @@ function evidenceWithRegistrationState(agentRegistrationState: AgentRegistration
 }
 
 describe('EvidenceCenter', () => {
-  it('renders source revision, proposal agent, executor, policy and trust provenance without overstating authorization or attestation', () => {
+  it('renders source revision, A2A observation, proposal agent, executor, policy and trust provenance without overstating authorization, liveness or attestation', () => {
     const evidence = evidenceWithRegistrationState('REGISTERED');
     evidence.scenarios = [
       { id: 'LIVE-PROPOSAL-CANNOT-EXECUTE', expected: 'Proposal Agent DID rejected', actual: 'REJECTED', status: 'PASS' },
@@ -42,6 +42,7 @@ describe('EvidenceCenter', () => {
     expect(screen.getByText(/public source revision used to generate this evidence bundle/i)).toBeInTheDocument();
     expect(screen.getByText(/WASM and policy hashes remain the executed artifact identities/i)).toBeInTheDocument();
     expect(screen.getByText('REGISTERED')).toBeInTheDocument();
+    expect(screen.getByText('OBSERVED')).toHaveClass('status-pill-ok');
     expect(screen.getByText('Card check')).toBeInTheDocument();
     expect(screen.queryByText('Card verified')).not.toBeInTheDocument();
     expect(screen.getByText('did:t3n:proposal-agent')).toBeInTheDocument();
@@ -52,16 +53,19 @@ describe('EvidenceCenter', () => {
     expect(screen.getByText('PERSISTED')).toBeInTheDocument();
     expect(screen.getByText(/separate authenticated T3N principal/i)).toBeInTheDocument();
     expect(screen.getByText(/not a claim of per-request hardware attestation/i)).toBeInTheDocument();
+    expect(screen.getByText(/does not by itself prove that the public endpoint was reachable or live-tested/i)).toBeInTheDocument();
+    expect(screen.getByText(/Protected remediation is not exposed through A2A/i)).toBeInTheDocument();
   });
 
   it.each([
     ['NOT_REGISTERED', 'NOT REGISTERED'],
     ['MISMATCH', 'CARD/DID MISMATCH'],
     ['UNAVAILABLE', 'UNAVAILABLE'],
-  ] as const)('does not render %s onboarding state as a successful verification', (state, label) => {
+  ] as const)('does not render %s onboarding state or absent A2A observation as successful verification', (state, label) => {
     render(<EvidenceCenter evidence={evidenceWithRegistrationState(state)} loading={false} error={null} onRefresh={vi.fn()} />);
 
     expect(screen.getByText(label)).toBeInTheDocument();
+    expect(screen.getByText('NOT OBSERVED')).toHaveClass('status-pill-off');
     expect(screen.getByText('Card check')).toBeInTheDocument();
     expect(screen.queryByText('Card verified')).not.toBeInTheDocument();
     expect(screen.getByText('Not resolved')).toBeInTheDocument();

@@ -17,6 +17,7 @@ export interface GatewayConfig {
   readonly aiApiUrl: string | null;
   readonly aiApiKey: string | null;
   readonly aiModel: string | null;
+  readonly a2aPublicUrl: string | null;
 }
 
 export class ConfigurationError extends Error {
@@ -38,11 +39,49 @@ function requiredPath(env: NodeJS.ProcessEnv, name: string, fallback: string): s
   return raw?.trim() || fallback;
 }
 
-function isIpv4Loopback(hostname: string): boolean {
+function ipv4Octets(hostname: string): number[] | null {
   const parts = hostname.split('.');
-  if (parts.length !== 4) return false;
+  if (parts.length !== 4 || parts.some((part) => !/^\d{1,3}$/.test(part))) return null;
   const octets = parts.map((part) => Number(part));
-  return octets.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255) && octets[0] === 127;
+  return octets.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255) ? octets : null;
+}
+
+function isIpv4Loopback(hostname: string): boolean {
+  return ipv4Octets(hostname)?.[0] === 127;
+}
+
+function isNonPublicIpv4(hostname: string): boolean {
+  const octets = ipv4Octets(hostname);
+  if (!octets) return false;
+  const [first, second, third] = octets;
+  if (first === 0 || first === 10 || first === 127 || first >= 224) return true;
+  if (first === 100 && second >= 64 && second <= 127) return true;
+  if (first === 169 && second === 254) return true;
+  if (first === 172 && second >= 16 && second <= 31) return true;
+  if (first === 192 && second === 168) return true;
+  if (first === 192 && second === 0) return true;
+  if (first === 192 && second === 0 && third === 2) return true;
+  if (first === 198 && (second === 18 || second === 19)) return true;
+  if (first === 198 && second === 51 && third === 100) return true;
+  if (first === 203 && second === 0 && third === 113) return true;
+  return false;
+}
+
+function isNonPublicHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase().replace(/\.$/, '');
+  if (normalized === 'localhost' || normalized.endsWith('.localhost') || normalized.endsWith('.local')) return true;
+  if (isNonPublicIpv4(normalized)) return true;
+  if (!normalized.startsWith('[') || !normalized.endsWith(']')) return false;
+  const ipv6 = normalized.slice(1, -1);
+  return ipv6 === '::'
+    || ipv6 === '::1'
+    || ipv6.startsWith('fc')
+    || ipv6.startsWith('fd')
+    || /^fe[89ab]/.test(ipv6)
+    || ipv6.startsWith('ff')
+    || ipv6 === '2001:db8::'
+    || ipv6.startsWith('2001:db8:')
+    || ipv6.startsWith('::ffff:');
 }
 
 export function validateAiProviderUrl(parsed: URL): URL {
@@ -54,6 +93,19 @@ export function validateAiProviderUrl(parsed: URL): URL {
   const loopback = hostname === 'localhost' || hostname === '[::1]' || isIpv4Loopback(hostname);
   if (!loopback) throw new ConfigurationError('AI_API_URL must use https for remote providers; http is allowed only on loopback');
   return parsed;
+}
+
+export function validateA2aPublicUrl(value: string): string {
+  let parsed: URL;
+  try { parsed = new URL(value); } catch { throw new ConfigurationError('A2A_PUBLIC_URL must be a valid absolute URL'); }
+  if (parsed.protocol !== 'https:') throw new ConfigurationError('A2A_PUBLIC_URL must use HTTPS');
+  if (parsed.username || parsed.password) throw new ConfigurationError('A2A_PUBLIC_URL must not contain embedded credentials');
+  if (parsed.search || parsed.hash) throw new ConfigurationError('A2A_PUBLIC_URL must not contain query parameters or fragments');
+  if (!parsed.hostname || isNonPublicHostname(parsed.hostname)) throw new ConfigurationError('A2A_PUBLIC_URL must contain a public hostname');
+  const normalizedPath = parsed.pathname.replace(/\/+$/, '');
+  if (!normalizedPath.endsWith('/a2a')) throw new ConfigurationError('A2A_PUBLIC_URL must point to the public /a2a endpoint');
+  parsed.pathname = normalizedPath;
+  return parsed.toString();
 }
 
 export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig {
@@ -94,6 +146,9 @@ export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): Gateway
     validateAiProviderUrl(parsed);
   }
 
+  const a2aPublicUrlRaw = env.A2A_PUBLIC_URL?.trim() || null;
+  const a2aPublicUrl = a2aPublicUrlRaw ? validateA2aPublicUrl(a2aPublicUrlRaw) : null;
+
   return {
     apiKey,
     agentApiKey,
@@ -110,5 +165,6 @@ export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): Gateway
     aiApiUrl,
     aiApiKey,
     aiModel,
+    a2aPublicUrl,
   };
 }

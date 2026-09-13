@@ -50,6 +50,9 @@ export interface SystemStatus {
   agentCardSha256?: string | null;
   agentCardVerifiedAt?: string | null;
   agentCardServices: string[];
+  a2aConfigured: boolean;
+  a2aPublicUrl?: string | null;
+  a2aConfigurationCheckedAt?: string | null;
   contractResolved: boolean;
   contractId?: string | null;
   contractVersion?: string | null;
