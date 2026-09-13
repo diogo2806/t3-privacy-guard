@@ -51,8 +51,19 @@ function humanAuthorization(action: ActionProposal | null, decision: PolicyDecis
 function approvedDestination(action: ActionProposal | null, decision: PolicyDecision | null): string {
   if (!action) return NOT_OBSERVED;
   if (isAuthorized(action)) return action.host ?? 'MISSING — BLOCKED';
-  if (action.action === 'revoke-credential' && decision?.decision === 'ALLOW') return 'Not authorized yet';
+  if (action.action === 'revoke-credential' && decision?.decision === 'ALLOW') return action.host ? 'Not authorized yet' : 'MISSING — BLOCKED';
   return 'NOT APPLICABLE';
+}
+
+function policyAllowedDestination(action: ActionProposal | null, decision: PolicyDecision | null): string {
+  if (!action || !decision) return NOT_OBSERVED;
+  if (decision.decision !== 'ALLOW') return 'NOT ESTABLISHED';
+  return action.host ?? 'No destination requested';
+}
+
+function policyAllowedAction(action: ActionProposal | null, decision: PolicyDecision | null): string {
+  if (!action || decision?.decision !== 'ALLOW') return NOT_OBSERVED;
+  return action.action;
 }
 
 function externalAction(action: ActionProposal | null, execution: RemediationExecution | null): string {
@@ -132,7 +143,7 @@ export function BusinessOutcomeSummary({ scenario, incident, selectedAction, dec
       <dl className="business-context-grid">
         <div><dt>Business risk</dt><dd>{scenario.businessRisk}</dd></div>
         <div><dt>Protected asset</dt><dd>{scenario.protectedAsset}</dd></div>
-        <div><dt>Business outcome</dt><dd>{scenario.businessOutcome}</dd></div>
+        <div><dt>Target business outcome</dt><dd>{scenario.businessOutcome}</dd></div>
         <div><dt>Success definition</dt><dd>{scenario.successDefinition}</dd></div>
       </dl>
 
@@ -157,17 +168,19 @@ export function BusinessOutcomeSummary({ scenario, incident, selectedAction, dec
             <div><dt>Destination</dt><dd>{policyDestination(threatAction, threatDecision)}</dd></div>
             <div><dt>Policy-allowed field names</dt><dd>{threatDecision ? `${threatDecision.allowedFields.length} · ${list(threatDecision.allowedFields)}` : NOT_OBSERVED}</dd></div>
             <div><dt>Policy-redacted field names</dt><dd>{threatDecision ? `${threatDecision.redactedFields.length} · ${list(threatDecision.redactedFields)}` : NOT_OBSERVED}</dd></div>
+            <div><dt>Policy-allowed private refs</dt><dd>{threatDecision ? `${threatDecision.allowedPrivateRefs.length} · ${list(threatDecision.allowedPrivateRefs)}` : NOT_OBSERVED}</dd></div>
+            <div><dt>Policy-redacted private refs</dt><dd>{threatDecision ? `${threatDecision.redactedPrivateRefs.length} · ${list(threatDecision.redactedPrivateRefs)}` : NOT_OBSERVED}</dd></div>
             <div><dt>Policy decision time</dt><dd>{policyDecisionTime}</dd></div>
           </dl>
-          <p className="business-outcome-note">Field entries describe policy decisions over field names. They are not presented as proof that normal field values crossed or were removed from protected egress.</p>
+          <p className="business-outcome-note">Field entries describe policy decisions over field names. Private refs are logical categories, not resolved private values. Neither is presented as proof that normal field values crossed or were removed from protected egress.</p>
         </section>
 
         <section className="business-outcome-section" aria-labelledby="authorized-response-title">
           <div className="business-outcome-section-heading"><Clock3 aria-hidden="true" /><h3 id="authorized-response-title">Authorized response</h3></div>
           <dl className="business-outcome-grid">
-            <div><dt>Minimum-scope action</dt><dd>{selectedAction?.action ?? NOT_OBSERVED}</dd></div>
+            <div><dt>Policy-allowed action</dt><dd>{policyAllowedAction(selectedAction, decision)}</dd></div>
             <div><dt>Human authorization</dt><dd>{humanAuthorization(selectedAction, decision)}</dd></div>
-            <div><dt>Policy-allowed destination</dt><dd>{selectedAction?.host && decision?.decision === 'ALLOW' ? selectedAction.host : NOT_OBSERVED}</dd></div>
+            <div><dt>Policy-allowed destination</dt><dd>{policyAllowedDestination(selectedAction, decision)}</dd></div>
             <div><dt>Approved destination</dt><dd>{approvedDestination(selectedAction, decision)}</dd></div>
             <div><dt>External action</dt><dd>{externalAction(selectedAction, remediationExecution)}</dd></div>
             <div><dt>Verified final state</dt><dd>{verifiedFinalState(selectedAction, remediationExecution)}</dd></div>
