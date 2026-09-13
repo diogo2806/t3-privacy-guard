@@ -31,7 +31,11 @@
 .section-icon svg { width: 19px; }
 .section-icon-danger { color: var(--danger); }
 .section-icon-success { color: var(--success); }
-.severity-badge { padding: .32rem .58rem; border-radius: 999px; background: var(--danger-soft); color: var(--danger); font-size: .75rem; font-weight: 850; }
+.severity-badge { width: fit-content; border: 1px solid transparent; border-radius: 999px; padding: .32rem .58rem; font-size: .75rem; font-weight: 850; text-transform: uppercase; letter-spacing: .04em; }
+.severity-badge-low { border-color: var(--success); background: var(--success-soft); color: var(--success); }
+.severity-badge-medium { border-color: var(--border-strong); background: var(--surface-strong); color: var(--accent); }
+.severity-badge-high { border-color: var(--warning); background: var(--warning-soft); color: var(--warning); }
+.severity-badge-critical { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); }
 .card-copy, .empty-copy { color: var(--muted); }
 .card-copy { margin-bottom: .9rem; }
 .empty-copy { margin: .5rem 0 0; }
@@ -39,6 +43,11 @@
 .detail-grid div { min-width: 0; padding: .7rem; border-radius: var(--radius-sm); background: var(--surface-soft); }
 .detail-grid dt { color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .07em; }
 .detail-grid dd { margin: .35rem 0 0; overflow-wrap: anywhere; font-size: .86rem; }
+.retention-panel { display: grid; gap: .7rem; margin-top: .9rem; padding: .85rem; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--radius-sm); background: var(--surface-soft); }
+.retention-heading { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: .7rem; }
+.retention-heading > div:last-child { min-width: 0; }
+.retention-heading strong { display: block; margin-top: .25rem; line-height: 1.45; overflow-wrap: anywhere; }
+.retention-copy { margin: 0; color: var(--muted); font-size: .82rem; line-height: 1.55; }
 .scenario-actions { display: flex; flex-wrap: wrap; gap: .65rem; }
 .two-column { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; }
 .action-list { display: grid; gap: .55rem; }
@@ -138,4 +147,4 @@
 .status-details summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
 .status-details .status-grid { margin-top: .8rem; }
 @media (max-width: 1040px) { .status-grid, .detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .dashboard-grid { grid-template-columns: 1fr; } .dashboard-side { position: static; } .remediation-state-panel { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 720px) { .app-shell { padding: 18px; } .app-header, .status-footer, .status-overview { align-items: stretch; flex-direction: column; } .manual-trigger { width: 100%; } .status-grid, .status-meta, .detail-grid, .two-column, .privacy-boundary-grid, .remediation-state-panel { grid-template-columns: 1fr; } .card-heading { grid-template-columns: auto 1fr; } .severity-badge { grid-column: 2; width: fit-content; } .scenario-actions .button, .agent-prompt-actions .button { width: 100%; } .audit-card .audit-refresh { grid-column: 1 / -1; width: 100%; } .audit-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .audit-event-title { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 720px) { .app-shell { padding: 18px; } .app-header, .status-footer, .status-overview { align-items: stretch; flex-direction: column; } .manual-trigger { width: 100%; } .status-grid, .status-meta, .detail-grid, .two-column, .privacy-boundary-grid, .remediation-state-panel { grid-template-columns: 1fr; } .card-heading { grid-template-columns: auto 1fr; } .severity-badge { grid-column: 2; width: fit-content; } .retention-panel { padding: .75rem; } .retention-heading { align-items: flex-start; } .scenario-actions .button, .agent-prompt-actions .button { width: 100%; } .audit-card .audit-refresh { grid-column: 1 / -1; width: 100%; } .audit-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .audit-event-title { align-items: flex-start; flex-direction: column; } }
