@@ -16,6 +16,11 @@ function statusClass(status: AuditReconciliationStatus, t3nAvailable: boolean) {
   return `audit-status-${status.toLowerCase().replace('_', '-')}`;
 }
 
+function eventTypeLabel(type: string): string {
+  if (type === 'REMEDIATION_AUTHORIZED') return 'HUMAN AUTHORIZATION';
+  return type.replaceAll('_', ' ');
+}
+
 export function AuditTrail({ events }: { events: AuditEvent[] }) {
   const incidentId = events[0]?.incidentId ?? null;
   const auditVersion = events.at(-1)?.id ?? '';
@@ -72,7 +77,7 @@ export function AuditTrail({ events }: { events: AuditEvent[] }) {
                 <span className="audit-dot" />
                 <div className="audit-event-body">
                   <div className="audit-event-title">
-                    <strong>{event.type.replaceAll('_', ' ')}</strong>
+                    <strong>{eventTypeLabel(event.type)}</strong>
                     {reconciled && <span className={`audit-status ${statusClass(reconciled.status, t3nAvailable)}`}>{statusLabel(reconciled.status, t3nAvailable)}</span>}
                   </div>
                   <p>{event.message}</p>
