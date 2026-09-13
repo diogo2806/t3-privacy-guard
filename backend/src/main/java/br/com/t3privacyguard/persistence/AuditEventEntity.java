@@ -25,11 +25,21 @@ public class AuditEventEntity {
     private String t3nHash;
     @Column(name = "t3n_function", length = 120)
     private String t3nFunction;
+    @Column(name = "sequence_number")
+    private Long sequence;
+    @Column(name = "previous_mac", length = 64)
+    private String previousMac;
+    @Column(name = "event_mac", length = 64)
+    private String eventMac;
+    @Column(name = "integrity_version", length = 16)
+    private String integrityVersion;
+    @Column(name = "integrity_key_id", length = 32)
+    private String integrityKeyId;
 
     protected AuditEventEntity() {}
 
     public AuditEventEntity(String id, String incidentId, String type, String message, Instant createdAt) {
-        this(id, incidentId, type, message, createdAt, null, null, null);
+        this(id, incidentId, type, message, createdAt, null, null, null, null, null, null, null, null);
     }
 
     public AuditEventEntity(
@@ -42,6 +52,24 @@ public class AuditEventEntity {
         String t3nHash,
         String t3nFunction
     ) {
+        this(id, incidentId, type, message, createdAt, t3nSequence, t3nHash, t3nFunction, null, null, null, null, null);
+    }
+
+    public AuditEventEntity(
+        String id,
+        String incidentId,
+        String type,
+        String message,
+        Instant createdAt,
+        Long t3nSequence,
+        String t3nHash,
+        String t3nFunction,
+        Long sequence,
+        String previousMac,
+        String eventMac,
+        String integrityVersion,
+        String integrityKeyId
+    ) {
         this.id = id;
         this.incidentId = incidentId;
         this.type = type;
@@ -50,6 +78,11 @@ public class AuditEventEntity {
         this.t3nSequence = t3nSequence;
         this.t3nHash = t3nHash;
         this.t3nFunction = t3nFunction;
+        this.sequence = sequence;
+        this.previousMac = previousMac;
+        this.eventMac = eventMac;
+        this.integrityVersion = integrityVersion;
+        this.integrityKeyId = integrityKeyId;
     }
 
     public String getId() { return id; }
@@ -60,4 +93,9 @@ public class AuditEventEntity {
     public Long getT3nSequence() { return t3nSequence; }
     public String getT3nHash() { return t3nHash; }
     public String getT3nFunction() { return t3nFunction; }
+    public Long getSequence() { return sequence; }
+    public String getPreviousMac() { return previousMac; }
+    public String getEventMac() { return eventMac; }
+    public String getIntegrityVersion() { return integrityVersion; }
+    public String getIntegrityKeyId() { return integrityKeyId; }
 }
