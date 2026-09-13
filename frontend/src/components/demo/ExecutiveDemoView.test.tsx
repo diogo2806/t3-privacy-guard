@@ -158,7 +158,7 @@ describe('ExecutiveDemoView', () => {
     expect(screen.getByTestId('executive-readiness')).toHaveTextContent('T3N LIVE / READY');
     expect(screen.getByTestId('executive-proof')).toHaveTextContent('12 PASS / 0 FAIL / 1 NOT RUN');
     expect(screen.getByTestId('executive-proof')).toHaveTextContent('0fe48b8a…');
-    expect(screen.getByTestId('executive-proof')).toHaveTextContent('privacy-guard-con…23456789');
+    expect(screen.getByTestId('executive-proof')).toHaveTextContent('privacy-guard-co…23456789');
     expect(screen.getByTestId('executive-proof')).toHaveTextContent('0.4.0');
     expect(screen.getByTestId('executive-proof')).toHaveTextContent('SEPARATE');
     expect(screen.getByTestId('executive-proof')).toHaveTextContent('CONFIRMED');
