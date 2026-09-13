@@ -109,6 +109,7 @@ test('capture submission material only from live testnet evidence', async ({ pag
 
   await page.getByRole('button', { name: 'Authorize credential revocation', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Execute protected credential revocation', exact: true })).toBeVisible();
+  await expect(page.getByText('ISSUED ON EXECUTE', { exact: true })).toBeVisible();
   files.push(await screenshot(page, '05-human-authorization.png'));
 
   let remediationVerified = false;
@@ -118,7 +119,7 @@ test('capture submission material only from live testnet evidence', async ({ pag
     if (await verifyButton.isVisible()) await verifyButton.click();
     await expect(page.getByText(/Independent read-back verified the expected external state/i)).toBeVisible();
     const remediationStatus = page.getByRole('region', { name: 'Remediation execution and verification status' });
-    await expect(remediationStatus).toContainText('VERIFIED');
+    await expect(remediationStatus).toContainText('T3N PROOF VERIFIED');
     await expect(remediationStatus).toContainText('COMPLETED');
     remediationVerified = true;
     files.push(await screenshot(page, '06-remediation-verified.png'));
@@ -159,7 +160,7 @@ test('capture submission material only from live testnet evidence', async ({ pag
     process.env.SECURITY_API_KEY,
     process.env.AI_API_KEY,
     process.env.GATEWAY_SERVICE_TOKEN,
-    process.env.REMEDIATION_CAPABILITY_KEY,
+    process.env.REMEDIATION_AUTH_PRIVATE_KEY,
     process.env.AUDIT_INTEGRITY_KEY,
     process.env.EVIDENCE_SENTINEL_SECRET,
   ]);
