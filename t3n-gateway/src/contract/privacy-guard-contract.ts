@@ -61,13 +61,15 @@ export interface RemediationResult extends ActivityAnnotated {
 export interface RemediationVerificationRequest {
   readonly request_id: string;
   readonly operation_id: string;
-  readonly expected_state: 'REVOKED';
+  readonly action: 'revoke-credential' | 'notify-security';
+  readonly expected_state: 'REVOKED' | 'DELIVERED';
 }
 
 export interface RemediationVerificationResult extends ActivityAnnotated {
   readonly request_id: string;
   readonly status: 'VERIFIED' | 'UNVERIFIED';
   readonly observed_state?: string | null;
+  readonly recipient_resolved?: boolean | null;
 }
 
 export interface ContractIdentity { readonly contractId: string; readonly contractVersion: string; }
@@ -114,7 +116,8 @@ function isVerification(value: unknown): value is RemediationVerificationResult 
   const candidate = value as Partial<RemediationVerificationResult>;
   return typeof candidate.request_id === 'string'
     && (candidate.status === 'VERIFIED' || candidate.status === 'UNVERIFIED')
-    && (candidate.observed_state == null || typeof candidate.observed_state === 'string');
+    && (candidate.observed_state == null || typeof candidate.observed_state === 'string')
+    && (candidate.recipient_resolved == null || typeof candidate.recipient_resolved === 'boolean');
 }
 
 function annotate<T extends object>(result: T, activity?: ActivityReference): T & ActivityAnnotated {
