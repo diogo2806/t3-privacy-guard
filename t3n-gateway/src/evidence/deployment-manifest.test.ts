@@ -6,6 +6,8 @@ function manifest(): DeploymentManifest {
   return {
     source: 'T3N_TESTNET',
     generatedAt: '2026-09-12T00:00:00.000Z',
+    sourceCommitSha: '1'.repeat(40),
+    sourceTreeClean: true,
     network: 'testnet',
     sdkVersion: '5.2.0',
     tenantDid: 'did:t3n:tenant',
@@ -27,6 +29,16 @@ function manifest(): DeploymentManifest {
     trustManifestVersion: 42,
   };
 }
+
+test('rejects malformed or missing source revision provenance', () => {
+  const invalidSha = manifest();
+  invalidSha.sourceCommitSha = 'abc1234';
+  assert.throws(() => assertManifestIdentity(invalidSha), /source commit SHA/i);
+
+  const missingTreeState = manifest() as DeploymentManifest & { sourceTreeClean: unknown };
+  missingTreeState.sourceTreeClean = undefined;
+  assert.throws(() => assertManifestIdentity(missingTreeState as DeploymentManifest), /source tree state/i);
+});
 
 test('rejects reused tenant proposal-agent or executor DID', () => {
   const tenantAgent = manifest();
@@ -57,6 +69,8 @@ test('accepts matching deployment and testnet evidence identities', () => {
   const value = manifest();
   assert.doesNotThrow(() => assertEvidenceMatchesDeployment(value, {
     source: 'T3N_TESTNET',
+    sourceCommitSha: value.sourceCommitSha,
+    sourceTreeClean: value.sourceTreeClean,
     network: value.network,
     sdkVersion: value.sdkVersion,
     tenantDid: value.tenantDid,
@@ -70,10 +84,21 @@ test('accepts matching deployment and testnet evidence identities', () => {
   }));
 });
 
+test('rejects source revision mismatch between deployment and testnet evidence', () => {
+  const value = manifest();
+  assert.throws(() => assertEvidenceMatchesDeployment(value, {
+    source: 'T3N_TESTNET', sourceCommitSha: '2'.repeat(40), sourceTreeClean: false,
+    network: value.network, sdkVersion: value.sdkVersion, tenantDid: value.tenantDid, agentDid: value.agentDid,
+    executorDid: value.executorDid, contractId: value.contractId, contractVersion: value.contractVersion,
+    wasmSha256: value.wasmSha256, policyVersion: value.policyVersion, policyHash: value.policyHash,
+  }), /Evidence mismatch for sourceCommitSha/);
+});
+
 test('rejects a different executor WASM contract or policy identity', () => {
   const value = manifest();
   assert.throws(() => assertEvidenceMatchesDeployment(value, {
-    source: 'T3N_TESTNET', network: value.network, sdkVersion: value.sdkVersion,
+    source: 'T3N_TESTNET', sourceCommitSha: value.sourceCommitSha, sourceTreeClean: value.sourceTreeClean,
+    network: value.network, sdkVersion: value.sdkVersion,
     tenantDid: value.tenantDid, agentDid: value.agentDid, executorDid: 'did:t3n:other-executor', contractId: value.contractId,
     contractVersion: '0.4.1', wasmSha256: 'd'.repeat(64),
     policyVersion: '2026-09-12.2', policyHash: 'e'.repeat(64),
