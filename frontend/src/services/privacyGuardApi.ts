@@ -2,7 +2,7 @@ export type Severity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 export type DecisionType = 'ALLOW' | 'REDACT' | 'DENY';
 export type ProposalStatus = 'PENDING' | 'EVALUATED' | 'REMEDIATION_AUTHORIZED' | 'REMEDIATED';
 export type DelegationState = 'ACTIVE' | 'SCHEDULED' | 'REVOKED' | 'NOT_GRANTED' | 'UNKNOWN';
-export type EffectiveDelegationState = 'ACTIVE' | 'INCOMPLETE' | 'UNKNOWN';
+export type EffectiveDelegationState = 'ACTIVE' | 'DENIED' | 'UNKNOWN';
 export type AgentRegistrationState = 'REGISTERED' | 'NOT_REGISTERED' | 'MISMATCH' | 'UNAVAILABLE';
 export type EvidenceScenarioStatus = 'PASS' | 'FAIL' | 'NOT_RUN';
 export type RemediationState = 'EXECUTING' | 'PENDING_VERIFICATION' | 'COMPLETED' | 'UNVERIFIED' | 'FAILED';
@@ -53,20 +53,22 @@ export interface SystemStatus {
   contractResolved: boolean;
   contractId?: string | null;
   contractVersion?: string | null;
-  delegationMemberState: DelegationState;
+  evaluationReady: boolean;
+  protectedRemediationReady: boolean;
+  delegationState: DelegationState;
   delegationEffectiveState: EffectiveDelegationState;
   delegatedFunctions: string[];
   delegatedScopes: string[];
   allowedHosts: string[];
-  delegationSatisfied: string[];
-  delegationMissing: string[];
-  executorDelegationMemberState: DelegationState;
+  delegationCheckedFunctions: string[];
+  delegationCheckedScopes: string[];
+  executorDelegationState: DelegationState;
   executorDelegationEffectiveState: EffectiveDelegationState;
   executorDelegatedFunctions: string[];
   executorDelegatedScopes: string[];
   executorAllowedHosts: string[];
-  executorDelegationSatisfied: string[];
-  executorDelegationMissing: string[];
+  executorDelegationCheckedFunctions: string[];
+  executorDelegationCheckedScopes: string[];
   message: string;
 }
 export interface EvidenceMetadata {

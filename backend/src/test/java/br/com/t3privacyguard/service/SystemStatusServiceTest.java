@@ -36,14 +36,26 @@ class SystemStatusServiceTest {
         when(gateway.contractIdentity()).thenReturn(Optional.of(new ContractIdentity("z:tenant:privacy-guard", "0.4.0")));
     }
 
+    private static DelegationStatus proposal(String memberState, String effectiveState) {
+        return new DelegationStatus(
+            memberState, effectiveState,
+            List.of("evaluate-action"), List.of("incident_id", "credential_id", "reason"), List.of(),
+            List.of("evaluate-action"), List.of("incident_id", "credential_id", "reason")
+        );
+    }
+
+    private static DelegationStatus executor(String memberState, String effectiveState) {
+        return new DelegationStatus(
+            memberState, effectiveState,
+            List.of("execute-remediation", "verify-remediation"), List.of("incident_id", "credential_id", "reason"), List.of("security.example", "verification.example"),
+            List.of("execute-remediation", "verify-remediation"), List.of("incident_id", "credential_id", "reason")
+        );
+    }
+
     @Test
-    void reportsMemberGrantAndEffectiveAccessSeparatelyForBothPrincipals() {
-        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
-            "ACTIVE", "ACTIVE", List.of("evaluate-action"), List.of("incident_id"), List.of()
-        )));
-        when(gateway.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
-            "ACTIVE", "ACTIVE", List.of("execute-remediation", "verify-remediation"), List.of("incident_id", "credential_id"), List.of("security.example", "verification.example")
-        )));
+    void reportsProposalAndProtectedExecutorSeparatelyWithEffectiveAccess() {
+        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(proposal("ACTIVE", "ACTIVE")));
+        when(gateway.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(executor("ACTIVE", "ACTIVE")));
 
         var result = service.status();
 
@@ -52,122 +64,123 @@ class SystemStatusServiceTest {
         assertThat(result.agentDid()).isEqualTo("did:t3n:proposal-agent");
         assertThat(result.executorAuthenticated()).isTrue();
         assertThat(result.executorDid()).isEqualTo("did:t3n:protected-executor");
-        assertThat(result.agentRegistrationState()).isEqualTo("REGISTERED");
-        assertThat(result.contractResolved()).isTrue();
-        assertThat(result.delegationMemberState()).isEqualTo("ACTIVE");
+        assertThat(result.evaluationReady()).isTrue();
+        assertThat(result.protectedRemediationReady()).isTrue();
+        assertThat(result.delegationState()).isEqualTo("ACTIVE");
         assertThat(result.delegationEffectiveState()).isEqualTo("ACTIVE");
         assertThat(result.delegatedFunctions()).containsExactly("evaluate-action");
-        assertThat(result.delegatedScopes()).containsExactly("incident_id");
-        assertThat(result.executorDelegationMemberState()).isEqualTo("ACTIVE");
+        assertThat(result.delegatedScopes()).containsExactly("incident_id", "credential_id", "reason");
+        assertThat(result.delegationCheckedFunctions()).containsExactly("evaluate-action");
+        assertThat(result.executorDelegationState()).isEqualTo("ACTIVE");
         assertThat(result.executorDelegationEffectiveState()).isEqualTo("ACTIVE");
-        assertThat(result.executorDelegatedFunctions()).containsExactly("execute-remediation", "verify-remediation");
-        assertThat(result.executorAllowedHosts()).containsExactly("security.example", "verification.example");
-        assertThat(result.message()).contains("effective least-privilege access");
+        assertThat(result.executorDelegationCheckedFunctions()).containsExactly("execute-remediation", "verify-remediation");
+        assertThat(result.message()).contains("effective Proposal").contains("Protected Executor");
     }
 
     @Test
-    void memberGrantAloneNeverMakesControlsReadyWhenPlatformRejectsProposalAgent() {
-        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
-            "ACTIVE", "INCOMPLETE", List.of("evaluate-action"), List.of("incident_id"), List.of()
-        )));
-        when(gateway.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
-            "ACTIVE", "ACTIVE", List.of("execute-remediation", "verify-remediation"), List.of("incident_id"), List.of("security.example")
-        )));
+    void proposalEffectiveDenialFailsEvaluationAndProtectedReadiness() {
+        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(proposal("ACTIVE", "DENIED")));
+        when(gateway.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(executor("ACTIVE", "ACTIVE")));
 
         var result = service.status();
 
-        assertThat(result.delegationMemberState()).isEqualTo("ACTIVE");
-        assertThat(result.delegationEffectiveState()).isEqualTo("INCOMPLETE");
-        assertThat(result.message()).contains("did not authorize effective access");
+        assertThat(result.evaluationReady()).isFalse();
+        assertThat(result.protectedRemediationReady()).isFalse();
+        assertThat(result.delegationEffectiveState()).isEqualTo("DENIED");
+        assertThat(result.message()).contains("effective T3N access is denied");
         assertThat(result.message()).doesNotContain("controls are ready");
     }
 
     @Test
-    void unknownEffectiveVerdictNeverBecomesReady() {
-        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
-            "ACTIVE", "UNKNOWN", List.of("evaluate-action"), List.of("incident_id"), List.of()
-        )));
-        when(gateway.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
-            "ACTIVE", "ACTIVE", List.of("execute-remediation", "verify-remediation"), List.of("incident_id"), List.of("security.example")
-        )));
+    void proposalUnknownEffectiveAccessFailsClosed() {
+        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(proposal("ACTIVE", "UNKNOWN")));
+        when(gateway.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(executor("ACTIVE", "ACTIVE")));
 
         var result = service.status();
 
-        assertThat(result.delegationEffectiveState()).isEqualTo("UNKNOWN");
-        assertThat(result.message()).contains("effective delegation verdict is unavailable");
-        assertThat(result.message()).doesNotContain("controls are ready");
+        assertThat(result.evaluationReady()).isFalse();
+        assertThat(result.protectedRemediationReady()).isFalse();
+        assertThat(result.message()).contains("could not be confirmed for policy evaluation");
     }
 
     @Test
-    void executorUnavailableFailsReadinessEvenWhenProposalAgentHasEffectiveAccess() {
+    void executorEffectiveDenialKeepsEvaluationReadyButBlocksProtectedRemediation() {
+        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(proposal("ACTIVE", "ACTIVE")));
+        when(gateway.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(executor("ACTIVE", "DENIED")));
+
+        var result = service.status();
+
+        assertThat(result.evaluationReady()).isTrue();
+        assertThat(result.protectedRemediationReady()).isFalse();
+        assertThat(result.executorDelegationEffectiveState()).isEqualTo("DENIED");
+        assertThat(result.message()).contains("Policy evaluation is ready").contains("denied for the Protected Executor");
+    }
+
+    @Test
+    void executorUnavailableFailsProtectedReadinessEvenWhenProposalAgentIsAuthorized() {
         when(gateway.executorStatus()).thenReturn(Optional.of(new ExecutorStatus(true, false, false, null, "testnet")));
-        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
-            "ACTIVE", "ACTIVE", List.of("evaluate-action"), List.of("incident_id"), List.of()
-        )));
+        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(proposal("ACTIVE", "ACTIVE")));
         when(gateway.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.empty());
 
         var result = service.status();
 
-        assertThat(result.agentAuthenticated()).isTrue();
-        assertThat(result.executorAuthenticated()).isFalse();
-        assertThat(result.delegationEffectiveState()).isEqualTo("ACTIVE");
+        assertThat(result.evaluationReady()).isTrue();
+        assertThat(result.protectedRemediationReady()).isFalse();
+        assertThat(result.executorDelegationState()).isEqualTo("UNKNOWN");
         assertThat(result.executorDelegationEffectiveState()).isEqualTo("UNKNOWN");
-        assertThat(result.message()).contains("not confirmed as ready");
     }
 
     @Test
-    void registrationDidMismatchDoesNotReclassifyConfirmedEffectiveAccess() {
+    void registrationDidMismatchDoesNotReclassifyEffectiveDelegations() {
         when(gateway.agentRegistration()).thenReturn(Optional.of(new AgentRegistrationStatus("did:t3n:other", "REGISTERED", "https://node.example/card", "a".repeat(64), "2026-09-12T20:00:00Z", List.of("DID"))));
-        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
-            "ACTIVE", "ACTIVE", List.of("evaluate-action"), List.of("incident_id"), List.of()
-        )));
-        when(gateway.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
-            "ACTIVE", "ACTIVE", List.of("execute-remediation", "verify-remediation"), List.of("incident_id"), List.of("security.example")
-        )));
+        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(proposal("ACTIVE", "ACTIVE")));
+        when(gateway.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(executor("ACTIVE", "ACTIVE")));
 
         var result = service.status();
 
         assertThat(result.agentRegistrationState()).isEqualTo("MISMATCH");
-        assertThat(result.delegationEffectiveState()).isEqualTo("ACTIVE");
-        assertThat(result.executorDelegationEffectiveState()).isEqualTo("ACTIVE");
+        assertThat(result.evaluationReady()).isTrue();
+        assertThat(result.protectedRemediationReady()).isTrue();
         assertThat(result.message()).contains("controls are ready").contains("onboarding is not confirmed");
     }
 
     @Test
-    void scheduledProposalMemberGrantNeverBecomesReady() {
-        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
-            "SCHEDULED", "INCOMPLETE", List.of("evaluate-action"), List.of("incident_id"), List.of()
-        )));
-        when(gateway.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
-            "ACTIVE", "ACTIVE", List.of("execute-remediation", "verify-remediation"), List.of("incident_id"), List.of("security.example")
-        )));
+    void unknownProposalDelegationNeverBecomesReadyMessage() {
+        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.empty());
+        when(gateway.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(executor("ACTIVE", "ACTIVE")));
 
         var result = service.status();
 
-        assertThat(result.delegationMemberState()).isEqualTo("SCHEDULED");
-        assertThat(result.delegationEffectiveState()).isEqualTo("INCOMPLETE");
-        assertThat(result.message()).contains("authorization window has not begun");
+        assertThat(result.delegationState()).isEqualTo("UNKNOWN");
+        assertThat(result.delegationEffectiveState()).isEqualTo("UNKNOWN");
+        assertThat(result.evaluationReady()).isFalse();
         assertThat(result.message()).doesNotContain("controls are ready");
     }
 
     @Test
-    void scheduledExecutorMemberGrantNeverBecomesReady() {
-        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
-            "ACTIVE", "ACTIVE", List.of("evaluate-action"), List.of("incident_id"), List.of()
-        )));
-        when(gateway.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
-            "SCHEDULED", "INCOMPLETE", List.of("execute-remediation", "verify-remediation"), List.of("incident_id"), List.of("security.example")
-        )));
+    void scheduledProposalDelegationNeverBecomesReady() {
+        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(proposal("SCHEDULED", "DENIED")));
+        when(gateway.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(executor("ACTIVE", "ACTIVE")));
 
         var result = service.status();
 
-        assertThat(result.executorDelegationMemberState()).isEqualTo("SCHEDULED");
-        assertThat(result.executorDelegationEffectiveState()).isEqualTo("INCOMPLETE");
-        assertThat(result.message()).contains("authorization window has not begun");
+        assertThat(result.delegationState()).isEqualTo("SCHEDULED");
+        assertThat(result.evaluationReady()).isFalse();
+        assertThat(result.message()).isEqualTo("Proposal Member Delegation exists, but its authorization window has not begun.");
         assertThat(result.message()).doesNotContain("controls are ready");
     }
 
-    private static DelegationStatus delegation(String memberState, String effectiveState, List<String> functions, List<String> scopes, List<String> allowedHosts) {
-        return new DelegationStatus(memberState, effectiveState, functions, scopes, allowedHosts, List.of("member_delegation"), List.of());
+    @Test
+    void scheduledExecutorDelegationNeverBecomesReady() {
+        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(proposal("ACTIVE", "ACTIVE")));
+        when(gateway.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(executor("SCHEDULED", "DENIED")));
+
+        var result = service.status();
+
+        assertThat(result.evaluationReady()).isTrue();
+        assertThat(result.protectedRemediationReady()).isFalse();
+        assertThat(result.executorDelegationState()).isEqualTo("SCHEDULED");
+        assertThat(result.message()).isEqualTo("Executor Member Delegation exists, but its authorization window has not begun.");
+        assertThat(result.message()).doesNotContain("controls are ready");
     }
 }
