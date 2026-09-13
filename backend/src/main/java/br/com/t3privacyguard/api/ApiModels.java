@@ -108,7 +108,18 @@ public final class ApiModels {
         Long nextSequence,
         int limit
     ) {}
-
+    public record ExecutionTraceResponse(
+        String id,
+        String incidentId,
+        String actionId,
+        String traceId,
+        String requestId,
+        String stage,
+        String state,
+        String reasonCode,
+        Long durationMs,
+        Instant createdAt
+    ) {}
     public record RemediationAuthorizationResponse(String incidentId, String actionId, String requestId, String state) {}
     public record RemediationExecutionResponse(
         String incidentId,
