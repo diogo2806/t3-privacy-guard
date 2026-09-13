@@ -15,6 +15,7 @@ interface Props {
 
 const NOT_OBSERVED = 'Not yet observed';
 const NOT_VERIFIED = 'Not verified yet';
+const REQUIRED_REMEDIATION_FIELDS = ['incident_id', 'credential_id', 'reason'];
 
 function elapsedMs(start?: string | null, end?: string | null): number | null {
   if (!start || !end) return null;
@@ -45,10 +46,16 @@ function hasAuthorizationProvenance(action: ActionProposal | null): boolean {
   return Boolean(action?.remediationAuthorizedBy && action?.remediationAuthorizedAt);
 }
 
+function isExecutableRevocation(action: ActionProposal | null, decision: PolicyDecision | null): boolean {
+  if (!action || action.action !== 'revoke-credential' || !decision || decision.decision === 'DENY') return false;
+  const payload = action.normalPayload ?? {};
+  return REQUIRED_REMEDIATION_FIELDS.every((field) => decision.allowedFields.includes(field) && field in payload);
+}
+
 function humanAuthorization(action: ActionProposal | null, decision: PolicyDecision | null): string {
   if (!action) return NOT_OBSERVED;
   if (isAuthorized(action)) return hasAuthorizationProvenance(action) ? 'AUTHORIZED' : 'LEGACY UNBOUND';
-  if (action.action === 'revoke-credential' && decision?.decision === 'ALLOW') return 'REQUIRED';
+  if (isExecutableRevocation(action, decision)) return 'REQUIRED';
   return 'NOT APPLICABLE';
 }
 
@@ -61,18 +68,18 @@ function authorizationTime(value?: string | null): string {
 function approvedDestination(action: ActionProposal | null, decision: PolicyDecision | null): string {
   if (!action) return NOT_OBSERVED;
   if (isAuthorized(action)) return action.host ?? 'MISSING — BLOCKED';
-  if (action.action === 'revoke-credential' && decision?.decision === 'ALLOW') return action.host ? 'Not authorized yet' : 'MISSING — BLOCKED';
+  if (isExecutableRevocation(action, decision)) return action.host ? 'Not authorized yet' : 'MISSING — BLOCKED';
   return 'NOT APPLICABLE';
 }
 
 function policyAllowedDestination(action: ActionProposal | null, decision: PolicyDecision | null): string {
   if (!action || !decision) return NOT_OBSERVED;
-  if (decision.decision !== 'ALLOW') return 'NOT ESTABLISHED';
+  if (decision.decision === 'DENY') return 'NOT ESTABLISHED';
   return action.host ?? 'No destination requested';
 }
 
-function policyAllowedAction(action: ActionProposal | null, decision: PolicyDecision | null): string {
-  if (!action || decision?.decision !== 'ALLOW') return NOT_OBSERVED;
+function policyExecutableAction(action: ActionProposal | null, decision: PolicyDecision | null): string {
+  if (!action || !isExecutableRevocation(action, decision)) return NOT_OBSERVED;
   return action.action;
 }
 
@@ -104,7 +111,11 @@ function currentResult(
   if (execution?.state === 'EXECUTING') return 'Protected execution is in progress. No final outcome is claimed yet.';
   if (isAuthorized(responseAction) && !hasAuthorizationProvenance(responseAction)) return 'Authorization exists without bound operator provenance. Re-authorization is required before protected execution.';
   if (isAuthorized(responseAction)) return 'Authorized by an authenticated application operator. Protected execution has not started.';
-  if (responseAction?.action === 'revoke-credential' && responseDecision?.decision === 'ALLOW') return 'Policy allows the action. Human authorization is still required.';
+  if (isExecutableRevocation(responseAction, responseDecision)) {
+    return responseDecision?.decision === 'REDACT'
+      ? 'T3N minimized the request to an executable scope. Human authorization is still required.'
+      : 'Policy allows the action. Human authorization is still required.';
+  }
   if (responseDecision?.decision === 'REDACT') return 'T3N requires a smaller data scope before execution.';
   if (responseDecision?.decision === 'DENY') return 'T3N blocked the proposed action before protected egress.';
   if (threatDecision?.decision === 'DENY') return 'T3N blocked the proposed action before protected egress.';
@@ -191,7 +202,7 @@ export function BusinessOutcomeSummary({ scenario, incident, selectedAction, dec
         <section className="business-outcome-section" aria-labelledby="authorized-response-title">
           <div className="business-outcome-section-heading"><Clock3 aria-hidden="true" /><h3 id="authorized-response-title">Authorized response</h3></div>
           <dl className="business-outcome-grid">
-            <div><dt>Policy-allowed action</dt><dd>{policyAllowedAction(selectedAction, decision)}</dd></div>
+            <div><dt>Policy-executable action</dt><dd>{policyExecutableAction(selectedAction, decision)}</dd></div>
             <div><dt>Human authorization</dt><dd>{humanAuthorization(selectedAction, decision)}</dd></div>
             {authorized && <div><dt>Authorized by</dt><dd>{authorizationBound ? selectedAction?.remediationAuthorizedBy : 'Not recorded — legacy authorization'}</dd></div>}
             {authorized && <div><dt>Authorized at</dt><dd>{authorizationTime(selectedAction?.remediationAuthorizedAt)}</dd></div>}
