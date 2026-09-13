@@ -227,6 +227,19 @@ The current Rust policy contains four concrete security actions:
 
 Extra non-secret fields are minimized with `REDACT`. Forbidden secret fields are denied. Unsupported actions, purposes, hosts or private references fail closed.
 
+## Enterprise scenario catalog
+
+The dashboard exposes the same four policy capabilities as task-oriented demonstration presets. A preset changes only synthetic presentation content and the editable prompt; it is **not** a policy rule, permission, identity, decision or execution capability. Selecting a scenario does not invoke the provider, and changing scenarios clears the previous result so stale evidence cannot be presented as belonging to a new task.
+
+| UI scenario | Intended policy action | Demonstrated path | Protected execution today |
+|---|---|---|---|
+| Credential compromised | `revoke-credential` | agent proposal + T3N policy + optional synthetic attack + human authorization + execution + read-back | yes |
+| Account takeover | `isolate-account` | agent proposal + T3N policy | no; evaluation only |
+| Record security incident | `create-incident` | agent proposal + T3N policy; no egress is expected | no; evaluation only |
+| Notify security contact | `notify-security` | agent proposal + T3N policy using logical `verified_email` only | no; evaluation only |
+
+The interface always displays the action that the model actually proposed. If the model diverges from the selected preset, React does not rewrite the proposal to make the demonstration succeed; T3N evaluates the returned action normally. The protected-remediation controls are shown only for `revoke-credential`, because the current independent verifier has a closed expected state of `REVOKED`. The other actions are deliberately labeled **Policy evaluation only** until an action-specific executor and read-back contract exist.
+
 ## Structural private-data boundary
 
 The initial private reference is intentionally narrow:
@@ -275,6 +288,8 @@ PENDING_VERIFICATION
 COMPLETED                       UNVERIFIED
 ```
 
+The current end-to-end execution/read-back implementation is intentionally scoped to credential revocation. `isolate-account`, `create-incident` and `notify-security` are valid policy actions but remain evaluation-only in the operator UI until they have matching external execution semantics and independent verification instead of borrowing the credential-specific `REVOKED` proof.
+
 Rules:
 
 - only one application execution claim can be created per action;
@@ -315,6 +330,7 @@ GATEWAY_SERVICE_TOKEN
 REMEDIATION_CAPABILITY_KEY
 REMEDIATION_CAPABILITY_TTL_SECONDS
 REMEDIATION_REPLAY_STORE_PATH
+T3N_TRUST_FLOOR_STORE_PATH
 AI_PROVIDER
 AI_API_URL
 AI_API_KEY
