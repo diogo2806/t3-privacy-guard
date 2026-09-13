@@ -15,7 +15,7 @@ import {
   type SystemStatus,
 } from '../../services/privacyGuardApi';
 import { ActionProposalPanel } from '../actions/ActionProposalPanel';
-import { AgentPromptPanel, ATTACK_PROMPT } from '../agent/AgentPromptPanel';
+import { AgentPromptPanel } from '../agent/AgentPromptPanel';
 import { AgentProposalPanel } from '../agent/AgentProposalPanel';
 import { OperatorSessionGate } from '../auth/OperatorSessionGate';
 import { AuditTrail } from '../audit/AuditTrail';
@@ -26,6 +26,8 @@ import { IncidentSummary } from '../incidents/IncidentSummary';
 import { AppHeader } from '../layout/AppHeader';
 import { DecisionPanel } from '../policy/DecisionPanel';
 import { RemediationPanel } from '../remediation/RemediationPanel';
+import { EnterpriseScenarioCatalog } from '../scenarios/EnterpriseScenarioCatalog';
+import { DEFAULT_ENTERPRISE_SCENARIO, ENTERPRISE_SCENARIOS, type EnterpriseScenarioDefinition } from '../scenarios/scenarioDefinitions';
 import { EmptyState } from '../states/EmptyState';
 import { SystemStatusBar } from '../status/SystemStatusBar';
 import { TrustFlowSummary } from '../trust/TrustFlowSummary';
@@ -82,6 +84,8 @@ export function PrivacyGuardDashboard() {
 function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => void }) {
   const [view, setView] = useState<DashboardView>('demo');
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
+  const [selectedScenarioId, setSelectedScenarioId] = useState(DEFAULT_ENTERPRISE_SCENARIO.id);
+  const [prompt, setPrompt] = useState(DEFAULT_ENTERPRISE_SCENARIO.prompt);
   const [incident, setIncident] = useState<Incident | null>(null);
   const [actions, setActions] = useState<ActionProposal[]>([]);
   const [selectedAction, setSelectedAction] = useState<ActionProposal | null>(null);
@@ -97,6 +101,8 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const selectedScenario = ENTERPRISE_SCENARIOS.find((scenario) => scenario.id === selectedScenarioId) ?? DEFAULT_ENTERPRISE_SCENARIO;
 
   const handleError = useCallback((cause: unknown, fallback: string) => {
     if (cause instanceof PrivacyGuardApiError && cause.status === 401) { onSessionExpired(); return; }
@@ -166,23 +172,36 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
     try { await operation(); } catch (cause) { handleError(cause, 'The operation could not be completed safely.'); } finally { setBusy(false); }
   };
 
-  const analyzeAgentPrompt = (prompt: string) => run(async () => {
-    const result = await privacyGuardApi.analyzeAgent(prompt);
+  const analyzeAgentPrompt = (currentPrompt: string) => run(async () => {
+    const result = await privacyGuardApi.analyzeAgent(currentPrompt);
     setAgentAnalysis(result); setRemediationExecution(null); setIncident(result.incident); setSelectedAction(result.action); setDecision(result.decision);
     await refreshIncident(result.incident, result.action.id);
     if (result.decision.decision === 'DENY') setNotice('The real AI agent produced a structured proposal, and the independent T3N TEE policy blocked it. No protected egress was executed.');
     else if (result.decision.decision === 'REDACT') setNotice('The real AI proposal exceeded the minimum data scope. T3N requires minimization before any action can continue.');
-    else setNotice('The real AI proposal passed T3N policy. ALLOW is not execution; explicit human authorization is still required for remediation.');
+    else setNotice('The real AI proposal passed T3N policy. ALLOW is not execution; protected execution is available only when that action has a real executor and verification contract.');
   });
 
-  const runAttackScenario = () => analyzeAgentPrompt(ATTACK_PROMPT);
+  const selectScenario = (scenario: EnterpriseScenarioDefinition) => {
+    setSelectedScenarioId(scenario.id);
+    setPrompt(scenario.prompt);
+    setAgentAnalysis(null);
+    setIncident(null);
+    setActions([]);
+    setSelectedAction(null);
+    setDecision(null);
+    setRemediationExecution(null);
+    setExecutionTrace([]);
+    setHistory([]);
+    setError(null);
+    setNotice(`${scenario.title} loaded with synthetic demo data. No API call or authorization has occurred yet.`);
+  };
 
   const prepareSafeRemediation = () => run(async () => {
-    if (!incident) return;
+    if (!incident || selectedScenario.id !== 'credential-compromised') return;
     const safeAction = await privacyGuardApi.createAction(incident.id, { requestId: requestId('remediation'), action: 'revoke-credential', resource: 'credential:production-security-api', purpose: 'incident-remediation', host: 'postman-echo.com', fields: ['incident_id', 'credential_id', 'reason'] });
     const result = await privacyGuardApi.evaluate(incident.id, safeAction.id);
     setRemediationExecution(null); await refreshIncident(incident, safeAction.id); setDecision(result);
-    setNotice(result.decision === 'ALLOW' ? 'Minimum structured remediation request allowed. Human authorization is still required before execution.' : `Remediation received ${result.decision}; execution remains blocked.`);
+    setNotice(result.decision === 'ALLOW' ? 'Minimum credential revocation request allowed. Human authorization is still required before protected execution.' : `Credential revocation received ${result.decision}; execution remains blocked.`);
   });
 
   const authorize = () => run(async () => {
@@ -236,12 +255,13 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
       ) : (
         <main className="dashboard-grid">
           <div className="dashboard-main">
-            <AgentPromptPanel busy={busy} onAnalyze={analyzeAgentPrompt} />
+            <EnterpriseScenarioCatalog selectedId={selectedScenarioId} busy={busy} onSelect={selectScenario} />
+            <AgentPromptPanel busy={busy} prompt={prompt} onPromptChange={setPrompt} onAnalyze={analyzeAgentPrompt} />
             <AgentProposalPanel analysis={agentAnalysis} />
-            {!incident ? <EmptyState onRun={runAttackScenario} busy={busy} /> : <>
+            {!incident ? <EmptyState /> : <>
               <IncidentSummary incident={incident} />
               <div className="scenario-actions">
-                <button type="button" className="button button-primary" onClick={prepareSafeRemediation} disabled={busy}><ShieldCheck aria-hidden="true" />Prepare safe remediation<ArrowRight aria-hidden="true" /></button>
+                {selectedScenario.id === 'credential-compromised' && <button type="button" className="button button-primary" onClick={prepareSafeRemediation} disabled={busy}><ShieldCheck aria-hidden="true" />Prepare minimum credential revocation<ArrowRight aria-hidden="true" /></button>}
                 {selectedAction?.status === 'PENDING' && <button type="button" className="button button-secondary" onClick={() => void run(async () => { if (!incident || !selectedAction) return; const result = await privacyGuardApi.evaluate(incident.id, selectedAction.id); setDecision(result); await refreshIncident(incident, selectedAction.id); })} disabled={busy}>Retry T3N evaluation</button>}
               </div>
               <div className="two-column"><ActionProposalPanel actions={actions} selectedActionId={selectedAction?.id ?? null} onSelect={selectAction} /><DecisionPanel decision={decision} /></div>
