@@ -2,6 +2,7 @@ use crate::policy::{self, Decision, PolicyEvaluationRequest};
 use serde::{Deserialize, Serialize};
 
 const VERIFIED_EMAIL_MARKER: &str = "{{profile.verified_contacts.email.value}}";
+const SUPPORTED_EXECUTION_ACTION: &str = "revoke-credential";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RemediationExecutionRequest {
@@ -41,6 +42,7 @@ pub struct RemediationVerificationResult {
 pub fn execute_remediation(input: &[u8]) -> Result<Vec<u8>, String> {
     let request: RemediationExecutionRequest = serde_json::from_slice(input)
         .map_err(|_| "execute-remediation: invalid JSON input".to_string())?;
+    validate_execution_request(&request)?;
 
     #[cfg(target_arch = "wasm32")]
     {
@@ -73,6 +75,13 @@ pub fn verify_remediation(input: &[u8]) -> Result<Vec<u8>, String> {
         let _ = request;
         Err("verify-remediation is only implemented on the wasm32 target".to_string())
     }
+}
+
+fn validate_execution_request(request: &RemediationExecutionRequest) -> Result<(), String> {
+    if request.action != SUPPORTED_EXECUTION_ACTION {
+        return Err("protected remediation executor is not implemented for this action".to_string());
+    }
+    Ok(())
 }
 
 fn validate_verification_request(request: &RemediationVerificationRequest) -> Result<(), String> {
@@ -124,6 +133,7 @@ use crate::host::{
 
 #[cfg(target_arch = "wasm32")]
 fn execute_wasm(request: RemediationExecutionRequest) -> Result<RemediationResult, String> {
+    validate_execution_request(&request)?;
     let api_url = read_secret("security_api_url")?;
     let host = extract_https_host(&api_url)?;
     let policy_request = PolicyEvaluationRequest {
@@ -281,6 +291,19 @@ mod tests {
             fields: vec!["incident_id".into(), "credential_id".into(), "reason".into()], private_refs: vec![],
         }).unwrap();
         assert!(execute_remediation(&input).unwrap_err().contains("only implemented on the wasm32 target"));
+    }
+
+    #[test]
+    fn execution_rejects_actions_without_a_verified_completion_contract_before_egress() {
+        for action in ["isolate-account", "create-incident", "notify-security"] {
+            let input = serde_json::to_vec(&RemediationExecutionRequest {
+                request_id: "r-unsupported".into(), agent_did: "did:t3n:a".into(), action: action.into(),
+                resource: "synthetic:test".into(), purpose: "incident-remediation".into(),
+                fields: vec!["incident_id".into()], private_refs: vec![],
+            }).unwrap();
+            let error = execute_remediation(&input).unwrap_err();
+            assert_eq!(error, "protected remediation executor is not implemented for this action");
+        }
     }
 
     #[test] fn malformed_input_fails_closed() { assert!(execute_remediation(b"bad").is_err()); }
