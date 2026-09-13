@@ -45,6 +45,26 @@ The central product thesis is:
 > **Evidence reproduction:** [`docs/evidence/README.md`](docs/evidence/README.md)  
 > **Adversarial matrix:** [`docs/evidence/scenario-matrix.md`](docs/evidence/scenario-matrix.md)
 
+## Executive demo in one viewport
+
+The dashboard has three deliberately separate presentation levels. **Protection flow** is the operational surface where analysis, human authorization, execution and read-back happen. **Executive demo** is a read-only projection of that same runtime state for a judge or enterprise stakeholder. **Evidence** remains the detailed proof surface. The Executive demo does not own a second incident, policy decision, authorization, remediation state machine or evidence source and exposes no Analyze, Authorize, Execute or Verify action.
+
+At 1440×900 the Executive demo keeps the decision narrative in one viewport:
+
+```text
+Business risk                 Observed outcome
+        \                         /
+         AI proposal -> T3N policy -> Human -> Executor -> Verify
+                              |
+                     Proof at a glance
+```
+
+Its claim semantics are conservative. Before analysis the result is `NOT YET OBSERVED`. `DENY` becomes `BLOCKED BEFORE PROTECTED EGRESS`; `REDACT` becomes `MINIMIZATION REQUIRED`; `ALLOW` without a human approval becomes `HUMAN AUTHORIZATION REQUIRED`; approval without a side effect becomes `AUTHORIZED / NOT EXECUTED` and verification remains `NOT VERIFIED YET`; `PENDING_VERIFICATION`, `UNVERIFIED` and `FAILED` never become successful outcomes. Only `COMPLETED` after independent read-back may become `VERIFIED EXTERNAL STATE`.
+
+`Proof at a glance` is populated only from an actual `T3N_TESTNET` EvidenceBundle with a full 40-character source commit and observed network/contract metadata. `T3N LIVE / READY` additionally requires protected-remediation readiness and zero evidence failures. `NOT_RUN` stays visible and never counts as proof. Source-tree state, Proposal/Executor DID separation, effective delegation and Agent Card registration are shown as distinct facts rather than being collapsed into a generic “verified” badge. If evidence is absent, the view says `Live evidence not loaded/generated` instead of inventing PASS, LIVE or source provenance.
+
+The submission capture keeps the existing full-page technical screenshots and adds 1440×900 viewport frames for the executive story: initial risk, observed DENY, human authorization without execution, verified outcome when a real read-back exists (or an explicit not-verified frame when it does not), and compact proof. The capture continues to require real testnet evidence, zero FAIL, distinct DIDs and the existing secret-leak detector.
+
 ## Business outcome in 60 seconds
 
 The Protection flow translates the same observed runtime state into a judge-first **Business Outcome** summary before the technical panels. Scenario metadata supplies only presentation context such as **Business risk**, **Protected asset**, **Business outcome** and **Success definition**. Policy decisions, requested field/private-reference counts, authorization state, approved destination, remediation state, verification attempts and final state come from the existing incident/action/decision/remediation APIs.
