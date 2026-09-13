@@ -40,6 +40,11 @@ const SAFE_ACTION: ActionProposal = {
   createdAt: '2026-09-13T15:00:01.000Z',
 };
 
+const BOUND_AUTHORIZATION = {
+  remediationAuthorizedBy: 'ops-reviewer',
+  remediationAuthorizedAt: '2026-09-13T15:00:01.750Z',
+};
+
 function policyDecision(action: ActionProposal, value: PolicyDecision['decision'], evaluatedAt = '2026-09-13T15:00:00.420Z'): PolicyDecision {
   return {
     id: `decision-${action.id}`,
@@ -106,6 +111,8 @@ describe('BusinessOutcomeSummary', () => {
     expectValue('Approved destination', 'Not yet observed');
     expectValue('External action', 'Not yet observed');
     expectValue('Verification attempts', 'Not yet observed');
+    expect(screen.queryByText('Authorized by')).not.toBeInTheDocument();
+    expect(screen.queryByText('Authorized at')).not.toBeInTheDocument();
     expect(section('Authorized response').getByText('NOT VERIFIED')).toBeInTheDocument();
     expect(screen.queryByText('REVOKED — VERIFIED')).not.toBeInTheDocument();
   });
@@ -152,11 +159,30 @@ describe('BusinessOutcomeSummary', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Human authorization is still required');
     expect(section('Authorized response').getByText('REQUIRED')).toBeInTheDocument();
     expect(section('Authorized response').getByText('Not authorized yet')).toBeInTheDocument();
+    expect(screen.queryByText('Authorized by')).not.toBeInTheDocument();
     expectValue('Policy-allowed action', 'revoke-credential');
   });
 
+  it('shows the authenticated application operator only after bound authorization', () => {
+    const authorized: ActionProposal = { ...SAFE_ACTION, ...BOUND_AUTHORIZATION, status: 'REMEDIATION_AUTHORIZED' };
+    renderSummary({ incident: INCIDENT, selectedAction: authorized, decision: policyDecision(authorized, 'ALLOW') });
+    expect(screen.getByRole('status')).toHaveTextContent(/Authorized by an authenticated application operator/i);
+    expectValue('Human authorization', 'AUTHORIZED');
+    expectValue('Authorized by', 'ops-reviewer');
+    expect(screen.getByText('Authorized at')).toBeInTheDocument();
+  });
+
+  it('labels legacy authorization as unbound and never invents an operator', () => {
+    const legacy: ActionProposal = { ...SAFE_ACTION, status: 'REMEDIATION_AUTHORIZED', remediationAuthorizedBy: null, remediationAuthorizedAt: null };
+    renderSummary({ incident: INCIDENT, selectedAction: legacy, decision: policyDecision(legacy, 'ALLOW') });
+    expect(screen.getByRole('status')).toHaveTextContent(/Re-authorization is required/i);
+    expectValue('Human authorization', 'LEGACY UNBOUND');
+    expectValue('Authorized by', 'Not recorded — legacy authorization');
+    expectValue('Authorized at', 'Not recorded — legacy authorization');
+  });
+
   it('keeps accepted execution pending until independent verification completes', () => {
-    const authorized = { ...SAFE_ACTION, status: 'REMEDIATION_AUTHORIZED' as const };
+    const authorized: ActionProposal = { ...SAFE_ACTION, ...BOUND_AUTHORIZATION, status: 'REMEDIATION_AUTHORIZED' };
     renderSummary({ incident: INCIDENT, selectedAction: authorized, decision: policyDecision(authorized, 'ALLOW'), remediationExecution: execution('PENDING_VERIFICATION'), agentAnalysis: analysis('DENY') });
     expect(screen.getByRole('status')).toHaveTextContent('Completion is not yet verified');
     expect(section('Authorized response').getByText('ACCEPTED — VERIFICATION PENDING')).toBeInTheDocument();
@@ -165,16 +191,17 @@ describe('BusinessOutcomeSummary', () => {
   });
 
   it('shows verified final state and measured duration only after COMPLETED', () => {
-    const remediated = { ...SAFE_ACTION, status: 'REMEDIATED' as const };
+    const remediated: ActionProposal = { ...SAFE_ACTION, ...BOUND_AUTHORIZATION, status: 'REMEDIATED' };
     renderSummary({ incident: INCIDENT, selectedAction: remediated, decision: policyDecision(remediated, 'ALLOW'), remediationExecution: execution('COMPLETED', '2026-09-13T15:00:05.850Z'), agentAnalysis: analysis('DENY') });
     expect(screen.getByRole('heading', { name: 'Credential compromise contained' })).toBeInTheDocument();
     expect(section('Authorized response').getByText('REVOKED — VERIFIED')).toBeInTheDocument();
     expect(section('Authorized response').getByText('4.9 s')).toBeInTheDocument();
     expect(section('Authorized response').getAllByText('postman-echo.com')).toHaveLength(2);
+    expectValue('Authorized by', 'ops-reviewer');
   });
 
   it('does not estimate time to verified outcome when completedAt is absent', () => {
-    const remediated = { ...SAFE_ACTION, status: 'REMEDIATED' as const };
+    const remediated: ActionProposal = { ...SAFE_ACTION, ...BOUND_AUTHORIZATION, status: 'REMEDIATED' };
     renderSummary({ incident: INCIDENT, selectedAction: remediated, decision: policyDecision(remediated, 'ALLOW'), remediationExecution: execution('COMPLETED', null) });
     expect(section('Authorized response').getByText('Not verified yet')).toBeInTheDocument();
   });
