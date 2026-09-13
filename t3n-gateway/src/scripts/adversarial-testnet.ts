@@ -101,6 +101,15 @@ async function decisionScenario(id: string, expected: 'ALLOW' | 'REDACT' | 'DENY
 function isAuthorizationRejection(message: string): boolean {
   return /(egress|denied|not[ -]?authori[sz]ed|authori[sz]ation|delegat|permission|function.*allow|grant)/i.test(message);
 }
+function recordRevokedCheck(id: string, principal: string, memberState: string, effectiveState: string): void {
+  const actual = `${memberState}/${effectiveState}`;
+  const denied = memberState !== 'ACTIVE' && effectiveState !== 'ACTIVE';
+  record(id, `${principal} revocation makes effective access non-ACTIVE`, actual, denied ? 'PASS' : 'FAIL');
+}
+function recordRestoredCheck(id: string, principal: string, memberState: string, effectiveState: string): void {
+  const actual = `${memberState}/${effectiveState}`;
+  record(id, `${principal} minimum grant restores effective ACTIVE`, actual, memberState === 'ACTIVE' && effectiveState === 'ACTIVE' ? 'PASS' : 'FAIL');
+}
 async function expectProposalExecutorRejected(contractId: string, contractVersion: string, tenantDid: string, agentDid: string): Promise<void> {
   if (!observedPolicyVersion || !observedPolicyHash) {
     record('LIVE-PROPOSAL-CANNOT-EXECUTE', 'Proposal Agent DID rejected by T3N for execute-remediation', null, 'FAIL', 'Versioned policy metadata was not established');
@@ -224,13 +233,34 @@ record(
 if (process.env.EVIDENCE_RUN_EGRESS_NEGATIVES === 'true') {
   await expectProposalExecutorRejected(identity.contractId, identity.contractVersion, tenantDid, agentDid);
   await expectProposalVerificationRejected(identity.contractId, identity.contractVersion, tenantDid);
+
+  try {
+    await proposalDelegation.revoke(identity.contractId);
+    const revokedProposal = await proposalDelegation.status(identity.contractId);
+    recordRevokedCheck('LIVE-REVOKED-PROPOSAL-EFFECTIVE-DELEGATION', 'Proposal Agent', revokedProposal.memberState, revokedProposal.effectiveState);
+  } finally {
+    await grantLeastPrivilege(identity.contractId, identity.contractVersion);
+  }
+  const restoredProposal = await proposalDelegation.status(identity.contractId);
+  recordRestoredCheck('LIVE-RESTORED-PROPOSAL-EFFECTIVE-DELEGATION', 'Proposal Agent', restoredProposal.memberState, restoredProposal.effectiveState);
+
   try {
     await executorDelegation.revoke(identity.contractId);
+    const revokedExecutor = await executorDelegation.status(identity.contractId);
+    recordRevokedCheck('LIVE-REVOKED-EXECUTOR-EFFECTIVE-DELEGATION', 'Protected Executor', revokedExecutor.memberState, revokedExecutor.effectiveState);
     await expectExecutorRevocationRejected('LIVE-REVOKED-EXECUTOR', 'protected egress rejected after Executor delegation revocation', 'live-revoked-executor-deny', executorDid);
-  } finally { await grantLeastPrivilege(identity.contractId, identity.contractVersion); }
+  } finally {
+    await grantLeastPrivilege(identity.contractId, identity.contractVersion);
+  }
+  const restoredExecutor = await executorDelegation.status(identity.contractId);
+  recordRestoredCheck('LIVE-RESTORED-EXECUTOR-EFFECTIVE-DELEGATION', 'Protected Executor', restoredExecutor.memberState, restoredExecutor.effectiveState);
 } else {
   record('LIVE-PROPOSAL-CANNOT-EXECUTE', 'Proposal Agent DID rejected by T3N for execute-remediation', null, 'NOT_RUN', 'Set EVIDENCE_RUN_EGRESS_NEGATIVES=true after the private remediation map has been seeded.');
   record('LIVE-PROPOSAL-CANNOT-VERIFY', 'Proposal Agent DID rejected by T3N for verify-remediation', null, 'NOT_RUN', 'Set EVIDENCE_RUN_EGRESS_NEGATIVES=true after the private verification map has been seeded.');
+  record('LIVE-REVOKED-PROPOSAL-EFFECTIVE-DELEGATION', 'Proposal Agent revocation makes effective access non-ACTIVE', null, 'NOT_RUN', 'Enable live negative delegation evidence to revoke and restore the Proposal grant.');
+  record('LIVE-RESTORED-PROPOSAL-EFFECTIVE-DELEGATION', 'Proposal Agent minimum grant restores effective ACTIVE', null, 'NOT_RUN', 'Enable live negative delegation evidence to verify restoration.');
+  record('LIVE-REVOKED-EXECUTOR-EFFECTIVE-DELEGATION', 'Protected Executor revocation makes effective access non-ACTIVE', null, 'NOT_RUN', 'Enable live negative delegation evidence to revoke and restore the Executor grant.');
+  record('LIVE-RESTORED-EXECUTOR-EFFECTIVE-DELEGATION', 'Protected Executor minimum grant restores effective ACTIVE', null, 'NOT_RUN', 'Enable live negative delegation evidence to verify restoration.');
   record('LIVE-REVOKED-EXECUTOR', 'protected egress rejected after Executor delegation revocation', null, 'NOT_RUN', 'Set EVIDENCE_RUN_EGRESS_NEGATIVES=true after the private remediation map has been seeded.');
 }
 
