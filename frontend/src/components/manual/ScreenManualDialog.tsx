@@ -85,7 +85,7 @@ export function ScreenManualDialog() {
           </section>
           <section>
             <h3>Campos, cenários e ações</h3>
-            <p>Os cards de cenário carregam prompts sintéticos e não concedem permissões. O campo de prompt aceita até 4.000 caracteres e não deve receber dados privados, credenciais ou segredos. <strong>Ask agent</strong> envia o prompt ao provedor configurado. <strong>Refresh status</strong>, <strong>Refresh evidence</strong> e <strong>Refresh provenance</strong> são leituras e não repetem uma remediação. Os controles de autorização e execução aparecem apenas quando existe executor suportado e decisão compatível.</p>
+            <p>Os cards de cenário carregam prompts sintéticos e não concedem permissões. O campo de prompt aceita até 4.000 caracteres e não deve receber dados privados, credenciais ou segredos. Antes de chamar um provedor remoto, o gateway bloqueia somente classes estruturadas de alta confiança que consegue validar de forma defensável. <strong>Ask agent</strong> envia o prompt ao provedor configurado somente após esse boundary. <strong>Refresh status</strong>, <strong>Refresh evidence</strong> e <strong>Refresh provenance</strong> são leituras e não repetem uma remediação. Os controles de autorização e execução aparecem apenas quando existe executor suportado e decisão compatível.</p>
           </section>
           <section>
             <h3>Identidade, onboarding e autorização</h3>
@@ -104,7 +104,7 @@ export function ScreenManualDialog() {
           </section>
           <section>
             <h3>Dados privados e retenção</h3>
-            <p>A proposta contém somente ação, recurso, finalidade, host opcional, nomes de campos e referências privadas lógicas suportadas. Valores privados não passam pelo navegador nem pelo modelo. Título, resumo e origem do incidente são minimizados no servidor; literais sensíveis de alta confiança são rejeitados antes da persistência. Cada incidente recebe <strong>expiresAt</strong> controlado pelo servidor. Após expirar, deixa de ser retornado e o purge remove os registros relacionados na ordem segura.</p>
+            <p>A proposta contém somente ação, recurso, finalidade, host opcional, nomes de campos e referências privadas lógicas suportadas. Valores privados obtidos pela referência lógica suportada <code>verified_email</code> são resolvidos somente no boundary protegido; já o prompt é texto livre e não deve receber dados privados. O guard pre-provider é deliberadamente parcial e não é um scanner semântico ou exaustivo de PII. Ele cobre, entre outras classes suportadas, e-mail, CPF, CNPJ com checksum válido, telefone E.164 ou fortemente rotulado, IP público rotulado como dado de cliente/usuário, credenciais/tokens, senha rotulada, marcador de chave privada e candidato a cartão validado por Luhn. Nomes e endereços não são detectados por regex genérica. Um prompt aceito não significa <strong>PII-free</strong>, <strong>safe</strong> ou certificação equivalente. Título, resumo e origem do incidente são minimizados no servidor e os casos compartilhados são cobertos por um corpus de conformidade comum ao Java e ao gateway TypeScript. Cada incidente recebe <strong>expiresAt</strong> controlado pelo servidor. Após expirar, deixa de ser retornado e o purge remove os registros relacionados na ordem segura.</p>
           </section>
           <section>
             <h3>Autorização humana e execução protegida</h3>
