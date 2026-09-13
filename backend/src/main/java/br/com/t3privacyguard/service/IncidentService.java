@@ -9,7 +9,7 @@ import br.com.t3privacyguard.api.ApiModels.ExecutionTraceResponse;
 import br.com.t3privacyguard.api.ApiModels.IncidentResponse;
 import br.com.t3privacyguard.api.ApiModels.RemediationAuthorizationResponse;
 import br.com.t3privacyguard.api.ApiModels.RemediationExecutionResponse;
-import br.comt3privacyguard.audit.AuditIntegrityService;
+import br.com.t3privacyguard.audit.AuditIntegrityService;
 import br.com.t3privacyguard.domain.DecisionType;
 import br.com.t3privacyguard.domain.ProposalStatus;
 import br.com.t3privacyguard.domain.RemediationStatus;
