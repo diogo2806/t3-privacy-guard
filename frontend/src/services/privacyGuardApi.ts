@@ -159,6 +159,7 @@ export const privacyGuardApi = {
   systemStatus: () => api<SystemStatus>('/api/system/status'),
   latestEvidence: () => api<EvidenceBundle>('/api/evidence/latest'),
   analyzeAgent: (prompt: string) => api<AgentAnalysis>('/api/agent/analyze', { method: 'POST', body: JSON.stringify({ prompt }) }),
+  analyzeAgentInIncident: (incidentId: string, prompt: string) => api<AgentAnalysis>(`/api/incidents/${encodeURIComponent(incidentId)}/agent-proposals`, { method: 'POST', body: JSON.stringify({ prompt }) }),
   listIncidents: () => api<Incident[]>('/api/incidents'),
   getIncident: (id: string) => api<Incident>(`/api/incidents/${encodeURIComponent(id)}`),
   createIncident: (input: { title: string; severity: Severity; summary: string; source: string }) => api<Incident>('/api/incidents', { method: 'POST', body: JSON.stringify(input) }),
