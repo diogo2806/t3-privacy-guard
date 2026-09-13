@@ -1,6 +1,11 @@
-import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createPublicKey, verify as verifySignature, type KeyObject } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+
+const MAX_PROOF_BYTES = 8_192;
+const MAX_TTL_SECONDS = 300;
+const CLOCK_SKEW_SECONDS = 5;
+const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
 
 export interface RemediationBody {
   incident_id: string;
@@ -18,7 +23,8 @@ export interface RemediationBody {
   executor_did: string;
 }
 
-interface Claims {
+export interface RemediationAuthorizationClaims {
+  keyId: string;
   incidentId: string;
   actionId: string;
   requestId: string;
@@ -32,7 +38,7 @@ interface Claims {
   policyVersion: string;
   policyHash: string;
   executorDid: string;
-  authorizedAt: number;
+  issuedAt: number;
   expiresAt: number;
   nonce: string;
 }
@@ -41,6 +47,19 @@ interface ReplayEntry { nonce: string; expiresAt: number }
 
 function listHash(values: string[] | undefined): string {
   return createHash('sha256').update(JSON.stringify([...(values ?? [])].map((value) => value.trim()).sort())).digest('hex');
+}
+
+function validIdentifier(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value);
+}
+
+function createEd25519PublicKey(publicKeyHex: string): KeyObject {
+  if (!/^[a-f0-9]{64}$/.test(publicKeyHex)) throw new Error('CAPABILITY_CONFIGURATION_INVALID');
+  try {
+    return createPublicKey({ key: Buffer.concat([ED25519_SPKI_PREFIX, Buffer.from(publicKeyHex, 'hex')]), format: 'der', type: 'spki' });
+  } catch {
+    throw new Error('CAPABILITY_CONFIGURATION_INVALID');
+  }
 }
 
 export function canonicalizeApprovedHost(value: unknown): string {
@@ -58,24 +77,46 @@ export function canonicalizeApprovedHost(value: unknown): string {
 }
 
 export class RemediationAuthorizationVerifier {
+  private readonly publicKey: KeyObject;
+
   constructor(
-    private readonly key: string,
+    publicKeyHex: string,
+    private readonly expectedKeyId: string,
     private readonly replayStorePath: string,
-    private readonly now: () => number = () => Date.now(),
-  ) {}
+    private readonly now: () => number = () => Math.floor(Date.now() / 1000),
+  ) {
+    if (!validIdentifier(expectedKeyId)) throw new Error('CAPABILITY_CONFIGURATION_INVALID');
+    this.publicKey = createEd25519PublicKey(publicKeyHex);
+  }
 
-  verifyAndConsume(token: string, body: RemediationBody): Claims {
+  verifyAndConsume(token: string, body: RemediationBody): RemediationAuthorizationClaims {
+    if (!token || Buffer.byteLength(token, 'utf8') > MAX_PROOF_BYTES) throw new Error('CAPABILITY_INVALID');
     const parts = token.split('.');
-    if (parts.length !== 2) throw new Error('CAPABILITY_INVALID');
-    const [payloadPart, signaturePart] = parts;
-    const expected = createHmac('sha256', this.key).update(payloadPart, 'ascii').digest();
-    const supplied = Buffer.from(signaturePart, 'base64url');
-    if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) throw new Error('CAPABILITY_INVALID');
+    if (parts.length !== 3 || parts[0] !== 'v2' || !parts[1] || !/^[a-f0-9]{128}$/.test(parts[2])) {
+      throw new Error('CAPABILITY_INVALID');
+    }
+    const [, payloadPart, signaturePart] = parts;
+    const signingInput = Buffer.from(`v2.${payloadPart}`, 'ascii');
+    const signature = Buffer.from(signaturePart, 'hex');
+    if (!verifySignature(null, signingInput, this.publicKey, signature)) throw new Error('CAPABILITY_INVALID');
 
-    const claims = JSON.parse(Buffer.from(payloadPart, 'base64url').toString('utf8')) as Claims;
-    if (!claims.nonce || !claims.expiresAt || claims.expiresAt <= this.now()) throw new Error('CAPABILITY_EXPIRED');
-    if (claims.authorizedAt > this.now() + 5_000) throw new Error('CAPABILITY_INVALID');
+    let claims: RemediationAuthorizationClaims;
+    try {
+      claims = JSON.parse(Buffer.from(payloadPart, 'base64url').toString('utf8')) as RemediationAuthorizationClaims;
+    } catch {
+      throw new Error('CAPABILITY_INVALID');
+    }
+    const current = this.now();
+    if (!validIdentifier(claims.keyId) || claims.keyId !== this.expectedKeyId) throw new Error('CAPABILITY_INVALID');
+    if (!validIdentifier(claims.nonce)
+      || !Number.isSafeInteger(claims.issuedAt) || !Number.isSafeInteger(claims.expiresAt)
+      || claims.expiresAt <= claims.issuedAt || claims.expiresAt - claims.issuedAt > MAX_TTL_SECONDS) {
+      throw new Error('CAPABILITY_INVALID');
+    }
+    if (claims.expiresAt <= current) throw new Error('CAPABILITY_EXPIRED');
+    if (claims.issuedAt > current + CLOCK_SKEW_SECONDS) throw new Error('CAPABILITY_INVALID');
     if (!claims.policyVersion || !/^[a-f0-9]{64}$/.test(claims.policyHash ?? '')) throw new Error('CAPABILITY_INVALID');
+    if (!/^[a-f0-9]{64}$/.test(claims.fieldsHash ?? '') || !/^[a-f0-9]{64}$/.test(claims.privateRefsHash ?? '')) throw new Error('CAPABILITY_INVALID');
     if (!claims.executorDid?.startsWith('did:t3n:')) throw new Error('CAPABILITY_INVALID');
     const approvedHost = canonicalizeApprovedHost(body.approved_host);
     const claimApprovedHost = canonicalizeApprovedHost(claims.approvedHost);
@@ -95,7 +136,7 @@ export class RemediationAuthorizationVerifier {
       || claims.executorDid !== body.executor_did;
     if (mismatched) throw new Error('CAPABILITY_BODY_MISMATCH');
 
-    const entries = this.loadEntries().filter((entry) => entry.expiresAt > this.now());
+    const entries = this.loadEntries().filter((entry) => entry.expiresAt > current);
     if (entries.some((entry) => entry.nonce === claims.nonce)) throw new Error('CAPABILITY_REPLAY');
     entries.push({ nonce: claims.nonce, expiresAt: claims.expiresAt });
     this.persistEntries(entries);
