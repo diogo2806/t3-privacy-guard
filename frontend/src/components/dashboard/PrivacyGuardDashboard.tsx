@@ -7,6 +7,7 @@ import {
   type AgentAnalysis,
   type AuditEvent,
   type EvidenceBundle,
+  type ExecutionTraceEvent,
   type Incident,
   type OperatorSession,
   type PolicyDecision,
@@ -18,6 +19,7 @@ import { AgentPromptPanel, ATTACK_PROMPT } from '../agent/AgentPromptPanel';
 import { AgentProposalPanel } from '../agent/AgentProposalPanel';
 import { OperatorSessionGate } from '../auth/OperatorSessionGate';
 import { AuditTrail } from '../audit/AuditTrail';
+import { ExecutionTrace } from '../audit/ExecutionTrace';
 import { DashboardTabs, type DashboardView } from './DashboardTabs';
 import { EvidenceCenter } from '../evidence/EvidenceCenter';
 import { IncidentSummary } from '../incidents/IncidentSummary';
@@ -26,6 +28,7 @@ import { DecisionPanel } from '../policy/DecisionPanel';
 import { RemediationPanel } from '../remediation/RemediationPanel';
 import { EmptyState } from '../states/EmptyState';
 import { SystemStatusBar } from '../status/SystemStatusBar';
+import { TrustFlowSummary } from '../trust/TrustFlowSummary';
 
 function requestId(prefix: string) { return `${prefix}-${crypto.randomUUID()}`; }
 
@@ -34,20 +37,28 @@ export function PrivacyGuardDashboard() {
   const [sessionLoading, setSessionLoading] = useState(true);
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [authRetryAfterSeconds, setAuthRetryAfterSeconds] = useState(0);
 
   useEffect(() => {
     void privacyGuardApi.session().then(setSession).catch(() => setSession({ authenticated: false })).finally(() => setSessionLoading(false));
   }, []);
 
   const login = async (credentials: { username: string; password: string }) => {
-    setAuthBusy(true); setAuthError(null);
+    setAuthBusy(true); setAuthError(null); setAuthRetryAfterSeconds(0);
     try { setSession(await privacyGuardApi.login(credentials)); }
-    catch (cause) { setSession({ authenticated: false }); setAuthError(cause instanceof Error ? cause.message : 'Unable to sign in.'); }
+    catch (cause) {
+      setSession({ authenticated: false });
+      if (cause instanceof PrivacyGuardApiError && cause.status === 429) {
+        setAuthRetryAfterSeconds(cause.retryAfterSeconds ?? 5);
+      } else {
+        setAuthError(cause instanceof Error ? cause.message : 'Unable to sign in.');
+      }
+    }
     finally { setAuthBusy(false); }
   };
 
   const logout = async () => {
-    setAuthBusy(true); setAuthError(null);
+    setAuthBusy(true); setAuthError(null); setAuthRetryAfterSeconds(0);
     try { await privacyGuardApi.logout(); setSession({ authenticated: false }); }
     catch (cause) { setAuthError(cause instanceof Error ? cause.message : 'Unable to sign out safely.'); }
     finally { setAuthBusy(false); }
@@ -55,13 +66,14 @@ export function PrivacyGuardDashboard() {
 
   const expireSession = useCallback(() => {
     setSession({ authenticated: false });
+    setAuthRetryAfterSeconds(0);
     setAuthError('Your operator session has expired. Sign in again to continue.');
   }, []);
 
   return (
     <div className="app-shell">
       <AppHeader />
-      <OperatorSessionGate session={session} loading={sessionLoading} busy={authBusy} error={authError} onLogin={login} onLogout={logout} />
+      <OperatorSessionGate session={session} loading={sessionLoading} busy={authBusy} error={authError} retryAfterSeconds={authRetryAfterSeconds} onLogin={login} onLogout={logout} />
       {session?.authenticated && <AuthenticatedDashboard onSessionExpired={expireSession} />}
     </div>
   );
@@ -76,6 +88,7 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
   const [decision, setDecision] = useState<PolicyDecision | null>(null);
   const [agentAnalysis, setAgentAnalysis] = useState<AgentAnalysis | null>(null);
   const [remediationExecution, setRemediationExecution] = useState<RemediationExecution | null>(null);
+  const [executionTrace, setExecutionTrace] = useState<ExecutionTraceEvent[]>([]);
   const [history, setHistory] = useState<AuditEvent[]>([]);
   const [evidence, setEvidence] = useState<EvidenceBundle | null>(null);
   const [evidenceLoading, setEvidenceLoading] = useState(false);
@@ -122,14 +135,22 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
     }
   }, [onSessionExpired]);
 
+  const loadExecutionTrace = useCallback(async (currentIncident: Incident, action: ActionProposal) => {
+    try { setExecutionTrace(await privacyGuardApi.executionTrace(currentIncident.id, action.id)); }
+    catch (cause) {
+      if (cause instanceof PrivacyGuardApiError && cause.status === 401) onSessionExpired();
+      else setExecutionTrace([]);
+    }
+  }, [onSessionExpired]);
+
   const refreshIncident = useCallback(async (currentIncident: Incident, preferredActionId?: string) => {
     const [currentActions, currentHistory] = await Promise.all([privacyGuardApi.listActions(currentIncident.id), privacyGuardApi.history(currentIncident.id)]);
     setActions(currentActions); setHistory(currentHistory);
     const selected = currentActions.find((item) => item.id === preferredActionId) ?? currentActions.at(-1) ?? null;
     setSelectedAction(selected);
-    if (selected) await Promise.all([loadDecision(currentIncident, selected), loadRemediation(currentIncident, selected)]);
-    else { setDecision(null); setRemediationExecution(null); }
-  }, [loadDecision, loadRemediation]);
+    if (selected) await Promise.all([loadDecision(currentIncident, selected), loadRemediation(currentIncident, selected), loadExecutionTrace(currentIncident, selected)]);
+    else { setDecision(null); setRemediationExecution(null); setExecutionTrace([]); }
+  }, [loadDecision, loadExecutionTrace, loadRemediation]);
 
   useEffect(() => {
     void refreshSystem();
@@ -192,13 +213,20 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
 
   const selectAction = (action: ActionProposal) => {
     setSelectedAction(action);
-    if (incident) void Promise.all([loadDecision(incident, action), loadRemediation(incident, action)]);
-    else { setDecision(null); setRemediationExecution(null); }
+    if (incident) void Promise.all([loadDecision(incident, action), loadRemediation(incident, action), loadExecutionTrace(incident, action)]);
+    else { setDecision(null); setRemediationExecution(null); setExecutionTrace([]); }
   };
 
   return (
     <>
-      <SystemStatusBar status={systemStatus} loading={statusLoading} onRefresh={() => void refreshSystem()} />
+      <TrustFlowSummary
+        agentAnalysis={agentAnalysis}
+        decision={decision}
+        selectedAction={selectedAction}
+        remediationExecution={remediationExecution}
+        systemStatus={systemStatus}
+        statusLoading={statusLoading}
+      />
       <DashboardTabs active={view} onChange={setView} />
       {error && <div className="feedback feedback-error" role="alert">{error}</div>}
       {notice && <div className="feedback feedback-success" role="status">{notice}</div>}
@@ -220,9 +248,11 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
               <RemediationPanel action={selectedAction} decision={decision} execution={remediationExecution} busy={busy} onAuthorize={authorize} onExecute={execute} onVerify={verifyExternalState} />
             </>}
           </div>
-          <aside className="dashboard-side"><AuditTrail events={history} /></aside>
+          <aside className="dashboard-side"><ExecutionTrace events={executionTrace} action={selectedAction} /><AuditTrail events={history} /></aside>
         </main>
       )}
+
+      <SystemStatusBar status={systemStatus} loading={statusLoading} onRefresh={() => void refreshSystem()} />
     </>
   );
 }

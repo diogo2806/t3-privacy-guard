@@ -1,6 +1,6 @@
 # Adversarial Security Scenario Matrix
 
-This matrix distinguishes **automated local assertions** from **real T3N testnet executions**. A test is never labelled as testnet evidence unless `npm run evidence:testnet` actually produced the result.
+This matrix distinguishes **automated local assertions**, **property-generated local invariants** and **real T3N testnet executions**. A test is never labelled as testnet evidence unless `npm run evidence:testnet` actually produced the result.
 
 | ID | Layer | Scenario / input | Expected result | Automated by | Current evidence state |
 |---|---|---|---|---|---|
@@ -41,6 +41,14 @@ This matrix distinguishes **automated local assertions** from **real T3N testnet
 | A35 | React | `UNVERIFIED` execution | Verify action available; second Execute action absent | `RemediationPanel.test.tsx` | READY_TO_RUN |
 | A36 | Rust | Verification expected state is arbitrary/regex-like | Rejected; only closed `REVOKED` expectation accepted | `remediation.rs` tests | READY_TO_RUN |
 | A37 | Rust | Read-back has matching operation and expected state | `VERIFIED`; mismatched state is `UNVERIFIED` | `remediation.rs` tests | READY_TO_RUN |
+| P01 | Rust property | Generated action/field combinations include forbidden secret fields | Secret never appears in `allowed_fields`; decision is not `ALLOW` | `tests/properties.rs` / proptest | PROPERTY_TEST |
+| P02 | Rust property | Generated allowed requests with duplicates/order variation | Every `ALLOW` remains a subset of the action policy with no redactions | `tests/properties.rs` / proptest | PROPERTY_TEST |
+| P03 | Rust property | Mutate an allowed request by adding privilege | Mutation cannot remain `ALLOW` when it violates policy | `tests/properties.rs` / proptest | PROPERTY_TEST |
+| P04 | Rust property | Whitespace/case mutations around forbidden secret field names | Normalization cannot create a secret-field bypass | `tests/properties.rs` / proptest | PROPERTY_TEST |
+| P05 | Rust property | Up to 4096 arbitrary bytes into policy/remediation parsers | Controlled result/error; never panic | `tests/properties.rs`, `tests/remediation_properties.rs` | PROPERTY_TEST |
+| P06 | Rust property | Generated verification expected states | Only exact `REVOKED` passes request validation | `tests/remediation_properties.rs` / proptest | PROPERTY_TEST |
+| P07 | Gateway property | 1000 seeded generated privileged schema keys/private refs | Authority fields and non-enumerated/private placeholders always rejected | `proposal-schema.test.ts` | PROPERTY_TEST |
+| P08 | Gateway property | Seeded oversized arrays/strings | Cardinality and size limits fail closed | `proposal-schema.test.ts` | PROPERTY_TEST |
 | L01 | T3N testnet | Authenticate tenant and agent with separate identities | Different canonical DIDs | `npm run evidence:testnet` | NOT_RUN until valid credentials/credits |
 | L02 | T3N testnet | Secret exfiltration request against registered contract | `DENY` | testnet runner | NOT_RUN until valid credentials/credits |
 | L03 | T3N testnet | Undelegated/forbidden host | `DENY` | testnet runner | NOT_RUN until valid credentials/credits |
@@ -55,7 +63,7 @@ This matrix distinguishes **automated local assertions** from **real T3N testnet
 
 ## Interpretation
 
-`READY_TO_RUN` means the executable assertion exists in the repository but this document does not pretend it was executed by a particular environment. `NOT_RUN` means the scenario intentionally requires real T3N testnet state, credentials, credits and, for egress scenarios, seeded private remediation/verification configuration.
+`READY_TO_RUN` means an executable fixed assertion exists in the repository but this document does not pretend it was executed by a particular environment. `PROPERTY_TEST` means generated local invariant checks; Rust failures preserve proptest counterexamples/seeds and gateway generators use fixed seeds. Property tests are not live T3N evidence and their case count is not a coverage percentage. `NOT_RUN` means the scenario intentionally requires real T3N testnet state, credentials, credits and, for egress scenarios, seeded private remediation/verification configuration.
 
 `execute-remediation` returning 2xx is only an **acceptance signal**. It is represented as `PENDING_VERIFICATION`. `COMPLETED` is reserved for the Spring state machine after `verify-remediation` independently observes the closed expected state. A timeout or ambiguous acknowledgement is `UNVERIFIED` and never triggers automatic re-execution.
 

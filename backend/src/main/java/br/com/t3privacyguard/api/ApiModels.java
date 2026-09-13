@@ -63,13 +63,22 @@ public final class ApiModels {
         List<String> redactedFields,
         List<String> allowedPrivateRefs,
         List<String> redactedPrivateRefs,
-        String policyVersion,
-        String policyHash,
-        Boolean requiresHumanAuthorization,
         Instant evaluatedAt
     ) {}
 
     public record AuditResponse(String id, String incidentId, String type, String message, Instant createdAt) {}
+    public record ExecutionTraceResponse(
+        String id,
+        String incidentId,
+        String actionId,
+        String traceId,
+        String requestId,
+        String stage,
+        String state,
+        String reasonCode,
+        Long durationMs,
+        Instant createdAt
+    ) {}
     public record RemediationAuthorizationResponse(String incidentId, String actionId, String requestId, String state) {}
     public record RemediationExecutionResponse(
         String incidentId,

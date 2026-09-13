@@ -1,6 +1,7 @@
 package br.com.t3privacyguard.integration;
 
 import br.com.t3privacyguard.domain.DecisionType;
+import br.com.t3privacyguard.observability.TraceContext;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,6 +30,7 @@ public class GatewayPolicyClient {
         try {
             GatewayDecision decision = restClient.post()
                 .uri("/internal/contracts/privacy-guard/evaluate")
+                .header(TraceContext.HEADER, TraceContext.currentOrGenerate())
                 .body(request)
                 .retrieve()
                 .body(GatewayDecision.class);
@@ -57,9 +59,6 @@ public class GatewayPolicyClient {
         @JsonProperty("allowed_fields") List<String> allowedFields,
         @JsonProperty("redacted_fields") List<String> redactedFields,
         @JsonProperty("allowed_private_refs") List<String> allowedPrivateRefs,
-        @JsonProperty("redacted_private_refs") List<String> redactedPrivateRefs,
-        @JsonProperty("policy_version") String policyVersion,
-        @JsonProperty("policy_hash") String policyHash,
-        @JsonProperty("requires_human_authorization") Boolean requiresHumanAuthorization
+        @JsonProperty("redacted_private_refs") List<String> redactedPrivateRefs
     ) {}
 }

@@ -1,5 +1,6 @@
 package br.com.t3privacyguard.integration;
 
+import br.com.t3privacyguard.observability.TraceContext;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,14 +30,12 @@ public class GatewayRemediationClient {
                 .uri("/internal/contracts/privacy-guard/remediate")
                 .header("X-Gateway-Service-Token", serviceToken)
                 .header("X-Remediation-Capability", capability)
+                .header(TraceContext.HEADER, TraceContext.currentOrGenerate())
                 .body(request)
                 .retrieve()
                 .body(RemediationResult.class);
             if (result == null || !"PENDING_VERIFICATION".equals(result.status())) {
                 throw new GatewayUnavailableException("Gateway returned an invalid remediation acceptance result");
-            }
-            if (!request.policyVersion().equals(result.policyVersion()) || !request.policyHash().equals(result.policyHash())) {
-                throw new GatewayUnavailableException("Gateway remediation policy metadata does not match the approved decision");
             }
             return result;
         } catch (RestClientException ex) {
@@ -50,6 +49,7 @@ public class GatewayRemediationClient {
             VerificationResult result = restClient.post()
                 .uri("/internal/contracts/privacy-guard/verify-remediation")
                 .header("X-Gateway-Service-Token", serviceToken)
+                .header(TraceContext.HEADER, TraceContext.currentOrGenerate())
                 .body(new VerificationRequest(requestId, operationId, "REVOKED"))
                 .retrieve()
                 .body(VerificationResult.class);
@@ -71,18 +71,14 @@ public class GatewayRemediationClient {
         String resource,
         String purpose,
         List<String> fields,
-        @JsonProperty("private_refs") List<String> privateRefs,
-        @JsonProperty("policy_version") String policyVersion,
-        @JsonProperty("policy_hash") String policyHash
+        @JsonProperty("private_refs") List<String> privateRefs
     ) {}
 
     public record RemediationResult(
         @JsonProperty("request_id") String requestId,
         String status,
         @JsonProperty("http_code") int httpCode,
-        @JsonProperty("operation_id") String operationId,
-        @JsonProperty("policy_version") String policyVersion,
-        @JsonProperty("policy_hash") String policyHash
+        @JsonProperty("operation_id") String operationId
     ) {}
 
     public record VerificationRequest(

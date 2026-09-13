@@ -2,10 +2,12 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { TenantClient, getNodeUrl } from '@terminal3/t3n-sdk';
 import { readGatewayConfig } from '../config/env.js';
+import { TrustManifestFloorStore } from '../security/trust-manifest-floor-store.js';
 import { T3nSession } from '../t3n/session.js';
 
 const config = readGatewayConfig();
-const session = new T3nSession(config);
+const trustFloorStore = new TrustManifestFloorStore(config.trustManifestFloorStorePath);
+const session = new T3nSession(config, trustFloorStore);
 await session.connect();
 
 const tenant = new TenantClient({

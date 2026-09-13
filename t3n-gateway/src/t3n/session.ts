@@ -1,6 +1,7 @@
 import { T3nClient } from '@terminal3/t3n-sdk';
 import type { GatewayConfig } from '../config/env.js';
 import { sanitizeError, type SanitizedError } from '../security/sanitize.js';
+import { TrustManifestFloorStore } from '../security/trust-manifest-floor-store.js';
 import { authenticatePrincipal } from './authenticated-client.js';
 
 export interface T3nSessionStatus {
@@ -8,16 +9,22 @@ export interface T3nSessionStatus {
   readonly ready: boolean;
   readonly tenantDid: string | null;
   readonly network: GatewayConfig['network'];
+  readonly trustAnchorVerified: boolean;
+  readonly trustManifestVersion: number | null;
   readonly lastError: SanitizedError | null;
 }
 
 export class T3nSession {
   private client: T3nClient | null = null;
   private tenantDid: string | null = null;
+  private trustManifestVersion: number | null = null;
   private lastError: SanitizedError | null = null;
   private connecting: Promise<void> | null = null;
 
-  constructor(private readonly config: GatewayConfig) {}
+  constructor(
+    private readonly config: GatewayConfig,
+    private readonly trustFloorStore: TrustManifestFloorStore,
+  ) {}
 
   getClient(): T3nClient {
     if (!this.client || !this.tenantDid) {
@@ -34,11 +41,14 @@ export class T3nSession {
   }
 
   getStatus(): T3nSessionStatus {
+    const connected = this.client !== null && this.tenantDid !== null;
     return {
-      connected: this.client !== null && this.tenantDid !== null,
-      ready: this.client !== null && this.tenantDid !== null && this.lastError === null,
+      connected,
+      ready: connected && this.lastError === null,
       tenantDid: this.tenantDid,
       network: this.config.network,
+      trustAnchorVerified: connected && this.trustManifestVersion !== null,
+      trustManifestVersion: this.trustManifestVersion,
       lastError: this.lastError,
     };
   }
@@ -57,13 +67,15 @@ export class T3nSession {
 
   private async connectInternal(): Promise<void> {
     try {
-      const principal = await authenticatePrincipal(this.config.apiKey, this.config.network);
+      const principal = await authenticatePrincipal(this.config.apiKey, this.config.network, this.trustFloorStore);
       this.client = principal.client;
       this.tenantDid = principal.did;
+      this.trustManifestVersion = principal.trustManifestVersion;
       this.lastError = null;
     } catch (error) {
       this.client = null;
       this.tenantDid = null;
+      this.trustManifestVersion = null;
       this.lastError = sanitizeError(error, [this.config.apiKey]);
       throw new Error(`${this.lastError.category}: ${this.lastError.message}`);
     }
