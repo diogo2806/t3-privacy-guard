@@ -1,27 +1,75 @@
 :root {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #e8eef8;
-  background: #07111f;
+  background: #06101c;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --bg: #07111f;
-  --surface: #0d1a2c;
-  --surface-strong: #12233a;
-  --surface-soft: #0a1626;
-  --border: #20344f;
-  --border-strong: #315078;
-  --text: #e8eef8;
-  --muted: #93a6bf;
-  --accent: #67e8f9;
-  --accent-strong: #22d3ee;
+
+  --canvas: #06101c;
+  --surface-1: #0b1727;
+  --surface-2: #101f33;
+  --surface-3: #152943;
+  --interactive-surface: #132640;
+  --border-subtle: #1c3049;
+  --border-default: #294664;
+  --border-strong: #3a6088;
+
+  --text-primary: #eef5ff;
+  --text-secondary: #b8c8da;
+  --text-tertiary: #93a6bf;
+  --text-inverse: #03131d;
+
+  --brand: #67e8f9;
+  --brand-strong: #22d3ee;
+  --brand-tint: rgba(34, 211, 238, 0.1);
+  --brand-canvas-glow: rgba(34, 211, 238, 0.07);
+  --info: #7dd3fc;
+  --info-soft: rgba(125, 211, 252, 0.12);
   --success: #34d399;
   --success-soft: rgba(52, 211, 153, 0.12);
-  --danger: #fb7185;
-  --danger-soft: rgba(251, 113, 133, 0.12);
   --warning: #fbbf24;
   --warning-soft: rgba(251, 191, 36, 0.12);
-  --shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
+  --danger: #fb7185;
+  --danger-soft: rgba(251, 113, 133, 0.12);
+
+  --focus-ring: rgba(103, 232, 249, 0.52);
+  --shadow-raised: 0 20px 54px rgba(0, 0, 0, 0.24);
+  --shadow-overlay: 0 28px 80px rgba(0, 0, 0, 0.34);
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+
+  --font-size-xs: 0.72rem;
+  --font-size-sm: 0.82rem;
+  --font-size-body: 1rem;
+  --font-size-heading: 1.12rem;
+  --font-weight-medium: 650;
+  --font-weight-strong: 750;
+  --font-weight-display: 850;
+
   --radius-sm: 10px;
   --radius: 16px;
   --radius-lg: 22px;
+  --radius-pill: 999px;
+
+  --motion-fast: 140ms;
+  --motion-default: 200ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Compatibility aliases while consumers migrate to semantic names. */
+  --bg: var(--canvas);
+  --surface: var(--surface-1);
+  --surface-strong: var(--surface-2);
+  --surface-soft: var(--surface-1);
+  --border: var(--border-subtle);
+  --text: var(--text-primary);
+  --muted: var(--text-tertiary);
+  --accent: var(--brand);
+  --accent-strong: var(--brand-strong);
+  --shadow: var(--shadow-raised);
 }

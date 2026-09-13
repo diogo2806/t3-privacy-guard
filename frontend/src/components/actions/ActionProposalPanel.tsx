@@ -1,12 +1,14 @@
 import { Bot, ExternalLink, KeyRound } from 'lucide-react';
 import type { ActionProposal } from '../../services/privacyGuardApi';
+import { SectionHeader } from '../ui/SectionHeader';
+import { Surface } from '../ui/Surface';
 
 interface Props { actions: ActionProposal[]; selectedActionId: string | null; onSelect: (action: ActionProposal) => void; }
 
 export function ActionProposalPanel({ actions, selectedActionId, onSelect }: Props) {
   return (
-    <section className="card">
-      <div className="card-heading compact"><div className="section-icon"><Bot aria-hidden="true" /></div><div><p className="eyebrow">Agent proposals</p><h2>Requested actions</h2></div></div>
+    <Surface>
+      <SectionHeader eyebrow="Agent proposals" title="Requested actions" icon={<Bot aria-hidden="true" />} />
       {actions.length === 0 ? <p className="empty-copy">No agent action has been proposed yet.</p> : (
         <div className="action-list">
           {actions.map((action) => (
@@ -18,6 +20,6 @@ export function ActionProposalPanel({ actions, selectedActionId, onSelect }: Pro
           ))}
         </div>
       )}
-    </section>
+    </Surface>
   );
 }

@@ -1,4 +1,6 @@
 import { BellRing, Check, ClipboardPlus, KeyRound, ShieldAlert } from 'lucide-react';
+import { SectionHeader } from '../ui/SectionHeader';
+import { Surface } from '../ui/Surface';
 import type { EnterpriseScenarioDefinition, EnterpriseScenarioId } from './scenarioDefinitions';
 import { ENTERPRISE_SCENARIOS } from './scenarioDefinitions';
 
@@ -19,11 +21,8 @@ export function EnterpriseScenarioCatalog({ selectedId, busy, onSelect }: Props)
   const selected = ENTERPRISE_SCENARIOS.find((scenario) => scenario.id === selectedId) ?? ENTERPRISE_SCENARIOS[0];
 
   return (
-    <section className="card scenario-catalog" aria-labelledby="enterprise-scenarios-title">
-      <div className="card-heading compact">
-        <div className="section-icon"><ShieldAlert aria-hidden="true" /></div>
-        <div><p className="eyebrow">Business applicability</p><h2 id="enterprise-scenarios-title">Choose an enterprise scenario</h2></div>
-      </div>
+    <Surface className="scenario-catalog" aria-labelledby="enterprise-scenarios-title">
+      <SectionHeader eyebrow="Business applicability" title="Choose an enterprise scenario" titleId="enterprise-scenarios-title" icon={<ShieldAlert aria-hidden="true" />} />
       <p className="card-copy">These are safe demonstration presets, not permissions. Selecting one only prepares synthetic input; the real AI proposal still goes through the independent T3N policy.</p>
       <div className="scenario-catalog-grid" role="list" aria-label="Enterprise demonstration scenarios">
         {ENTERPRISE_SCENARIOS.map((scenario) => {
@@ -54,6 +53,6 @@ export function EnterpriseScenarioCatalog({ selectedId, busy, onSelect }: Props)
         <strong>Selected: {selected.title}</strong>
         <p>{selected.demonstrates}</p>
       </div>
-    </section>
+    </Surface>
   );
 }
