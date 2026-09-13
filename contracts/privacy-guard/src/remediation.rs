@@ -1,4 +1,7 @@
-use crate::policy::{self, AppliedPolicy, Decision, PolicyDecision, PolicyEvaluationRequest};
+use crate::{
+    authorization::{self, AuthorizationBinding},
+    policy::{self, AppliedPolicy, Decision, PolicyDecision, PolicyEvaluationRequest},
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -14,8 +17,12 @@ const REQUIRED_NORMAL_FIELDS: &[&str] = &["incident_id", "credential_id", "reaso
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RemediationExecutionRequest {
+    pub incident_id: String,
+    pub action_id: String,
+    pub decision_id: String,
     pub request_id: String,
     pub agent_did: String,
+    pub executor_did: String,
     pub action: String,
     pub resource: String,
     pub purpose: String,
@@ -28,6 +35,9 @@ pub struct RemediationExecutionRequest {
     pub private_refs: Vec<String>,
     pub policy_version: String,
     pub policy_hash: String,
+    pub operator_principal_hash: String,
+    pub authorization_recorded_at: u64,
+    pub authorization_proof: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -135,6 +145,21 @@ fn validate_normal_payload(request: &RemediationExecutionRequest) -> Result<(), 
 fn validate_execution_request(request: &RemediationExecutionRequest) -> Result<(), String> {
     if request.action != SUPPORTED_EXECUTION_ACTION {
         return Err("protected remediation executor is not implemented for this action".to_string());
+    }
+    if request.incident_id.trim().is_empty() || request.action_id.trim().is_empty()
+        || request.decision_id.trim().is_empty() || request.request_id.trim().is_empty() {
+        return Err("remediation authorization identifiers are required".to_string());
+    }
+    if !request.agent_did.starts_with("did:t3n:") || !request.executor_did.starts_with("did:t3n:") {
+        return Err("T3N proposal and executor identities are required".to_string());
+    }
+    if request.operator_principal_hash.len() != 64
+        || !request.operator_principal_hash.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+        || request.authorization_recorded_at == 0 {
+        return Err("persisted human authorization provenance is required".to_string());
+    }
+    if request.authorization_proof.trim().is_empty() {
+        return Err("CAPABILITY_REQUIRED".to_string());
     }
     canonicalize_hostname(&request.approved_host)?;
     validate_normal_payload(request)?;
@@ -337,6 +362,26 @@ fn read_current_policy() -> Result<AppliedPolicy, String> {
 fn execute_wasm(request: RemediationExecutionRequest) -> Result<RemediationResult, String> {
     validate_execution_request(&request)?;
     let approved_host = canonicalize_hostname(&request.approved_host)?;
+    let authorization_binding = AuthorizationBinding {
+        incident_id: &request.incident_id,
+        action_id: &request.action_id,
+        request_id: &request.request_id,
+        decision_id: &request.decision_id,
+        action: &request.action,
+        resource: &request.resource,
+        purpose: &request.purpose,
+        approved_host: &approved_host,
+        fields: &request.fields,
+        normal_payload: &request.normal_payload,
+        private_refs: &request.private_refs,
+        policy_version: &request.policy_version,
+        policy_hash: &request.policy_hash,
+        executor_did: &request.executor_did,
+        operator_principal_hash: &request.operator_principal_hash,
+        authorization_recorded_at: request.authorization_recorded_at,
+    };
+    authorization::verify_and_consume_authorization(&request.authorization_proof, &authorization_binding)?;
+
     let api_url = read_secret("security_api_url")?;
     let resolved_host = extract_https_host(&api_url)?;
     let host = ensure_execution_destination(&approved_host, &resolved_host)?;
@@ -344,7 +389,7 @@ fn execute_wasm(request: RemediationExecutionRequest) -> Result<RemediationResul
     let (body, effective_request) = build_minimized_egress(&request, &applied_policy, &host)?;
 
     let api_key = read_secret("security_api_key")?;
-    let _ = logging::info("Executing T3N-minimized remediation payload with bound policy metadata and approved destination");
+    let _ = logging::info("Executing T3N-minimized remediation payload after independent signed human-authorization proof verification");
     let response = hwp::call(&hwp::Request {
         method: hwp::Verb::Post,
         url: api_url,
@@ -452,10 +497,13 @@ mod tests {
 
     fn execution_request() -> RemediationExecutionRequest {
         RemediationExecutionRequest {
-            request_id: "r1".into(), agent_did: "did:t3n:a".into(), action: "revoke-credential".into(),
-            resource: "credential:test".into(), purpose: "incident-remediation".into(), approved_host: "postman-echo.com".into(),
-            fields: vec!["incident_id".into(), "credential_id".into(), "reason".into()],
+            incident_id: "incident-1".into(), action_id: "action-1".into(), decision_id: "decision-1".into(),
+            request_id: "r1".into(), agent_did: "did:t3n:a".into(), executor_did: "did:t3n:protected-executor-test".into(),
+            action: "revoke-credential".into(), resource: "credential:test".into(), purpose: "incident-remediation".into(),
+            approved_host: "postman-echo.com".into(), fields: vec!["incident_id".into(), "credential_id".into(), "reason".into()],
             normal_payload: normal_payload(), private_refs: vec![], policy_version: "2026-09-12.1".into(), policy_hash: "a".repeat(64),
+            operator_principal_hash: "b".repeat(64), authorization_recorded_at: 1_799_999_998_000,
+            authorization_proof: "v2.synthetic.synthetic".into(),
         }
     }
 
@@ -520,6 +568,12 @@ mod tests {
         let mut unrequested = execution_request();
         unrequested.normal_payload.insert("employee_department".into(), "finance".into());
         assert!(validate_execution_request(&unrequested).unwrap_err().contains("was not requested"));
+    }
+
+    #[test]
+    fn direct_executor_request_without_human_proof_fails_before_wasm_execution() {
+        let input = serde_json::to_vec(&RemediationExecutionRequest { authorization_proof: String::new(), ..execution_request() }).unwrap();
+        assert_eq!(execute_remediation(&input).unwrap_err(), "CAPABILITY_REQUIRED");
     }
 
     #[test]
