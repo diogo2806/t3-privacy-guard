@@ -416,6 +416,16 @@ Rules:
 - persisted remediation state can be read after reload/restart without causing egress or a verification attempt;
 - the project does **not** claim exactly-once/at-most-once behavior from an external provider merely because an idempotency key is supplied. Provider support is required for that guarantee.
 
+## Tamper-evident local audit integrity
+
+Spring stores each sanitized business-audit event in an HMAC-SHA-256 chain scoped to its incident. The versioned canonical payload authenticates the incident/event identifiers, monotonic local sequence, event type, canonical UTC timestamp, sanitized message, persisted T3N sequence/hash/function when present, and the previous event MAC. A separately authenticated per-incident chain head binds the retained tail, so direct content changes, sequence/link changes, inserted rows, missing head and tail deletion are detectable when the verifier runs.
+
+`AUDIT_INTEGRITY_KEY` is a backend-only runtime secret and must remain distinct from T3N credentials, `GATEWAY_SERVICE_TOKEN`, `REMEDIATION_CAPABILITY_KEY` and operator credentials. `AUDIT_INTEGRITY_KEY_ID` identifies the active key version. Planned rotation keeps explicitly versioned historical material in `AUDIT_INTEGRITY_PREVIOUS_KEYS` only while retained events still require it. Events created before this protection remain `LEGACY_UNVERIFIED`; automatic legacy bootstrap is disabled by default instead of inventing historical authenticity.
+
+This control is **tamper-evident, not immutable or tamper-proof**. Its threat model is DB/storage-only modification by an actor that does not possess the HMAC key. A compromise that obtains both database and key, a compromised backend capable of producing valid new MACs, or restoration of a complete older internally consistent database snapshot is outside this claim unless an independent monotonic external anchor is added.
+
+Local audit integrity and T3N Activity Log provenance are independent signals. A local chain may be `BROKEN` while a network event is still `MATCHED`; Activity Log unavailability does not make an otherwise verifiable local chain `BROKEN`. Protected local changes fail closed when the retained chain is not verifiable. Incident retention deletes audit content and its local chain head rather than retaining messages indefinitely just to preserve the chain.
+
 ## Security boundaries
 
 - Operator login is an application identity, not a T3N or AI-provider identity.
@@ -423,6 +433,7 @@ Rules:
 - Proposal Agent and Protected Executor credentials/DIDs are separate from each other and from the tenant.
 - `GATEWAY_SERVICE_TOKEN` is a separate service-to-service credential.
 - `REMEDIATION_CAPABILITY_KEY` signs one-time human authorization proofs and is distinct from every T3N/provider/remediation credential.
+- `AUDIT_INTEGRITY_KEY` is a backend-only HMAC secret, separate from every other credential and never returned by audit APIs or evidence surfaces.
 - Canonical tenant/Proposal/Executor DIDs come from authenticated T3N sessions.
 - A public Agent Card is discoverability metadata and never grants functions, scopes, hosts or business authorization.
 - Delegated calls and `checkDelegation` derive `pii_did` internally from the authenticated tenant session.
@@ -432,6 +443,7 @@ Rules:
 - The model/application carry only logical private references; only the contract maps them to supported T3N profile markers.
 - `ALLOW` + exact policy provenance + authenticated operator + explicit human authorization + valid one-time capability + confirmed Protected Executor effective access are required before protected remediation.
 - Consumed capability nonces are persisted at `REMEDIATION_REPLAY_STORE_PATH` so replay protection survives gateway restart when `/data` is persistent.
+- Local HMAC integrity is an application tamper-evidence control; it is not T3N execution proof, hardware attestation, immutable storage or a substitute for independent network provenance.
 
 See the threat model and claims matrix in [`docs/submission/README.md`](docs/submission/README.md).
 
@@ -452,6 +464,10 @@ GATEWAY_SERVICE_TOKEN
 REMEDIATION_CAPABILITY_KEY
 REMEDIATION_CAPABILITY_TTL_SECONDS
 REMEDIATION_REPLAY_STORE_PATH
+AUDIT_INTEGRITY_KEY
+AUDIT_INTEGRITY_KEY_ID
+AUDIT_INTEGRITY_PREVIOUS_KEYS
+AUDIT_INTEGRITY_ALLOW_LEGACY_BOOTSTRAP
 AI_PROVIDER
 AI_API_URL
 AI_API_KEY
@@ -465,9 +481,11 @@ SECURITY_VERIFICATION_URL
 
 `T3N_AGENT_API_KEY` authenticates the Proposal Agent and must not be granted protected remediation functions. `T3N_EXECUTOR_API_KEY` authenticates the separate Protected Executor and must receive only the execution/verification functions and hosts it needs.
 
+`AUDIT_INTEGRITY_KEY` authenticates the local audit chain and must contain at least 32 characters. `AUDIT_INTEGRITY_KEY_ID` selects the active version; `AUDIT_INTEGRITY_PREVIOUS_KEYS` retains explicit `keyId=secret` historical material during planned rotation. `AUDIT_INTEGRITY_ALLOW_LEGACY_BOOTSTRAP=false` is the normal safe setting so pre-HMAC rows remain honestly unverified.
+
 `SECURITY_API_URL` is the protected action endpoint. `SECURITY_VERIFICATION_URL` is the independent read-back endpoint. Both are seeded into the T3N private map by the setup script; the verification endpoint is not a browser/backend credential.
 
-Business APIs require the Spring Security operator session and CSRF protection. The browser never receives T3N keys, AI provider keys, internal service token, remediation capability, remediation credential or resolved profile PII.
+Business APIs require the Spring Security operator session and CSRF protection. The browser never receives T3N keys, AI provider keys, internal service token, remediation capability, remediation credential, audit-integrity key or resolved profile PII.
 
 ## T3N operational status
 
@@ -532,7 +550,7 @@ For live remediation proof, both `SECURITY_API_URL` and `SECURITY_VERIFICATION_U
 
 Profile-placeholder resolution must remain `NOT_RUN` in public evidence until a compatible T3N testnet profile/user context actually executes it. Local Rust/Java/gateway/frontend tests prove the closed-reference architecture but are not mislabeled as live profile-resolution evidence.
 
-The submission capture harness rejects AI/T3N/operator/service/capability secrets in generated metadata and captures a remediation success only after the UI shows independently verified `COMPLETED`.
+The submission capture harness rejects AI/T3N/operator/service/capability/audit-integrity secrets in generated metadata and captures a remediation success only after the UI shows independently verified `COMPLETED`. Local audit integrity is rendered as a separate application signal from T3N Activity Log reconciliation and is not upgraded into live T3N proof.
 
 ## Terminal 3 integration findings
 
@@ -563,7 +581,7 @@ cd ../contracts/privacy-guard && cargo test && cargo build --target wasm32-wasip
 
 ## Environment
 
-Use `.env.example` only as a variable-name template. Never commit tenant keys, Proposal Agent keys, Protected Executor keys, AI provider keys, operator passwords, service tokens, capability keys, remediation credentials, private profile values or `.env` files.
+Use `.env.example` only as a variable-name template. Never commit tenant keys, Proposal Agent keys, Protected Executor keys, AI provider keys, operator passwords, service tokens, capability keys, audit-integrity keys, remediation credentials, private profile values or `.env` files.
 
 The project will continue to be operated after the challenge. Future handover provisions new credentials instead of transferring existing private keys.
 
