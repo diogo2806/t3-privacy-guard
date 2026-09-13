@@ -192,23 +192,20 @@ await executorDelegation.grant({
 
 const run = spawnSync('npm', ['run', 'evidence:testnet'], {
   cwd: gatewayRoot,
-  env: {
-    ...process.env,
-    EVIDENCE_OUTPUT: testnetPath,
-    T3N_CONTRACT_WASM_PATH: wasmPath,
-    EVIDENCE_SOURCE_COMMIT_SHA: sourceRevision.sourceCommitSha,
-    EVIDENCE_SOURCE_TREE_CLEAN: String(sourceRevision.sourceTreeClean),
-  },
+  env: { ...process.env, EVIDENCE_OUTPUT: testnetPath, T3N_CONTRACT_WASM_PATH: wasmPath },
   stdio: 'inherit',
 });
 if (run.status !== 0) throw new Error('T3N testnet evidence runner reported a failure');
 
 const evidence = JSON.parse(await readFile(testnetPath, 'utf8')) as TestnetEvidenceIdentity & { scenarios?: Array<{ status?: string }> };
+evidence.sourceCommitSha = sourceRevision.sourceCommitSha;
+evidence.sourceTreeClean = sourceRevision.sourceTreeClean;
+const serializedEvidence = `${JSON.stringify(evidence, null, 2)}\n`;
+assertNoSecretLeak(serializedEvidence, sensitiveValues);
+await writeFile(testnetPath, serializedEvidence, 'utf8');
 assertEvidenceMatchesDeployment(manifest, evidence);
 if (evidence.scenarios?.some((scenario) => scenario.status === 'FAIL')) throw new Error('T3N testnet evidence contains FAIL scenarios');
 
-const finalSerialized = await readFile(testnetPath, 'utf8');
-assertNoSecretLeak(finalSerialized, sensitiveValues);
 console.info(JSON.stringify({
   manifestPath,
   testnetPath,
