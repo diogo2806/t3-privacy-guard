@@ -10,10 +10,23 @@ describe('EnterpriseScenarioCatalog', () => {
     render(<EnterpriseScenarioCatalog selectedId="credential-compromised" busy={false} onSelect={vi.fn()} />);
 
     for (const scenario of ENTERPRISE_SCENARIOS) {
-      expect(screen.getByText(scenario.title)).toBeInTheDocument();
+      expect(screen.getAllByText(scenario.title).length).toBeGreaterThan(0);
       expect(screen.getByText(scenario.technicalAction)).toBeInTheDocument();
     }
-    expect(screen.getByText(/safe demonstration presets, not permissions/i)).toBeInTheDocument();
+    expect(screen.getByText(/synthetic input only/i)).toBeInTheDocument();
+    expect(screen.getByText(/never grants permission or executes an action/i)).toBeInTheDocument();
+  });
+
+  it('shows the selected scenario business context and success definition', async () => {
+    const user = userEvent.setup();
+    render(<EnterpriseScenarioCatalog selectedId="credential-compromised" busy={false} onSelect={vi.fn()} />);
+
+    await user.click(screen.getByText('Business context and success definition'));
+    const scenario = ENTERPRISE_SCENARIOS[0];
+    expect(screen.getByText(scenario.businessRisk)).toBeInTheDocument();
+    expect(screen.getByText(scenario.protectedAsset)).toBeInTheDocument();
+    expect(screen.getByText(scenario.businessOutcome)).toBeInTheDocument();
+    expect(screen.getByText(scenario.successDefinition)).toBeInTheDocument();
   });
 
   it('selects a scenario without executing analysis automatically', async () => {

@@ -19,6 +19,7 @@ import { AgentProposalPanel } from '../agent/AgentProposalPanel';
 import { OperatorSessionGate } from '../auth/OperatorSessionGate';
 import { AuditTrail } from '../audit/AuditTrail';
 import { ExecutionTrace } from '../audit/ExecutionTrace';
+import { BusinessOutcomeSummary } from '../business/BusinessOutcomeSummary';
 import { DashboardTabs, type DashboardView } from './DashboardTabs';
 import { EvidenceCenter } from '../evidence/EvidenceCenter';
 import { IncidentSummary } from '../incidents/IncidentSummary';
@@ -279,20 +280,30 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
       {view === 'evidence' ? (
         <EvidenceCenter evidence={evidence} loading={evidenceLoading} error={evidenceError} onRefresh={() => void refreshEvidence()} />
       ) : (
-        <main className="dashboard-grid">
-          <div className="dashboard-main">
-            <EnterpriseScenarioCatalog selectedId={selectedScenarioId} busy={busy} onSelect={selectScenario} />
-            <AgentPromptPanel busy={busy} prompt={prompt} onPromptChange={setPrompt} onAnalyze={analyzeAgentPrompt} />
-            <AgentProposalPanel analysis={agentAnalysis} />
-            {!incident ? <EmptyState /> : <>
-              <IncidentSummary incident={incident} />
-              {showSafePath && <NextRequiredAction busy={busy} onAskAgent={() => void askAgentForRemediation()} />}
-              <div className="two-column"><ActionProposalPanel actions={actions} selectedActionId={selectedAction?.id ?? null} onSelect={selectAction} /><DecisionPanel decision={decision} /></div>
-              <RemediationPanel action={selectedAction} decision={decision} execution={remediationExecution} busy={busy} onAuthorize={authorize} onExecute={execute} onVerify={verifyExternalState} />
-            </>}
-          </div>
-          <aside className="dashboard-side" aria-label="Live activity"><ExecutionTrace events={executionTrace} action={selectedAction} /><AuditTrail events={history} /></aside>
-        </main>
+        <>
+          <BusinessOutcomeSummary
+            scenario={selectedScenario}
+            incident={incident}
+            selectedAction={selectedAction}
+            decision={decision}
+            remediationExecution={remediationExecution}
+            agentAnalysis={agentAnalysis}
+          />
+          <main className="dashboard-grid">
+            <div className="dashboard-main">
+              <EnterpriseScenarioCatalog selectedId={selectedScenarioId} busy={busy} onSelect={selectScenario} />
+              <AgentPromptPanel busy={busy} prompt={prompt} onPromptChange={setPrompt} onAnalyze={analyzeAgentPrompt} />
+              <AgentProposalPanel analysis={agentAnalysis} />
+              {!incident ? <EmptyState /> : <>
+                <IncidentSummary incident={incident} />
+                {showSafePath && <NextRequiredAction busy={busy} onAskAgent={() => void askAgentForRemediation()} />}
+                <div className="two-column"><ActionProposalPanel actions={actions} selectedActionId={selectedAction?.id ?? null} onSelect={selectAction} /><DecisionPanel decision={decision} /></div>
+                <RemediationPanel action={selectedAction} decision={decision} execution={remediationExecution} busy={busy} onAuthorize={authorize} onExecute={execute} onVerify={verifyExternalState} />
+              </>}
+            </div>
+            <aside className="dashboard-side" aria-label="Live activity"><ExecutionTrace events={executionTrace} action={selectedAction} /><AuditTrail events={history} /></aside>
+          </main>
+        </>
       )}
     </>
   );

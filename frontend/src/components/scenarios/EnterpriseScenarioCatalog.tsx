@@ -40,10 +40,16 @@ export function EnterpriseScenarioCatalog({ selectedId, busy, onSelect }: Props)
         })}
       </div>
       <details className="scenario-explainer" aria-live="polite">
-        <summary>Why this scenario matters</summary>
+        <summary>Business context and success definition</summary>
         <strong>{selected.title}</strong>
         <p>{selected.description}</p>
         <p>{selected.demonstrates}</p>
+        <dl className="scenario-business-context">
+          <div><dt>Business risk</dt><dd>{selected.businessRisk}</dd></div>
+          <div><dt>Protected asset</dt><dd>{selected.protectedAsset}</dd></div>
+          <div><dt>Target business outcome</dt><dd>{selected.businessOutcome}</dd></div>
+          <div><dt>Success definition</dt><dd>{selected.successDefinition}</dd></div>
+        </dl>
       </details>
     </Surface>
   );
