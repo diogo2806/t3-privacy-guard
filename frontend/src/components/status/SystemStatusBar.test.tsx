@@ -21,20 +21,26 @@ function status(agentRegistrationState: SystemStatus['agentRegistrationState']):
     contractResolved: true,
     contractId: 'z:tenant:privacy-guard',
     contractVersion: '0.3.0',
+    memberDelegationState: 'ACTIVE',
     delegationState: 'ACTIVE',
     delegatedFunctions: ['evaluate-action'],
+    delegatedScopes: ['incident_id'],
     allowedHosts: ['security.example'],
+    delegationSatisfied: ['member_delegation'],
+    delegationMissing: [],
     message: 'Observed status.',
   };
 }
 
 describe('SystemStatusBar', () => {
-  it('shows registration independently from authentication and delegation', () => {
+  it('shows registration, member grant and effective access independently', () => {
     render(<SystemStatusBar status={status('REGISTERED')} loading={false} onRefresh={vi.fn()} />);
     expect(screen.getByText('Agent onboarding')).toBeInTheDocument();
     expect(screen.getByText('Registered')).toBeInTheDocument();
-    expect(screen.getByText('Delegation')).toBeInTheDocument();
+    expect(screen.getByText('Member grant')).toBeInTheDocument();
+    expect(screen.getByText('Effective access')).toBeInTheDocument();
     expect(screen.getByText('ACTIVE')).toBeInTheDocument();
+    expect(screen.getByText('Authorized')).toHaveClass('status-pill-ok');
   });
 
   it('renders DID mismatch as a non-success onboarding state', () => {
@@ -42,11 +48,24 @@ describe('SystemStatusBar', () => {
     expect(screen.getByText('Card/DID mismatch')).toHaveClass('status-pill-off');
   });
 
-  it('renders future delegation as scheduled and never operational', () => {
-    render(<SystemStatusBar status={{ ...status('REGISTERED'), delegationState: 'SCHEDULED', message: 'Delegation is scheduled.' }} loading={false} onRefresh={vi.fn()} />);
+  it('renders future member delegation as scheduled and never operational', () => {
+    render(<SystemStatusBar status={{ ...status('REGISTERED'), memberDelegationState: 'SCHEDULED', delegationState: 'INCOMPLETE', message: 'Delegation is scheduled.' }} loading={false} onRefresh={vi.fn()} />);
     expect(screen.getByText('Scheduled')).toHaveClass('status-pill-pending');
     expect(screen.getByText(/authorization window has not begun/i)).toBeInTheDocument();
     expect(screen.getByText('Unavailable / incomplete')).toBeInTheDocument();
     expect(screen.queryByText('Operational')).not.toBeInTheDocument();
+  });
+
+  it('never treats an active member grant as operational when platform access is incomplete', () => {
+    render(<SystemStatusBar status={{ ...status('REGISTERED'), delegationState: 'INCOMPLETE' }} loading={false} onRefresh={vi.fn()} />);
+    expect(screen.getByText('Not authorized')).toHaveClass('status-pill-off');
+    expect(screen.getByText(/did not confirm effective delegated access/i)).toBeInTheDocument();
+    expect(screen.queryByText('Operational')).not.toBeInTheDocument();
+  });
+
+  it('renders unavailable platform verification as pending, not success', () => {
+    render(<SystemStatusBar status={{ ...status('REGISTERED'), delegationState: 'UNKNOWN' }} loading={false} onRefresh={vi.fn()} />);
+    expect(screen.getByText('Unavailable')).toHaveClass('status-pill-pending');
+    expect(screen.getByText(/effective-access check is unavailable/i)).toBeInTheDocument();
   });
 });
