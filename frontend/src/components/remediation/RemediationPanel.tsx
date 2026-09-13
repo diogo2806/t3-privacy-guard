@@ -25,8 +25,9 @@ export function RemediationPanel({ action, decision, execution, busy, onAuthoriz
   const isPrivateNotification = action?.action === 'notify-security';
   const hasVerifiedExecutor = isCredentialRevocation || isPrivateNotification;
   const hasApprovedDestination = Boolean(action?.host);
-  const canAuthorize = Boolean(hasVerifiedExecutor && hasApprovedDestination && action && decision?.decision === 'ALLOW' && action.status === 'EVALUATED');
-  const canExecute = Boolean(hasVerifiedExecutor && hasApprovedDestination && action && decision?.decision === 'ALLOW' && action.status === 'REMEDIATION_AUTHORIZED' && !execution);
+  const hasRequiredPrivateReference = !isPrivateNotification || (action?.privateRefs.length === 1 && action.privateRefs[0] === 'verified_email');
+  const canAuthorize = Boolean(hasVerifiedExecutor && hasApprovedDestination && hasRequiredPrivateReference && action && decision?.decision === 'ALLOW' && action.status === 'EVALUATED');
+  const canExecute = Boolean(hasVerifiedExecutor && hasApprovedDestination && hasRequiredPrivateReference && action && decision?.decision === 'ALLOW' && action.status === 'REMEDIATION_AUTHORIZED' && !execution);
   const canVerify = Boolean(hasVerifiedExecutor && execution && (execution.state === 'PENDING_VERIFICATION' || execution.state === 'UNVERIFIED') && execution.operationId);
   const destinationChanged = execution?.failureCode === 'EXECUTION_DESTINATION_CHANGED';
   const state = stateCopy(execution);
@@ -55,6 +56,7 @@ export function RemediationPanel({ action, decision, execution, busy, onAuthoriz
         </div>
       )}
       {hasVerifiedExecutor && action && decision?.decision === 'ALLOW' && !action.host && <div className="feedback feedback-error remediation-status-message" role="alert"><CircleAlert aria-hidden="true" /><span>Execution is blocked because this action has no approved destination. Create and evaluate a new action before authorizing remediation.</span></div>}
+      {isPrivateNotification && action && decision?.decision === 'ALLOW' && !hasRequiredPrivateReference && <div className="feedback feedback-error remediation-status-message" role="alert"><CircleAlert aria-hidden="true" /><span>Execution is blocked because security notification requires exactly the logical private reference verified_email. Create and evaluate a new action; plaintext recipients and placeholder literals are not accepted.</span></div>}
       {canAuthorize && <button className="button button-primary" type="button" onClick={onAuthorize} disabled={busy}><ShieldCheck aria-hidden="true" />Authorize {actionLabel}</button>}
       {canExecute && <>
         <div className="success-state"><ShieldCheck aria-hidden="true" /><span>Human authorization is recorded for the exact destination and policy decision shown above. Changing the protected destination requires a new action, policy evaluation and authorization.</span></div>
