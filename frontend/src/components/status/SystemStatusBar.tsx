@@ -1,5 +1,5 @@
 import { BadgeCheck, KeyRound, RefreshCw, Server, Shield, UserRoundCog } from 'lucide-react';
-import type { AgentRegistrationState, DelegationState, SystemStatus } from '../../services/privacyGuardApi';
+import type { AgentRegistrationState, DelegationState, MemberDelegationState, SystemStatus } from '../../services/privacyGuardApi';
 
 interface Props { status: SystemStatus | null; loading: boolean; onRefresh: () => void; }
 type PillState = 'ok' | 'off' | 'pending';
@@ -15,15 +15,27 @@ function registrationLabel(state?: AgentRegistrationState): string {
   return 'Unavailable';
 }
 
-function delegationPillState(state?: DelegationState): PillState {
+function memberPillState(state?: MemberDelegationState): PillState {
   if (state === 'ACTIVE') return 'ok';
   if (state === 'SCHEDULED') return 'pending';
   return 'off';
 }
 
-function delegationLabel(state?: DelegationState): string {
+function memberLabel(state?: MemberDelegationState): string {
   if (state === 'SCHEDULED') return 'Scheduled';
   return state ?? 'UNKNOWN';
+}
+
+function effectivePillState(state?: DelegationState): PillState {
+  if (state === 'ACTIVE') return 'ok';
+  if (state === 'UNKNOWN') return 'pending';
+  return 'off';
+}
+
+function effectiveLabel(state?: DelegationState): string {
+  if (state === 'ACTIVE') return 'Authorized';
+  if (state === 'INCOMPLETE') return 'Not authorized';
+  return 'Unavailable';
 }
 
 function isReady(status: SystemStatus | null): boolean {
@@ -41,6 +53,17 @@ export function SystemStatusBar({ status, loading, onRefresh }: Props) {
   const ready = isReady(status);
   const overallState: PillState = loading ? 'pending' : ready ? 'ok' : 'off';
   const overallLabel = loading ? 'Checking live status' : ready ? 'Operational' : 'Unavailable / incomplete';
+  const description = loading
+    ? 'Checking the controls used to evaluate and execute protected actions.'
+    : ready
+      ? 'Policy and protected execution controls are available with effective T3N delegated access.'
+      : status?.memberDelegationState === 'SCHEDULED'
+        ? 'Member delegation exists, but its authorization window has not begun.'
+        : status?.delegationState === 'INCOMPLETE'
+          ? 'A Member grant was observed, but T3N did not confirm effective delegated access.'
+          : status?.memberDelegationState === 'ACTIVE' && status?.delegationState === 'UNKNOWN'
+            ? 'The Member grant is active, but the T3N effective-access check is unavailable.'
+            : 'One or more T3N controls are unavailable. Decisions or execution may not be provable.';
 
   return (
     <section className="status-panel status-panel-secondary" aria-label="Live T3N operational status">
@@ -48,7 +71,7 @@ export function SystemStatusBar({ status, loading, onRefresh }: Props) {
         <div>
           <p className="eyebrow">Technical T3N status</p>
           <h2>Live control plane</h2>
-          <p>{loading ? 'Checking the controls used to evaluate and execute protected actions.' : ready ? 'Policy and protected execution controls are available.' : status?.delegationState === 'SCHEDULED' ? 'Delegation exists, but its authorization window has not begun.' : 'One or more T3N controls are unavailable. Decisions or execution may not be provable.'}</p>
+          <p>{description}</p>
         </div>
         <StatusPill state={overallState} label={overallLabel} />
       </div>
@@ -66,7 +89,8 @@ export function SystemStatusBar({ status, loading, onRefresh }: Props) {
           <div className="status-item"><UserRoundCog aria-hidden="true" /><div><span>Agent</span><StatusPill state={status?.agentAuthenticated ? 'ok' : 'off'} label={status?.agentAuthenticated ? 'Authenticated' : status?.agentConfigured ? 'Not authenticated' : 'Not configured'} /></div></div>
           <div className="status-item"><BadgeCheck aria-hidden="true" /><div><span>Agent onboarding</span><StatusPill state={registrationState === 'REGISTERED' ? 'ok' : 'off'} label={registrationLabel(registrationState)} /></div></div>
           <div className="status-item"><Shield aria-hidden="true" /><div><span>Contract</span><StatusPill state={status?.contractResolved ? 'ok' : 'off'} label={status?.contractResolved ? `Resolved · v${status.contractVersion}` : 'Unavailable'} /></div></div>
-          <div className="status-item"><KeyRound aria-hidden="true" /><div><span>Delegation</span><StatusPill state={delegationPillState(status?.delegationState)} label={delegationLabel(status?.delegationState)} /></div></div>
+          <div className="status-item"><KeyRound aria-hidden="true" /><div><span>Member grant</span><StatusPill state={memberPillState(status?.memberDelegationState)} label={memberLabel(status?.memberDelegationState)} /></div></div>
+          <div className="status-item"><Shield aria-hidden="true" /><div><span>Effective access</span><StatusPill state={effectivePillState(status?.delegationState)} label={effectiveLabel(status?.delegationState)} /></div></div>
         </div>
         <div className="status-meta">
           <div><span>Tenant DID</span><code>{status?.tenantDid ?? 'Unavailable'}</code></div>
@@ -77,7 +101,10 @@ export function SystemStatusBar({ status, loading, onRefresh }: Props) {
           <div><span>Card verified</span><code>{status?.agentCardVerifiedAt ? new Date(status.agentCardVerifiedAt).toLocaleString() : 'Not available'}</code></div>
           <div><span>Contract</span><code>{status?.contractId ?? 'Unavailable'}</code></div>
           <div><span>Delegated functions</span><code>{status?.delegatedFunctions.length ? status.delegatedFunctions.join(', ') : 'None observed'}</code></div>
+          <div><span>Delegated scopes</span><code>{status?.delegatedScopes.length ? status.delegatedScopes.join(', ') : 'None observed'}</code></div>
           <div><span>Allowed hosts</span><code>{status?.allowedHosts.length ? status.allowedHosts.join(', ') : 'None observed'}</code></div>
+          <div><span>T3N satisfied</span><code>{status?.delegationSatisfied.length ? status.delegationSatisfied.join(', ') : 'None reported'}</code></div>
+          <div><span>T3N missing</span><code>{status?.delegationMissing.length ? status.delegationMissing.join(', ') : 'None reported'}</code></div>
         </div>
       </details>
     </section>
