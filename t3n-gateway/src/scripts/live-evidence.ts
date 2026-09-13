@@ -164,6 +164,10 @@ await delegation.grant({
   scopes: ['incident_id', 'credential_id', 'reason'],
   allowedHosts: configuredEgressHosts(),
 });
+const effectiveDelegation = await delegation.status(contractId);
+if (effectiveDelegation.state !== 'ACTIVE') {
+  throw new Error(`Effective T3N delegation was not confirmed for the authenticated Agent (${effectiveDelegation.state})`);
+}
 
 const run = spawnSync('npm', ['run', 'evidence:testnet'], {
   cwd: gatewayRoot,
@@ -186,6 +190,7 @@ console.info(JSON.stringify({
   wasmSha256,
   policyVersion: policy.document.version,
   policyHash: policy.hash,
+  effectiveDelegation: effectiveDelegation.state,
   agentRegistrationState: agentRegistration.state,
   agentCardSha256: agentRegistration.cardSha256,
   trustManifestVersion: persistedTrustFloor.version,
