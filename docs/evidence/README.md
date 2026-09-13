@@ -105,11 +105,13 @@ canonical Proposal Agent DID
                      Agent-side T3N checkDelegation
                                    |
                                    +--> authorised=true  -> effective ACTIVE
-                                   +--> authorised=false -> effective INCOMPLETE
+                                   +--> authorised=false -> effective DENIED
                                    +--> error/invalid    -> effective UNKNOWN
 ```
 
-The same Member-grant-to-`checkDelegation()` sequence is evaluated independently for the Protected Executor using its own authenticated T3N client. The `pii_did` is always the canonical Tenant DID returned by the authenticated Tenant session. The contract id is the canonical resolved contract and functions/scopes are taken from the matching observed grant, never from browser input.
+The same Member-grant-to-`checkDelegation()` sequence is evaluated independently for the Protected Executor using its own authenticated T3N client. The `pii_did` is always the canonical Tenant DID returned by the authenticated Tenant session and the contract id is the canonical resolved contract. The check does not trust restrictions read back from the grant as its requested authorization surface: Proposal always checks exactly `evaluate-action` with scopes `incident_id`, `credential_id`, `reason`; Executor independently checks exactly `execute-remediation` plus `verify-remediation` with the same minimum scopes. Wildcard function/scope requirements are rejected. Browser input cannot choose any of these security inputs.
+
+When the Member grant is not `ACTIVE`, runtime status does not issue a potentially misleading positive `checkDelegation()` call: `SCHEDULED`, `REVOKED` and `NOT_GRANTED` map fail-closed to effective `DENIED`, while unreadable/invalid Member state maps to effective `UNKNOWN`. `checkedFunctions` and `checkedScopes` remain empty when no effective check was attempted.
 
 The builder derives the public card only from the canonical DID returned by the authenticated `AgentSession`. The supported public card advertises one `DID` service for that exact DID, is active, explicitly does not claim x402 support, and rejects sensitive metadata or unsupported service names. The runtime verifier resolves the public card over HTTPS, enforces the bounded schema/size, requires the DID service to match the authenticated Agent DID exactly, and hashes the exact resolved body.
 
@@ -136,9 +138,9 @@ State meanings:
 - `MISMATCH`: a card was returned but its schema, DID, service set or supported metadata did not match the expected agent;
 - `UNAVAILABLE`: the authenticated DID or public registry could not be verified at that time;
 - Member `ACTIVE`: a matching grant is present and temporally valid, but this alone does not prove effective authority;
-- Effective `ACTIVE`: T3N returned `authorised=true` from `checkDelegation()` executed as the authenticated principal;
-- Effective `INCOMPLETE`: no effective authorization exists for the observed request, including `authorised=false` or a non-active Member grant;
-- Effective `UNKNOWN`: the platform verdict could not be validated and the system fails closed.
+- Effective `ACTIVE`: T3N returned `authorised=true` from `checkDelegation()` executed as the authenticated principal for its fixed minimum requirements;
+- Effective `DENIED`: T3N returned `authorised=false`, or a known non-active Member state prevents effective authorization;
+- Effective `UNKNOWN`: the Member state or platform verdict could not be validated and the system fails closed.
 
 The deployment manifest records `agentRegistrationState` and the verification timestamp. When a card was actually resolved, it can also record the public card URI, SHA-256 and service names. A card hash is discoverability provenance only. `REGISTERED` does **not** mean delegated, authorized, TEE-attested or permitted to execute any contract function. Likewise, an `ACTIVE` Member grant is not presented as an effective authorization unless `checkDelegation()` confirms it.
 
@@ -176,11 +178,12 @@ The orchestrator:
 10. writes sanitized `docs/evidence/deployment-manifest.json` including source revision, trust-anchor, rollback-floor, Agent Card, policy and contract/WASM provenance;
 11. optionally prepares the private remediation map when `EVIDENCE_PREPARE_EGRESS=true`;
 12. derives least-privilege allowed hosts from the configured HTTPS action/verification endpoints;
-13. creates/updates least-privilege Member grants for Proposal Agent and Protected Executor as required by the evidence setup;
-14. runtime status distinguishes each observed Member grant from the authenticated principal-side `checkDelegation()` verdict; only effective `ACTIVE` counts as operational readiness;
-15. invokes the existing `evidence:testnet` runner and writes the same captured source SHA/tree state into `testnet-run.json`;
-16. verifies that testnet evidence and deployment manifest have the same source SHA/tree state, network, SDK, DIDs, contract id/version, WASM hash and policy provenance;
-17. fails if the runner reports failure, source identity is absent/malformed/mismatched, the identities mismatch, trust/policy metadata is inconsistent, or leak detection finds configured secret material.
+13. creates/updates the exact least-privilege Member grants: Proposal only `evaluate-action`, Executor only `execute-remediation` and `verify-remediation`, both with the fixed minimum scopes and no wildcard;
+14. calls `checkDelegation()` independently through each authenticated delegated principal for its fixed requirements and fails before scenario execution unless both Member state and effective state are `ACTIVE`;
+15. invokes the existing `evidence:testnet` runner, records sanitized Proposal/Executor Member/effective states and exact checked restrictions, and writes the same captured source SHA/tree state into `testnet-run.json`;
+16. when `EVIDENCE_RUN_EGRESS_NEGATIVES=true`, revokes Proposal and Executor grants independently, requires direct principal-side `checkDelegation()` to return `authorised=false`, exercises protected rejection where applicable, and restores the known-good minimum grants in `finally`;
+17. verifies that testnet evidence and deployment manifest have the same source SHA/tree state, network, SDK, DIDs, contract id/version, WASM hash and policy provenance, and that recorded delegation evidence matches the live positive checks;
+18. fails if the runner reports failure, effective delegation is not confirmed, negative revocation evidence fails, source identity is absent/malformed/mismatched, identities mismatch, trust/policy metadata is inconsistent, or leak detection finds configured secret material.
 
 The evidence chain is:
 
@@ -199,7 +202,7 @@ authenticated Tenant + Proposal Agent + Protected Executor sessions
    |                         +--> public Proposal Agent Card resolution
    |                              state + URI/hash/services when observed
    |
-   +--> Member grants -> principal-side checkDelegation -> effective access
+   +--> exact Member grants -> independent principal-side checkDelegation -> effective access
    v
 WASM bytes + canonical policy
    | SHA-256 + policy version/hash
@@ -208,7 +211,7 @@ deployment-manifest.json
    | source revision + trust + onboarding + policy + contract + canonical DIDs
    v
 T3N testnet runner
-   |
+   | sanitized effective-delegation verdicts + live outcomes
    v
 testnet-run.json
    | same source revision + live outcomes
@@ -244,7 +247,7 @@ observed state = REVOKED
 
 An HTTP 2xx or `PENDING_VERIFICATION` alone is not completion evidence. Missing operation id, contradictory state or unavailable verification is not upgraded to `PASS`.
 
-Negative grant tests restore the known-good challenge grant in `finally`. They count as PASS only for recognizable authorization/delegation rejection; missing private configuration or transport errors are FAIL.
+Negative grant tests restore the known-good challenge grant in `finally`. They count as PASS only when the expected authorization/delegation rejection is observed; missing private configuration, transport errors or an inconclusive `checkDelegation()` response are FAIL.
 
 ## Idempotency claim boundary
 
@@ -318,9 +321,9 @@ The `limit` is server-validated between 1 and 200. Activity evidence is sanitize
 - policy version/hash;
 - WASM SHA-256.
 
-`testnet-run.json` contains the same `sourceCommitSha` and `sourceTreeClean` values plus live scenario outcomes including PASS/FAIL/NOT_RUN. Missing, malformed or mismatched source provenance invalidates the bundle. Optional scenarios that were not executed stay `NOT_RUN`; they are never converted into PASS.
+`testnet-run.json` contains the same `sourceCommitSha` and `sourceTreeClean` values plus live scenario outcomes including PASS/FAIL/NOT_RUN and the sanitized delegation evidence for Proposal/Executor. Missing, malformed or mismatched source provenance invalidates the bundle. Optional scenarios that were not executed stay `NOT_RUN`; they are never converted into PASS.
 
-Both artifacts pass leak detection against configured Tenant/Proposal Agent/Protected Executor keys, remediation key, AI provider key, service token, capability signing key and optional sentinel before being accepted. Neither artifact contains `.env` contents, API keys, tokens or private keys.
+Both artifacts pass leak detection against configured Tenant/Proposal Agent/Protected Executor keys, remediation key, AI provider key, service token, capability signing key and optional sentinel before being accepted. Neither artifact contains `.env` contents, API keys, tokens, private keys or raw Member Delegation documents.
 
 ## Trust, onboarding and authorization evidence wording
 
@@ -337,12 +340,13 @@ The UI and evidence API deliberately distinguish these concepts:
 - **Protected Executor AUTHENTICATED**: its independent session proved the separate execution principal DID.
 - **Agent onboarding REGISTERED**: a public Agent Card for the Proposal Agent DID resolved and passed the closed validation.
 - **Member grant ACTIVE**: the Tenant-side grant record exists and is inside its validity window; this is not yet an effective platform verdict.
-- **Platform delegation AUTHORIZED**: `checkDelegation()` executed as the authenticated grantee returned `authorised=true` for the canonical contract, Tenant DID and observed functions/scopes.
-- **Effective access ACTIVE**: the Member grant is active and the platform delegation is authorized. Only this state may contribute to operational readiness.
+- **Effective access ACTIVE**: `checkDelegation()` executed as the authenticated grantee returned `authorised=true` for that principal's canonical contract, Tenant DID and fixed minimum functions/scopes. Only this state may contribute to operational readiness.
+- **Effective access DENIED**: `authorised=false`, or a known non-active Member state, prevents readiness.
+- **Effective access UNKNOWN**: the Member state or platform verdict could not be validated; readiness remains false.
 
 These labels do not mean “hardware execution verified”. A public Agent Card hash is not authorization or attestation, a clean source tree is not a code audit, and a per-request hardware-attestation claim would require separate execution-specific evidence.
 
-If trust-manifest retrieval, rollback validation, persisted state validation, version extraction or effective-delegation verification fails, readiness remains false. Agent Card resolution has its own explicit negative states (`NOT_REGISTERED`, `MISMATCH`, `UNAVAILABLE`) and is never silently rendered as `REGISTERED`. `authorised=false` produces effective `INCOMPLETE`; a failed or malformed platform verdict produces `UNKNOWN`.
+If trust-manifest retrieval, rollback validation, persisted state validation, version extraction or effective-delegation verification fails, readiness remains false. Agent Card resolution has its own explicit negative states (`NOT_REGISTERED`, `MISMATCH`, `UNAVAILABLE`) and is never silently rendered as `REGISTERED`. `authorised=false` produces effective `DENIED`; a failed or malformed platform verdict produces `UNKNOWN`.
 
 ## Profile placeholder evidence
 

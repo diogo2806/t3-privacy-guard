@@ -16,7 +16,7 @@ T3 Privacy Guard assumes the AI agent itself can be manipulated. The demo sends 
 
 The structured proposal is persisted and sent to the independent Terminal 3 Rust/WASM policy through authenticated T3N identities. The Tenant, Proposal Agent and Protected Executor have separate sessions and canonical DIDs. A malicious exfiltration proposal receives `DENY`. A minimum legitimate proposal can receive `ALLOW`, but `ALLOW` is still not execution: an authenticated operator must explicitly authorize remediation, after which Spring emits a short-lived one-time signed capability bound to the exact action, decision, normal fields, logical private references, Protected Executor DID and policy provenance.
 
-Delegation is also split into two proofs. A **Member grant** is the Tenant-side record that names the grantee, contract, functions, scopes, hosts and validity window. It proves that a matching grant document exists, but it does not by itself prove that the authenticated principal is effectively authorized at that moment. When a matching grant is active, the gateway calls T3N `checkDelegation()` through the authenticated Proposal Agent or Protected Executor client. Only `authorised=true` produces **effective access `ACTIVE`**. `authorised=false` produces `INCOMPLETE`; transport, parsing or malformed verdicts produce `UNKNOWN`. Both non-success states fail closed.
+Delegation is also split into two proofs. A **Member grant** is the Tenant-side record that names the grantee, contract, functions, scopes, hosts and validity window. It proves that a matching grant document exists, but it does not by itself prove that the authenticated principal is effectively authorized at that moment. Only when the matching Member grant is `ACTIVE` does the gateway call T3N `checkDelegation()` through that authenticated Proposal Agent or Protected Executor client. Proposal checks the fixed minimum requirement `evaluate-action`; Executor independently checks `execute-remediation` plus `verify-remediation`; both use only scopes `incident_id`, `credential_id`, `reason` and reject wildcard requirements. Only `authorised=true` produces **effective access `ACTIVE`**. `authorised=false` produces `DENIED`; transport, parsing or malformed verdicts produce `UNKNOWN`. Known non-active Member states fail closed without issuing a potentially misleading positive platform check.
 
 For private profile data, the application carries only a category such as `verified_email`. The Rust/WASM contract maps that closed reference to the supported T3N marker `{{profile.verified_contacts.email.value}}`; the real value can be resolved only by T3N during protected egress and is not returned to React, Java, the model or gateway responses.
 
@@ -87,14 +87,14 @@ The important observation is not merely that a keyword was detected. The model i
 ```text
 Minimum legitimate credential-revocation proposal
   -> Proposal Agent session authenticated
-  -> Member grant observed
-  -> T3N checkDelegation -> authorised=true
+  -> Proposal Member grant ACTIVE
+  -> Proposal checkDelegation(exact evaluate-action + minimum scopes) -> authorised=true
   -> effective Proposal access ACTIVE
   -> T3N policy ALLOW + exact version/hash
   -> authenticated human authorizes exact action + policy provenance
   -> Protected Executor session authenticated
-  -> Executor Member grant observed
-  -> T3N checkDelegation -> authorised=true
+  -> Executor Member grant ACTIVE
+  -> Executor checkDelegation(exact execute + verify + minimum scopes) -> authorised=true
   -> effective Executor access ACTIVE
   -> Spring signs one-time capability bound to Executor DID
   -> gateway validates body equality + expiry + anti-replay
@@ -155,30 +155,27 @@ REGISTERED
 MEMBER GRANT ACTIVE
   Tenant-side grant record exists and its validity window is active
 
-PLATFORM DELEGATION AUTHORIZED
-  authenticated principal called checkDelegation() and T3N returned authorised=true
-
 EFFECTIVE ACCESS ACTIVE
-  Member grant is active + platform delegation is authorized
+  authenticated principal called checkDelegation() for its fixed minimum requirements and T3N returned authorised=true
 ```
 
-The runtime never derives a canonical DID from configuration or browser input. `pii_did` for `checkDelegation()` comes only from `tenantSession.getTenantDid()`. The principal performing the check is the authenticated Proposal Agent or Protected Executor client. The contract id is the resolved canonical contract id. Functions and scopes are taken from the observed Member grant and are not widened to `*`.
+The runtime never derives a canonical DID from configuration or browser input. `pii_did` for `checkDelegation()` comes only from `tenantSession.getTenantDid()`. The principal performing the check is the authenticated Proposal Agent or Protected Executor client. The contract id is the resolved canonical contract id. The authorization request is fixed by principal: Proposal uses only `evaluate-action`; Executor uses only `execute-remediation` and `verify-remediation`; both use only `incident_id`, `credential_id`, `reason`. Wildcard function/scope requirements are rejected and observed grant restrictions are diagnostic data, not the source of the requested check surface.
 
 Effective-state semantics:
 
 | Member state | T3N platform verdict | Effective state | Operational? |
 |---|---|---|---|
 | `ACTIVE` | `authorised=true` | `ACTIVE` | eligible, subject to all other controls |
-| `ACTIVE` | `authorised=false` | `INCOMPLETE` | no |
+| `ACTIVE` | `authorised=false` | `DENIED` | no |
 | `ACTIVE` | error/malformed/unavailable | `UNKNOWN` | no |
-| `SCHEDULED` | not called | `INCOMPLETE` | no |
-| `REVOKED` | not called | `INCOMPLETE` | no |
-| `NOT_GRANTED` | not called | `INCOMPLETE` | no |
+| `SCHEDULED` | not called | `DENIED` | no |
+| `REVOKED` | not called | `DENIED` | no |
+| `NOT_GRANTED` | not called | `DENIED` | no |
 | `UNKNOWN` | not called | `UNKNOWN` | no |
 
-The Proposal Agent and Protected Executor are evaluated independently. The dashboard reports the control plane ready only when both effective states are `ACTIVE` together with the required authenticated identities and resolved contract.
+When no effective check is attempted, `checkedFunctions` and `checkedScopes` remain empty instead of implying a platform verdict. The Proposal Agent and Protected Executor are evaluated independently. `evaluationReady` requires the Proposal side to be effective `ACTIVE`; `protectedRemediationReady` additionally requires the Executor side to be effective `ACTIVE`. Therefore policy evaluation can remain available while protected execution is blocked.
 
-`satisfied` and `missing` are exposed only as bounded sanitized labels. Raw SDK objects, credentials, tokens and arbitrary response payloads are never forwarded to Spring or the browser.
+Only bounded Member-grant fields and the exact checked function/scope labels are exposed. Raw SDK objects, credentials, tokens, `satisfied`, `missing` and arbitrary response payloads are never forwarded to Spring or the browser.
 
 ## Judge quick path
 
@@ -187,8 +184,8 @@ The Proposal Agent and Protected Executor are evaluated independently. The dashb
 2. Read the product thesis before inspecting low-level metadata.
 3. Confirm Tenant, Proposal Agent and Protected Executor are authenticated as separate principals.
 4. Inspect Agent onboarding separately from authorization.
-5. Open technical status and distinguish Member grant, Platform delegation and Effective access for Proposal Agent and Executor.
-6. Treat the control plane as operational only when both Effective access states are ACTIVE.
+5. Open technical status and distinguish Member grant from Effective T3N access for Proposal Agent and Executor.
+6. Confirm Proposal evaluation is ready only with Proposal effective ACTIVE; treat protected remediation as operational only when Executor effective access is also ACTIVE.
 7. Choose Credential compromised and inspect the synthetic attack prompt.
 8. Click Ask agent and inspect the real model proposal.
 9. Observe independent T3N TEE DENY and the exact policy version/hash.
@@ -223,13 +220,13 @@ T3N Gateway
       +--> Proposal Agent session               | pii_did
       |      |                                   |
       |      +--> Member grant                  |
-      |      +--> checkDelegation --------------+
+      |      +--> exact checkDelegation --------+
       |      +--> effective access
       |
       +--> Protected Executor session
              |
              +--> Member grant
-             +--> checkDelegation
+             +--> exact checkDelegation
              +--> effective access
       |
       v
@@ -262,8 +259,8 @@ Trust model:
 - **Unknown or privileged model fields are rejected.** Decisions, overrides, identities, credentials, secrets, API keys and literal `{{profile...}}` markers are rejected before T3N evaluation.
 - **Private data is referenced, not copied.** The model/application may request `verified_email`; only Rust/WASM can convert it to the official T3N profile marker.
 - **T3N identities are server-derived.** Tenant, Proposal Agent and Protected Executor DIDs come from authenticated sessions.
-- **A Member grant is necessary but not sufficient.** Runtime readiness uses the authenticated principal-side T3N `checkDelegation()` verdict.
-- **Delegation checks fail closed.** `authorised=false`, malformed verdicts or platform errors cannot become ready states.
+- **A Member grant is necessary but not sufficient.** Runtime readiness uses the authenticated principal-side T3N `checkDelegation()` verdict for a fixed least-privilege requirement.
+- **Delegation checks fail closed.** `authorised=false`, malformed verdicts or platform errors cannot become ready states; known non-active Member states do not trigger a positive effective check.
 - **Rust/WASM owns immutable security invariants.** The model and KV policy cannot manufacture authority or relax forbidden-secret/identity/delegation boundaries.
 - **Private T3N KV owns versioned operational rules.** Each accepted decision exposes deterministic version/hash provenance.
 - **Spring Boot owns durable business authorization and execution state.** It persists logical refs, policy provenance, the human authorization transition and the remediation state machine.
@@ -283,7 +280,7 @@ Trust model:
 | Which principal proposes policy evaluation? | Authenticated Proposal Agent session |
 | Which principal executes protected remediation? | Authenticated Protected Executor session |
 | Does a matching grant record exist? | Tenant-side Member Delegation document |
-| Is that principal effectively delegated now? | Principal-side T3N `checkDelegation()` with Tenant DID + canonical contract + observed functions/scopes |
+| Is that principal effectively delegated now? | Principal-side T3N `checkDelegation()` with canonical Tenant DID + resolved contract + fixed principal-specific functions/scopes |
 | Which operational rules are active? | Versioned private T3N KV policy |
 | Which critical rules cannot be relaxed? | Rust/WASM invariants |
 | Is action/purpose/host/data allowed? | Rust/WASM evaluation of active policy |
@@ -305,11 +302,12 @@ Trust model:
 | Tenant DID derives from authenticated T3N session | PROVED LOCAL | gateway session code/tests |
 | Proposal Agent and Protected Executor use separate authenticated credentials/DIDs | PROVED LOCAL | session separation + status tests |
 | Member-grant validity windows fail closed | PROVED LOCAL | `delegation-service.test.ts` |
-| Effective access requires authenticated principal-side `checkDelegation()` | PROVED LOCAL | `delegation-service.test.ts` |
+| Effective access requires authenticated principal-side `checkDelegation()` only for an active Member grant | PROVED LOCAL | `delegation-service.test.ts` |
+| Proposal and Executor checks use independent fixed least-privilege functions/scopes with no wildcard | PROVED LOCAL | `delegation-service.test.ts` |
 | `pii_did` for the delegation check is the authenticated Tenant DID | PROVED LOCAL | `delegation-service.test.ts` |
-| `authorised=false` cannot become operational readiness | PROVED LOCAL | gateway/backend/frontend tests |
+| `authorised=false` becomes `DENIED` and cannot become operational readiness | PROVED LOCAL | gateway/backend/frontend tests |
 | `checkDelegation()` error or malformed response becomes `UNKNOWN`, never ready | PROVED LOCAL | gateway/backend/frontend tests |
-| UI separates Member grant, Platform delegation and Effective access | PROVED LOCAL | `SystemStatusBar.test.tsx`, `TrustFlowSummary.test.tsx` |
+| UI separates Member grant and Effective T3N access, with evaluation readiness distinct from protected-remediation readiness | PROVED LOCAL | `SystemStatusBar.test.tsx`, `TrustFlowSummary.test.tsx` |
 | Canonical policy hashing is deterministic | PROVED LOCAL | `policy-document.test.ts` |
 | Reusing a version with different content is rejected | PROVED LOCAL | policy provisioner + tests |
 | Missing/invalid policy fails closed | PROVED LOCAL | Rust policy tests + gateway contract path |
@@ -333,7 +331,8 @@ Trust model:
 | Real model attack -> T3N DENY on live testnet | NOT CLAIMED | only after matching public capture/evidence run |
 | T3N profile placeholder resolves verified email on live testnet | NOT RUN | requires compatible profile/user context and matching evidence |
 | Verified external remediation on live testnet | NOT CLAIMED | only after execute + independent verify scenario passes |
-| Revoked delegation blocks protected egress on live testnet | NOT CLAIMED | only after matching live evidence |
+| Revoked Proposal/Executor delegation makes direct principal-side `checkDelegation()` return `authorised=false` and minimum grants can be restored | NOT CLAIMED until matching live run | `LIVE-REVOKED-PROPOSAL-CHECK` / `LIVE-REVOKED-EXECUTOR-CHECK` |
+| Revoked Executor delegation blocks protected egress on live testnet | NOT CLAIMED | only after matching live evidence |
 | Hardware attestation for this execution | NOT CLAIMED | no explicit attestation artifact yet |
 
 ## Real AI tool boundary
@@ -450,7 +449,7 @@ Failure semantics:
 
 ### Member Delegation and effective authorization
 
-Member Delegation is treated as the Tenant-side grant document. Non-empty functions/scopes are required. A matching `ACTIVE` record is not promoted directly to operational authority. The gateway uses the authenticated grantee client to call `checkDelegation()` with the resolved contract, authenticated Tenant DID and exact observed functions/scopes. Proposal Agent and Protected Executor are checked independently.
+Member Delegation is treated as the Tenant-side grant document. A matching `ACTIVE` record is necessary but is not promoted directly to operational authority. Proposal and Executor checks are independent and use each authenticated grantee client. The check receives the resolved contract, authenticated Tenant DID and the fixed minimum requirement for that principal: Proposal checks only `evaluate-action`; Executor checks only `execute-remediation` and `verify-remediation`; both check scopes `incident_id`, `credential_id`, `reason`. Wildcards are rejected. `authorised=false` is `DENIED`; errors/malformed verdicts are `UNKNOWN`; known non-active Member states fail closed without invoking the effective check.
 
 ### Delegated `pii_did`
 
@@ -479,12 +478,14 @@ Proposal Agent AUTHENTICATED
       |
       +--> Member grant -> ACTIVE / SCHEDULED / REVOKED / NOT_GRANTED / UNKNOWN
                           |
-                          +--> checkDelegation -> Authorized / Not authorized / Unavailable
+                          +--> only ACTIVE -> checkDelegation
                                                |
-                                               +--> Effective access ACTIVE / INCOMPLETE / UNKNOWN
+                                               +--> authorised=true  -> Effective access ACTIVE
+                                               +--> authorised=false -> Effective access DENIED
+                                               +--> error/invalid    -> Effective access UNKNOWN
 ```
 
-The generated Agent Card is derived from the DID returned by the authenticated Proposal Agent session, not from a configured/hardcoded DID. It advertises only the supported `DID` service for that same identity, is bounded to the hosted-card size limit and rejects sensitive metadata/private-key-shaped values. The implementation does not advertise unsupported A2A/MCP services or x402 payment capability.
+The Protected Executor follows the same model independently using its own authenticated DID and its own fixed function set. The generated Agent Card is derived from the DID returned by the authenticated Proposal Agent session, not from a configured/hardcoded DID. It advertises only the supported `DID` service for that same identity, is bounded to the hosted-card size limit and rejects sensitive metadata/private-key-shaped values. The implementation does not advertise unsupported A2A/MCP services or x402 payment capability.
 
 Operational commands:
 
@@ -525,7 +526,7 @@ Tenant / Proposal Agent / Protected Executor authenticated sessions
       |
       +--> Proposal Agent Card provenance
       |
-      +--> Member grants + checkDelegation effective access
+      +--> exact Member grants + independent principal-side checkDelegation
       v
 WASM bytes -> SHA-256 ----+
 policy doc -> SHA-256 ----+--> deployment-manifest.json
@@ -534,7 +535,9 @@ policy doc -> SHA-256 ----+--> deployment-manifest.json
                     testnet-run.json
 ```
 
-The live orchestrator captures the source revision before it writes generated evidence files. A dirty working tree is rejected by default; the explicit non-submission override records `sourceTreeClean=false` rather than hiding the state. The manifest and testnet run must contain the same source SHA/tree state or the evidence API rejects the bundle. `PASS` means observed result matched expectation. `FAIL` means it did not. `NOT_RUN` means the scenario was not executed and is never counted as success. The profile-placeholder execution scenario remains `NOT_RUN` until a compatible profile/user context exists; local tests do not upgrade that claim to live proof.
+The live orchestrator captures the source revision before it writes generated evidence files. A dirty working tree is rejected by default; the explicit non-submission override records `sourceTreeClean=false` rather than hiding the state. The manifest and testnet run must contain the same source SHA/tree state or the evidence API rejects the bundle. Before scenario execution, the orchestrator requires Proposal and Executor Member state plus effective state to both be `ACTIVE` for their fixed minimum checks. `PASS` means observed result matched expectation. `FAIL` means it did not. `NOT_RUN` means the scenario was not executed and is never counted as success. The profile-placeholder execution scenario remains `NOT_RUN` until a compatible profile/user context exists; local tests do not upgrade that claim to live proof.
+
+With `EVIDENCE_RUN_EGRESS_NEGATIVES=true`, the runner revokes Proposal and Executor independently, requires direct principal-side `checkDelegation()` to return `authorised=false`, exercises protected rejection where applicable, and restores the known-good minimum grants in `finally`. Raw grant documents and SDK authorization objects are not persisted in the bundle.
 
 The live remediation scenario is stricter:
 
@@ -569,7 +572,7 @@ When preparing egress evidence, configure `SECURITY_API_URL` and the separate `S
 
 1. Product header + live T3N operational status.
 2. Expanded technical status showing separate Tenant, Proposal Agent and Protected Executor DIDs.
-3. Separate Proposal/Executor **Member grant**, **Platform delegation** and **Effective access** states; capture `Operational` only when both effective states are `ACTIVE`.
+3. Separate Proposal/Executor **Member grant** and **Effective T3N access** states; capture `Operational` only when protected remediation is ready, and show `Evaluation ready · execution blocked` when only Proposal is effectively authorized.
 4. Four enterprise scenario cards with Credential compromised selected and the statement that presets are not permissions.
 5. Attack prompt + provider/model provenance + model proposal + `DENY` + policy version/hash.
 6. `REDACT` data-minimization evidence.
@@ -587,7 +590,7 @@ Never capture passwords, cookies, T3N keys, provider key, service/capability key
 ```text
 0–10s    Product thesis: AI proposes; it does not own authority
 10–25s   Show three authenticated T3N identities
-25–40s   Show Agent Card vs Member grant vs Platform delegation vs Effective access
+25–40s   Show Agent Card vs Member grant vs Effective T3N access
 40–65s   Credential attack prompt -> real provider -> malicious structured proposal
 65–85s   Independent T3N TEE DENY + policy provenance; no protected egress
 85–105s  Switch scenarios; show isolation, record incident and logical verified_email context
@@ -607,10 +610,8 @@ The submission must lead with user/business meaning, then expose the technical p
 - **pre-provider privacy guard**: high-confidence, partial control for explicitly supported structured literals; not a semantic/exhaustive PII scanner, and an accepted prompt is not certified PII-free or safe;
 - **authenticated**: a T3N session proved a principal identity and yielded its canonical DID;
 - **registered**: the public Proposal Agent Card resolved and matched the authenticated DID; not authorization;
-- **Member grant**: Tenant-side grant record with grantee, contract, functions, scopes, hosts and validity window;
-- **Platform delegation**: principal-side `checkDelegation()` verdict from T3N;
-- **effective access**: runtime result; `ACTIVE` only when Member grant is active and T3N returns `authorised=true`;
-- **authorized** in the platform-delegation status: only `checkDelegation().authorised=true`;
+- **Member grant**: Tenant-side grant record with grantee, contract, functions, scopes, hosts and validity window; necessary but not sufficient;
+- **effective access**: runtime result of the principal-specific minimum authorization requirement; `ACTIVE` only when Member grant is active and T3N returns `authorised=true`, `DENIED` on explicit denial/known non-active grant, `UNKNOWN` on inconclusive validation;
 - **human authorized**: business authorization persisted for the exact action, policy provenance and Protected Executor DID;
 - **source commit**: full public Git revision captured before evidence generation; source traceability, not independent verification;
 - **source tree CLEAN**: no tracked or untracked working-tree changes at capture time; reproducibility signal, not security certification;
