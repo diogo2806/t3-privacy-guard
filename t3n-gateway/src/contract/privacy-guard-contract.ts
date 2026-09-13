@@ -176,9 +176,10 @@ export class PrivacyGuardContractService {
     if (authorizedExecutorDid !== executorDid) throw new Error('CAPABILITY_EXECUTOR_MISMATCH');
     const contractId = await this.canonicalContractId();
     const contractVersion = await this.currentVersion(contractId);
+    const proposalAgentDid = this.agentSession.getAgentDid();
     const captured = await this.capture(executorDid, contractId, 'execute-remediation', () => this.executorSession.getClient().executeAndDecode(buildDelegatedExecutionRequest(
       this.tenantSession.getTenantDid(), contractId, contractVersion, 'execute-remediation',
-      { ...request, private_refs: request.private_refs ?? [], proposal_agent_did: this.agentSession.getAgentDid() },
+      { ...request, private_refs: request.private_refs ?? [], agent_did: proposalAgentDid },
     )));
     if (!isRemediation(captured.result)) throw new Error('T3N contract returned an invalid remediation result');
     if (captured.result.policy_version !== request.policy_version || captured.result.policy_hash !== request.policy_hash) {
