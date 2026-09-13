@@ -156,19 +156,29 @@ export class DelegationService {
     else if (functions.length === 0 || scopes.length === 0) memberState = 'UNKNOWN';
     else memberState = interpretDelegationWindow(grant.window, Math.floor(Date.now() / 1000));
 
+    if (memberState !== 'ACTIVE') {
+      return {
+        memberState,
+        effectiveState: memberState === 'UNKNOWN' ? 'UNKNOWN' : 'DENIED',
+        functions,
+        scopes,
+        allowedHosts,
+        checkedFunctions: [],
+        checkedScopes: [],
+      };
+    }
+
     const checkedFunctions = [...this.requirements.functions];
     const checkedScopes = [...this.requirements.scopes];
-    const effectiveState = await this.checkEffectiveAccess(contractId, memberState, checkedFunctions, checkedScopes);
+    const effectiveState = await this.checkEffectiveAccess(contractId, checkedFunctions, checkedScopes);
     return { memberState, effectiveState, functions, scopes, allowedHosts, checkedFunctions, checkedScopes };
   }
 
   private async checkEffectiveAccess(
     contractId: string,
-    memberState: DelegationState,
     functions: string[],
     scopes: string[],
   ): Promise<EffectiveDelegationState> {
-    let verdict: EffectiveDelegationState;
     try {
       const result = await this.agentSession.getClient().checkDelegation({
         contract: contractId,
@@ -177,14 +187,10 @@ export class DelegationService {
         scopes,
       }) as unknown;
       if (!result || typeof result !== 'object' || typeof (result as Record<string, unknown>).authorised !== 'boolean') return 'UNKNOWN';
-      verdict = (result as { authorised: boolean }).authorised ? 'ACTIVE' : 'DENIED';
+      return (result as { authorised: boolean }).authorised ? 'ACTIVE' : 'DENIED';
     } catch {
       return 'UNKNOWN';
     }
-
-    if (memberState === 'ACTIVE') return verdict;
-    if (verdict === 'DENIED') return 'DENIED';
-    return memberState === 'UNKNOWN' ? 'UNKNOWN' : 'DENIED';
   }
 
   private findAgentGrant(policy: unknown, contractId: string): GrantRecord | undefined {
