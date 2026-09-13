@@ -4,9 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import br.com.t3privacyguard.domain.AuditIntegrityState;
+import br.com.t3privacyguard.domain.Severity;
 import br.com.t3privacyguard.persistence.AuditChainHeadRepository;
 import br.com.t3privacyguard.persistence.AuditEventEntity;
 import br.com.t3privacyguard.persistence.AuditEventRepository;
+import br.com.t3privacyguard.persistence.IncidentEntity;
+import br.com.t3privacyguard.persistence.IncidentRepository;
 import br.com.t3privacyguard.privacy.IncidentDataMinimizer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
@@ -29,12 +32,14 @@ class AuditIntegrityServiceTest {
     @Autowired AuditIntegrityService service;
     @Autowired AuditEventRepository audits;
     @Autowired AuditChainHeadRepository heads;
+    @Autowired IncidentRepository incidents;
     @Autowired IncidentDataMinimizer minimizer;
 
     @AfterEach
     void clean() {
         audits.deleteAll();
         heads.deleteAll();
+        incidents.deleteAll();
     }
 
     @Test
@@ -54,6 +59,7 @@ class AuditIntegrityServiceTest {
 
     @Test
     void oneAndManyEventsVerifyAsLinearChain() {
+        createIncident("incident-chain");
         service.append("incident-chain", "INCIDENT_CREATED", "Created", null, null, null);
         service.append("incident-chain", "ACTION_PROPOSED", "Action proposed", null, null, null);
         service.append("incident-chain", "POLICY_DECISION", "Policy decision DENY", 42L, "hash-42", "evaluate-action");
@@ -70,6 +76,7 @@ class AuditIntegrityServiceTest {
 
     @Test
     void changedMessageIsDetectedAsBroken() {
+        createIncident("incident-message");
         AuditEventEntity event = service.append("incident-message", "INCIDENT_CREATED", "Original", null, null, null);
         AuditEventEntity tampered = new AuditEventEntity(
             event.getId(), event.getIncidentId(), event.getType(), "Modified directly in storage", event.getCreatedAt(),
@@ -85,6 +92,7 @@ class AuditIntegrityServiceTest {
 
     @Test
     void deletedTailIsDetectedAgainstPersistedHead() {
+        createIncident("incident-delete");
         service.append("incident-delete", "INCIDENT_CREATED", "Created", null, null, null);
         AuditEventEntity second = service.append("incident-delete", "ACTION_PROPOSED", "Proposed", null, null, null);
         audits.deleteById(second.getId());
@@ -97,6 +105,7 @@ class AuditIntegrityServiceTest {
 
     @Test
     void manuallyInsertedGapOrFakeMacIsDetected() {
+        createIncident("incident-insert");
         service.append("incident-insert", "INCIDENT_CREATED", "Created", null, null, null);
         audits.saveAndFlush(new AuditEventEntity(
             "manual-row", "incident-insert", "ACTION_PROPOSED", "Inserted", Instant.now(),
@@ -109,8 +118,8 @@ class AuditIntegrityServiceTest {
     }
 
     @Test
-    void concurrentAppendsRemainUniqueAndLinear() throws Exception {
-        service.append("incident-concurrent", "INCIDENT_CREATED", "Created", null, null, null);
+    void concurrentFirstAppendsRemainUniqueAndLinear() throws Exception {
+        createIncident("incident-concurrent");
         var executor = Executors.newFixedThreadPool(6);
         try {
             List<Callable<Void>> tasks = new ArrayList<>();
@@ -129,12 +138,13 @@ class AuditIntegrityServiceTest {
 
         List<AuditEventEntity> events = audits.findByIncidentIdOrderByCreatedAtAsc("incident-concurrent");
         List<Long> sequences = events.stream().map(AuditEventEntity::getIntegritySequence).sorted(Comparator.naturalOrder()).toList();
-        assertThat(sequences).containsExactlyElementsOf(java.util.stream.LongStream.rangeClosed(1, 13).boxed().toList());
+        assertThat(sequences).containsExactlyElementsOf(java.util.stream.LongStream.rangeClosed(1, 12).boxed().toList());
         assertThat(service.verify("incident-concurrent", events).state()).isEqualTo(AuditIntegrityState.VERIFIED);
     }
 
     @Test
     void restartWithSameKeyVerifiesAndWrongKeyBreaksWithoutRewritingHistory() {
+        createIncident("incident-restart");
         service.append("incident-restart", "INCIDENT_CREATED", "Created", null, null, null);
         List<AuditEventEntity> events = audits.findByIncidentIdOrderByCreatedAtAsc("incident-restart");
 
@@ -149,6 +159,7 @@ class AuditIntegrityServiceTest {
 
     @Test
     void legacyRowsRemainExplicitlyUnverified() throws Exception {
+        createIncident("incident-legacy");
         audits.saveAndFlush(new AuditEventEntity(
             "legacy", "incident-legacy", "INCIDENT_CREATED", "Legacy event", Instant.parse("2026-09-01T10:00:00Z")
         ));
@@ -161,15 +172,28 @@ class AuditIntegrityServiceTest {
 
     @Test
     void auditKeyMustBeStrongAndDifferentFromOtherCredentials() {
-        assertThatThrownBy(() -> new AuditIntegrityService(audits, heads, minimizer, "short", "", "", "", "", "", ""))
+        assertThatThrownBy(() -> new AuditIntegrityService(audits, heads, incidents, minimizer, "short", "", "", "", "", "", ""))
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("at least 32");
-        assertThatThrownBy(() -> new AuditIntegrityService(audits, heads, minimizer, KEY, KEY, "", "", "", "", ""))
+        assertThatThrownBy(() -> new AuditIntegrityService(audits, heads, incidents, minimizer, KEY, KEY, "", "", "", "", ""))
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("different");
     }
 
     private AuditIntegrityService instance(String key) {
-        return new AuditIntegrityService(audits, heads, minimizer, key, "", "", "", "", "", "");
+        return new AuditIntegrityService(audits, heads, incidents, minimizer, key, "", "", "", "", "", "");
+    }
+
+    private void createIncident(String id) {
+        Instant now = Instant.now();
+        incidents.saveAndFlush(new IncidentEntity(
+            id,
+            "Audit test",
+            Severity.MEDIUM,
+            "Synthetic summary",
+            "test",
+            now,
+            now.plusSeconds(3600)
+        ));
     }
 }
