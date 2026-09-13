@@ -56,6 +56,8 @@ public final class ApiModels {
         Map<String, String> normalPayload,
         List<String> privateRefs,
         ProposalStatus status,
+        String remediationAuthorizedBy,
+        Instant remediationAuthorizedAt,
         Instant createdAt
     ) {}
 
@@ -136,7 +138,14 @@ public final class ApiModels {
         Long durationMs,
         Instant createdAt
     ) {}
-    public record RemediationAuthorizationResponse(String incidentId, String actionId, String requestId, String state) {}
+    public record RemediationAuthorizationResponse(
+        String incidentId,
+        String actionId,
+        String requestId,
+        String state,
+        String authorizedBy,
+        Instant authorizedAt
+    ) {}
     public record RemediationExecutionResponse(
         String incidentId,
         String actionId,
