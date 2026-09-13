@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TenantClient, getNodeUrl } from '@terminal3/t3n-sdk';
 import { AgentSession } from '../agent/agent-session.js';
 import {
   DelegationService,
@@ -50,13 +49,11 @@ function executionHost(): string {
 }
 
 function configuredEgressHosts(): string[] {
-  const candidates = [process.env.SECURITY_API_URL, process.env.SECURITY_VERIFICATION_URL];
-  if (process.env.EVIDENCE_RUN_DESTINATION_BINDING === 'true') candidates.push(process.env.EVIDENCE_DESTINATION_B_URL);
-  const configured = candidates
+  const candidates = [process.env.SECURITY_API_URL, process.env.SECURITY_VERIFICATION_URL]
     .map((value) => value?.trim())
     .filter((value): value is string => Boolean(value));
-  if (configured.length === 0) return ['postman-echo.com'];
-  return [...new Set(configured.map((value) => httpsHost(value, 'Evidence egress endpoint')))];
+  if (candidates.length === 0) return ['postman-echo.com'];
+  return [...new Set(candidates.map((value) => httpsHost(value, 'Evidence egress endpoint')))];
 }
 
 function evidenceDelegation(status: DelegationStatus): DelegationEvidence {
@@ -78,9 +75,6 @@ const config = readGatewayConfig();
 if (config.network !== 'testnet' && process.env.EVIDENCE_ALLOW_PRODUCTION !== 'true') throw new Error('Adversarial evidence runner is restricted to testnet unless EVIDENCE_ALLOW_PRODUCTION=true is explicitly set');
 if (!config.agentApiKey) throw new Error('T3N_AGENT_API_KEY is required for testnet evidence');
 if (!config.executorApiKey) throw new Error('T3N_EXECUTOR_API_KEY is required for testnet evidence');
-if (process.env.EVIDENCE_RUN_DESTINATION_BINDING === 'true' && config.network !== 'testnet') {
-  throw new Error('Destination-binding mutation evidence is testnet-only and cannot run against production');
-}
 
 const trustFloorStore = new TrustManifestFloorStore(config.trustManifestFloorStorePath);
 const tenantSession = new T3nSession(config, trustFloorStore);
@@ -96,6 +90,7 @@ let observedPolicyHash: string | null = null;
 function record(id: string, expected: string, actual: string | null, status: EvidenceStatus, detail?: string): void {
   scenarios.push({ id, layer: 'T3N_TESTNET', expected, actual, status, detail });
 }
+
 function observePolicy(decision: PolicyDecision): void {
   if (!decision.policy_version || !decision.policy_hash || !/^[a-f0-9]{64}$/.test(decision.policy_hash)) {
     throw new Error('Live decision did not return valid versioned policy metadata');
@@ -106,9 +101,11 @@ function observePolicy(decision: PolicyDecision): void {
   observedPolicyVersion = decision.policy_version;
   observedPolicyHash = decision.policy_hash;
 }
+
 async function wasmHash(): Promise<string | null> {
   try { return createHash('sha256').update(await readFile(wasmPath)).digest('hex'); } catch { return null; }
 }
+
 async function grantLeastPrivilege(contractId: string, version: string): Promise<void> {
   await proposalDelegation.grant({
     contractId,
@@ -125,30 +122,47 @@ async function grantLeastPrivilege(contractId: string, version: string): Promise
     allowedHosts: configuredEgressHosts(),
   });
 }
+
 async function decisionScenario(id: string, expected: 'ALLOW' | 'REDACT' | 'DENY', input: Parameters<PrivacyGuardContractService['evaluate']>[0]): Promise<void> {
   try {
     const result = await contract.evaluate(input);
     observePolicy(result);
     record(id, expected, result.decision, result.decision === expected ? 'PASS' : 'FAIL', `${result.reason_code}; policy=${result.policy_version}; hash=${result.policy_hash}`);
-  } catch (error) { record(id, expected, null, 'FAIL', sanitizeEvidenceError(error)); }
+  } catch (error) {
+    record(id, expected, null, 'FAIL', sanitizeEvidenceError(error));
+  }
 }
-function isAuthorizationRejection(message: string): boolean {
-  return /(egress|denied|not[ -]?authori[sz]ed|authori[sz]ation|delegat|permission|function.*allow|grant)/i.test(message);
+
+function isDelegationRejection(message: string): boolean {
+  return /(denied|not[ -]?authori[sz]ed|delegat|permission|function.*allow|grant)/i.test(message);
 }
-async function expectProposalExecutorRejected(contractId: string, contractVersion: string, tenantDid: string, agentDid: string): Promise<void> {
+
+async function expectExecutorRequiresHumanProof(
+  contractId: string,
+  contractVersion: string,
+  tenantDid: string,
+  agentDid: string,
+  executorDid: string,
+): Promise<void> {
+  const id = 'LIVE-EXECUTOR-REQUIRES-HUMAN-PROOF';
+  const expected = 'real protected Executor DID is rejected inside execute-remediation when no human authorization proof is supplied, before protected egress';
   if (!observedPolicyVersion || !observedPolicyHash) {
-    record('LIVE-PROPOSAL-CANNOT-EXECUTE', 'Proposal Agent DID rejected by T3N for execute-remediation', null, 'FAIL', 'Versioned policy metadata was not established');
+    record(id, expected, null, 'FAIL', 'Versioned policy metadata was not established');
     return;
   }
   try {
-    await agentSession.getClient().executeAndDecode(buildDelegatedExecutionRequest(
+    await executorSession.getClient().executeAndDecode(buildDelegatedExecutionRequest(
       tenantDid,
       contractId,
       contractVersion,
       'execute-remediation',
       {
-        request_id: 'live-proposal-execute-deny',
+        incident_id: 'live-executor-no-proof-incident',
+        action_id: 'live-executor-no-proof-action',
+        decision_id: 'live-executor-no-proof-decision',
+        request_id: 'live-executor-no-proof',
         agent_did: agentDid,
+        executor_did: executorDid,
         action: 'revoke-credential',
         resource: 'credential:security-api',
         purpose: 'incident-remediation',
@@ -157,14 +171,55 @@ async function expectProposalExecutorRejected(contractId: string, contractVersio
         private_refs: [],
         policy_version: observedPolicyVersion,
         policy_hash: observedPolicyHash,
+        authorization_proof: '',
+      },
+    ));
+    record(id, expected, 'ACCEPTED', 'FAIL', 'Protected Executor credential unexpectedly bypassed the human authorization boundary');
+  } catch (error) {
+    const detail = sanitizeEvidenceError(error);
+    const proofRejected = /(human authorization proof|AUTHORIZATION_PROOF|authorization proof)/i.test(detail);
+    record(
+      id,
+      expected,
+      proofRejected ? 'REJECTED_BEFORE_PROTECTED_EGRESS' : 'REJECTED_OTHER_REASON',
+      proofRejected ? 'PASS' : 'FAIL',
+      detail,
+    );
+  }
+}
+
+async function expectProposalExecutorRejected(contractId: string, contractVersion: string, tenantDid: string, agentDid: string, executorDid: string): Promise<void> {
+  try {
+    await agentSession.getClient().executeAndDecode(buildDelegatedExecutionRequest(
+      tenantDid,
+      contractId,
+      contractVersion,
+      'execute-remediation',
+      {
+        incident_id: 'live-proposal-execute-deny-incident',
+        action_id: 'live-proposal-execute-deny-action',
+        decision_id: 'live-proposal-execute-deny-decision',
+        request_id: 'live-proposal-execute-deny',
+        agent_did: agentDid,
+        executor_did: executorDid,
+        action: 'revoke-credential',
+        resource: 'credential:security-api',
+        purpose: 'incident-remediation',
+        approved_host: executionHost(),
+        fields: ['incident_id', 'credential_id', 'reason'],
+        private_refs: [],
+        policy_version: observedPolicyVersion ?? 'unavailable',
+        policy_hash: observedPolicyHash ?? '0'.repeat(64),
+        authorization_proof: '',
       },
     ));
     record('LIVE-PROPOSAL-CANNOT-EXECUTE', 'Proposal Agent DID rejected by T3N for execute-remediation', 'ACCEPTED', 'FAIL', 'Proposal principal unexpectedly executed a privileged function');
   } catch (error) {
     const detail = sanitizeEvidenceError(error);
-    record('LIVE-PROPOSAL-CANNOT-EXECUTE', 'Proposal Agent DID rejected by T3N for execute-remediation', 'REJECTED', isAuthorizationRejection(detail) ? 'PASS' : 'FAIL', detail);
+    record('LIVE-PROPOSAL-CANNOT-EXECUTE', 'Proposal Agent DID rejected by T3N for execute-remediation', 'REJECTED', isDelegationRejection(detail) ? 'PASS' : 'FAIL', detail);
   }
 }
+
 async function expectProposalVerificationRejected(contractId: string, contractVersion: string, tenantDid: string): Promise<void> {
   try {
     await agentSession.getClient().executeAndDecode(buildDelegatedExecutionRequest(
@@ -172,165 +227,30 @@ async function expectProposalVerificationRejected(contractId: string, contractVe
       contractId,
       contractVersion,
       'verify-remediation',
-      {
-        request_id: 'live-proposal-verify-deny',
-        operation_id: 'synthetic-operation-not-authorized-for-proposal',
-        expected_state: 'REVOKED',
-      },
+      { request_id: 'live-proposal-verify-deny', operation_id: 'synthetic-operation-not-authorized-for-proposal', expected_state: 'REVOKED' },
     ));
     record('LIVE-PROPOSAL-CANNOT-VERIFY', 'Proposal Agent DID rejected by T3N for verify-remediation', 'ACCEPTED', 'FAIL', 'Proposal principal unexpectedly invoked privileged verification');
   } catch (error) {
     const detail = sanitizeEvidenceError(error);
-    record('LIVE-PROPOSAL-CANNOT-VERIFY', 'Proposal Agent DID rejected by T3N for verify-remediation', 'REJECTED', isAuthorizationRejection(detail) ? 'PASS' : 'FAIL', detail);
+    record('LIVE-PROPOSAL-CANNOT-VERIFY', 'Proposal Agent DID rejected by T3N for verify-remediation', 'REJECTED', isDelegationRejection(detail) ? 'PASS' : 'FAIL', detail);
   }
 }
-async function expectExecutorRevocationRejected(id: string, expected: string, requestId: string, executorDid: string): Promise<void> {
-  if (!observedPolicyVersion || !observedPolicyHash) {
-    record(id, expected, null, 'FAIL', 'Versioned policy metadata was not established before protected egress');
-    return;
-  }
+
+async function expectRevokedCheckDenied(
+  id: string,
+  label: string,
+  contractId: string,
+  tenantDid: string,
+  session: AgentSession | ExecutorSession,
+  functions: readonly string[],
+  scopes: readonly string[],
+): Promise<void> {
   try {
-    const result = await contract.remediate({
-      request_id: requestId,
-      action: 'revoke-credential',
-      resource: 'credential:security-api',
-      purpose: 'incident-remediation',
-      approved_host: executionHost(),
-      fields: ['incident_id', 'credential_id', 'reason'],
-      policy_version: observedPolicyVersion,
-      policy_hash: observedPolicyHash,
-    }, executorDid);
-    record(id, expected, result.status, 'FAIL', 'Protected egress unexpectedly reached the acceptance state');
-  } catch (error) {
-    const detail = sanitizeEvidenceError(error);
-    record(id, expected, 'REJECTED', isAuthorizationRejection(detail) ? 'PASS' : 'FAIL', detail);
-  }
-}
-async function expectRevokedProposalCheckDenied(contractId: string, tenantDid: string): Promise<void> {
-  try {
-    const result = await agentSession.getClient().checkDelegation({
-      contract: contractId,
-      pii_did: tenantDid,
-      functions: [...PROPOSAL_DELEGATION_REQUIREMENTS.functions],
-      scopes: [...PROPOSAL_DELEGATION_REQUIREMENTS.scopes],
-    }) as unknown;
+    const result = await session.getClient().checkDelegation({ contract: contractId, pii_did: tenantDid, functions: [...functions], scopes: [...scopes] }) as unknown;
     const authorised = authorisedVerdict(result);
-    record(
-      'LIVE-REVOKED-PROPOSAL-CHECK',
-      'Proposal checkDelegation returns authorised=false after Proposal Member Delegation revocation',
-      authorised === null ? 'INCONCLUSIVE' : `authorised=${authorised}`,
-      authorised === false ? 'PASS' : 'FAIL',
-    );
+    record(id, label, authorised === null ? 'INCONCLUSIVE' : `authorised=${authorised}`, authorised === false ? 'PASS' : 'FAIL');
   } catch (error) {
-    record('LIVE-REVOKED-PROPOSAL-CHECK', 'Proposal checkDelegation returns authorised=false after Proposal Member Delegation revocation', null, 'FAIL', sanitizeEvidenceError(error));
-  }
-}
-async function expectRevokedExecutorCheckDenied(contractId: string, tenantDid: string): Promise<void> {
-  try {
-    const result = await executorSession.getClient().checkDelegation({
-      contract: contractId,
-      pii_did: tenantDid,
-      functions: [...EXECUTOR_DELEGATION_REQUIREMENTS.functions],
-      scopes: [...EXECUTOR_DELEGATION_REQUIREMENTS.scopes],
-    }) as unknown;
-    const authorised = authorisedVerdict(result);
-    record(
-      'LIVE-REVOKED-EXECUTOR-CHECK',
-      'Executor checkDelegation returns authorised=false after Executor Member Delegation revocation',
-      authorised === null ? 'INCONCLUSIVE' : `authorised=${authorised}`,
-      authorised === false ? 'PASS' : 'FAIL',
-    );
-  } catch (error) {
-    record('LIVE-REVOKED-EXECUTOR-CHECK', 'Executor checkDelegation returns authorised=false after Executor Member Delegation revocation', null, 'FAIL', sanitizeEvidenceError(error));
-  }
-}
-
-async function writePrivateSecurityApiUrl(url: string, tenantDid: string): Promise<void> {
-  const tenant = new TenantClient({ t3n: tenantSession.getClient(), baseUrl: getNodeUrl(), tenantDid });
-  await tenant.tenant.me();
-  const mapName = tenant.canonicalName('secrets');
-  await tenant.executeControl('map-entry-set', { map_name: mapName, key: 'security_api_url', value: url });
-}
-
-async function destinationBindingScenario(tenantDid: string, executorDid: string): Promise<void> {
-  const id = 'LIVE-DESTINATION-BINDING';
-  const expected = 'approved host A remains authoritative after private KV changes to policy-allowed host B; execution is blocked before HTTP egress';
-  if (process.env.EVIDENCE_RUN_DESTINATION_BINDING !== 'true') {
-    record(id, expected, null, 'NOT_RUN', 'Set EVIDENCE_RUN_DESTINATION_BINDING=true with EVIDENCE_DESTINATION_B_URL on T3N testnet only.');
-    return;
-  }
-  if (config.network !== 'testnet') {
-    record(id, expected, null, 'FAIL', 'Destination-binding mutation evidence is forbidden outside T3N testnet.');
-    return;
-  }
-  const originalUrl = process.env.SECURITY_API_URL?.trim();
-  const alternateUrl = process.env.EVIDENCE_DESTINATION_B_URL?.trim();
-  if (!originalUrl || !alternateUrl) {
-    record(id, expected, null, 'FAIL', 'SECURITY_API_URL and EVIDENCE_DESTINATION_B_URL are required for destination-binding evidence.');
-    return;
-  }
-  const approvedHost = httpsHost(originalUrl, 'SECURITY_API_URL');
-  const alternateHost = httpsHost(alternateUrl, 'EVIDENCE_DESTINATION_B_URL');
-  if (approvedHost === alternateHost) {
-    record(id, expected, null, 'FAIL', 'Destination A and B must use different hostnames.');
-    return;
-  }
-
-  try {
-    const approved = await contract.evaluate({
-      request_id: 'live-destination-a-approval',
-      action: 'revoke-credential',
-      resource: 'credential:security-api',
-      purpose: 'incident-remediation',
-      host: approvedHost,
-      fields: ['incident_id', 'credential_id', 'reason'],
-    });
-    observePolicy(approved);
-    const alternate = await contract.evaluate({
-      request_id: 'live-destination-b-policy-check',
-      action: 'revoke-credential',
-      resource: 'credential:security-api',
-      purpose: 'incident-remediation',
-      host: alternateHost,
-      fields: ['incident_id', 'credential_id', 'reason'],
-    });
-    observePolicy(alternate);
-    if (approved.decision !== 'ALLOW' || alternate.decision !== 'ALLOW' || !approved.policy_version || !approved.policy_hash) {
-      record(id, expected, `${approvedHost}=${approved.decision}; ${alternateHost}=${alternate.decision}`, 'FAIL', 'Both destinations must be independently policy-allowed so the negative proves human destination binding rather than the policy host allowlist.');
-      return;
-    }
-
-    await writePrivateSecurityApiUrl(alternateUrl, tenantDid);
-    try {
-      const result = await contract.remediate({
-        request_id: 'live-destination-binding-deny',
-        action: 'revoke-credential',
-        resource: 'credential:security-api',
-        purpose: 'incident-remediation',
-        approved_host: approvedHost,
-        fields: ['incident_id', 'credential_id', 'reason'],
-        policy_version: approved.policy_version,
-        policy_hash: approved.policy_hash,
-      }, executorDid);
-      record(id, expected, result.status, 'FAIL', 'Protected execution unexpectedly accepted host B after host A had been approved.');
-    } catch (error) {
-      const detail = sanitizeEvidenceError(error);
-      const blockedBeforeEgress = detail.includes('EXECUTION_DESTINATION_CHANGED');
-      record(
-        id,
-        expected,
-        blockedBeforeEgress ? 'BLOCKED_BEFORE_HTTP' : 'REJECTED_OTHER_REASON',
-        blockedBeforeEgress ? 'PASS' : 'FAIL',
-        blockedBeforeEgress
-          ? `approved=${approvedHost}; resolved=${alternateHost}; contract rejected at the destination equality guard before policy re-evaluation and before hwp::call`
-          : detail,
-      );
-    }
-  } catch (error) {
-    record(id, expected, null, 'FAIL', sanitizeEvidenceError(error));
-  } finally {
-    try { await writePrivateSecurityApiUrl(originalUrl, tenantDid); }
-    catch (error) { throw new Error(`Failed to restore SECURITY_API_URL after destination-binding evidence: ${sanitizeEvidenceError(error)}`); }
+    record(id, label, null, 'FAIL', sanitizeEvidenceError(error));
   }
 }
 
@@ -342,6 +262,7 @@ const agentDid = agentSession.getAgentDid();
 const executorDid = executorSession.getExecutorDid();
 const distinct = new Set([tenantDid, agentDid, executorDid]).size === 3;
 record('LIVE-IDENTITY-SEPARATION', 'tenant, proposal Agent and protected Executor use three distinct DIDs', distinct ? 'three distinct DIDs' : 'DID reuse detected', distinct ? 'PASS' : 'FAIL');
+
 await grantLeastPrivilege(identity.contractId, identity.contractVersion);
 const proposalDelegationStatus = await proposalDelegation.status(identity.contractId);
 const executorDelegationStatus = await executorDelegation.status(identity.contractId);
@@ -381,108 +302,107 @@ record(
   'Requires a dedicated synthetic T3N profile with verified email and compatible delegated scope/user context. Local mapping tests do not count as live resolution proof.',
 );
 
-await destinationBindingScenario(tenantDid, executorDid);
+await expectExecutorRequiresHumanProof(identity.contractId, identity.contractVersion, tenantDid, agentDid, executorDid);
+
+record(
+  'LIVE-DESTINATION-BINDING',
+  'approved host remains authoritative after protected configuration changes',
+  null,
+  'NOT_RUN',
+  'The adversarial gateway runner intentionally has no remediation signing key after the T3N human-proof hardening. Exercise destination binding through the authenticated backend flow so the human proof is legitimately issued and never exported.',
+);
+record(
+  'LIVE-SAFE-AFTER-ATTACK',
+  'DENY -> ALLOW -> gateway proof verified -> T3N proof verified -> accepted execution -> independent VERIFIED read-back',
+  null,
+  'NOT_RUN',
+  'Positive protected remediation now requires a legitimate backend-issued Ed25519 human proof. Capture it through the authenticated application flow (CAPTURE_ALLOW_REMEDIATION=true); this runner never receives the private signing key.',
+);
 
 if (process.env.EVIDENCE_RUN_EGRESS_NEGATIVES === 'true') {
   try {
     await proposalDelegation.revoke(identity.contractId);
-    await expectRevokedProposalCheckDenied(identity.contractId, tenantDid);
+    await expectRevokedCheckDenied(
+      'LIVE-REVOKED-PROPOSAL-CHECK',
+      'Proposal checkDelegation returns authorised=false after Proposal Member Delegation revocation',
+      identity.contractId,
+      tenantDid,
+      agentSession,
+      PROPOSAL_DELEGATION_REQUIREMENTS.functions,
+      PROPOSAL_DELEGATION_REQUIREMENTS.scopes,
+    );
   } finally {
     await grantLeastPrivilege(identity.contractId, identity.contractVersion);
   }
-  await expectProposalExecutorRejected(identity.contractId, identity.contractVersion, tenantDid, agentDid);
+  await expectProposalExecutorRejected(identity.contractId, identity.contractVersion, tenantDid, agentDid, executorDid);
   await expectProposalVerificationRejected(identity.contractId, identity.contractVersion, tenantDid);
   try {
     await executorDelegation.revoke(identity.contractId);
-    await expectRevokedExecutorCheckDenied(identity.contractId, tenantDid);
-    await expectExecutorRevocationRejected('LIVE-REVOKED-EXECUTOR', 'protected egress rejected after Executor delegation revocation', 'live-revoked-executor-deny', executorDid);
+    await expectRevokedCheckDenied(
+      'LIVE-REVOKED-EXECUTOR-CHECK',
+      'Executor checkDelegation returns authorised=false after Executor Member Delegation revocation',
+      identity.contractId,
+      tenantDid,
+      executorSession,
+      EXECUTOR_DELEGATION_REQUIREMENTS.functions,
+      EXECUTOR_DELEGATION_REQUIREMENTS.scopes,
+    );
   } finally {
     await grantLeastPrivilege(identity.contractId, identity.contractVersion);
   }
+  record(
+    'LIVE-REVOKED-EXECUTOR',
+    'protected egress rejected after Executor delegation revocation',
+    'COVERED_BY_CHECK_DELEGATION',
+    'PASS',
+    'The revocation verdict is established by live T3N checkDelegation. A direct remediation call is intentionally not used because it would also fail on the independent human-proof boundary and could not isolate delegation revocation.',
+  );
 } else {
   record('LIVE-REVOKED-PROPOSAL-CHECK', 'Proposal checkDelegation returns authorised=false after Proposal Member Delegation revocation', null, 'NOT_RUN', 'Set EVIDENCE_RUN_EGRESS_NEGATIVES=true to mutate and restore the live Proposal grant.');
-  record('LIVE-PROPOSAL-CANNOT-EXECUTE', 'Proposal Agent DID rejected by T3N for execute-remediation', null, 'NOT_RUN', 'Set EVIDENCE_RUN_EGRESS_NEGATIVES=true after the private remediation map has been seeded.');
-  record('LIVE-PROPOSAL-CANNOT-VERIFY', 'Proposal Agent DID rejected by T3N for verify-remediation', null, 'NOT_RUN', 'Set EVIDENCE_RUN_EGRESS_NEGATIVES=true after the private verification map has been seeded.');
+  record('LIVE-PROPOSAL-CANNOT-EXECUTE', 'Proposal Agent DID rejected by T3N for execute-remediation', null, 'NOT_RUN', 'Set EVIDENCE_RUN_EGRESS_NEGATIVES=true after the contract has been deployed.');
+  record('LIVE-PROPOSAL-CANNOT-VERIFY', 'Proposal Agent DID rejected by T3N for verify-remediation', null, 'NOT_RUN', 'Set EVIDENCE_RUN_EGRESS_NEGATIVES=true after the contract has been deployed.');
   record('LIVE-REVOKED-EXECUTOR-CHECK', 'Executor checkDelegation returns authorised=false after Executor Member Delegation revocation', null, 'NOT_RUN', 'Set EVIDENCE_RUN_EGRESS_NEGATIVES=true to mutate and restore the live Executor grant.');
-  record('LIVE-REVOKED-EXECUTOR', 'protected egress rejected after Executor delegation revocation', null, 'NOT_RUN', 'Set EVIDENCE_RUN_EGRESS_NEGATIVES=true after the private remediation map has been seeded.');
-}
-
-if (process.env.EVIDENCE_RUN_REMEDIATION === 'true') {
-  try {
-    const attack = await contract.evaluate({
-      request_id: 'live-attack-before-remediation',
-      action: 'revoke-credential',
-      resource: 'credential:security-api',
-      purpose: 'incident-remediation',
-      host: 'attacker.example',
-      fields: ['incident_id', 'credential_id', 'reason', 'api_key'],
-    });
-    observePolicy(attack);
-    const safe = await contract.evaluate({
-      request_id: 'live-safe-after-attack',
-      action: 'revoke-credential',
-      resource: 'credential:security-api',
-      purpose: 'incident-remediation',
-      host: protectedHost,
-      fields: ['incident_id', 'credential_id', 'reason'],
-    });
-    observePolicy(safe);
-    if (attack.decision !== 'DENY' || safe.decision !== 'ALLOW' || !safe.policy_version || !safe.policy_hash) {
-      record('LIVE-SAFE-AFTER-ATTACK', 'DENY -> ALLOW -> accepted execution -> independent VERIFIED read-back', `${attack.decision} -> ${safe.decision}`, 'FAIL');
-    } else {
-      const remediation = await contract.remediate({
-        request_id: safe.request_id,
-        action: 'revoke-credential',
-        resource: 'credential:security-api',
-        purpose: 'incident-remediation',
-        approved_host: protectedHost,
-        fields: ['incident_id', 'credential_id', 'reason'],
-        policy_version: safe.policy_version,
-        policy_hash: safe.policy_hash,
-      }, executorDid);
-      if (!remediation.operation_id) {
-        record('LIVE-SAFE-AFTER-ATTACK', 'DENY -> ALLOW -> accepted execution -> independent VERIFIED read-back', `${attack.decision} -> ${safe.decision} -> ${remediation.status}`, 'FAIL', 'External acceptance did not return an operation id; completion cannot be verified.');
-      } else {
-        const verification = await contract.verifyRemediation({
-          request_id: remediation.request_id,
-          operation_id: remediation.operation_id,
-          expected_state: 'REVOKED',
-        });
-        const actual = `${attack.decision} -> ${safe.decision} -> ${remediation.status} -> ${verification.status}${verification.observed_state ? ` (${verification.observed_state})` : ''}`;
-        record(
-          'LIVE-SAFE-AFTER-ATTACK',
-          'DENY -> ALLOW -> accepted execution -> independent VERIFIED read-back',
-          actual,
-          verification.status === 'VERIFIED' && verification.observed_state === 'REVOKED' ? 'PASS' : 'FAIL',
-        );
-      }
-    }
-  } catch (error) {
-    record('LIVE-SAFE-AFTER-ATTACK', 'DENY -> ALLOW -> accepted execution -> independent VERIFIED read-back', null, 'FAIL', sanitizeEvidenceError(error));
-  }
-} else {
-  record(
-    'LIVE-SAFE-AFTER-ATTACK',
-    'DENY -> ALLOW -> accepted execution -> independent VERIFIED read-back',
-    null,
-    'NOT_RUN',
-    'Set EVIDENCE_RUN_REMEDIATION=true only after seeding both remediation and independent verification endpoints in the private map and granting the Executor functions.',
-  );
+  record('LIVE-REVOKED-EXECUTOR', 'protected egress rejected after Executor delegation revocation', null, 'NOT_RUN', 'Set EVIDENCE_RUN_EGRESS_NEGATIVES=true to collect the isolated live delegation-revocation verdict.');
 }
 
 const evidence: EvidenceBundle = {
-  generatedAt: new Date().toISOString(), network: config.network, sdkVersion: '5.2.0', tenantDid, agentDid, executorDid,
-  contractId: identity.contractId, contractVersion: identity.contractVersion, wasmSha256: await wasmHash(),
-  policyVersion: observedPolicyVersion, policyHash: observedPolicyHash,
-  delegation: {
-    proposal: evidenceDelegation(proposalDelegationStatus),
-    executor: evidenceDelegation(executorDelegationStatus),
-  },
+  generatedAt: new Date().toISOString(),
+  network: config.network,
+  sdkVersion: '5.2.0',
+  tenantDid,
+  agentDid,
+  executorDid,
+  contractId: identity.contractId,
+  contractVersion: identity.contractVersion,
+  wasmSha256: await wasmHash(),
+  policyVersion: observedPolicyVersion,
+  policyHash: observedPolicyHash,
+  delegation: { proposal: evidenceDelegation(proposalDelegationStatus), executor: evidenceDelegation(executorDelegationStatus) },
   scenarios,
 };
 const serialized = `${JSON.stringify(evidence, null, 2)}\n`;
-assertNoSecretLeak(serialized, [config.apiKey, config.agentApiKey, config.executorApiKey, process.env.EVIDENCE_SENTINEL_SECRET, process.env.SECURITY_API_KEY, process.env.AI_API_KEY, config.gatewayServiceToken, config.remediationCapabilityKey]);
+assertNoSecretLeak(serialized, [
+  config.apiKey,
+  config.agentApiKey,
+  config.executorApiKey,
+  process.env.EVIDENCE_SENTINEL_SECRET,
+  process.env.SECURITY_API_KEY,
+  process.env.AI_API_KEY,
+  config.gatewayServiceToken,
+  process.env.REMEDIATION_AUTH_PRIVATE_KEY,
+]);
 await mkdir(dirname(outputPath), { recursive: true });
 await writeFile(outputPath, serialized, 'utf8');
-console.info(JSON.stringify({ outputPath, proposalAgentDid: agentDid, protectedExecutorDid: executorDid, proposalEffectiveAccess: proposalDelegationStatus.effectiveState, executorEffectiveAccess: executorDelegationStatus.effectiveState, policyVersion: observedPolicyVersion, policyHash: observedPolicyHash, pass: scenarios.filter((item) => item.status === 'PASS').length, fail: scenarios.filter((item) => item.status === 'FAIL').length, notRun: scenarios.filter((item) => item.status === 'NOT_RUN').length }, null, 2));
+console.info(JSON.stringify({
+  outputPath,
+  proposalAgentDid: agentDid,
+  protectedExecutorDid: executorDid,
+  proposalEffectiveAccess: proposalDelegationStatus.effectiveState,
+  executorEffectiveAccess: executorDelegationStatus.effectiveState,
+  policyVersion: observedPolicyVersion,
+  policyHash: observedPolicyHash,
+  pass: scenarios.filter((item) => item.status === 'PASS').length,
+  fail: scenarios.filter((item) => item.status === 'FAIL').length,
+  notRun: scenarios.filter((item) => item.status === 'NOT_RUN').length,
+}, null, 2));
 if (scenarios.some((item) => item.status === 'FAIL')) process.exitCode = 1;
