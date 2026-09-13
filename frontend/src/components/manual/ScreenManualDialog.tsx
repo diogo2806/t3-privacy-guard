@@ -94,15 +94,15 @@ export function ScreenManualDialog() {
         <div className="manual-content">
           <section>
             <h3>What this screen is for</h3>
-            <p id="screen-manual-purpose">This dashboard demonstrates a simple enterprise rule: AI may propose an action, but it cannot authorize itself or declare a critical action complete. You can choose a safe enterprise scenario, inspect or edit its synthetic prompt, observe the real AI proposal and independent T3N policy decision, and use protected execution only where a matching executor and independent verifier actually exist.</p>
+            <p id="screen-manual-purpose">This dashboard demonstrates a simple enterprise rule: AI may propose an action, but it cannot authorize itself, rewrite the active operational policy, retrieve protected profile values directly or declare a critical action complete. You can choose a safe enterprise scenario, inspect or edit its synthetic prompt, observe the real AI proposal and independent T3N policy decision with exact policy provenance, and use protected execution only where a matching executor and independent verifier actually exist.</p>
           </section>
           <section>
             <h3>How to read the trust flow</h3>
-            <p><strong>AI proposal</strong> shows whether a structured action proposal is available. <strong>Policy</strong> returns DENY, REDACT or ALLOW. DENY blocks the proposal, REDACT requires minimization and ALLOW only permits the proposal to continue. <strong>ALLOW does not mean executed.</strong> Critical remediation still requires explicit human authorization and a supported executor. <strong>COMPLETED appears only after independent read-back verifies the expected external state.</strong></p>
+            <p><strong>AI proposal</strong> shows whether a structured action proposal is available. <strong>Policy</strong> returns DENY, REDACT or ALLOW under an exact policy version/hash. DENY blocks the proposal, REDACT requires minimization and ALLOW only permits the proposal to continue. <strong>ALLOW does not mean executed.</strong> Critical remediation still requires explicit human authorization and a supported executor. <strong>COMPLETED appears only after independent read-back verifies the expected external state.</strong></p>
           </section>
           <section>
             <h3>Views and filters</h3>
-            <p><strong>Protection demo</strong> contains the enterprise scenario catalog, prompt, proposal, policy decision, supported human authorization and protected execution, incident retention, the technical Execution Trace and the separate Business Audit Trail. <strong>Proof &amp; evidence</strong> shows which testnet outcomes were actually observed. The scenario cards are demonstration presets, not policy filters or permissions. Technical T3N identifiers, contract and delegation details remain available under <strong>Show technical details</strong> without dominating the main flow.</p>
+            <p><strong>Protection demo</strong> contains the enterprise scenario catalog, prompt, proposal, policy decision, policy provenance, supported human authorization and protected execution, incident retention, the technical Execution Trace and the separate Business Audit Trail. <strong>Proof &amp; evidence</strong> shows which testnet outcomes were actually observed. The scenario cards are demonstration presets, not policy filters or permissions. Technical T3N identifiers, contract, policy and delegation details remain available under <strong>Show technical details</strong> without dominating the main flow.</p>
           </section>
           <section>
             <h3>Enterprise scenarios</h3>
@@ -114,7 +114,7 @@ export function ScreenManualDialog() {
           </section>
           <section>
             <h3>Proposal and private-data boundary</h3>
-            <p>The model may propose only the action, resource, purpose, optional host, field names and supported logical private-data references. It cannot choose trusted identities, policy decisions, approvals or execution proof. Private values remain outside the browser and model; supported logical references are resolved only inside the protected T3N execution boundary. Incident free text follows the separate minimization and retention rule below and is not claimed to be anonymous.</p>
+            <p>The model may propose only the action, resource, purpose, optional host, field names and supported logical private-data references. It cannot choose trusted identities, policy decisions, approvals, policy documents or execution proof. Private values remain outside the browser and model; supported logical references are resolved only inside the protected T3N execution boundary. Incident free text follows the separate minimization and retention rule below and is not claimed to be anonymous.</p>
           </section>
           <section>
             <h3>Incident storage and retention</h3>
@@ -130,15 +130,27 @@ export function ScreenManualDialog() {
           </section>
           <section>
             <h3>Decision states</h3>
-            <p><strong>DENY</strong> blocks the proposal before protected egress. <strong>REDACT</strong> requires a smaller data scope before the action may continue. <strong>ALLOW</strong> means policy permits the proposal, but it is not human approval, execution or completion.</p>
+            <p><strong>DENY</strong> blocks the proposal before protected egress. <strong>REDACT</strong> requires a smaller data scope before the action may continue. <strong>ALLOW</strong> means the active policy permits the proposal, but it is not human approval, execution or completion.</p>
+          </section>
+          <section>
+            <h3>Policy version and hash</h3>
+            <p><strong>Policy version</strong> identifies the operational rule set loaded by Rust/WASM from the private T3N KV map. <strong>Policy hash</strong> is the deterministic SHA-256 of the canonical policy document used for the decision. They provide policy provenance, not hardware attestation. The policy document may configure enabled actions, purpose, allowed hosts, allowed normal fields, supported logical private references, host requirement and whether human authorization is required.</p>
+          </section>
+          <section>
+            <h3>Immutable policy invariants</h3>
+            <p>Critical security rules stay compiled in WASM and cannot be relaxed by the private KV document: schema and size limits, fail-closed behavior, authenticated T3N identity boundaries, forbidden secret classes, private-reference vocabulary and safe host validation. A policy cannot make API keys, tokens, passwords or private keys valid outbound data and cannot bypass delegation or identity checks. Missing, corrupt or invalid policy data fails closed.</p>
+          </section>
+          <section>
+            <h3>Policy publication and rollback</h3>
+            <p>Published policies are stored as immutable version snapshots plus a current pointer. Reusing an existing version with different canonical content is rejected. Rollback is explicit and may select only a version already persisted in the private T3N KV map. The AI model and browser cannot publish or roll back policy.</p>
           </section>
           <section>
             <h3>Human authorization and protected execution</h3>
-            <p>The current complete executor/read-back contract is for <code>revoke-credential</code>. <strong>Authorize credential revocation</strong> records the human business decision for an allowed revocation. <strong>Execute protected credential revocation</strong> claims the approved action before sending the side effect and uses replay-resistant execution data. <strong>Verify external state</strong> performs an independent read-back and never sends the side effect again. Other scenario actions remain visible for genuine T3N policy evaluation without unsupported execution controls.</p>
+            <p>The current complete executor/read-back contract is for <code>revoke-credential</code>. <strong>Authorize credential revocation</strong> records the human business decision for an allowed revocation and binds the exact policy version/hash. <strong>Execute protected credential revocation</strong> claims the approved action before sending the side effect and uses a replay-resistant one-time capability bound to the persisted action and policy provenance. The T3N execution path rechecks that the active policy still matches the approved version/hash. <strong>Verify external state</strong> performs an independent read-back and never sends the side effect again. Other scenario actions remain visible for genuine T3N policy evaluation without unsupported execution controls.</p>
           </section>
           <section>
             <h3>Execution and verification states</h3>
-            <p><strong>EXECUTING</strong> means execution is in progress. <strong>PENDING_VERIFICATION</strong> means the external action was accepted but completion is not proven. <strong>COMPLETED</strong> requires independent verification of the expected state. <strong>UNVERIFIED</strong> means the result is ambiguous or does not match. <strong>FAILED</strong> means a known failure. An HTTP success response alone is never enough to display COMPLETED.</p>
+            <p><strong>EXECUTING</strong> means execution is in progress. <strong>PENDING_VERIFICATION</strong> means the external action was accepted but completion is not proven. <strong>COMPLETED</strong> requires independent verification of the expected state. <strong>UNVERIFIED</strong> means the result is ambiguous, policy binding could not be confirmed or the observed state does not match. <strong>FAILED</strong> means a known failure. An HTTP success response alone is never enough to display COMPLETED.</p>
           </section>
           <section>
             <h3>Retry rule</h3>
@@ -146,19 +158,19 @@ export function ScreenManualDialog() {
           </section>
           <section>
             <h3>Evidence states</h3>
-            <p><strong>PASS</strong> is an observed result that matched the expected security outcome. <strong>FAIL</strong> is an observed mismatch. <strong>NOT RUN</strong> means the scenario was not executed and is never counted as proof.</p>
+            <p><strong>PASS</strong> is an observed result that matched the expected security outcome. <strong>FAIL</strong> is an observed mismatch. <strong>NOT RUN</strong> means the scenario was not executed and is never counted as proof. Evidence metadata identifies the exact contract, WASM, policy version/hash and T3N trust provenance for the run.</p>
           </section>
           <section>
             <h3>Rules and permissions</h3>
-            <p>Application sign-in does not grant T3N authority, and selecting an enterprise scenario grants nothing. Policy must allow the exact action and scope. Where protected execution is implemented, critical remediation additionally requires human authorization and runtime controls, and completion requires independent read-back. DENY and REDACT cannot be promoted to execution by the interface. A Trace ID is correlation metadata only; it grants no authority and cannot be used to access another incident or action. Incident retention is controlled by the server, not by browser input, and expired incident content cannot be retrieved through the incident API.</p>
+            <p>Application sign-in does not grant T3N authority, and selecting an enterprise scenario grants nothing. The agent needs the exact delegated contract functions, scopes and hosts. Operational policy is read by the TEE from private T3N KV, not supplied by React, Java or the model. DENY and REDACT cannot be promoted to execution by the interface. Where protected execution is implemented, critical remediation additionally requires human authorization, matching policy provenance and runtime controls, and completion requires independent read-back. A Trace ID is correlation metadata only; it grants no authority and cannot be used to access another incident or action. Incident retention is controlled by the server, not by browser input, and expired incident content cannot be retrieved through the incident API.</p>
           </section>
           <section>
             <h3>Main flow</h3>
-            <p>1. Sign in. 2. Read the trust flow and confirm whether T3N controls are available. 3. Choose an enterprise scenario. 4. Review or edit the synthetic prompt without adding private values. 5. Select Ask agent. 6. Inspect the actual proposal. 7. Observe DENY, REDACT or ALLOW from T3N. 8. Inspect the current incident and its automatic expiration date. 9. If the actual action is credential revocation and ALLOW, optionally prepare the minimum revocation path and record human authorization. 10. Execute it once through the protected executor. 11. Treat acceptance as pending verification. 12. Verify the external state. 13. Review the Execution Trace, Business Audit Trail and Proof &amp; evidence. 14. Open technical details when contract, delegation or trust-provenance metadata is needed. Expired incident data is removed by the server retention process.</p>
+            <p>1. Sign in. 2. Read the trust flow and confirm whether T3N controls are available. 3. Choose an enterprise scenario. 4. Review or edit the synthetic prompt without adding private values. 5. Select Ask agent. 6. Inspect the actual proposal. 7. Observe DENY, REDACT or ALLOW together with policy version/hash from T3N. 8. Inspect the current incident and its automatic expiration date. 9. If the actual action is credential revocation and ALLOW, optionally prepare the minimum revocation path and record human authorization. 10. Execute it once through the protected executor; the approved policy provenance is rechecked before egress. 11. Treat acceptance as pending verification. 12. Verify the external state. 13. Review the Execution Trace, Business Audit Trail and Proof &amp; evidence. 14. Open technical details when contract, policy, delegation or trust-provenance metadata is needed. Expired incident data is removed by the server retention process.</p>
           </section>
           <section>
             <h3>Messages and error states</h3>
-            <p>Sensitive prompt content is rejected before reaching the external provider. Incident content containing a high-confidence sensitive literal is rejected with HTTP 422 before persistence and the response does not echo that literal. Provider, T3N or trust-boundary failures fail closed. Expired application sessions require sign-in again. Rate-limited sign-in follows the server retry interval. Switching scenarios clears prior scenario results. Unsupported actions show policy-evaluation-only guidance instead of execution controls. Ambiguous execution remains UNVERIFIED and is not automatically re-executed. Error messages and trace metadata must not expose private values, passwords, credentials, capabilities, request bodies or raw headers.</p>
+            <p>Sensitive prompt content is rejected before reaching the external provider. Incident content containing a high-confidence sensitive literal is rejected with HTTP 422 before persistence and the response does not echo that literal. Provider, T3N, policy-KV or trust-boundary failures fail closed. A missing or corrupt policy returns DENY without fabricated provenance. Expired application sessions require sign-in again. Rate-limited sign-in follows the server retry interval. Switching scenarios clears prior scenario results. Unsupported actions show policy-evaluation-only guidance instead of execution controls. A policy change after authorization blocks protected execution. Ambiguous execution remains UNVERIFIED and is not automatically re-executed. Error messages and trace metadata must not expose private values, passwords, credentials, capabilities, request bodies or raw headers.</p>
           </section>
         </div>
       </section>
