@@ -7,6 +7,8 @@ import br.com.t3privacyguard.domain.DecisionType;
 import br.com.t3privacyguard.domain.Severity;
 import br.com.t3privacyguard.persistence.ActionProposalEntity;
 import br.com.t3privacyguard.persistence.ActionProposalRepository;
+import br.com.t3privacyguard.persistence.AuditChainHeadEntity;
+import br.com.t3privacyguard.persistence.AuditChainHeadRepository;
 import br.com.t3privacyguard.persistence.AuditEventEntity;
 import br.com.t3privacyguard.persistence.AuditEventRepository;
 import br.com.t3privacyguard.persistence.ExecutionTraceEventEntity;
@@ -38,6 +40,7 @@ class IncidentRetentionServiceTest {
     @Autowired RemediationExecutionRepository remediations;
     @Autowired ExecutionTraceEventRepository traces;
     @Autowired AuditEventRepository audits;
+    @Autowired AuditChainHeadRepository auditChainHeads;
     @Autowired JdbcTemplate jdbc;
 
     @BeforeEach
@@ -47,6 +50,7 @@ class IncidentRetentionServiceTest {
         traces.deleteAll();
         actions.deleteAll();
         audits.deleteAll();
+        auditChainHeads.deleteAll();
         incidents.deleteAll();
     }
 
@@ -73,6 +77,7 @@ class IncidentRetentionServiceTest {
             "EXTERNAL_VERIFICATION", "VERIFIED", null, 12L, now.minus(Duration.ofDays(8))
         ));
         audits.save(new AuditEventEntity("audit-expired", incidentId, "INCIDENT_CREATED", "Synthetic audit", now.minus(Duration.ofDays(8))));
+        auditChainHeads.save(new AuditChainHeadEntity(incidentId, 1, "a".repeat(64), "v1"));
 
         assertThat(incidentService.listIncidents()).isEmpty();
         assertThatThrownBy(() -> incidentService.getIncident(incidentId)).isInstanceOf(IncidentNotFoundException.class);
@@ -84,6 +89,7 @@ class IncidentRetentionServiceTest {
         assertThat(traces.count()).isZero();
         assertThat(actions.count()).isZero();
         assertThat(audits.count()).isZero();
+        assertThat(auditChainHeads.count()).isZero();
         assertThat(incidents.count()).isZero();
         assertThat(retention.purgeExpired()).isZero();
     }
