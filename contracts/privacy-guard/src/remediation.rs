@@ -1,7 +1,8 @@
-use crate::policy::{self, AppliedPolicy, Decision, PolicyEvaluationRequest};
+use crate::policy::{self, Decision, PolicyEvaluationRequest};
 use serde::{Deserialize, Serialize};
 
 const VERIFIED_EMAIL_MARKER: &str = "{{profile.verified_contacts.email.value}}";
+const SUPPORTED_EXECUTION_ACTION: &str = "revoke-credential";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RemediationExecutionRequest {
@@ -14,8 +15,6 @@ pub struct RemediationExecutionRequest {
     pub fields: Vec<String>,
     #[serde(default)]
     pub private_refs: Vec<String>,
-    pub policy_version: String,
-    pub policy_hash: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -24,8 +23,6 @@ pub struct RemediationResult {
     pub status: String,
     pub http_code: u16,
     pub operation_id: Option<String>,
-    pub policy_version: String,
-    pub policy_hash: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -45,6 +42,7 @@ pub struct RemediationVerificationResult {
 pub fn execute_remediation(input: &[u8]) -> Result<Vec<u8>, String> {
     let request: RemediationExecutionRequest = serde_json::from_slice(input)
         .map_err(|_| "execute-remediation: invalid JSON input".to_string())?;
+    validate_execution_request(&request)?;
 
     #[cfg(target_arch = "wasm32")]
     {
@@ -79,22 +77,19 @@ pub fn verify_remediation(input: &[u8]) -> Result<Vec<u8>, String> {
     }
 }
 
+fn validate_execution_request(request: &RemediationExecutionRequest) -> Result<(), String> {
+    if request.action != SUPPORTED_EXECUTION_ACTION {
+        return Err("protected remediation executor is not implemented for this action".to_string());
+    }
+    Ok(())
+}
+
 fn validate_verification_request(request: &RemediationVerificationRequest) -> Result<(), String> {
     if request.request_id.trim().is_empty() || request.operation_id.trim().is_empty() {
         return Err("verification identifiers are required".to_string());
     }
     if request.expected_state != "REVOKED" {
         return Err("verification expected_state is not supported".to_string());
-    }
-    Ok(())
-}
-
-fn validate_policy_binding(request: &RemediationExecutionRequest, applied: &AppliedPolicy) -> Result<(), String> {
-    if request.policy_version.trim().is_empty() || request.policy_hash.len() != 64 {
-        return Err("approved policy metadata is required for remediation".to_string());
-    }
-    if request.policy_version != applied.version || request.policy_hash != applied.hash {
-        return Err("active policy changed after authorization; remediation must be re-evaluated".to_string());
     }
     Ok(())
 }
@@ -137,21 +132,10 @@ use crate::host::{
 };
 
 #[cfg(target_arch = "wasm32")]
-fn read_current_policy() -> Result<AppliedPolicy, String> {
-    let tid = tenant_context::tenant_did();
-    let map_name = alloc::format!("z:{}:privacy-guard-policy", hex::encode(&tid));
-    let bytes = kv_store::get(&map_name, b"current")
-        .map_err(|_| "versioned operational policy map is unavailable".to_string())?
-        .ok_or_else(|| "versioned operational policy entry is missing".to_string())?;
-    policy::parse_policy_document(&bytes).map_err(|_| "versioned operational policy is invalid".to_string())
-}
-
-#[cfg(target_arch = "wasm32")]
 fn execute_wasm(request: RemediationExecutionRequest) -> Result<RemediationResult, String> {
+    validate_execution_request(&request)?;
     let api_url = read_secret("security_api_url")?;
     let host = extract_https_host(&api_url)?;
-    let applied_policy = read_current_policy()?;
-    validate_policy_binding(&request, &applied_policy)?;
     let policy_request = PolicyEvaluationRequest {
         request_id: request.request_id.clone(),
         agent_did: request.agent_did,
@@ -162,7 +146,7 @@ fn execute_wasm(request: RemediationExecutionRequest) -> Result<RemediationResul
         fields: request.fields,
         private_refs: request.private_refs.clone(),
     };
-    let decision = policy::evaluate_with_policy(&policy_request, &applied_policy);
+    let decision = policy::evaluate(&policy_request);
     if decision.decision != Decision::Allow {
         return Err(alloc::format!("remediation denied: {}", decision.reason_code));
     }
@@ -185,7 +169,7 @@ fn execute_wasm(request: RemediationExecutionRequest) -> Result<RemediationResul
         }
     }
 
-    let _ = logging::info("Executing approved privacy-guard remediation with stable idempotency key and bound policy metadata");
+    let _ = logging::info("Executing approved privacy-guard remediation with stable idempotency key");
     let response = hwp::call(&hwp::Request {
         method: hwp::Verb::Post,
         url: api_url,
@@ -208,8 +192,6 @@ fn execute_wasm(request: RemediationExecutionRequest) -> Result<RemediationResul
         status: "PENDING_VERIFICATION".to_string(),
         http_code: response.code,
         operation_id: extract_operation_id(&response.payload),
-        policy_version: applied_policy.version,
-        policy_hash: applied_policy.hash,
     })
 }
 
@@ -275,43 +257,12 @@ fn format_http_error(error: hwp::HttpError) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeMap;
-
-    fn applied_policy() -> AppliedPolicy {
-        let mut actions = BTreeMap::new();
-        actions.insert("revoke-credential".to_string(), policy::ActionPolicy {
-            purpose: "incident-remediation".into(),
-            allowed_fields: vec!["credential_id".into(), "incident_id".into(), "reason".into()],
-            allowed_hosts: vec!["postman-echo.com".into()],
-            allowed_private_refs: vec![],
-            requires_host: true,
-            requires_human_authorization: true,
-        });
-        AppliedPolicy {
-            document: policy::PolicyDocument { version: "2026-09-12.1".into(), actions },
-            version: "2026-09-12.1".into(),
-            hash: "a".repeat(64),
-        }
-    }
 
     #[test]
     fn maps_only_verified_email_to_the_t3n_profile_marker() {
         assert_eq!(profile_marker("verified_email").unwrap(), VERIFIED_EMAIL_MARKER);
         assert!(profile_marker("{{profile.verified_contacts.email.value}}").is_err());
         assert!(profile_marker("unknown_private_value").is_err());
-    }
-
-    #[test]
-    fn remediation_requires_the_exact_authorized_policy_version_and_hash() {
-        let applied = applied_policy();
-        let valid = RemediationExecutionRequest {
-            request_id: "r1".into(), agent_did: "did:t3n:a".into(), action: "revoke-credential".into(),
-            resource: "credential:test".into(), purpose: "incident-remediation".into(), fields: vec![], private_refs: vec![],
-            policy_version: applied.version.clone(), policy_hash: applied.hash.clone(),
-        };
-        assert!(validate_policy_binding(&valid, &applied).is_ok());
-        let changed = RemediationExecutionRequest { policy_hash: "b".repeat(64), ..valid };
-        assert!(validate_policy_binding(&changed, &applied).is_err());
     }
 
     #[test]
@@ -338,9 +289,21 @@ mod tests {
             request_id: "r1".into(), agent_did: "did:t3n:a".into(), action: "revoke-credential".into(),
             resource: "credential:test".into(), purpose: "incident-remediation".into(),
             fields: vec!["incident_id".into(), "credential_id".into(), "reason".into()], private_refs: vec![],
-            policy_version: "2026-09-12.1".into(), policy_hash: "a".repeat(64),
         }).unwrap();
         assert!(execute_remediation(&input).unwrap_err().contains("only implemented on the wasm32 target"));
+    }
+
+    #[test]
+    fn execution_rejects_actions_without_a_verified_completion_contract_before_egress() {
+        for action in ["isolate-account", "create-incident", "notify-security"] {
+            let input = serde_json::to_vec(&RemediationExecutionRequest {
+                request_id: "r-unsupported".into(), agent_did: "did:t3n:a".into(), action: action.into(),
+                resource: "synthetic:test".into(), purpose: "incident-remediation".into(),
+                fields: vec!["incident_id".into()], private_refs: vec![],
+            }).unwrap();
+            let error = execute_remediation(&input).unwrap_err();
+            assert_eq!(error, "protected remediation executor is not implemented for this action");
+        }
     }
 
     #[test] fn malformed_input_fails_closed() { assert!(execute_remediation(b"bad").is_err()); }
@@ -352,7 +315,6 @@ mod tests {
         let result = RemediationResult {
             request_id: "r2".into(), status: "PENDING_VERIFICATION".into(), http_code: 200,
             operation_id: extract_operation_id(&serde_json::to_vec(&payload).unwrap()),
-            policy_version: "2026-09-12.1".into(), policy_hash: "a".repeat(64),
         };
         let serialized = serde_json::to_string(&result).unwrap();
         assert_eq!(result.operation_id.as_deref(), Some("operation-123"));

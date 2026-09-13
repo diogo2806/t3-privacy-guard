@@ -99,6 +99,33 @@ class IncidentServiceTest {
         verify(gateway, times(1)).evaluate(any());
     }
 
+    @Test void policyOnlyActionsRemainEvaluableButCannotEnterProtectedExecution() {
+        List<CreateActionRequest> unsupported = List.of(
+            new CreateActionRequest("req-isolate", "isolate-account", "account:demo", "incident-remediation", "postman-echo.com", List.of("incident_id", "account_id", "reason"), List.of()),
+            new CreateActionRequest("req-record", "create-incident", "incident:demo", "incident-recording", null, List.of("incident_id", "severity", "summary", "source"), List.of()),
+            new CreateActionRequest("req-notify", "notify-security", "incident:demo", "incident-notification", "postman-echo.com", List.of("incident_id", "severity", "summary"), List.of("verified_email"))
+        );
+
+        for (CreateActionRequest input : unsupported) {
+            var incident = createIncident("Policy-only " + input.action());
+            var action = service.addAction(incident.id(), input);
+            when(gateway.evaluate(any())).thenReturn(new GatewayDecision(
+                input.requestId(), DecisionType.ALLOW, "POLICY_ALLOW", "Allowed",
+                input.fields(), List.of(), input.privateRefs(), List.of()
+            ));
+
+            assertThat(service.evaluate(incident.id(), action.id()).decision()).isEqualTo(DecisionType.ALLOW);
+            assertThatThrownBy(() -> service.authorizeRemediation(incident.id(), action.id()))
+                .isInstanceOf(PolicyDeniedException.class)
+                .hasMessage("Protected remediation is not implemented for this action");
+            assertThat(actions.findById(action.id()).orElseThrow().getStatus().name()).isEqualTo("EVALUATED");
+        }
+
+        assertThat(remediations.count()).isZero();
+        verify(remediationGateway, times(0)).execute(any(), anyString());
+        verify(remediationGateway, times(0)).verify(anyString(), anyString());
+    }
+
     @Test void completedRequiresIndependentReadBackAndReplayDoesNotReexecute() {
         var context = authorizedAction("req-4");
         when(remediationGateway.execute(any(), anyString())).thenReturn(new RemediationResult("req-4", "PENDING_VERIFICATION", 202, "op-1"));
