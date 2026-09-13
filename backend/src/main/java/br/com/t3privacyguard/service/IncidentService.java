@@ -146,15 +146,21 @@ public class IncidentService {
             traces.recordFailure(action, "T3N_TEE_EVALUATION", "FAILED", "REQUEST_ID_MISMATCH", elapsedMillis(startedAt));
             throw new IllegalStateException("Policy decision request id mismatch");
         }
+        validatePolicyMetadata(gatewayDecision);
 
         PolicyDecisionEntity entity = decisions.save(new PolicyDecisionEntity(
             UUID.randomUUID().toString(), actionId, gatewayDecision.decision(), safe(gatewayDecision.reasonCode(), 80), safe(gatewayDecision.reason(), 800),
             writeJson(gatewayDecision.allowedFields()), writeJson(gatewayDecision.redactedFields()),
-            writeJson(gatewayDecision.allowedPrivateRefs()), writeJson(gatewayDecision.redactedPrivateRefs()), Instant.now()
+            writeJson(gatewayDecision.allowedPrivateRefs()), writeJson(gatewayDecision.redactedPrivateRefs()),
+            safeNullable(gatewayDecision.policyVersion(), 64), safeNullable(gatewayDecision.policyHash(), 64),
+            gatewayDecision.requiresHumanAuthorization(), Instant.now()
         ));
         action.markEvaluated();
         actions.save(action);
-        audit(incidentId, "POLICY_DECISION", "Policy decision " + entity.getDecision() + " with reason " + entity.getReasonCode());
+        String policyAudit = entity.getPolicyVersion() == null
+            ? " with fail-closed policy metadata unavailable"
+            : " under policy " + entity.getPolicyVersion() + " hash " + entity.getPolicyHash();
+        audit(incidentId, "POLICY_DECISION", "Policy decision " + entity.getDecision() + " with reason " + entity.getReasonCode() + policyAudit);
         traces.record(action, "T3N_TEE_EVALUATION", decisionTraceState(entity.getDecision()), entity.getReasonCode(), elapsedMillis(startedAt));
         return decisionResponse(entity);
     }
@@ -170,9 +176,10 @@ public class IncidentService {
         ActionProposalEntity action = requireAction(incidentId, actionId);
         PolicyDecisionEntity decision = decisions.findByActionProposalId(actionId).orElseThrow(() -> new ConflictException("Action must be evaluated before remediation"));
         if (decision.getDecision() != DecisionType.ALLOW) throw new PolicyDeniedException("Remediation requires an ALLOW policy decision");
+        requireVersionedPolicy(decision);
         action.authorizeRemediation();
         actions.save(action);
-        audit(incidentId, "REMEDIATION_AUTHORIZED", "Remediation authorized for request " + action.getRequestId());
+        audit(incidentId, "REMEDIATION_AUTHORIZED", "Remediation authorized for request " + action.getRequestId() + " under policy " + decision.getPolicyVersion() + " hash " + decision.getPolicyHash());
         traces.record(action, "HUMAN_AUTHORIZATION", "AUTHORIZED", null, null);
         return new RemediationAuthorizationResponse(incidentId, actionId, action.getRequestId(), action.getStatus().name());
     }
@@ -185,6 +192,7 @@ public class IncidentService {
         PolicyDecisionEntity decision = decisions.findByActionProposalId(actionId)
             .orElseThrow(() -> new ConflictException("A persisted policy decision is required before remediation"));
         if (decision.getDecision() != DecisionType.ALLOW) throw new PolicyDeniedException("Remediation requires a persisted ALLOW policy decision");
+        requireVersionedPolicy(decision);
 
         RemediationExecutionCoordinator.ClaimResult claim = executionCoordinator.claim(actionId, action.getRequestId());
         if (!claim.acquired()) return reconcileExisting(incidentId, action, claim.execution());
@@ -192,14 +200,16 @@ public class IncidentService {
         List<String> fields = readList(action.getFieldsJson());
         List<String> privateRefs = readList(action.getPrivateRefsJson());
         String capability = remediationAuthorizationSigner.issue(
-            incidentId, actionId, action.getRequestId(), decision.getId(), action.getAction(), action.getResource(), action.getPurpose(), fields, privateRefs
+            incidentId, actionId, action.getRequestId(), decision.getId(), action.getAction(), action.getResource(), action.getPurpose(), fields, privateRefs,
+            decision.getPolicyVersion(), decision.getPolicyHash()
         );
 
         traces.record(action, "PROTECTED_EGRESS", "SENT", null, null);
         long startedAt = System.nanoTime();
         try {
             var result = remediationGateway.execute(new RemediationRequest(
-                incidentId, actionId, decision.getId(), action.getRequestId(), action.getAction(), action.getResource(), action.getPurpose(), fields, privateRefs
+                incidentId, actionId, decision.getId(), action.getRequestId(), action.getAction(), action.getResource(), action.getPurpose(), fields, privateRefs,
+                decision.getPolicyVersion(), decision.getPolicyHash()
             ), capability);
             if (!action.getRequestId().equals(result.requestId())) {
                 RemediationExecutionEntity state = executionCoordinator.markUnverified(actionId, "REQUEST_ID_MISMATCH");
@@ -208,12 +218,12 @@ public class IncidentService {
                 return remediationResponse(incidentId, actionId, state);
             }
             RemediationExecutionEntity pending = executionCoordinator.markPendingVerification(actionId, result.httpCode(), safeNullable(result.operationId(), 200));
-            audit(incidentId, "REMEDIATION_ACCEPTED", "External request accepted; independent verification is required before completion");
+            audit(incidentId, "REMEDIATION_ACCEPTED", "External request accepted under policy " + decision.getPolicyVersion() + " hash " + decision.getPolicyHash() + "; independent verification is required before completion");
             traces.record(action, "EXTERNAL_ACCEPTANCE", "ACCEPTED", "HTTP_" + result.httpCode(), elapsedMillis(startedAt));
             return verifyPersistedRemediation(incidentId, action, pending);
         } catch (GatewayUnavailableException ex) {
             RemediationExecutionEntity state = executionCoordinator.markUnverified(actionId, "EXECUTION_RESULT_UNKNOWN");
-            audit(incidentId, "REMEDIATION_UNVERIFIED", "Execution outcome is ambiguous; automatic re-execution is blocked");
+            audit(incidentId, "REMEDIATION_UNVERIFIED", "Execution outcome is ambiguous or policy binding could not be confirmed; automatic re-execution is blocked");
             traces.record(action, "EXTERNAL_ACCEPTANCE", "UNAVAILABLE", "EXECUTION_RESULT_UNKNOWN", elapsedMillis(startedAt));
             return remediationResponse(incidentId, actionId, state);
         }
@@ -307,6 +317,25 @@ public class IncidentService {
         }
     }
 
+    private void validatePolicyMetadata(GatewayPolicyClient.GatewayDecision decision) {
+        boolean failClosedWithoutPolicy = decision.decision() == DecisionType.DENY
+            && ("POLICY_UNAVAILABLE".equals(decision.reasonCode()) || "POLICY_INVALID".equals(decision.reasonCode()));
+        if (decision.policyVersion() == null || decision.policyHash() == null) {
+            if (!failClosedWithoutPolicy) throw new IllegalStateException("T3N decision omitted required versioned policy metadata");
+            return;
+        }
+        if (decision.policyVersion().isBlank() || decision.policyVersion().length() > 64 || !decision.policyHash().matches("[a-f0-9]{64}") || decision.requiresHumanAuthorization() == null) {
+            throw new IllegalStateException("T3N decision returned invalid versioned policy metadata");
+        }
+    }
+
+    private void requireVersionedPolicy(PolicyDecisionEntity decision) {
+        if (decision.getPolicyVersion() == null || decision.getPolicyVersion().isBlank()
+            || decision.getPolicyHash() == null || !decision.getPolicyHash().matches("[a-f0-9]{64}")) {
+            throw new ConflictException("This decision predates versioned policy metadata and cannot authorize remediation; create and evaluate a new action");
+        }
+    }
+
     private void audit(String incidentId, String type, String message) {
         audits.save(new AuditEventEntity(UUID.randomUUID().toString(), incidentId, type, safe(message, 600), Instant.now()));
     }
@@ -326,7 +355,8 @@ public class IncidentService {
         return new DecisionResponse(
             entity.getId(), entity.getActionProposalId(), entity.getDecision(), entity.getReasonCode(), entity.getReason(),
             readList(entity.getAllowedFieldsJson()), readList(entity.getRedactedFieldsJson()),
-            readList(entity.getAllowedPrivateRefsJson()), readList(entity.getRedactedPrivateRefsJson()), entity.getEvaluatedAt()
+            readList(entity.getAllowedPrivateRefsJson()), readList(entity.getRedactedPrivateRefsJson()),
+            entity.getPolicyVersion(), entity.getPolicyHash(), entity.getRequiresHumanAuthorization(), entity.getEvaluatedAt()
         );
     }
 
