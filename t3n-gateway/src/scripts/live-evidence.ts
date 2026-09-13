@@ -9,6 +9,7 @@ import { readGatewayConfig } from '../config/env.js';
 import { PrivacyGuardContractService } from '../contract/privacy-guard-contract.js';
 import { assertEvidenceMatchesDeployment, assertManifestIdentity, sha256File, type DeploymentManifest, type TestnetEvidenceIdentity } from '../evidence/deployment-manifest.js';
 import { assertNoSecretLeak } from '../evidence/leak-detector.js';
+import { TrustManifestFloorStore } from '../security/trust-manifest-floor-store.js';
 import { T3nSession } from '../t3n/session.js';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -37,12 +38,28 @@ if (config.network !== 'testnet' && process.env.EVIDENCE_ALLOW_PRODUCTION !== 't
 }
 if (!config.agentApiKey) throw new Error('T3N_AGENT_API_KEY is required for live evidence');
 
-const tenantSession = new T3nSession(config);
-const agentSession = new AgentSession(config);
+const trustFloorStore = new TrustManifestFloorStore(config.trustManifestFloorStorePath);
+const tenantSession = new T3nSession(config, trustFloorStore);
+const agentSession = new AgentSession(config, trustFloorStore);
 const delegation = new DelegationService(tenantSession, agentSession);
 const contract = new PrivacyGuardContractService(config, tenantSession, agentSession);
 await tenantSession.connect();
 await agentSession.connect();
+
+const tenantStatus = tenantSession.getStatus();
+const agentStatus = agentSession.getStatus();
+const persistedTrustFloor = await trustFloorStore.get(config.network);
+if (!tenantStatus.trustAnchorVerified || !agentStatus.trustAnchorVerified || !persistedTrustFloor) {
+  throw new Error('Live evidence requires verified T3N trust anchors and a persisted rollback floor');
+}
+if (
+  tenantStatus.trustManifestVersion === null
+  || agentStatus.trustManifestVersion === null
+  || tenantStatus.trustManifestVersion > persistedTrustFloor.version
+  || agentStatus.trustManifestVersion > persistedTrustFloor.version
+) {
+  throw new Error('Persisted T3N trust manifest floor is inconsistent with authenticated sessions');
+}
 
 const tenantDid = tenantSession.getTenantDid();
 const agentDid = agentSession.getAgentDid();
@@ -81,6 +98,9 @@ const manifest: DeploymentManifest = {
   numericContractId,
   contractVersion,
   wasmSha256,
+  trustAnchorVerified: true,
+  trustManifestFloorPersisted: true,
+  trustManifestVersion: persistedTrustFloor.version,
 };
 assertManifestIdentity(manifest);
 if (manifest.contractVersion !== config.contractVersion) throw new Error('Deployment manifest contract version differs from configured version');
@@ -136,4 +156,13 @@ if (evidence.scenarios?.some((scenario) => scenario.status === 'FAIL')) throw ne
 
 const finalSerialized = await readFile(testnetPath, 'utf8');
 assertNoSecretLeak(finalSerialized, sensitiveValues);
-console.info(JSON.stringify({ manifestPath, testnetPath, contractId, contractVersion, wasmSha256, evidenceLinked: true }, null, 2));
+console.info(JSON.stringify({
+  manifestPath,
+  testnetPath,
+  contractId,
+  contractVersion,
+  wasmSha256,
+  trustManifestVersion: persistedTrustFloor.version,
+  trustFloorPersisted: true,
+  evidenceLinked: true,
+}, null, 2));

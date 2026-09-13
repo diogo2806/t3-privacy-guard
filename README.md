@@ -106,7 +106,7 @@ Protected T3N execution
 PENDING_VERIFICATION
    |
    v
-Independent read-back
+Independent external read-back
    |
    +--> expected state observed -> COMPLETED
    +--> ambiguous/mismatch      -> UNVERIFIED
@@ -412,3 +412,11 @@ cd ../contracts/privacy-guard && cargo test && cargo build --target wasm32-wasip
 Use `.env.example` only as a variable-name template. Never commit tenant keys, agent keys, AI provider keys, operator passwords, service tokens, capability keys, remediation credentials, private profile values or `.env` files.
 
 The project will continue to be operated after the challenge. Future handover provisions new credentials instead of transferring existing private keys.
+
+## Persistent T3N trust-manifest rollback protection
+
+Before tenant or agent authentication, the gateway verifies the official signed T3N trust manifest and persists the accepted manifest version as a monotonic high-water mark per network. `T3N_TRUST_FLOOR_STORE_PATH` defaults to `/data/t3n-trust-floor.json`; the file contains only public trust metadata (`network`, accepted version and timestamp), never API keys, cookies or session credentials.
+
+When a floor already exists, authentication calls `fetchTrustedManifest(network, { minVersion })`. A lower manifest is rejected, the floor is never silently decreased, and malformed or unreadable persisted state fails closed instead of resetting rollback history. Tenant and Agent sessions receive the same `TrustManifestFloorStore` instance in each runtime, so they cannot establish independent floors for the same network. Atomic temp-file + fsync + rename persistence allows the accepted floor to survive process/container restart when `/data` is persistent.
+
+Evidence uses precise wording: `Trust anchor VERIFIED` means the signed manifest established the T3N cluster trust boundary; `Rollback floor PERSISTED` means the version high-water mark was durably stored and reused across restarts. Neither claim is described as per-request hardware attestation.

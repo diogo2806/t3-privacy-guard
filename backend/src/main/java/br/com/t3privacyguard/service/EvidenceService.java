@@ -45,7 +45,10 @@ public class EvidenceService {
                 required(manifest, "agentDid"),
                 required(manifest, "contractId"),
                 required(manifest, "contractVersion"),
-                required(manifest, "wasmSha256")
+                required(manifest, "wasmSha256"),
+                requiredBoolean(manifest, "trustAnchorVerified"),
+                requiredBoolean(manifest, "trustManifestFloorPersisted"),
+                requiredPositiveLong(manifest, "trustManifestVersion")
             );
             validateMetadata(metadata);
             assertSame(testnet, "network", metadata.network());
@@ -88,12 +91,29 @@ public class EvidenceService {
         if (!value.tenantDid().startsWith("did:t3n:") || !value.agentDid().startsWith("did:t3n:")) throw new IllegalStateException("Evidence DIDs are invalid");
         if (value.tenantDid().equals(value.agentDid())) throw new IllegalStateException("Evidence tenant and agent DIDs must differ");
         if (!value.wasmSha256().matches("[a-f0-9]{64}")) throw new IllegalStateException("Evidence WASM SHA-256 is invalid");
+        if (!value.trustAnchorVerified()) throw new IllegalStateException("Evidence trust anchor is not verified");
+        if (!value.trustManifestFloorPersisted()) throw new IllegalStateException("Evidence trust manifest rollback floor is not persisted");
+        if (value.trustManifestVersion() < 1) throw new IllegalStateException("Evidence trust manifest version is invalid");
     }
 
     private static String required(JsonNode node, String field) {
         JsonNode value = node.get(field);
         if (value == null || !value.isTextual() || value.asText().isBlank()) throw new IllegalStateException("Missing evidence field: " + field);
         return value.asText();
+    }
+
+    private static boolean requiredBoolean(JsonNode node, String field) {
+        JsonNode value = node.get(field);
+        if (value == null || !value.isBoolean()) throw new IllegalStateException("Missing evidence boolean field: " + field);
+        return value.booleanValue();
+    }
+
+    private static long requiredPositiveLong(JsonNode node, String field) {
+        JsonNode value = node.get(field);
+        if (value == null || !value.canConvertToLong() || !value.isIntegralNumber() || value.longValue() < 1) {
+            throw new IllegalStateException("Missing or invalid evidence integer field: " + field);
+        }
+        return value.longValue();
     }
 
     private static String nullableText(JsonNode node, String field) {
@@ -106,7 +126,20 @@ public class EvidenceService {
     }
 
     public record EvidenceResponse(Metadata metadata, List<Scenario> scenarios, Totals totals) {}
-    public record Metadata(String source, String generatedAt, String network, String sdkVersion, String tenantDid, String agentDid, String contractId, String contractVersion, String wasmSha256) {}
+    public record Metadata(
+        String source,
+        String generatedAt,
+        String network,
+        String sdkVersion,
+        String tenantDid,
+        String agentDid,
+        String contractId,
+        String contractVersion,
+        String wasmSha256,
+        boolean trustAnchorVerified,
+        boolean trustManifestFloorPersisted,
+        long trustManifestVersion
+    ) {}
     public record Scenario(String id, String expected, String actual, String status, String detail) {}
     public record Totals(int pass, int fail, int notRun) {}
 }

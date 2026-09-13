@@ -11,6 +11,7 @@ export interface GatewayConfig {
   readonly gatewayServiceToken: string;
   readonly remediationCapabilityKey: string;
   readonly remediationReplayStorePath: string;
+  readonly trustManifestFloorStorePath: string;
   readonly aiProvider: AiProvider;
   readonly aiApiUrl: string | null;
   readonly aiApiKey: string | null;
@@ -28,6 +29,12 @@ function requiredSecret(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name]?.trim();
   if (!value || value.length < 32) throw new ConfigurationError(`${name} is required and must contain at least 32 characters`);
   return value;
+}
+
+function requiredPath(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
+  const raw = env[name];
+  if (raw !== undefined && !raw.trim()) throw new ConfigurationError(`${name} must not be empty`);
+  return raw?.trim() || fallback;
 }
 
 function isIpv4Loopback(hostname: string): boolean {
@@ -91,7 +98,8 @@ export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): Gateway
     contractVersion,
     gatewayServiceToken: requiredSecret(env, 'GATEWAY_SERVICE_TOKEN'),
     remediationCapabilityKey: requiredSecret(env, 'REMEDIATION_CAPABILITY_KEY'),
-    remediationReplayStorePath: (env.REMEDIATION_REPLAY_STORE_PATH ?? '/data/remediation-capability-nonces.json').trim(),
+    remediationReplayStorePath: requiredPath(env, 'REMEDIATION_REPLAY_STORE_PATH', '/data/remediation-capability-nonces.json'),
+    trustManifestFloorStorePath: requiredPath(env, 'T3N_TRUST_FLOOR_STORE_PATH', '/data/t3n-trust-floor.json'),
     aiProvider: aiProviderValue,
     aiApiUrl,
     aiApiKey,
