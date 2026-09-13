@@ -73,7 +73,9 @@ function validEvidence(evidence: EvidenceBundle | null): evidence is EvidenceBun
 
 function readiness(status: SystemStatus | null, statusLoading: boolean, evidence: EvidenceBundle | null, evidenceLoading: boolean) {
   if (statusLoading || evidenceLoading) return { label: 'CHECKING RUNTIME', tone: 'pending' as const };
-  if (status?.protectedRemediationReady && validEvidence(evidence)) return { label: 'T3N LIVE / READY', tone: 'success' as const };
+  if (status?.protectedRemediationReady && validEvidence(evidence) && evidence.totals.fail === 0) {
+    return { label: 'T3N LIVE / READY', tone: 'success' as const };
+  }
   if (status?.evaluationReady || status || evidence) return { label: 'INCOMPLETE', tone: 'warning' as const };
   return { label: 'NOT READY', tone: 'danger' as const };
 }
@@ -221,7 +223,7 @@ export function ExecutiveDemoView({
       <section className="executive-demo-proof" aria-labelledby="executive-proof-title" data-testid="executive-proof">
         <div className="executive-demo-proof-heading">
           <div className="executive-demo-block-title"><FileCheck2 aria-hidden="true" /><h2 id="executive-proof-title">Proof at a glance</h2></div>
-          {!proofAvailable && <span className="executive-demo-proof-state">{evidenceLoading ? 'Loading live evidence…' : evidenceError ? 'Live evidence not loaded/generated' : 'Live evidence not loaded/generated'}</span>}
+          {!proofAvailable && <span className="executive-demo-proof-state" title={evidenceError ?? undefined}>{evidenceLoading ? 'Loading live evidence…' : 'Live evidence not loaded/generated'}</span>}
         </div>
 
         {proofAvailable ? (
