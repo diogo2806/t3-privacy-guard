@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { ScreenManualDialog } from './ScreenManualDialog';
 
 describe('ScreenManualDialog', () => {
-  it('traps focus and explains effective authorization, business outcome, A2A, privacy, local integrity and T3N provenance', async () => {
+  it('traps focus and explains executive demo, effective authorization, business outcome, A2A, privacy, local integrity and T3N provenance', async () => {
     const user = userEvent.setup();
     render(<div><button type="button">Outside action</button><ScreenManualDialog /></div>);
 
@@ -17,6 +17,13 @@ describe('ScreenManualDialog', () => {
     const dialog = screen.getByRole('dialog', { name: 'Incident Response Dashboard' });
     const closeButton = screen.getByRole('button', { name: 'Close Screen Manual' });
     expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(screen.getByRole('heading', { name: 'Executive Demo' })).toBeInTheDocument();
+    expect(dialog).toHaveTextContent(/projeção do mesmo estado.*não cria incidente.*autorização.*execução.*evidence paralela/i);
+    expect(dialog).toHaveTextContent(/BLOCKED BEFORE PROTECTED EGRESS.*MINIMIZATION REQUIRED.*HUMAN AUTHORIZATION REQUIRED/i);
+    expect(dialog).toHaveTextContent(/AUTHORIZED \/ NOT EXECUTED.*ACCEPTED \/ NOT VERIFIED/i);
+    expect(dialog).toHaveTextContent(/Proof at a glance.*não substitui.*Evidence Center/i);
+    expect(dialog).toHaveTextContent(/T3N LIVE \/ READY.*protected remediation ready.*evidence válida/i);
+    expect(dialog).toHaveTextContent(/não possui botões de Analyze, Authorize, Execute ou Verify/i);
     expect(screen.getByRole('heading', { name: 'Business Outcome' })).toBeInTheDocument();
     expect(dialog).toHaveTextContent(/Time to policy decision.*evaluatedAt.*action.createdAt/i);
     expect(dialog).toHaveTextContent(/Time to verified outcome.*completedAt.*COMPLETED/i);
