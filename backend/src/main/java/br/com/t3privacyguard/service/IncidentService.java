@@ -9,7 +9,7 @@ import br.com.t3privacyguard.api.ApiModels.ExecutionTraceResponse;
 import br.com.t3privacyguard.api.ApiModels.IncidentResponse;
 import br.com.t3privacyguard.api.ApiModels.RemediationAuthorizationResponse;
 import br.com.t3privacyguard.api.ApiModels.RemediationExecutionResponse;
-import br.com.t3privacyguard.audit.AuditIntegrityService;
+import br.comt3privacyguard.audit.AuditIntegrityService;
 import br.com.t3privacyguard.domain.DecisionType;
 import br.com.t3privacyguard.domain.ProposalStatus;
 import br.com.t3privacyguard.domain.RemediationStatus;
@@ -35,6 +35,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -43,7 +44,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class IncidentService {
-    private static final String SUPPORTED_REMEDIATION_ACTION = "revoke-credential";
+    private static final String REVOKE_CREDENTIAL_ACTION = "revoke-credential";
+    private static final String NOTIFY_SECURITY_ACTION = "notify-security";
+    private static final Set<String> SUPPORTED_REMEDIATION_ACTIONS = Set.of(REVOKE_CREDENTIAL_ACTION, NOTIFY_SECURITY_ACTION);
 
     private final IncidentRepository incidents;
     private final ActionProposalRepository actions;
@@ -324,8 +327,9 @@ public class IncidentService {
 
         executionCoordinator.markVerificationAttempt(action.getId());
         long startedAt = System.nanoTime();
+        String expectedState = expectedStateForAction(action.getAction());
         try {
-            var verification = remediationGateway.verify(execution.getRequestId(), execution.getOperationId());
+            var verification = remediationGateway.verify(execution.getRequestId(), execution.getOperationId(), action.getAction(), expectedState);
             if (!execution.getRequestId().equals(verification.requestId())) {
                 RemediationExecutionEntity state = executionCoordinator.markUnverified(action.getId(), "VERIFICATION_REQUEST_ID_MISMATCH");
                 audit(
@@ -339,14 +343,16 @@ public class IncidentService {
                 traces.record(action, "EXTERNAL_VERIFICATION", "FAILED", "VERIFICATION_REQUEST_ID_MISMATCH", elapsedMillis(startedAt));
                 return remediationResponse(incidentId, action.getId(), state);
             }
-            if ("VERIFIED".equals(verification.status()) && "REVOKED".equals(verification.observedState())) {
+            boolean privateResolutionVerified = !NOTIFY_SECURITY_ACTION.equals(action.getAction()) || Boolean.TRUE.equals(verification.recipientResolved());
+            if ("VERIFIED".equals(verification.status()) && expectedState.equals(verification.observedState()) && privateResolutionVerified) {
                 RemediationExecutionEntity completed = executionCoordinator.markCompleted(action.getId());
                 action.markRemediated();
                 actions.save(action);
                 audit(
                     incidentId,
                     "REMEDIATION_VERIFIED",
-                    "Independent read-back confirmed expected external state REVOKED",
+                    "Independent read-back confirmed expected external state " + expectedState
+                        + (NOTIFY_SECURITY_ACTION.equals(action.getAction()) ? " and confirmed private recipient resolution without returning the recipient value" : ""),
                     verification.activitySequence(),
                     verification.activityHash(),
                     "verify-remediation"
@@ -405,9 +411,17 @@ public class IncidentService {
     }
 
     private void requireSupportedRemediationExecutor(ActionProposalEntity action) {
-        if (!SUPPORTED_REMEDIATION_ACTION.equals(action.getAction())) {
+        if (!SUPPORTED_REMEDIATION_ACTIONS.contains(action.getAction())) {
             throw new PolicyDeniedException("Protected remediation is not implemented for this action");
         }
+    }
+
+    private static String expectedStateForAction(String action) {
+        return switch (action) {
+            case REVOKE_CREDENTIAL_ACTION -> "REVOKED";
+            case NOTIFY_SECURITY_ACTION -> "DELIVERED";
+            default -> throw new PolicyDeniedException("Protected remediation verification is not implemented for this action");
+        };
     }
 
     private String requireApprovedHost(ActionProposalEntity action) {
