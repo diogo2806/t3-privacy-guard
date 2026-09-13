@@ -38,14 +38,16 @@ interface DelegationEvidence {
 }
 
 function configuredEgressHosts(): string[] {
-  const configured = [process.env.SECURITY_API_URL, process.env.SECURITY_VERIFICATION_URL, process.env.EVIDENCE_DESTINATION_B_URL]
+  const candidates = [process.env.SECURITY_API_URL, process.env.SECURITY_VERIFICATION_URL];
+  if (process.env.EVIDENCE_RUN_DESTINATION_BINDING === 'true') candidates.push(process.env.EVIDENCE_DESTINATION_B_URL);
+  const configured = candidates
     .map((value) => value?.trim())
     .filter((value): value is string => Boolean(value));
   if (configured.length === 0) return ['postman-echo.com'];
   return [...new Set(configured.map((value) => {
     const parsed = new URL(value);
     if (parsed.protocol !== 'https:') throw new Error('Evidence egress endpoints must use HTTPS');
-    return parsed.hostname;
+    return parsed.hostname.toLowerCase();
   }))];
 }
 
