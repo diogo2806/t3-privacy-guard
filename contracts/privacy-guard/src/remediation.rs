@@ -11,6 +11,7 @@ pub struct RemediationExecutionRequest {
     pub action: String,
     pub resource: String,
     pub purpose: String,
+    pub approved_host: String,
     #[serde(default)]
     pub fields: Vec<String>,
     #[serde(default)]
@@ -85,6 +86,7 @@ fn validate_execution_request(request: &RemediationExecutionRequest) -> Result<(
     if request.action != SUPPORTED_EXECUTION_ACTION {
         return Err("protected remediation executor is not implemented for this action".to_string());
     }
+    canonicalize_hostname(&request.approved_host)?;
     Ok(())
 }
 
@@ -106,6 +108,39 @@ fn validate_policy_binding(request: &RemediationExecutionRequest, applied: &Appl
         return Err("active policy changed after authorization; remediation must be re-evaluated".to_string());
     }
     Ok(())
+}
+
+fn canonicalize_hostname(value: &str) -> Result<String, String> {
+    let host = value.trim();
+    if host.is_empty() || host.len() > 253 || !host.is_ascii() || host.ends_with('.')
+        || host.contains("://") || host.contains('/') || host.contains('@') || host.contains(':')
+        || host.contains('?') || host.contains('#') {
+        return Err("approved remediation destination is not a valid hostname".to_string());
+    }
+    let canonical = host.to_ascii_lowercase();
+    for label in canonical.split('.') {
+        if label.is_empty() || label.len() > 63 || label.starts_with('-') || label.ends_with('-')
+            || !label.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-') {
+            return Err("approved remediation destination is not a valid hostname".to_string());
+        }
+    }
+    Ok(canonical)
+}
+
+fn extract_https_host(url: &str) -> Result<String, String> {
+    let rest = url.strip_prefix("https://").ok_or("security endpoint must use https")?;
+    let host = rest.split('/').next().unwrap_or("");
+    canonicalize_hostname(host).map_err(|_| "security endpoint contains an invalid host".to_string())
+}
+
+fn ensure_execution_destination(approved_host: &str, actual_host: &str) -> Result<String, String> {
+    let approved = canonicalize_hostname(approved_host)?;
+    let actual = canonicalize_hostname(actual_host)
+        .map_err(|_| "security endpoint contains an invalid host".to_string())?;
+    if approved != actual {
+        return Err("EXECUTION_DESTINATION_CHANGED".to_string());
+    }
+    Ok(actual)
 }
 
 fn profile_marker(logical_ref: &str) -> Result<&'static str, String> {
@@ -158,8 +193,10 @@ fn read_current_policy() -> Result<AppliedPolicy, String> {
 #[cfg(target_arch = "wasm32")]
 fn execute_wasm(request: RemediationExecutionRequest) -> Result<RemediationResult, String> {
     validate_execution_request(&request)?;
+    let approved_host = canonicalize_hostname(&request.approved_host)?;
     let api_url = read_secret("security_api_url")?;
-    let host = extract_https_host(&api_url)?;
+    let resolved_host = extract_https_host(&api_url)?;
+    let host = ensure_execution_destination(&approved_host, &resolved_host)?;
     let applied_policy = read_current_policy()?;
     validate_policy_binding(&request, &applied_policy)?;
     let policy_request = PolicyEvaluationRequest {
@@ -168,7 +205,7 @@ fn execute_wasm(request: RemediationExecutionRequest) -> Result<RemediationResul
         action: request.action.clone(),
         resource: request.resource.clone(),
         purpose: request.purpose.clone(),
-        host: Some(host.to_string()),
+        host: Some(host),
         fields: request.fields,
         private_refs: request.private_refs.clone(),
     };
@@ -195,7 +232,7 @@ fn execute_wasm(request: RemediationExecutionRequest) -> Result<RemediationResul
         }
     }
 
-    let _ = logging::info("Executing approved privacy-guard remediation with stable idempotency key and bound policy metadata");
+    let _ = logging::info("Executing approved privacy-guard remediation with bound policy metadata and approved destination");
     let response = hwp::call(&hwp::Request {
         method: hwp::Verb::Post,
         url: api_url,
@@ -262,16 +299,6 @@ fn read_secret(key: &str) -> Result<String, String> {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn extract_https_host(url: &str) -> Result<&str, String> {
-    let rest = url.strip_prefix("https://").ok_or("security endpoint must use https")?;
-    let host = rest.split('/').next().unwrap_or("");
-    if host.is_empty() || host.contains('@') || host.contains(':') {
-        return Err("security endpoint contains an invalid host".to_string());
-    }
-    Ok(host)
-}
-
-#[cfg(target_arch = "wasm32")]
 fn format_http_error(error: hwp::HttpError) -> String {
     match error {
         hwp::HttpError::EgressDenied(host) => alloc::format!("egress denied for host {host}"),
@@ -304,6 +331,14 @@ mod tests {
         }
     }
 
+    fn execution_request() -> RemediationExecutionRequest {
+        RemediationExecutionRequest {
+            request_id: "r1".into(), agent_did: "did:t3n:a".into(), action: "revoke-credential".into(),
+            resource: "credential:test".into(), purpose: "incident-remediation".into(), approved_host: "postman-echo.com".into(),
+            fields: vec![], private_refs: vec![], policy_version: "2026-09-12.1".into(), policy_hash: "a".repeat(64),
+        }
+    }
+
     #[test]
     fn maps_only_verified_email_to_the_t3n_profile_marker() {
         assert_eq!(profile_marker("verified_email").unwrap(), VERIFIED_EMAIL_MARKER);
@@ -314,28 +349,35 @@ mod tests {
     #[test]
     fn remediation_requires_the_exact_authorized_policy_version_and_hash() {
         let applied = applied_policy();
-        let valid = RemediationExecutionRequest {
-            request_id: "r1".into(), agent_did: "did:t3n:a".into(), action: "revoke-credential".into(),
-            resource: "credential:test".into(), purpose: "incident-remediation".into(), fields: vec![], private_refs: vec![],
-            policy_version: applied.version.clone(), policy_hash: applied.hash.clone(),
-        };
+        let valid = RemediationExecutionRequest { policy_version: applied.version.clone(), policy_hash: applied.hash.clone(), ..execution_request() };
         assert!(validate_policy_binding(&valid, &applied).is_ok());
         let changed = RemediationExecutionRequest { policy_hash: "b".repeat(64), ..valid };
         assert!(validate_policy_binding(&changed, &applied).is_err());
     }
 
     #[test]
+    fn approved_destination_must_match_the_kv_resolved_execution_host() {
+        assert_eq!(ensure_execution_destination("postman-echo.com", "postman-echo.com").unwrap(), "postman-echo.com");
+        assert_eq!(ensure_execution_destination("POSTMAN-ECHO.COM", "postman-echo.com").unwrap(), "postman-echo.com");
+        assert_eq!(ensure_execution_destination("security-a.example", "security-b.example").unwrap_err(), "EXECUTION_DESTINATION_CHANGED");
+        assert_eq!(extract_https_host("https://postman-echo.com/post").unwrap(), "postman-echo.com");
+        assert!(extract_https_host("https://postman-echo.com:443/post").is_err());
+        assert!(canonicalize_hostname("https://postman-echo.com/post").is_err());
+    }
+
+    #[test]
     fn execution_rejects_actions_without_a_verified_completion_contract_before_egress() {
         for action in ["isolate-account", "create-incident", "notify-security"] {
-            let input = serde_json::to_vec(&RemediationExecutionRequest {
-                request_id: "r-unsupported".into(), agent_did: "did:t3n:a".into(), action: action.into(),
-                resource: "synthetic:test".into(), purpose: "incident-remediation".into(),
-                fields: vec!["incident_id".into()], private_refs: vec![],
-                policy_version: "2026-09-12.1".into(), policy_hash: "a".repeat(64),
-            }).unwrap();
+            let input = serde_json::to_vec(&RemediationExecutionRequest { action: action.into(), ..execution_request() }).unwrap();
             let error = execute_remediation(&input).unwrap_err();
             assert_eq!(error, "protected remediation executor is not implemented for this action");
         }
+    }
+
+    #[test]
+    fn execution_without_approved_destination_fails_closed() {
+        let input = serde_json::to_vec(&RemediationExecutionRequest { approved_host: "".into(), ..execution_request() }).unwrap();
+        assert!(execute_remediation(&input).unwrap_err().contains("approved remediation destination"));
     }
 
     #[test]
@@ -359,10 +401,8 @@ mod tests {
     #[test]
     fn native_execution_never_simulates_secret_egress() {
         let input = serde_json::to_vec(&RemediationExecutionRequest {
-            request_id: "r1".into(), agent_did: "did:t3n:a".into(), action: "revoke-credential".into(),
-            resource: "credential:test".into(), purpose: "incident-remediation".into(),
-            fields: vec!["incident_id".into(), "credential_id".into(), "reason".into()], private_refs: vec![],
-            policy_version: "2026-09-12.1".into(), policy_hash: "a".repeat(64),
+            fields: vec!["incident_id".into(), "credential_id".into(), "reason".into()],
+            ..execution_request()
         }).unwrap();
         assert!(execute_remediation(&input).unwrap_err().contains("only implemented on the wasm32 target"));
     }
