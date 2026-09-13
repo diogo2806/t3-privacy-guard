@@ -22,6 +22,9 @@ final class AuditMac {
         String type,
         Instant createdAt,
         String message,
+        Long t3nSequence,
+        String t3nHash,
+        String t3nFunction,
         String previousMac
     ) {
         return String.join("\n",
@@ -33,6 +36,9 @@ final class AuditMac {
             encoded(type),
             createdAt.toString(),
             encoded(message),
+            t3nSequence == null ? "" : Long.toString(t3nSequence),
+            encodedNullable(t3nHash),
+            encodedNullable(t3nFunction),
             previousMac
         );
     }
@@ -78,5 +84,9 @@ final class AuditMac {
 
     private static String encoded(String value) {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String encodedNullable(String value) {
+        return value == null ? "" : encoded(value);
     }
 }
