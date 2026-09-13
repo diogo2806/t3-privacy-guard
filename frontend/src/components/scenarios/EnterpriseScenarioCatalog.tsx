@@ -47,7 +47,7 @@ export function EnterpriseScenarioCatalog({ selectedId, busy, onSelect }: Props)
         <dl className="scenario-business-context">
           <div><dt>Business risk</dt><dd>{selected.businessRisk}</dd></div>
           <div><dt>Protected asset</dt><dd>{selected.protectedAsset}</dd></div>
-          <div><dt>Business outcome</dt><dd>{selected.businessOutcome}</dd></div>
+          <div><dt>Target business outcome</dt><dd>{selected.businessOutcome}</dd></div>
           <div><dt>Success definition</dt><dd>{selected.successDefinition}</dd></div>
         </dl>
       </details>
