@@ -38,9 +38,9 @@ export interface PolicyDecision extends ActivityAnnotated {
 }
 
 export interface RemediationExecutionRequest {
-  readonly incident_id: string;
-  readonly action_id: string;
-  readonly decision_id: string;
+  readonly incident_id?: string;
+  readonly action_id?: string;
+  readonly decision_id?: string;
   readonly request_id: string;
   readonly action: string;
   readonly resource: string;
@@ -51,8 +51,8 @@ export interface RemediationExecutionRequest {
   readonly private_refs?: string[];
   readonly policy_version: string;
   readonly policy_hash: string;
-  readonly executor_did: string;
-  readonly authorization_proof: string;
+  readonly executor_did?: string;
+  readonly authorization_proof?: string;
 }
 
 export interface RemediationResult extends ActivityAnnotated {
@@ -192,13 +192,24 @@ export class PrivacyGuardContractService {
   async remediate(request: RemediationExecutionRequest, authorizedExecutorDid: string): Promise<RemediationResult> {
     await Promise.all([this.agentSession.connect(), this.executorSession.connect()]);
     const executorDid = this.executorSession.getExecutorDid();
-    if (authorizedExecutorDid !== executorDid || request.executor_did !== executorDid) throw new Error('CAPABILITY_EXECUTOR_MISMATCH');
+    if (authorizedExecutorDid !== executorDid || (request.executor_did && request.executor_did !== executorDid)) {
+      throw new Error('CAPABILITY_EXECUTOR_MISMATCH');
+    }
     const contractId = await this.canonicalContractId();
     const contractVersion = await this.currentVersion(contractId);
     const proposalAgentDid = this.agentSession.getAgentDid();
+    const delegatedInput = {
+      ...request,
+      incident_id: request.incident_id ?? request.request_id,
+      action_id: request.action_id ?? request.request_id,
+      decision_id: request.decision_id ?? request.request_id,
+      executor_did: request.executor_did ?? executorDid,
+      authorization_proof: request.authorization_proof ?? '',
+      private_refs: request.private_refs ?? [],
+      agent_did: proposalAgentDid,
+    };
     const captured = await this.capture(executorDid, contractId, 'execute-remediation', () => this.executorSession.getClient().executeAndDecode(buildDelegatedExecutionRequest(
-      this.tenantSession.getTenantDid(), contractId, contractVersion, 'execute-remediation',
-      { ...request, private_refs: request.private_refs ?? [], agent_did: proposalAgentDid },
+      this.tenantSession.getTenantDid(), contractId, contractVersion, 'execute-remediation', delegatedInput,
     )));
     if (!isRemediation(captured.result)) throw new Error('T3N contract returned an invalid remediation result');
     if (captured.result.policy_version !== request.policy_version || captured.result.policy_hash !== request.policy_hash) {
