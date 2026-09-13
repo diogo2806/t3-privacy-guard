@@ -846,3 +846,13 @@ Do not say “Verified source” solely because a Git SHA/tree state is present,
 **Decision: continue running the project after the challenge.** Future handover provisions new Tenant, Proposal Agent and Protected Executor credentials, operator credentials, provider key, service/capability keys, audit-integrity key and persistent gateway `/data`. Existing private keys are not transferred through GitHub/UI. Profile-backed live evidence must use a dedicated test profile with synthetic data.
 
 This file is the repository source of truth for the public submission narrative and handover model.
+
+## Human authorization provenance and privacy boundary
+
+Human approval is sourced only from the authenticated Spring operator session. The authorize endpoint does not accept an approver identity from the browser. Spring persists the canonical application principal and timestamp on the action, writes a sanitized `REMEDIATION_AUTHORIZED` audit event covered by the existing HMAC chain and returns `Authorized by`/`Authorized at` only to the authenticated application UI. A same-principal retry preserves the original approval; a different principal cannot overwrite it.
+
+The capability does not forward the username. Instead it binds `operatorPrincipalHash = SHA-256(UTF8(canonicalPrincipal))` and the persisted authorization timestamp together with action/decision/request identifiers, policy provenance, approved destination, requested fields, trusted normal-payload hash, private-reference hash and Protected Executor DID. The gateway validates both provenance fields and exact body equality before any T3N execution. Missing, malformed, future or mismatched approval provenance fails closed.
+
+This provenance is deliberately local/private. Username, e-mail and operator hash are not Agent Card fields, are not emitted into public evidence and are not claimed as T3N Activity Log identity. Legacy `REMEDIATION_AUTHORIZED` rows without persisted principal/timestamp remain blocked and visible as `REAUTHORIZATION REQUIRED`; no identity is inferred retroactively. Completed legacy remediation cannot be rebound to a later operator.
+
+For the judge, a human-authorization screenshot is valid only when the UI shows the persisted `Authorized by` and `Authorized at` values for the current action. `REAUTHORIZATION REQUIRED` is a blocked state, not evidence that the old authorization has been attributed to the current operator.
