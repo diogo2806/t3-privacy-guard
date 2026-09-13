@@ -5,23 +5,9 @@ export type DelegationState = 'ACTIVE' | 'REVOKED' | 'NOT_GRANTED' | 'UNKNOWN';
 export type EvidenceScenarioStatus = 'PASS' | 'FAIL' | 'NOT_RUN';
 export type RemediationState = 'EXECUTING' | 'PENDING_VERIFICATION' | 'COMPLETED' | 'UNVERIFIED' | 'FAILED';
 
-export interface Incident { id: string; title: string; severity: Severity; summary: string; source: string; status: string; createdAt: string; }
+export interface Incident { id: string; title: string; severity: Severity; summary: string; source: string; status: string; createdAt: string; expiresAt: string; retentionState: 'ACTIVE'; }
 export interface ActionProposal { id: string; incidentId: string; requestId: string; action: string; resource: string; purpose: string; host?: string | null; fields: string[]; privateRefs: string[]; status: ProposalStatus; createdAt: string; }
-export interface PolicyDecision {
-  id: string;
-  actionProposalId: string;
-  decision: DecisionType;
-  reasonCode: string;
-  reason: string;
-  allowedFields: string[];
-  redactedFields: string[];
-  allowedPrivateRefs: string[];
-  redactedPrivateRefs: string[];
-  policyVersion?: string | null;
-  policyHash?: string | null;
-  requiresHumanAuthorization?: boolean | null;
-  evaluatedAt: string;
-}
+export interface PolicyDecision { id: string; actionProposalId: string; decision: DecisionType; reasonCode: string; reason: string; allowedFields: string[]; redactedFields: string[]; allowedPrivateRefs: string[]; redactedPrivateRefs: string[]; evaluatedAt: string; }
 export interface AuditEvent { id: string; incidentId: string; type: string; message: string; createdAt: string; }
 export interface ExecutionTraceEvent { id: string; incidentId: string; actionId: string; traceId: string; requestId: string; stage: string; state: string; reasonCode?: string | null; durationMs?: number | null; createdAt: string; }
 export interface OperatorSession { authenticated: boolean; username?: string | null; }
@@ -53,8 +39,6 @@ export interface EvidenceMetadata {
   contractId: string;
   contractVersion: string;
   wasmSha256: string;
-  policyVersion: string;
-  policyHash: string;
   trustAnchorVerified: boolean;
   trustManifestFloorPersisted: boolean;
   trustManifestVersion: number;

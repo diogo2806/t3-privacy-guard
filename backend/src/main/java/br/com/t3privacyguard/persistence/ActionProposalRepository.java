@@ -11,6 +11,7 @@ import org.springframework.data.repository.query.Param;
 public interface ActionProposalRepository extends JpaRepository<ActionProposalEntity, String> {
     Optional<ActionProposalEntity> findByRequestId(String requestId);
     List<ActionProposalEntity> findByIncidentIdOrderByCreatedAtAsc(String incidentId);
+    void deleteAllByIncidentId(String incidentId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select a from ActionProposalEntity a where a.id = :id")

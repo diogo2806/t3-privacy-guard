@@ -26,3 +26,7 @@ privacy-guard:
     username: test-operator
     password: test-password
     cookie-secure: false
+  incident-retention:
+    days: 7
+    purge-initial-delay-ms: 86400000
+    purge-interval-ms: 86400000

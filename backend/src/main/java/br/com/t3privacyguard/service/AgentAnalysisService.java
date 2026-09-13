@@ -33,7 +33,7 @@ public class AgentAnalysisService {
         var incident = incidents.createIncident(new CreateIncidentRequest(
             "AI agent action proposal",
             Severity.CRITICAL,
-            "An untrusted prompt was interpreted by the configured AI agent. Only structured metadata and logical private-data references are persisted; private values remain outside the model and application layers.",
+            "An untrusted prompt was interpreted by the configured AI agent. The incident keeps a minimized operational description for a bounded retention period; resolved private profile values remain outside the model and application layers.",
             "AI agent " + generated.provider()
         ));
         var action = incidents.addAction(incident.id(), new CreateActionRequest(

@@ -5,4 +5,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface ExecutionTraceEventRepository extends JpaRepository<ExecutionTraceEventEntity, String> {
     List<ExecutionTraceEventEntity> findByIncidentIdAndActionIdOrderByCreatedAtAsc(String incidentId, String actionId);
+    void deleteAllByIncidentId(String incidentId);
 }

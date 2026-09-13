@@ -26,7 +26,9 @@ public final class ApiModels {
         String summary,
         String source,
         String status,
-        Instant createdAt
+        Instant createdAt,
+        Instant expiresAt,
+        String retentionState
     ) {}
 
     public record CreateActionRequest(
@@ -63,9 +65,6 @@ public final class ApiModels {
         List<String> redactedFields,
         List<String> allowedPrivateRefs,
         List<String> redactedPrivateRefs,
-        String policyVersion,
-        String policyHash,
-        Boolean requiresHumanAuthorization,
         Instant evaluatedAt
     ) {}
 

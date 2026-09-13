@@ -16,7 +16,7 @@ From the repository root:
 bash scripts/run-local-evidence.sh
 ```
 
-This executes Rust policy/remediation/verification tests, including dev-only `proptest` suites that generate hundreds of policy/parser combinations, Java replay/authorization/distributed-idempotency tests, gateway delegation/`pii_did`/leak/trust-floor tests plus deterministic generated agent-schema invariants, and React accessibility/decision/remediation-state/evidence-provenance tests. Raw runtime logs are gitignored.
+This executes Rust policy/remediation/verification tests, including dev-only `proptest` suites that generate hundreds of policy/parser combinations, Java replay/authorization/distributed-idempotency/incident-retention tests, gateway delegation/`pii_did`/leak/trust-floor tests plus deterministic generated agent-schema invariants and trace-correlation tests, and React accessibility/decision/remediation-state/evidence-provenance/retention-state tests. Raw runtime logs are gitignored.
 
 Property tests are classified as **local invariant evidence**. A failing Rust property reports a reproducible proptest counterexample/seed; the gateway generator uses fixed documented seeds. Generated case counts are not represented as coverage percentage and never count as live T3N execution.
 
@@ -25,6 +25,45 @@ Optional sentinel scan:
 ```bash
 EVIDENCE_SENTINEL_SECRET='a-long-synthetic-value' bash scripts/run-local-evidence.sh
 ```
+
+## Incident-data privacy lifecycle
+
+Incident retention is an application control, not a container-lifecycle assumption. Spring Boot normalizes `title`, `summary` and `source` before persistence, rejects high-confidence email, valid CPF, credential/token, bearer token, JWT, private-key, password and Luhn-valid payment-card candidates before the incident write, and caps accepted operational text to smaller local limits. This is **minimization, not anonymization**.
+
+Every new incident receives server-authoritative retention metadata using the exact formula:
+
+```text
+expiresAt = createdAt + INCIDENT_RETENTION_DAYS × 24h
+```
+
+`INCIDENT_RETENTION_DAYS` defaults to `7` and is validated to the inclusive range `1..30`; the browser cannot choose it. Existing H2 rows without `expires_at` are backfilled on application startup from their original `createdAt` using the same formula.
+
+Once `expiresAt <= now`, incident APIs stop returning the incident immediately. Startup cleanup and the scheduled purge then hard-delete dependent data in the application transaction in this order:
+
+```text
+execution trace events
+        |
+        v
+remediation executions
+        |
+        v
+policy decisions
+        |
+        v
+action proposals
+        |
+        v
+audit events
+        |
+        v
+incident
+```
+
+No tombstone keeps `title`, `summary` or `source`. Audit messages pass through the same high-confidence sensitive-literal guard and rejected incident input is never echoed in the HTTP error. The runtime H2 database remains file-backed at `/data/privacyguard`; retention is therefore proven by application behavior rather than by destroying the container.
+
+Local Java coverage includes the server-side expiry formula, invalid retention values, secret-sentinel rejection before persistence, audit sanitization, expired/non-expired/idempotent purge, legacy expiry backfill and a `jdbc:h2:file:` integration test that verifies `expires_at` is actually stored in a persistent H2 database. Frontend coverage verifies the visible active-retention copy; an expired incident is represented by absence from the incident API rather than by rendering purged content.
+
+These are local privacy controls and are not presented as live T3N evidence.
 
 ## Persistent T3N trust boundary
 
@@ -157,6 +196,8 @@ The timeline may contain stages such as `AGENT_PROPOSAL`, `T3N_TEE_EVALUATION`, 
 A retry can therefore have the same `requestId` and a different `traceId`. This is expected and demonstrates that observability does not alter business idempotency. The Business Audit Trail remains the persistent business history; the Execution Trace explains a technical attempt; the Evidence Bundle remains the reproducible T3N/testnet proof. None substitutes for the others.
 
 The application does not fabricate a Terminal 3 request/receipt identifier. Such an identifier must be displayed or persisted only when the platform API actually returns one.
+
+Execution-trace events are bounded operational metadata, but they are still attached to the incident lifecycle. The incident-retention purge deletes them before the action and incident records so technical correlation cannot outlive the incident's configured retention window.
 
 ## Generated artifacts
 

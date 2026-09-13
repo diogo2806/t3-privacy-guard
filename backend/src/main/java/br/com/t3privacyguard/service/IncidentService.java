@@ -26,12 +26,13 @@ import br.com.t3privacyguard.persistence.IncidentRepository;
 import br.com.t3privacyguard.persistence.PolicyDecisionEntity;
 import br.com.t3privacyguard.persistence.PolicyDecisionRepository;
 import br.com.t3privacyguard.persistence.RemediationExecutionEntity;
+import br.com.t3privacyguard.privacy.IncidentDataMinimizer;
+import br.com.t3privacyguard.privacy.IncidentRetentionProperties;
 import br.com.t3privacyguard.security.RemediationAuthorizationSigner;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -51,6 +52,8 @@ public class IncidentService {
     private final RemediationAuthorizationSigner remediationAuthorizationSigner;
     private final RemediationExecutionCoordinator executionCoordinator;
     private final ExecutionTraceService traces;
+    private final IncidentDataMinimizer minimizer;
+    private final IncidentRetentionProperties retentionProperties;
     private final ObjectMapper mapper;
 
     public IncidentService(
@@ -63,6 +66,8 @@ public class IncidentService {
         RemediationAuthorizationSigner remediationAuthorizationSigner,
         RemediationExecutionCoordinator executionCoordinator,
         ExecutionTraceService traces,
+        IncidentDataMinimizer minimizer,
+        IncidentRetentionProperties retentionProperties,
         ObjectMapper mapper
     ) {
         this.incidents = incidents;
@@ -74,14 +79,18 @@ public class IncidentService {
         this.remediationAuthorizationSigner = remediationAuthorizationSigner;
         this.executionCoordinator = executionCoordinator;
         this.traces = traces;
+        this.minimizer = minimizer;
+        this.retentionProperties = retentionProperties;
         this.mapper = mapper;
     }
 
     @Transactional
     public IncidentResponse createIncident(CreateIncidentRequest request) {
         Instant now = Instant.now();
+        var minimized = minimizer.minimize(request.title(), request.summary(), request.source());
+        Instant expiresAt = now.plus(retentionProperties.retention());
         IncidentEntity entity = incidents.save(new IncidentEntity(
-            UUID.randomUUID().toString(), request.title().trim(), request.severity(), request.summary().trim(), request.source().trim(), now
+            UUID.randomUUID().toString(), minimized.title(), request.severity(), minimized.summary(), minimized.source(), now, expiresAt
         ));
         audit(entity.getId(), "INCIDENT_CREATED", "Incident created with severity " + entity.getSeverity());
         return incidentResponse(entity);
@@ -89,7 +98,7 @@ public class IncidentService {
 
     @Transactional(readOnly = true)
     public List<IncidentResponse> listIncidents() {
-        return incidents.findAll().stream().sorted(Comparator.comparing(IncidentEntity::getCreatedAt).reversed()).map(this::incidentResponse).toList();
+        return incidents.findByExpiresAtAfterOrderByCreatedAtDesc(Instant.now()).stream().map(this::incidentResponse).toList();
     }
 
     @Transactional(readOnly = true)
@@ -146,21 +155,15 @@ public class IncidentService {
             traces.recordFailure(action, "T3N_TEE_EVALUATION", "FAILED", "REQUEST_ID_MISMATCH", elapsedMillis(startedAt));
             throw new IllegalStateException("Policy decision request id mismatch");
         }
-        validatePolicyMetadata(gatewayDecision);
 
         PolicyDecisionEntity entity = decisions.save(new PolicyDecisionEntity(
             UUID.randomUUID().toString(), actionId, gatewayDecision.decision(), safe(gatewayDecision.reasonCode(), 80), safe(gatewayDecision.reason(), 800),
             writeJson(gatewayDecision.allowedFields()), writeJson(gatewayDecision.redactedFields()),
-            writeJson(gatewayDecision.allowedPrivateRefs()), writeJson(gatewayDecision.redactedPrivateRefs()),
-            safeNullable(gatewayDecision.policyVersion(), 64), safeNullable(gatewayDecision.policyHash(), 64),
-            gatewayDecision.requiresHumanAuthorization(), Instant.now()
+            writeJson(gatewayDecision.allowedPrivateRefs()), writeJson(gatewayDecision.redactedPrivateRefs()), Instant.now()
         ));
         action.markEvaluated();
         actions.save(action);
-        String policyAudit = entity.getPolicyVersion() == null
-            ? " with fail-closed policy metadata unavailable"
-            : " under policy " + entity.getPolicyVersion() + " hash " + entity.getPolicyHash();
-        audit(incidentId, "POLICY_DECISION", "Policy decision " + entity.getDecision() + " with reason " + entity.getReasonCode() + policyAudit);
+        audit(incidentId, "POLICY_DECISION", "Policy decision " + entity.getDecision() + " with reason " + entity.getReasonCode());
         traces.record(action, "T3N_TEE_EVALUATION", decisionTraceState(entity.getDecision()), entity.getReasonCode(), elapsedMillis(startedAt));
         return decisionResponse(entity);
     }
@@ -176,10 +179,9 @@ public class IncidentService {
         ActionProposalEntity action = requireAction(incidentId, actionId);
         PolicyDecisionEntity decision = decisions.findByActionProposalId(actionId).orElseThrow(() -> new ConflictException("Action must be evaluated before remediation"));
         if (decision.getDecision() != DecisionType.ALLOW) throw new PolicyDeniedException("Remediation requires an ALLOW policy decision");
-        requireVersionedPolicy(decision);
         action.authorizeRemediation();
         actions.save(action);
-        audit(incidentId, "REMEDIATION_AUTHORIZED", "Remediation authorized for request " + action.getRequestId() + " under policy " + decision.getPolicyVersion() + " hash " + decision.getPolicyHash());
+        audit(incidentId, "REMEDIATION_AUTHORIZED", "Remediation authorized for request " + action.getRequestId());
         traces.record(action, "HUMAN_AUTHORIZATION", "AUTHORIZED", null, null);
         return new RemediationAuthorizationResponse(incidentId, actionId, action.getRequestId(), action.getStatus().name());
     }
@@ -192,7 +194,6 @@ public class IncidentService {
         PolicyDecisionEntity decision = decisions.findByActionProposalId(actionId)
             .orElseThrow(() -> new ConflictException("A persisted policy decision is required before remediation"));
         if (decision.getDecision() != DecisionType.ALLOW) throw new PolicyDeniedException("Remediation requires a persisted ALLOW policy decision");
-        requireVersionedPolicy(decision);
 
         RemediationExecutionCoordinator.ClaimResult claim = executionCoordinator.claim(actionId, action.getRequestId());
         if (!claim.acquired()) return reconcileExisting(incidentId, action, claim.execution());
@@ -200,16 +201,14 @@ public class IncidentService {
         List<String> fields = readList(action.getFieldsJson());
         List<String> privateRefs = readList(action.getPrivateRefsJson());
         String capability = remediationAuthorizationSigner.issue(
-            incidentId, actionId, action.getRequestId(), decision.getId(), action.getAction(), action.getResource(), action.getPurpose(), fields, privateRefs,
-            decision.getPolicyVersion(), decision.getPolicyHash()
+            incidentId, actionId, action.getRequestId(), decision.getId(), action.getAction(), action.getResource(), action.getPurpose(), fields, privateRefs
         );
 
         traces.record(action, "PROTECTED_EGRESS", "SENT", null, null);
         long startedAt = System.nanoTime();
         try {
             var result = remediationGateway.execute(new RemediationRequest(
-                incidentId, actionId, decision.getId(), action.getRequestId(), action.getAction(), action.getResource(), action.getPurpose(), fields, privateRefs,
-                decision.getPolicyVersion(), decision.getPolicyHash()
+                incidentId, actionId, decision.getId(), action.getRequestId(), action.getAction(), action.getResource(), action.getPurpose(), fields, privateRefs
             ), capability);
             if (!action.getRequestId().equals(result.requestId())) {
                 RemediationExecutionEntity state = executionCoordinator.markUnverified(actionId, "REQUEST_ID_MISMATCH");
@@ -218,12 +217,12 @@ public class IncidentService {
                 return remediationResponse(incidentId, actionId, state);
             }
             RemediationExecutionEntity pending = executionCoordinator.markPendingVerification(actionId, result.httpCode(), safeNullable(result.operationId(), 200));
-            audit(incidentId, "REMEDIATION_ACCEPTED", "External request accepted under policy " + decision.getPolicyVersion() + " hash " + decision.getPolicyHash() + "; independent verification is required before completion");
+            audit(incidentId, "REMEDIATION_ACCEPTED", "External request accepted; independent verification is required before completion");
             traces.record(action, "EXTERNAL_ACCEPTANCE", "ACCEPTED", "HTTP_" + result.httpCode(), elapsedMillis(startedAt));
             return verifyPersistedRemediation(incidentId, action, pending);
         } catch (GatewayUnavailableException ex) {
             RemediationExecutionEntity state = executionCoordinator.markUnverified(actionId, "EXECUTION_RESULT_UNKNOWN");
-            audit(incidentId, "REMEDIATION_UNVERIFIED", "Execution outcome is ambiguous or policy binding could not be confirmed; automatic re-execution is blocked");
+            audit(incidentId, "REMEDIATION_UNVERIFIED", "Execution outcome is ambiguous; automatic re-execution is blocked");
             traces.record(action, "EXTERNAL_ACCEPTANCE", "UNAVAILABLE", "EXECUTION_RESULT_UNKNOWN", elapsedMillis(startedAt));
             return remediationResponse(incidentId, actionId, state);
         }
@@ -302,9 +301,12 @@ public class IncidentService {
         return traces.timeline(incidentId, actionId);
     }
 
-    private IncidentEntity requireIncident(String id) { return incidents.findById(id).orElseThrow(() -> new IncidentNotFoundException("Incident not found")); }
+    private IncidentEntity requireIncident(String id) {
+        return incidents.findByIdAndExpiresAtAfter(id, Instant.now()).orElseThrow(() -> new IncidentNotFoundException("Incident not found"));
+    }
 
     private ActionProposalEntity requireAction(String incidentId, String id) {
+        requireIncident(incidentId);
         ActionProposalEntity action = actions.findById(id).orElseThrow(() -> new IncidentNotFoundException("Action proposal not found"));
         if (!action.getIncidentId().equals(incidentId)) throw new IncidentNotFoundException("Action proposal not found for incident");
         return action;
@@ -317,31 +319,15 @@ public class IncidentService {
         }
     }
 
-    private void validatePolicyMetadata(GatewayPolicyClient.GatewayDecision decision) {
-        boolean failClosedWithoutPolicy = decision.decision() == DecisionType.DENY
-            && ("POLICY_UNAVAILABLE".equals(decision.reasonCode()) || "POLICY_INVALID".equals(decision.reasonCode()));
-        if (decision.policyVersion() == null || decision.policyHash() == null) {
-            if (!failClosedWithoutPolicy) throw new IllegalStateException("T3N decision omitted required versioned policy metadata");
-            return;
-        }
-        if (decision.policyVersion().isBlank() || decision.policyVersion().length() > 64 || !decision.policyHash().matches("[a-f0-9]{64}") || decision.requiresHumanAuthorization() == null) {
-            throw new IllegalStateException("T3N decision returned invalid versioned policy metadata");
-        }
-    }
-
-    private void requireVersionedPolicy(PolicyDecisionEntity decision) {
-        if (decision.getPolicyVersion() == null || decision.getPolicyVersion().isBlank()
-            || decision.getPolicyHash() == null || !decision.getPolicyHash().matches("[a-f0-9]{64}")) {
-            throw new ConflictException("This decision predates versioned policy metadata and cannot authorize remediation; create and evaluate a new action");
-        }
-    }
-
     private void audit(String incidentId, String type, String message) {
-        audits.save(new AuditEventEntity(UUID.randomUUID().toString(), incidentId, type, safe(message, 600), Instant.now()));
+        audits.save(new AuditEventEntity(UUID.randomUUID().toString(), incidentId, type, minimizer.sanitizeAuditMessage(message), Instant.now()));
     }
 
     private IncidentResponse incidentResponse(IncidentEntity entity) {
-        return new IncidentResponse(entity.getId(), entity.getTitle(), entity.getSeverity(), entity.getSummary(), entity.getSource(), entity.getStatus(), entity.getCreatedAt());
+        return new IncidentResponse(
+            entity.getId(), entity.getTitle(), entity.getSeverity(), entity.getSummary(), entity.getSource(), entity.getStatus(),
+            entity.getCreatedAt(), entity.getExpiresAt(), "ACTIVE"
+        );
     }
 
     private ActionResponse actionResponse(ActionProposalEntity entity) {
@@ -355,8 +341,7 @@ public class IncidentService {
         return new DecisionResponse(
             entity.getId(), entity.getActionProposalId(), entity.getDecision(), entity.getReasonCode(), entity.getReason(),
             readList(entity.getAllowedFieldsJson()), readList(entity.getRedactedFieldsJson()),
-            readList(entity.getAllowedPrivateRefsJson()), readList(entity.getRedactedPrivateRefsJson()),
-            entity.getPolicyVersion(), entity.getPolicyHash(), entity.getRequiresHumanAuthorization(), entity.getEvaluatedAt()
+            readList(entity.getAllowedPrivateRefsJson()), readList(entity.getRedactedPrivateRefsJson()), entity.getEvaluatedAt()
         );
     }
 
