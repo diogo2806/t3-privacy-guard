@@ -18,6 +18,7 @@ import br.com.t3privacyguard.integration.GatewayPolicyClient.GatewayEvaluationRe
 import br.com.t3privacyguard.integration.GatewayRemediationClient;
 import br.com.t3privacyguard.integration.GatewayRemediationClient.RemediationRequest;
 import br.com.t3privacyguard.integration.GatewayUnavailableException;
+import br.com.t3privacyguard.integration.RemediationDestinationChangedException;
 import br.com.t3privacyguard.persistence.ActionProposalEntity;
 import br.com.t3privacyguard.persistence.ActionProposalRepository;
 import br.com.t3privacyguard.persistence.IncidentEntity;
@@ -260,12 +261,24 @@ public class IncidentService {
             );
             traces.record(action, "EXTERNAL_ACCEPTANCE", "ACCEPTED", "HTTP_" + result.httpCode(), elapsedMillis(startedAt));
             return verifyPersistedRemediation(incidentId, action, pending);
+        } catch (RemediationDestinationChangedException ex) {
+            RemediationExecutionEntity state = executionCoordinator.markFailed(actionId, "EXECUTION_DESTINATION_CHANGED");
+            audit(
+                incidentId,
+                "REMEDIATION_BLOCKED",
+                "Protected execution was blocked because the configured destination no longer matched the destination approved by the human operator; re-evaluation and re-authorization are required",
+                null,
+                null,
+                "execute-remediation"
+            );
+            traces.record(action, "PROTECTED_EGRESS", "DENIED", "EXECUTION_DESTINATION_CHANGED", elapsedMillis(startedAt));
+            return remediationResponse(incidentId, actionId, state);
         } catch (GatewayUnavailableException ex) {
             RemediationExecutionEntity state = executionCoordinator.markUnverified(actionId, "EXECUTION_RESULT_UNKNOWN");
             audit(
                 incidentId,
                 "REMEDIATION_UNVERIFIED",
-                "Execution outcome is ambiguous, the approved destination changed, or policy binding could not be confirmed; automatic re-execution is blocked",
+                "Execution outcome is ambiguous or policy binding could not be confirmed; automatic re-execution is blocked",
                 null,
                 null,
                 "execute-remediation"
