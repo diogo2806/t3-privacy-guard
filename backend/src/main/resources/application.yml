@@ -34,6 +34,8 @@ privacy-guard:
   remediation-capability:
     key: ${REMEDIATION_CAPABILITY_KEY:}
     ttl-seconds: ${REMEDIATION_CAPABILITY_TTL_SECONDS:60}
+  audit-integrity:
+    key: ${AUDIT_INTEGRITY_KEY:}
   operator:
     username: ${OPERATOR_USERNAME:}
     password: ${OPERATOR_PASSWORD:}
