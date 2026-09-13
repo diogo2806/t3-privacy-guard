@@ -139,7 +139,7 @@ describe('BusinessOutcomeSummary', () => {
     expect(screen.getByRole('heading', { name: 'Credential compromise contained' })).toBeInTheDocument();
     expect(section('Authorized response').getByText('REVOKED — VERIFIED')).toBeInTheDocument();
     expect(section('Authorized response').getByText('4.9 s')).toBeInTheDocument();
-    expect(section('Authorized response').getByText('postman-echo.com')).toBeInTheDocument();
+    expect(section('Authorized response').getAllByText('postman-echo.com')).toHaveLength(2);
   });
 
   it('does not estimate time to verified outcome when completedAt is absent', () => {
