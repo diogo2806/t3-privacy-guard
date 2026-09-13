@@ -4,7 +4,11 @@ import br.com.t3privacyguard.integration.GatewayRemediationClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.IDN;
 import java.nio.charset.StandardCharsets;
+import java.security.KeyFactory;
 import java.security.MessageDigest;
+import java.security.PrivateKey;
+import java.security.Signature;
+import java.security.spec.PKCS8EncodedKeySpec;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
@@ -14,16 +18,16 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 @Component
 public class RemediationAuthorizationSigner {
+    private static final String TOKEN_VERSION = "v2";
+
     private final ObjectMapper mapper;
-    private final byte[] key;
+    private final PrivateKey privateKey;
     private final Duration ttl;
     private final Supplier<String> executorDidSupplier;
 
@@ -31,17 +35,18 @@ public class RemediationAuthorizationSigner {
     public RemediationAuthorizationSigner(
         ObjectMapper mapper,
         GatewayRemediationClient gateway,
-        @Value("${privacy-guard.remediation-capability.key}") String key,
+        @Value("${privacy-guard.remediation-capability.private-key-pkcs8}") String privateKeyPkcs8,
         @Value("${privacy-guard.remediation-capability.ttl-seconds:60}") long ttlSeconds
     ) {
-        this(mapper, key, ttlSeconds, gateway::requireExecutorDid);
+        this(mapper, privateKeyPkcs8, ttlSeconds, gateway::requireExecutorDid);
     }
 
-    RemediationAuthorizationSigner(ObjectMapper mapper, String key, long ttlSeconds, Supplier<String> executorDidSupplier) {
-        if (key == null || key.length() < 32) throw new IllegalStateException("REMEDIATION_CAPABILITY_KEY must contain at least 32 characters");
-        if (ttlSeconds < 10 || ttlSeconds > 300) throw new IllegalStateException("REMEDIATION_CAPABILITY_TTL_SECONDS must be between 10 and 300");
+    RemediationAuthorizationSigner(ObjectMapper mapper, String privateKeyPkcs8, long ttlSeconds, Supplier<String> executorDidSupplier) {
+        if (ttlSeconds < 10 || ttlSeconds > 300) {
+            throw new IllegalStateException("REMEDIATION_CAPABILITY_TTL_SECONDS must be between 10 and 300");
+        }
         this.mapper = mapper;
-        this.key = key.getBytes(StandardCharsets.UTF_8);
+        this.privateKey = parsePrivateKey(privateKeyPkcs8);
         this.ttl = Duration.ofSeconds(ttlSeconds);
         this.executorDidSupplier = executorDidSupplier;
     }
@@ -51,6 +56,13 @@ public class RemediationAuthorizationSigner {
         String resource, String purpose, String approvedHost, List<String> fields, Map<String, String> normalPayload,
         List<String> privateRefs, String policyVersion, String policyHash
     ) {
+        requireBoundValue(incidentId, "incidentId");
+        requireBoundValue(actionId, "actionId");
+        requireBoundValue(requestId, "requestId");
+        requireBoundValue(decisionId, "decisionId");
+        requireBoundValue(action, "action");
+        requireBoundValue(resource, "resource");
+        requireBoundValue(purpose, "purpose");
         if (policyVersion == null || policyVersion.isBlank() || policyHash == null || !policyHash.matches("[a-f0-9]{64}")) {
             throw new IllegalArgumentException("Versioned policy metadata is required for remediation authorization");
         }
@@ -68,10 +80,12 @@ public class RemediationAuthorizationSigner {
         try {
             byte[] payload = mapper.writeValueAsBytes(claims);
             String encodedPayload = Base64.getUrlEncoder().withoutPadding().encodeToString(payload);
-            Mac mac = Mac.getInstance("HmacSHA256");
-            mac.init(new SecretKeySpec(key, "HmacSHA256"));
-            String signature = Base64.getUrlEncoder().withoutPadding().encodeToString(mac.doFinal(encodedPayload.getBytes(StandardCharsets.US_ASCII)));
-            return encodedPayload + "." + signature;
+            String signingInput = TOKEN_VERSION + "." + encodedPayload;
+            Signature signer = Signature.getInstance("Ed25519");
+            signer.initSign(privateKey);
+            signer.update(signingInput.getBytes(StandardCharsets.US_ASCII));
+            String signature = Base64.getUrlEncoder().withoutPadding().encodeToString(signer.sign());
+            return signingInput + "." + signature;
         } catch (Exception ex) {
             throw new IllegalStateException("Unable to issue remediation authorization proof", ex);
         }
@@ -99,6 +113,28 @@ public class RemediationAuthorizationSigner {
         return ascii;
     }
 
+    private static PrivateKey parsePrivateKey(String encoded) {
+        if (encoded == null || encoded.isBlank()) {
+            throw new IllegalStateException("REMEDIATION_AUTH_PRIVATE_KEY_PKCS8 is required");
+        }
+        try {
+            byte[] der = Base64.getDecoder().decode(encoded.trim());
+            PrivateKey key = KeyFactory.getInstance("Ed25519").generatePrivate(new PKCS8EncodedKeySpec(der));
+            if (!"EdDSA".equalsIgnoreCase(key.getAlgorithm()) && !"Ed25519".equalsIgnoreCase(key.getAlgorithm())) {
+                throw new IllegalStateException("REMEDIATION_AUTH_PRIVATE_KEY_PKCS8 must contain an Ed25519 private key");
+            }
+            return key;
+        } catch (IllegalStateException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new IllegalStateException("REMEDIATION_AUTH_PRIVATE_KEY_PKCS8 must be a base64 PKCS#8 Ed25519 private key", ex);
+        }
+    }
+
+    private static void requireBoundValue(String value, String name) {
+        if (value == null || value.isBlank()) throw new IllegalArgumentException(name + " is required for remediation authorization");
+    }
+
     private String listHash(List<String> values) {
         try {
             List<String> canonical = values == null ? List.of() : values.stream().map(String::trim).sorted().toList();
@@ -124,7 +160,7 @@ public class RemediationAuthorizationSigner {
         String policyVersion,
         String policyHash,
         String executorDid,
-        long authorizedAt,
+        long issuedAt,
         long expiresAt,
         String nonce
     ) {}
