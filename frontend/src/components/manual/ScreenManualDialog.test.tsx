@@ -31,6 +31,13 @@ describe('ScreenManualDialog', () => {
     expect(screen.getByText('Agent Card e A2A público')).toBeInTheDocument();
     expect(dialog).toHaveTextContent(/A2A.*avaliação pública/i);
     expect(dialog).toHaveTextContent(/PII-free/i);
+    expect(screen.getByText('Policy, minimização, autorização humana e execução')).toBeInTheDocument();
+    expect(dialog).toHaveTextContent(/One-time authorization proof v2.*Ed25519/i);
+    expect(dialog).toHaveTextContent(/chave privada permanece somente no backend.*chave pública/i);
+    expect(dialog).toHaveTextContent(/WASM verifica assinatura.*consome o hash do nonce.*antes de ler qualquer segredo/i);
+    expect(dialog).toHaveTextContent(/T3N execution proof check.*VERIFIED/i);
+    expect(dialog).toHaveTextContent(/não afirma autenticação biométrica/i);
+    expect(dialog).toHaveTextContent(/formato legado falha fechado/i);
     expect(screen.getByText('Integridade do audit local e T3N Activity Log')).toBeInTheDocument();
     expect(dialog).toHaveTextContent(/HMAC-SHA256/i);
     expect(dialog).toHaveTextContent(/tamper-evident/i);
@@ -39,6 +46,7 @@ describe('ScreenManualDialog', () => {
     expect(dialog).toHaveTextContent(/evaluate-action.*Proposal Agent.*execute-remediation.*verify-remediation.*Protected Executor/i);
     expect(screen.getByText('Proof & evidence')).toBeInTheDocument();
     expect(dialog).toHaveTextContent(/Source tree/i);
+    expect(dialog).toHaveTextContent(/chave privada nunca entram no bundle/i);
     expect(dialog).toHaveTextContent(/COMPLETED/i);
     expect(closeButton).toHaveFocus();
 
