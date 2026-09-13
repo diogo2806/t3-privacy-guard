@@ -38,7 +38,11 @@ const delegationService = new DelegationService(tenantSession, agentSession, PRO
 const executorDelegationService = new DelegationService(tenantSession, executorSession, EXECUTOR_DELEGATION_REQUIREMENTS);
 const contractService = new PrivacyGuardContractService(config, tenantSession, agentSession, executorSession, activityLogService);
 const enterpriseIntegrationReadiness = new EnterpriseIntegrationReadinessService(tenantSession, executorDelegationService, contractService);
-const remediationVerifier = new RemediationAuthorizationVerifier(config.remediationCapabilityKey, config.remediationReplayStorePath);
+const remediationVerifier = new RemediationAuthorizationVerifier(
+  config.remediationAuthorizationPublicKeySpki,
+  config.remediationAuthorizationKeyId,
+  config.remediationReplayStorePath,
+);
 const aiProvider = config.aiProvider === 'openai-compatible' && config.aiApiUrl && config.aiApiKey && config.aiModel
   ? new OpenAiCompatibleProvider({ apiUrl: config.aiApiUrl, apiKey: config.aiApiKey, model: config.aiModel })
   : null;
@@ -61,18 +65,18 @@ app.use('/internal/contracts/privacy-guard', createContractRouter(contractServic
 app.listen(config.port, '0.0.0.0', () => console.info(`t3n-gateway listening on port ${config.port}`));
 
 void tenantSession.connect().catch((error) => {
-  const safe = sanitizeError(error, [config.apiKey, config.gatewayServiceToken, config.remediationCapabilityKey, config.aiApiKey ?? '']);
+  const safe = sanitizeError(error, [config.apiKey, config.gatewayServiceToken, config.aiApiKey ?? '']);
   console.error(`Initial T3N tenant connection failed [${safe.category}]: ${safe.message}`);
 });
 if (config.agentApiKey) {
   void agentSession.connect().catch((error) => {
-    const safe = sanitizeError(error, [config.agentApiKey ?? '', config.executorApiKey ?? '', config.gatewayServiceToken, config.remediationCapabilityKey, config.aiApiKey ?? '']);
+    const safe = sanitizeError(error, [config.agentApiKey ?? '', config.executorApiKey ?? '', config.gatewayServiceToken, config.aiApiKey ?? '']);
     console.error(`Initial T3N proposal-agent connection failed [${safe.category}]: ${safe.message}`);
   });
 }
 if (config.executorApiKey) {
   void executorSession.connect().catch((error) => {
-    const safe = sanitizeError(error, [config.executorApiKey ?? '', config.agentApiKey ?? '', config.gatewayServiceToken, config.remediationCapabilityKey, config.aiApiKey ?? '']);
+    const safe = sanitizeError(error, [config.executorApiKey ?? '', config.agentApiKey ?? '', config.gatewayServiceToken, config.aiApiKey ?? '']);
     console.error(`Initial T3N protected-executor connection failed [${safe.category}]: ${safe.message}`);
   });
 }
