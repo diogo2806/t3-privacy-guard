@@ -26,7 +26,7 @@ test('rejects missing tenant API key', () => {
   }), ConfigurationError);
 });
 
-test('defaults to testnet, disabled AI, no public A2A, persistent trust floor and current contract version', () => {
+test('defaults to testnet, disabled AI, versioned remediation key, no public A2A, persistent trust floor and current contract version', () => {
   const config = readGatewayConfig(baseEnv);
   assert.equal(config.network, 'testnet');
   assert.equal(config.port, 3001);
@@ -34,12 +34,23 @@ test('defaults to testnet, disabled AI, no public A2A, persistent trust floor an
   assert.equal(config.executorApiKey, null);
   assert.equal(config.contractVersion, '0.4.0');
   assert.equal(config.remediationAuthorizationPublicKeySpki, publicKeySpki);
+  assert.equal(config.remediationAuthorizationKeyId, 'primary');
   assert.equal(config.remediationReplayStorePath, '/data/remediation-capability-nonces.json');
   assert.equal(config.trustManifestFloorStorePath, '/data/t3n-trust-floor.json');
   assert.equal(config.aiProvider, 'disabled');
   assert.equal(config.aiApiKey, null);
   assert.equal(config.aiModel, null);
   assert.equal(config.a2aPublicUrl, null);
+});
+
+test('accepts an explicit safe remediation authorization key id', () => {
+  assert.equal(readGatewayConfig({ ...baseEnv, REMEDIATION_AUTH_KEY_ID: 'rotation-2026-09' }).remediationAuthorizationKeyId, 'rotation-2026-09');
+});
+
+test('rejects unsafe remediation authorization key ids', () => {
+  for (const keyId of ['', '../../bad', 'contains space', 'x'.repeat(33)]) {
+    assert.throws(() => readGatewayConfig({ ...baseEnv, REMEDIATION_AUTH_KEY_ID: keyId }), ConfigurationError);
+  }
 });
 
 test('accepts distinct tenant proposal-agent and executor credentials', () => {
