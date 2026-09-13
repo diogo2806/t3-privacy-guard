@@ -21,12 +21,20 @@ const READY_STATUS: SystemStatus = {
   contractResolved: true,
   contractId: 'z:tenant:privacy-guard',
   contractVersion: '0.4.0',
-  delegationState: 'ACTIVE',
+  delegationMemberState: 'ACTIVE',
+  delegationEffectiveState: 'ACTIVE',
   delegatedFunctions: ['evaluate-action'],
+  delegatedScopes: ['incident_id'],
   allowedHosts: [],
-  executorDelegationState: 'ACTIVE',
+  delegationSatisfied: ['member_delegation'],
+  delegationMissing: [],
+  executorDelegationMemberState: 'ACTIVE',
+  executorDelegationEffectiveState: 'ACTIVE',
   executorDelegatedFunctions: ['execute-remediation', 'verify-remediation'],
+  executorDelegatedScopes: ['incident_id', 'credential_id'],
   executorAllowedHosts: ['example.com'],
+  executorDelegationSatisfied: ['member_delegation'],
+  executorDelegationMissing: [],
   message: 'Ready',
 };
 
@@ -102,24 +110,38 @@ describe('TrustFlowSummary', () => {
   });
 
   it('marks controls unavailable when executor is not ready', () => {
-    const { container } = render(<TrustFlowSummary agentAnalysis={null} decision={null} selectedAction={null} remediationExecution={null} systemStatus={{ ...READY_STATUS, executorAuthenticated: false, executorDelegationState: 'UNKNOWN' }} statusLoading={false} />);
-    expect(screen.getByText('T3N controls unavailable')).toBeInTheDocument();
-    expect(screen.getByText(/both delegated principals are ready/i)).toBeInTheDocument();
+    const { container } = render(<TrustFlowSummary agentAnalysis={null} decision={null} selectedAction={null} remediationExecution={null} systemStatus={{ ...READY_STATUS, executorAuthenticated: false, executorDelegationEffectiveState: 'UNKNOWN' }} statusLoading={false} />);
+    expect(screen.getByText('Effective access not confirmed')).toBeInTheDocument();
+    expect(screen.getByText(/T3N effective delegation verdict is unavailable/i)).toBeInTheDocument();
     expect(container.querySelector('.trust-readiness-unavailable')).toBeInTheDocument();
     expect(container.querySelector('.trust-readiness-ready')).not.toBeInTheDocument();
   });
 
-  it('keeps scheduled proposal delegation pending and never ready', () => {
-    const { container } = render(<TrustFlowSummary agentAnalysis={null} decision={null} selectedAction={null} remediationExecution={null} systemStatus={{ ...READY_STATUS, delegationState: 'SCHEDULED' }} statusLoading={false} />);
-    expect(screen.getByText('Delegation scheduled')).toBeInTheDocument();
+  it('member grant active plus authorised false remains not ready', () => {
+    const { container } = render(<TrustFlowSummary agentAnalysis={null} decision={null} selectedAction={null} remediationExecution={null} systemStatus={{ ...READY_STATUS, delegationEffectiveState: 'INCOMPLETE', delegationMissing: ['required_authority'] }} statusLoading={false} />);
+    expect(screen.getByText('Effective access not confirmed')).toBeInTheDocument();
+    expect(screen.getByText(/checkDelegation did not authorize effective access/i)).toBeInTheDocument();
+    expect(container.querySelector('.trust-readiness-ready')).not.toBeInTheDocument();
+  });
+
+  it('member grant active plus unavailable verdict fails closed', () => {
+    const { container } = render(<TrustFlowSummary agentAnalysis={null} decision={null} selectedAction={null} remediationExecution={null} systemStatus={{ ...READY_STATUS, delegationEffectiveState: 'UNKNOWN' }} statusLoading={false} />);
+    expect(screen.getByText('Effective access not confirmed')).toBeInTheDocument();
+    expect(screen.getByText(/fails closed/i)).toBeInTheDocument();
+    expect(container.querySelector('.trust-readiness-ready')).not.toBeInTheDocument();
+  });
+
+  it('keeps scheduled proposal Member grant pending and never ready', () => {
+    const { container } = render(<TrustFlowSummary agentAnalysis={null} decision={null} selectedAction={null} remediationExecution={null} systemStatus={{ ...READY_STATUS, delegationMemberState: 'SCHEDULED', delegationEffectiveState: 'INCOMPLETE' }} statusLoading={false} />);
+    expect(screen.getByText('Member grant scheduled')).toBeInTheDocument();
     expect(screen.getByText(/authorization window has not begun/i)).toBeInTheDocument();
     expect(container.querySelector('.trust-readiness-pending')).toBeInTheDocument();
     expect(container.querySelector('.trust-readiness-ready')).not.toBeInTheDocument();
   });
 
-  it('keeps scheduled executor delegation pending and never ready', () => {
-    const { container } = render(<TrustFlowSummary agentAnalysis={null} decision={null} selectedAction={null} remediationExecution={null} systemStatus={{ ...READY_STATUS, executorDelegationState: 'SCHEDULED' }} statusLoading={false} />);
-    expect(screen.getByText('Delegation scheduled')).toBeInTheDocument();
+  it('keeps scheduled executor Member grant pending and never ready', () => {
+    const { container } = render(<TrustFlowSummary agentAnalysis={null} decision={null} selectedAction={null} remediationExecution={null} systemStatus={{ ...READY_STATUS, executorDelegationMemberState: 'SCHEDULED', executorDelegationEffectiveState: 'INCOMPLETE' }} statusLoading={false} />);
+    expect(screen.getByText('Member grant scheduled')).toBeInTheDocument();
     expect(screen.getByText(/authorization window has not begun/i)).toBeInTheDocument();
     expect(container.querySelector('.trust-readiness-pending')).toBeInTheDocument();
     expect(container.querySelector('.trust-readiness-ready')).not.toBeInTheDocument();
