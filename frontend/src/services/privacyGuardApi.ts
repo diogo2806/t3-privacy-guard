@@ -72,6 +72,8 @@ export interface SystemStatus {
 export interface EvidenceMetadata {
   source: 'T3N_TESTNET';
   generatedAt: string;
+  sourceCommitSha: string;
+  sourceTreeClean: boolean;
   network: string;
   sdkVersion: string;
   tenantDid: string;

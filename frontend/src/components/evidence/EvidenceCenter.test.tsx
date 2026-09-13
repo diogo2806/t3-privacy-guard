@@ -4,12 +4,14 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AgentRegistrationState, EvidenceBundle } from '../../services/privacyGuardApi';
 import { EvidenceCenter } from './EvidenceCenter';
 
+const SOURCE_COMMIT = '1'.repeat(40);
+
 function evidenceWithRegistrationState(agentRegistrationState: AgentRegistrationState): EvidenceBundle {
   const registered = agentRegistrationState === 'REGISTERED';
   return {
     metadata: {
-      source: 'T3N_TESTNET', generatedAt: '2026-09-12T00:00:00Z', network: 'testnet', sdkVersion: '5.2.0',
-      tenantDid: 'did:t3n:tenant', agentDid: 'did:t3n:proposal-agent', executorDid: 'did:t3n:protected-executor',
+      source: 'T3N_TESTNET', generatedAt: '2026-09-12T00:00:00Z', sourceCommitSha: SOURCE_COMMIT, sourceTreeClean: true,
+      network: 'testnet', sdkVersion: '5.2.0', tenantDid: 'did:t3n:tenant', agentDid: 'did:t3n:proposal-agent', executorDid: 'did:t3n:protected-executor',
       agentRegistrationState,
       agentCardUri: registered ? 'https://node.example/card' : null,
       agentCardSha256: registered ? 'c'.repeat(64) : null,
@@ -24,7 +26,7 @@ function evidenceWithRegistrationState(agentRegistrationState: AgentRegistration
 }
 
 describe('EvidenceCenter', () => {
-  it('renders proposal agent, executor, policy and trust provenance without overstating authorization or attestation', () => {
+  it('renders source revision, proposal agent, executor, policy and trust provenance without overstating authorization or attestation', () => {
     const evidence = evidenceWithRegistrationState('REGISTERED');
     evidence.scenarios = [
       { id: 'LIVE-PROPOSAL-CANNOT-EXECUTE', expected: 'Proposal Agent DID rejected', actual: 'REJECTED', status: 'PASS' },
@@ -35,6 +37,10 @@ describe('EvidenceCenter', () => {
     render(<EvidenceCenter evidence={evidence} loading={false} error={null} onRefresh={vi.fn()} />);
 
     expect(screen.getByText('Observed security outcomes on T3N testnet')).toBeInTheDocument();
+    expect(screen.getByText(SOURCE_COMMIT)).toBeInTheDocument();
+    expect(screen.getByText('CLEAN')).toBeInTheDocument();
+    expect(screen.getByText(/public source revision used to generate this evidence bundle/i)).toBeInTheDocument();
+    expect(screen.getByText(/WASM and policy hashes remain the executed artifact identities/i)).toBeInTheDocument();
     expect(screen.getByText('REGISTERED')).toBeInTheDocument();
     expect(screen.getByText('Card check')).toBeInTheDocument();
     expect(screen.queryByText('Card verified')).not.toBeInTheDocument();
@@ -60,6 +66,15 @@ describe('EvidenceCenter', () => {
     expect(screen.queryByText('Card verified')).not.toBeInTheDocument();
     expect(screen.getByText('Not resolved')).toBeInTheDocument();
     expect(screen.getByText('Not available')).toBeInTheDocument();
+  });
+
+  it('renders dirty source state explicitly without labelling it verified', () => {
+    const evidence = evidenceWithRegistrationState('MISMATCH');
+    evidence.metadata.sourceTreeClean = false;
+    render(<EvidenceCenter evidence={evidence} loading={false} error={null} onRefresh={vi.fn()} />);
+
+    expect(screen.getByText('DIRTY')).toBeInTheDocument();
+    expect(screen.getByText(/DIRTY is disclosed explicitly and is not treated as verified source/i)).toBeInTheDocument();
   });
 
   it('shows the proof meaning before an explicit empty live-evidence state', () => {

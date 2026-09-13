@@ -4,7 +4,9 @@ This directory separates local regression controls from real Terminal 3 testnet 
 
 ## Dashboard proof view
 
-The operator dashboard presents evidence in business-first order. The **Proof & evidence** view explains what the bundle proves before showing technical metadata: `PASS` is an observed outcome that matched the expected security result, `FAIL` is an observed mismatch, and `NOT_RUN` means the scenario was not executed and is never counted as proof. Contract, DID, Agent onboarding, SDK, network, trust-anchor, rollback-floor, policy and WASM metadata remain available below that explanation so a judge can first understand the outcome and then inspect the technical linkage.
+The operator dashboard presents evidence in business-first order. The **Proof & evidence** view explains what the bundle proves before showing technical metadata: `PASS` is an observed outcome that matched the expected security result, `FAIL` is an observed mismatch, and `NOT_RUN` means the scenario was not executed and is never counted as proof. Source commit/tree state, contract, DID, Agent onboarding, SDK, network, trust-anchor, rollback-floor, policy and WASM metadata remain available below that explanation so a judge can first understand the outcome and then inspect the technical linkage.
+
+`Source commit` is the full 40-character Git revision captured before evidence generation starts. `Source tree` is `CLEAN` only when that revision had no tracked or untracked working-tree changes at capture time; otherwise it is explicitly `DIRTY`. This source identity links the bundle to public code, but it does not replace the WASM SHA-256 or policy hash and is not an independent code audit.
 
 The dashboard trust flow follows the same claim boundary as the evidence bundle: `ALLOW` is not execution, accepted external execution is not completion, `REGISTERED` Agent onboarding is not delegation, an observed `ACTIVE` Member grant is not by itself effective delegated authority, and `COMPLETED` is shown only after independent read-back verifies the expected external state. T3N control-plane or trust-boundary unavailability is surfaced explicitly rather than rendered as a successful state. Operational readiness requires T3N `checkDelegation()` to confirm effective access for the authenticated Proposal Agent and Protected Executor.
 
@@ -149,6 +151,7 @@ Prerequisites:
 - separate funded `T3N_EXECUTOR_API_KEY` for the Protected Executor;
 - persistent `/data` storage available to the gateway, or an explicit `T3N_TRUST_FLOOR_STORE_PATH` on equivalent persistent storage;
 - built release WASM at the documented path, or `T3N_CONTRACT_WASM_PATH`;
+- a clean Git working tree for submission evidence;
 - `T3N_CONTRACT_NUMERIC_ID` when the configured contract version already exists and an operation needs its numeric id;
 - synthetic `SECURITY_API_KEY`, `SECURITY_API_URL` and `SECURITY_VERIFICATION_URL` only when protected egress/read-back is enabled.
 
@@ -161,25 +164,30 @@ npm run evidence:live
 
 The orchestrator:
 
-1. loads the persisted trust-manifest floor for the configured T3N network;
-2. authenticates Tenant, Proposal Agent and Protected Executor separately through verified trust anchors using the same monotonic floor;
-3. rejects identity collapse and refuses evidence generation unless the sessions report verified trust anchors and a persisted floor;
-4. performs read-only public Agent Card verification for the authenticated Proposal Agent DID and records the observed registration state without confusing it with Member Delegation or effective authorization;
-5. calculates `SHA-256(WASM_BYTES)`;
-6. resolves the configured live contract version or registers it when absent;
-7. provisions/read-backs the versioned private T3N operational policy and binds its version/hash;
-8. writes sanitized `docs/evidence/deployment-manifest.json` including trust-anchor, rollback-floor, Agent Card, policy and contract/WASM provenance;
-9. optionally prepares the private remediation map when `EVIDENCE_PREPARE_EGRESS=true`;
-10. derives least-privilege allowed hosts from the configured HTTPS action/verification endpoints;
-11. creates/updates least-privilege Member grants for Proposal Agent and Protected Executor as required by the evidence setup;
-12. runtime status distinguishes each observed Member grant from the authenticated principal-side `checkDelegation()` verdict; only effective `ACTIVE` counts as operational readiness;
-13. invokes the existing `evidence:testnet` runner;
-14. verifies that testnet evidence and deployment manifest have the same network, SDK, DIDs, contract id/version, WASM hash and policy provenance;
-15. fails if the runner reports failure, the identities mismatch, trust/policy metadata is inconsistent, or leak detection finds configured secret material.
+1. resolves `git rev-parse --verify HEAD` using a fixed-argument child process, requires a full 40-character SHA and records the working-tree state before generated evidence files are written;
+2. fails closed on a dirty tree by default; `EVIDENCE_ALLOW_DIRTY_SOURCE=true` is available only for an explicitly non-submission run and records `sourceTreeClean=false` rather than hiding the state;
+3. loads the persisted trust-manifest floor for the configured T3N network;
+4. authenticates Tenant, Proposal Agent and Protected Executor separately through verified trust anchors using the same monotonic floor;
+5. rejects identity collapse and refuses evidence generation unless the sessions report verified trust anchors and a persisted floor;
+6. performs read-only public Agent Card verification for the authenticated Proposal Agent DID and records the observed registration state without confusing it with Member Delegation or effective authorization;
+7. calculates `SHA-256(WASM_BYTES)`;
+8. resolves the configured live contract version or registers it when absent;
+9. provisions/read-backs the versioned private T3N operational policy and binds its version/hash;
+10. writes sanitized `docs/evidence/deployment-manifest.json` including source revision, trust-anchor, rollback-floor, Agent Card, policy and contract/WASM provenance;
+11. optionally prepares the private remediation map when `EVIDENCE_PREPARE_EGRESS=true`;
+12. derives least-privilege allowed hosts from the configured HTTPS action/verification endpoints;
+13. creates/updates least-privilege Member grants for Proposal Agent and Protected Executor as required by the evidence setup;
+14. runtime status distinguishes each observed Member grant from the authenticated principal-side `checkDelegation()` verdict; only effective `ACTIVE` counts as operational readiness;
+15. invokes the existing `evidence:testnet` runner and writes the same captured source SHA/tree state into `testnet-run.json`;
+16. verifies that testnet evidence and deployment manifest have the same source SHA/tree state, network, SDK, DIDs, contract id/version, WASM hash and policy provenance;
+17. fails if the runner reports failure, source identity is absent/malformed/mismatched, the identities mismatch, trust/policy metadata is inconsistent, or leak detection finds configured secret material.
 
 The evidence chain is:
 
 ```text
+public source revision
+   | full Git SHA + CLEAN/DIRTY tree state
+   v
 verified T3N trust manifest
    | signed manifest + numeric version
    v
@@ -197,15 +205,16 @@ WASM bytes + canonical policy
    | SHA-256 + policy version/hash
    v
 deployment-manifest.json
-   | trust + onboarding + policy + contract + canonical DIDs
+   | source revision + trust + onboarding + policy + contract + canonical DIDs
    v
 T3N testnet runner
    |
    v
 testnet-run.json
+   | same source revision + live outcomes
 ```
 
-This proves linkage between the verified T3N cluster trust anchor, the persisted anti-rollback high-water mark, the authenticated identities, the observed public Agent Card registration state, the local WASM/policy artifacts used in the registration/provisioning flow, the resolved T3N contract identity/version and the live scenario results. Runtime readiness additionally requires the platform-side delegation verdict described above; the evidence bundle does not infer effective authorization from a Member grant alone. It is not described as hardware attestation unless a separate T3N API explicitly provides execution-specific attestation evidence.
+This closes the linkage `public source -> commit -> WASM/policy identity -> T3N execution -> observed scenarios`. The source SHA proves which repository revision was captured; the WASM SHA-256 still identifies the binary bytes and the policy hash still identifies the canonical operational policy. A clean source tree is a reproducibility signal, not proof that the source was independently audited. Runtime readiness additionally requires the platform-side delegation verdict described above; the evidence bundle does not infer effective authorization from a Member grant alone. It is not described as hardware attestation unless a separate T3N API explicitly provides execution-specific attestation evidence.
 
 ## Optional protected egress + independent verification proof
 
@@ -294,6 +303,8 @@ The `limit` is server-validated between 1 and 200. Activity evidence is sanitize
 `deployment-manifest.json` contains only public/verifiable metadata:
 
 - UTC timestamp;
+- full source commit SHA (`sourceCommitSha`);
+- explicit source-tree state (`sourceTreeClean`);
 - network;
 - SDK `5.2.0`;
 - canonical Tenant, Proposal Agent and Protected Executor DIDs;
@@ -307,14 +318,18 @@ The `limit` is server-validated between 1 and 200. Activity evidence is sanitize
 - policy version/hash;
 - WASM SHA-256.
 
-`testnet-run.json` contains live scenario outcomes including PASS/FAIL/NOT_RUN. Optional scenarios that were not executed stay `NOT_RUN`; they are never converted into PASS.
+`testnet-run.json` contains the same `sourceCommitSha` and `sourceTreeClean` values plus live scenario outcomes including PASS/FAIL/NOT_RUN. Missing, malformed or mismatched source provenance invalidates the bundle. Optional scenarios that were not executed stay `NOT_RUN`; they are never converted into PASS.
 
-Both artifacts pass leak detection against configured Tenant/Proposal Agent/Protected Executor keys, remediation key, AI provider key, service token, capability signing key and optional sentinel before being accepted.
+Both artifacts pass leak detection against configured Tenant/Proposal Agent/Protected Executor keys, remediation key, AI provider key, service token, capability signing key and optional sentinel before being accepted. Neither artifact contains `.env` contents, API keys, tokens or private keys.
 
 ## Trust, onboarding and authorization evidence wording
 
 The UI and evidence API deliberately distinguish these concepts:
 
+- **Source commit**: full public Git revision captured for the run; it establishes source traceability, not independent verification.
+- **Source tree CLEAN/DIRTY**: whether that revision's working tree was clean when evidence generation started; `DIRTY` is disclosed and never relabelled as success.
+- **WASM SHA-256**: identity of the contract binary bytes used by the evidence flow.
+- **Policy SHA-256**: identity of the canonical operational policy used by the decisions.
 - **Trust anchor VERIFIED**: the signed T3N manifest established the cluster trust boundary used by the authenticated sessions.
 - **Rollback floor PERSISTED**: the accepted manifest-version high-water mark is stored across gateway restarts and supplied back through `minVersion`.
 - **Trust manifest version**: the numeric version exposed by the verified trust anchor and persisted as the high-water mark.
@@ -325,7 +340,7 @@ The UI and evidence API deliberately distinguish these concepts:
 - **Platform delegation AUTHORIZED**: `checkDelegation()` executed as the authenticated grantee returned `authorised=true` for the canonical contract, Tenant DID and observed functions/scopes.
 - **Effective access ACTIVE**: the Member grant is active and the platform delegation is authorized. Only this state may contribute to operational readiness.
 
-These labels do not mean “hardware execution verified”. A public Agent Card hash is not authorization or attestation, and a per-request hardware-attestation claim would require separate execution-specific evidence.
+These labels do not mean “hardware execution verified”. A public Agent Card hash is not authorization or attestation, a clean source tree is not a code audit, and a per-request hardware-attestation claim would require separate execution-specific evidence.
 
 If trust-manifest retrieval, rollback validation, persisted state validation, version extraction or effective-delegation verification fails, readiness remains false. Agent Card resolution has its own explicit negative states (`NOT_REGISTERED`, `MISMATCH`, `UNAVAILABLE`) and is never silently rendered as `REGISTERED`. `authorised=false` produces effective `INCOMPLETE`; a failed or malformed platform verdict produces `UNKNOWN`.
 
@@ -335,6 +350,6 @@ The policy-level logical-reference scenario can run independently. Actual `verif
 
 ## What is not live evidence
 
-Mocks, unit tests, property tests, generated cases, screenshots, docs and unexecuted commands are not T3N testnet proof. A locally generated Agent Card is not proof that it was hosted; `REGISTERED` requires read-only public resolution of the authenticated DID. An observed Member grant is not proof of effective authority; runtime readiness additionally requires the authenticated principal-side T3N `checkDelegation()` verdict. The generated deployment manifest plus matching successful `testnet-run.json` are the live evidence source of truth for contract scenarios. A screenshot of a 2xx response is not remediation completion proof; the matching verification state is required. A persisted trust floor is cluster-trust rollback protection, not execution-specific hardware attestation. Activity reconciliation is provenance for T3N-observed operations, not a replacement for the local business audit.
+Mocks, unit tests, property tests, generated cases, screenshots, docs and unexecuted commands are not T3N testnet proof. A Git commit SHA by itself is not live proof and `CLEAN` is not a security certification; they only link a generated bundle to a source revision. A locally generated Agent Card is not proof that it was hosted; `REGISTERED` requires read-only public resolution of the authenticated DID. An observed Member grant is not proof of effective authority; runtime readiness additionally requires the authenticated principal-side T3N `checkDelegation()` verdict. The generated deployment manifest plus matching successful `testnet-run.json` are the live evidence source of truth for contract scenarios. A screenshot of a 2xx response is not remediation completion proof; the matching verification state is required. A persisted trust floor is cluster-trust rollback protection, not execution-specific hardware attestation. Activity reconciliation is provenance for T3N-observed operations, not a replacement for the local business audit.
 
 See `scenario-matrix.md` for the security-scenario mapping.

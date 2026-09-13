@@ -23,6 +23,8 @@ describe('ScreenManualDialog', () => {
     expect(screen.getByText('Dados privados e retenção')).toBeInTheDocument();
     expect(screen.getByText('Audit provenance e T3N Activity Log')).toBeInTheDocument();
     expect(screen.getByText('Proof & evidence')).toBeInTheDocument();
+    expect(screen.getByText(/Source commit/i)).toBeInTheDocument();
+    expect(screen.getByText(/árvore Git estava sem alterações quando a geração começou/i)).toBeInTheDocument();
     expect(screen.getByText(/COMPLETED/i)).toBeInTheDocument();
     expect(closeButton).toHaveFocus();
 
