@@ -1,6 +1,7 @@
 package br.com.t3privacyguard.integration;
 
 import br.com.t3privacyguard.domain.DecisionType;
+import br.com.t3privacyguard.observability.TraceContext;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,6 +30,7 @@ public class GatewayPolicyClient {
         try {
             GatewayDecision decision = restClient.post()
                 .uri("/internal/contracts/privacy-guard/evaluate")
+                .header(TraceContext.HEADER, TraceContext.currentOrGenerate())
                 .body(request)
                 .retrieve()
                 .body(GatewayDecision.class);
