@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUTPUT_DIR="$ROOT_DIR/docs/evidence/runtime"
 mkdir -p "$OUTPUT_DIR"
 SENTINEL_SCAN_STATUS="NOT_CONFIGURED"
+AUDIT_KEY_SCAN_STATUS="NOT_CONFIGURED"
 
 run_and_capture() {
   local name="$1"
@@ -30,6 +31,18 @@ if [[ -n "${EVIDENCE_SENTINEL_SECRET:-}" ]]; then
   SENTINEL_SCAN_STATUS="PASS"
 fi
 
+if [[ -n "${AUDIT_INTEGRITY_KEY:-}" ]]; then
+  if [[ ${#AUDIT_INTEGRITY_KEY} -lt 32 ]]; then
+    echo "AUDIT_INTEGRITY_KEY must be at least 32 characters" >&2
+    exit 1
+  fi
+  if grep -R -F -- "$AUDIT_INTEGRITY_KEY" "$OUTPUT_DIR" >/dev/null 2>&1; then
+    echo "Local evidence contains AUDIT_INTEGRITY_KEY" >&2
+    exit 1
+  fi
+  AUDIT_KEY_SCAN_STATUS="PASS"
+fi
+
 cat > "$OUTPUT_DIR/summary.txt" <<SUMMARY
 T3 Privacy Guard local evidence run
 Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -38,6 +51,7 @@ Java backend: PASS
 T3N gateway local tests/typecheck (including deterministic schema properties): PASS
 React frontend tests/typecheck: PASS
 Secret sentinel scan: $SENTINEL_SCAN_STATUS
+Audit integrity key scan: $AUDIT_KEY_SCAN_STATUS
 
 These are LOCAL results only, including property-generated cases. They are not T3N testnet execution evidence.
 SUMMARY
