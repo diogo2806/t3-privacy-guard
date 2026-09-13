@@ -1,5 +1,5 @@
-import { BadgeCheck, KeyRound, RefreshCw, Server, Shield, UserRoundCog } from 'lucide-react';
-import type { AgentRegistrationState, DelegationState, SystemStatus } from '../../services/privacyGuardApi';
+import { BadgeCheck, KeyRound, RefreshCw, Server, Shield, ShieldCheck, UserRoundCog } from 'lucide-react';
+import type { AgentRegistrationState, DelegationState, EffectiveDelegationState, SystemStatus } from '../../services/privacyGuardApi';
 
 interface Props { status: SystemStatus | null; loading: boolean; onRefresh: () => void; }
 type PillState = 'ok' | 'off' | 'pending';
@@ -26,24 +26,33 @@ function delegationLabel(state?: DelegationState): string {
   return state ?? 'UNKNOWN';
 }
 
-function isReady(status: SystemStatus | null): boolean {
-  return Boolean(
-    status?.gatewayReachable
-      && status.tenantAuthenticated
-      && status.agentAuthenticated
-      && status.executorAuthenticated
-      && status.contractResolved
-      && status.delegationState === 'ACTIVE'
-      && status.executorDelegationState === 'ACTIVE',
-  );
+function effectivePillState(state?: EffectiveDelegationState): PillState {
+  if (state === 'ACTIVE') return 'ok';
+  if (state === 'UNKNOWN') return 'pending';
+  return 'off';
+}
+
+function effectiveLabel(state?: EffectiveDelegationState): string {
+  if (state === 'ACTIVE') return 'Confirmed';
+  if (state === 'DENIED') return 'Denied';
+  return 'Unknown';
 }
 
 export function SystemStatusBar({ status, loading, onRefresh }: Props) {
   const registrationState = status?.agentRegistrationState;
-  const ready = isReady(status);
+  const ready = Boolean(status?.protectedRemediationReady);
+  const evaluationOnly = Boolean(status?.evaluationReady && !status?.protectedRemediationReady);
   const scheduled = status?.delegationState === 'SCHEDULED' || status?.executorDelegationState === 'SCHEDULED';
-  const overallState: PillState = loading || scheduled ? 'pending' : ready ? 'ok' : 'off';
-  const overallLabel = loading ? 'Checking live status' : ready ? 'Operational' : scheduled ? 'Scheduled' : 'Unavailable / incomplete';
+  const overallState: PillState = loading || scheduled || evaluationOnly ? 'pending' : ready ? 'ok' : 'off';
+  const overallLabel = loading
+    ? 'Checking live status'
+    : ready
+      ? 'Operational'
+      : evaluationOnly
+        ? 'Evaluation ready · execution blocked'
+        : scheduled
+          ? 'Scheduled'
+          : 'Unavailable / incomplete';
 
   return (
     <section className="status-panel status-panel-secondary" aria-label="Live T3N operational status">
@@ -51,7 +60,15 @@ export function SystemStatusBar({ status, loading, onRefresh }: Props) {
         <div>
           <p className="eyebrow">Technical T3N status</p>
           <h2>Live control plane</h2>
-          <p>{loading ? 'Checking the controls used to evaluate and execute protected actions.' : ready ? 'Proposal and protected execution use separate authenticated T3N principals with least-privilege delegations.' : scheduled ? 'A delegation exists, but its authorization window has not begun. Protected operations remain unavailable.' : 'One or more T3N controls are unavailable. Decisions or protected execution may not be provable.'}</p>
+          <p>{loading
+            ? 'Checking Member Delegations and effective T3N access for the exact functions and scopes used by each principal.'
+            : ready
+              ? 'Proposal and protected execution use separate authenticated T3N principals, active Member Delegations and independently confirmed effective access.'
+              : evaluationOnly
+                ? 'Proposal evaluation has effective T3N access, but protected execution is blocked until the Executor is independently confirmed.'
+                : scheduled
+                  ? 'A Member Delegation exists, but its authorization window has not begun. Protected operations remain unavailable.'
+                  : 'One or more T3N controls are unavailable or effective access could not be confirmed. The system fails closed.'}</p>
         </div>
         <StatusPill state={overallState} label={overallLabel} />
       </div>
@@ -70,8 +87,10 @@ export function SystemStatusBar({ status, loading, onRefresh }: Props) {
           <div className="status-item"><UserRoundCog aria-hidden="true" /><div><span>Protected executor</span><StatusPill state={status?.executorAuthenticated ? 'ok' : 'off'} label={status?.executorAuthenticated ? 'Authenticated · execute + verify' : status?.executorConfigured ? 'Not authenticated' : 'Not configured'} /></div></div>
           <div className="status-item"><BadgeCheck aria-hidden="true" /><div><span>Agent onboarding</span><StatusPill state={registrationState === 'REGISTERED' ? 'ok' : 'off'} label={registrationLabel(registrationState)} /></div></div>
           <div className="status-item"><Shield aria-hidden="true" /><div><span>Contract</span><StatusPill state={status?.contractResolved ? 'ok' : 'off'} label={status?.contractResolved ? `Resolved · v${status.contractVersion}` : 'Unavailable'} /></div></div>
-          <div className="status-item"><KeyRound aria-hidden="true" /><div><span>Proposal delegation</span><StatusPill state={delegationPillState(status?.delegationState)} label={delegationLabel(status?.delegationState)} /></div></div>
-          <div className="status-item"><KeyRound aria-hidden="true" /><div><span>Executor delegation</span><StatusPill state={delegationPillState(status?.executorDelegationState)} label={delegationLabel(status?.executorDelegationState)} /></div></div>
+          <div className="status-item"><KeyRound aria-hidden="true" /><div><span>Proposal member grant</span><StatusPill state={delegationPillState(status?.delegationState)} label={delegationLabel(status?.delegationState)} /></div></div>
+          <div className="status-item"><ShieldCheck aria-hidden="true" /><div><span>Proposal effective T3N access</span><StatusPill state={effectivePillState(status?.delegationEffectiveState)} label={effectiveLabel(status?.delegationEffectiveState)} /></div></div>
+          <div className="status-item"><KeyRound aria-hidden="true" /><div><span>Executor member grant</span><StatusPill state={delegationPillState(status?.executorDelegationState)} label={delegationLabel(status?.executorDelegationState)} /></div></div>
+          <div className="status-item"><ShieldCheck aria-hidden="true" /><div><span>Executor effective T3N access</span><StatusPill state={effectivePillState(status?.executorDelegationEffectiveState)} label={effectiveLabel(status?.executorDelegationEffectiveState)} /></div></div>
         </div>
         <div className="status-meta">
           <div><span>Tenant DID</span><code>{status?.tenantDid ?? 'Unavailable'}</code></div>
@@ -82,10 +101,16 @@ export function SystemStatusBar({ status, loading, onRefresh }: Props) {
           <div><span>Agent Card services</span><code>{status?.agentCardServices?.length ? status.agentCardServices.join(', ') : 'None verified'}</code></div>
           <div><span>Card check</span><code>{status?.agentCardVerifiedAt ? new Date(status.agentCardVerifiedAt).toLocaleString() : 'Not available'}</code></div>
           <div><span>Contract</span><code>{status?.contractId ?? 'Unavailable'}</code></div>
-          <div><span>Proposal functions</span><code>{status?.delegatedFunctions.length ? status.delegatedFunctions.join(', ') : 'None observed'}</code></div>
+          <div><span>Proposal grant functions</span><code>{status?.delegatedFunctions.length ? status.delegatedFunctions.join(', ') : 'None observed'}</code></div>
+          <div><span>Proposal grant scopes</span><code>{status?.delegatedScopes.length ? status.delegatedScopes.join(', ') : 'None observed'}</code></div>
           <div><span>Proposal allowed hosts</span><code>{status?.allowedHosts.length ? status.allowedHosts.join(', ') : 'None'}</code></div>
-          <div><span>Executor functions</span><code>{status?.executorDelegatedFunctions.length ? status.executorDelegatedFunctions.join(', ') : 'None observed'}</code></div>
+          <div><span>Proposal checked functions</span><code>{status?.delegationCheckedFunctions.length ? status.delegationCheckedFunctions.join(', ') : 'Not checked'}</code></div>
+          <div><span>Proposal checked scopes</span><code>{status?.delegationCheckedScopes.length ? status.delegationCheckedScopes.join(', ') : 'Not checked'}</code></div>
+          <div><span>Executor grant functions</span><code>{status?.executorDelegatedFunctions.length ? status.executorDelegatedFunctions.join(', ') : 'None observed'}</code></div>
+          <div><span>Executor grant scopes</span><code>{status?.executorDelegatedScopes.length ? status.executorDelegatedScopes.join(', ') : 'None observed'}</code></div>
           <div><span>Executor allowed hosts</span><code>{status?.executorAllowedHosts.length ? status.executorAllowedHosts.join(', ') : 'None observed'}</code></div>
+          <div><span>Executor checked functions</span><code>{status?.executorDelegationCheckedFunctions.length ? status.executorDelegationCheckedFunctions.join(', ') : 'Not checked'}</code></div>
+          <div><span>Executor checked scopes</span><code>{status?.executorDelegationCheckedScopes.length ? status.executorDelegationCheckedScopes.join(', ') : 'Not checked'}</code></div>
         </div>
       </details>
     </section>
