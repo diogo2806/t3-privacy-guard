@@ -116,7 +116,7 @@ function trustPath(action: ActionProposal | null, decision: PolicyDecision | nul
   if (execution?.state === 'UNVERIFIED') { executorState = 'UNVERIFIED'; executorTone = 'warning'; }
   if (execution?.state === 'FAILED') { executorState = 'FAILED'; executorTone = 'danger'; }
 
-  let verifyState = 'WAITING';
+  let verifyState = authorized && !execution ? 'NOT VERIFIED YET' : 'WAITING';
   let verifyTone: Tone = 'pending';
   if (execution?.state === 'PENDING_VERIFICATION') { verifyState = 'PENDING'; verifyTone = 'warning'; }
   if (execution?.state === 'COMPLETED') { verifyState = 'VERIFIED'; verifyTone = 'success'; }
@@ -127,7 +127,7 @@ function trustPath(action: ActionProposal | null, decision: PolicyDecision | nul
     { label: 'T3N policy', state: decision?.decision ?? 'WAITING', detail: decision ? decision.reasonCode : 'No T3N decision observed yet.', tone: policyTone, icon: ShieldCheck },
     { label: 'Human', state: humanState, detail: humanState === 'REQUIRED' ? 'Human authorization required before protected execution.' : humanState === 'AUTHORIZED' ? 'Authorization is recorded for this action.' : 'No authorization is inferred.', tone: humanTone, icon: UserCheck },
     { label: 'Executor', state: executorState, detail: executorState === 'NOT EXECUTED' ? 'Protected egress did not run.' : executorState === 'NOT STARTED' ? 'Authorized, but protected execution has not started.' : 'State comes from the remediation execution record.', tone: executorTone, icon: ServerCog },
-    { label: 'Verify', state: verifyState, detail: verifyState === 'VERIFIED' ? 'Independent read-back confirmed the expected external state.' : 'No verified completion is claimed unless read-back succeeds.', tone: verifyTone, icon: BadgeCheck },
+    { label: 'Verify', state: verifyState, detail: verifyState === 'VERIFIED' ? 'Independent read-back confirmed the expected external state.' : verifyState === 'NOT VERIFIED YET' ? 'Authorization exists, but no independently verified completion has been observed.' : 'No verified completion is claimed unless read-back succeeds.', tone: verifyTone, icon: BadgeCheck },
   ];
 }
 
