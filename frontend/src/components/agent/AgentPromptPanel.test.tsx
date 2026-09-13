@@ -29,10 +29,12 @@ describe('AgentPromptPanel', () => {
     expect(onAnalyze).not.toHaveBeenCalled();
   });
 
-  it('warns before submission that literal private values are blocked before the external provider', () => {
+  it('describes the pre-provider guard as high-confidence but deliberately incomplete', () => {
     render(<AgentPromptPanel busy={false} prompt={PROMPT} onPromptChange={vi.fn()} onAnalyze={vi.fn()} />);
     expect(screen.getByText(/Do not paste private values or secrets/i)).toBeInTheDocument();
-    expect(screen.getByText(/rejected server-side before any external AI provider is called/i)).toBeInTheDocument();
+    expect(screen.getByText(/High-confidence sensitive literals are blocked before a remote AI provider/i)).toBeInTheDocument();
+    expect(screen.getByText(/free text is not a complete PII scanner/i)).toBeInTheDocument();
+    expect(screen.queryByText(/PII-free|certified safe/i)).not.toBeInTheDocument();
   });
 
   it('renders sanitized rejection guidance without requiring the rejected value', () => {
