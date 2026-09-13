@@ -7,6 +7,7 @@ import { DelegationService } from '../agent/delegation-service.js';
 import { readGatewayConfig } from '../config/env.js';
 import { PrivacyGuardContractService } from '../contract/privacy-guard-contract.js';
 import { assertNoSecretLeak, sanitizeEvidenceError } from '../evidence/leak-detector.js';
+import { TrustManifestFloorStore } from '../security/trust-manifest-floor-store.js';
 import { T3nSession } from '../t3n/session.js';
 
 type EvidenceStatus = 'PASS' | 'FAIL' | 'NOT_RUN';
@@ -37,8 +38,9 @@ const config = readGatewayConfig();
 if (config.network !== 'testnet' && process.env.EVIDENCE_ALLOW_PRODUCTION !== 'true') throw new Error('Adversarial evidence runner is restricted to testnet unless EVIDENCE_ALLOW_PRODUCTION=true is explicitly set');
 if (!config.agentApiKey) throw new Error('T3N_AGENT_API_KEY is required for testnet evidence');
 
-const tenantSession = new T3nSession(config);
-const agentSession = new AgentSession(config);
+const trustFloorStore = new TrustManifestFloorStore(config.trustManifestFloorStorePath);
+const tenantSession = new T3nSession(config, trustFloorStore);
+const agentSession = new AgentSession(config, trustFloorStore);
 const delegation = new DelegationService(tenantSession, agentSession);
 const contract = new PrivacyGuardContractService(config, tenantSession, agentSession);
 const scenarios: ScenarioResult[] = [];

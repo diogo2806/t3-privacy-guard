@@ -9,7 +9,8 @@ export function AppHeader() {
         <div>
           <p className="eyebrow">Terminal 3 Network</p>
           <h1>T3 Privacy Guard</h1>
-          <p className="header-subtitle">Confidential incident response with policy enforced outside the AI model.</p>
+          <p className="header-subtitle">AI proposes actions. T3N policy controls what may execute.</p>
+          <p className="header-supporting-copy">Critical actions still require human authorization and independent verification.</p>
         </div>
       </div>
       <ScreenManualDialog />
