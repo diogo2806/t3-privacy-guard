@@ -10,6 +10,7 @@ export interface RemediationBody {
   action: string;
   resource: string;
   purpose: string;
+  approved_host: string;
   fields: string[];
   private_refs: string[];
   policy_version: string;
@@ -25,6 +26,7 @@ interface Claims {
   action: string;
   resource: string;
   purpose: string;
+  approvedHost: string;
   fieldsHash: string;
   privateRefsHash: string;
   policyVersion: string;
@@ -39,6 +41,20 @@ interface ReplayEntry { nonce: string; expiresAt: number }
 
 function listHash(values: string[] | undefined): string {
   return createHash('sha256').update(JSON.stringify([...(values ?? [])].map((value) => value.trim()).sort())).digest('hex');
+}
+
+export function canonicalizeApprovedHost(value: unknown): string {
+  if (typeof value !== 'string') throw new Error('CAPABILITY_INVALID');
+  const input = value.trim();
+  if (!input || input.length > 253 || input !== input.toLowerCase()
+    || input.includes('://') || /[\/@:?#]/.test(input) || input.endsWith('.')) {
+    throw new Error('CAPABILITY_INVALID');
+  }
+  const labels = input.split('.');
+  if (labels.some((label) => !label || label.length > 63 || !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label))) {
+    throw new Error('CAPABILITY_INVALID');
+  }
+  return input;
 }
 
 export class RemediationAuthorizationVerifier {
@@ -61,6 +77,8 @@ export class RemediationAuthorizationVerifier {
     if (claims.authorizedAt > this.now() + 5_000) throw new Error('CAPABILITY_INVALID');
     if (!claims.policyVersion || !/^[a-f0-9]{64}$/.test(claims.policyHash ?? '')) throw new Error('CAPABILITY_INVALID');
     if (!claims.executorDid?.startsWith('did:t3n:')) throw new Error('CAPABILITY_INVALID');
+    const approvedHost = canonicalizeApprovedHost(body.approved_host);
+    const claimApprovedHost = canonicalizeApprovedHost(claims.approvedHost);
 
     const mismatched = claims.incidentId !== body.incident_id
       || claims.actionId !== body.action_id
@@ -69,6 +87,7 @@ export class RemediationAuthorizationVerifier {
       || claims.action !== body.action
       || claims.resource !== body.resource
       || claims.purpose !== body.purpose
+      || claimApprovedHost !== approvedHost
       || claims.fieldsHash !== listHash(body.fields)
       || claims.privateRefsHash !== listHash(body.private_refs)
       || claims.policyVersion !== body.policy_version
