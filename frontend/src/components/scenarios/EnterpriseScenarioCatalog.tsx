@@ -22,37 +22,29 @@ export function EnterpriseScenarioCatalog({ selectedId, busy, onSelect }: Props)
 
   return (
     <Surface className="scenario-catalog" aria-labelledby="enterprise-scenarios-title">
-      <SectionHeader eyebrow="Business applicability" title="Choose an enterprise scenario" titleId="enterprise-scenarios-title" icon={<ShieldAlert aria-hidden="true" />} />
-      <p className="card-copy">These are safe demonstration presets, not permissions. Selecting one only prepares synthetic input; the real AI proposal still goes through the independent T3N policy.</p>
+      <SectionHeader eyebrow="Scenario" title="Choose the business risk" titleId="enterprise-scenarios-title" icon={<ShieldAlert aria-hidden="true" />} />
+      <p className="card-copy">Selecting a scenario prepares synthetic input only. It never grants permission or executes an action.</p>
       <div className="scenario-catalog-grid" role="list" aria-label="Enterprise demonstration scenarios">
         {ENTERPRISE_SCENARIOS.map((scenario) => {
           const Icon = icons[scenario.id];
           const active = scenario.id === selectedId;
           return (
             <div key={scenario.id} role="listitem" className="scenario-list-item">
-              <button
-                type="button"
-                className={`scenario-card${active ? ' scenario-card-selected' : ''}`}
-                aria-pressed={active}
-                onClick={() => onSelect(scenario)}
-                disabled={busy}
-              >
+              <button type="button" className={`scenario-card${active ? ' scenario-card-selected' : ''}`} aria-pressed={active} onClick={() => onSelect(scenario)} disabled={busy}>
                 <span className="scenario-card-icon"><Icon aria-hidden="true" /></span>
-                <span className="scenario-card-copy">
-                  <strong>{scenario.title}</strong>
-                  <span>{scenario.description}</span>
-                  <code>{scenario.technicalAction}</code>
-                </span>
+                <span className="scenario-card-copy"><strong>{scenario.title}</strong><code>{scenario.technicalAction}</code></span>
                 {active && <Check className="scenario-card-check" aria-label="Selected scenario" />}
               </button>
             </div>
           );
         })}
       </div>
-      <div className="scenario-explainer" aria-live="polite">
-        <strong>Selected: {selected.title}</strong>
+      <details className="scenario-explainer" aria-live="polite">
+        <summary>Why this scenario matters</summary>
+        <strong>{selected.title}</strong>
+        <p>{selected.description}</p>
         <p>{selected.demonstrates}</p>
-      </div>
+      </details>
     </Surface>
   );
 }
