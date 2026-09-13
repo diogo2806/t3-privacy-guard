@@ -28,12 +28,16 @@ public class SystemStatusService {
         boolean agentAuthenticated = agent.map(AgentStatus::ready).orElse(false);
         boolean contractResolved = contract.isPresent();
         String delegationState = delegation.map(DelegationStatus::state).orElse("UNKNOWN");
+        String registrationState = agent.map(AgentStatus::agentRegistrationState).filter(value -> value != null && !value.isBlank()).orElse("UNAVAILABLE");
+        boolean operational = tenantAuthenticated && agentAuthenticated && contractResolved && "ACTIVE".equals(delegationState);
 
         String message;
         if (!gatewayReachable) {
             message = "T3N gateway is unreachable.";
-        } else if (tenantAuthenticated && agentAuthenticated && contractResolved && "ACTIVE".equals(delegationState)) {
-            message = "Tenant and agent are authenticated, the contract is resolved, and the observed delegation is active.";
+        } else if (operational && "REGISTERED".equals(registrationState)) {
+            message = "Tenant and agent are authenticated, public agent onboarding is registered, the contract is resolved, and delegation is active.";
+        } else if (operational) {
+            message = "Authorization controls are operational, but public Agent Card onboarding is not confirmed as registered.";
         } else {
             message = "Gateway is online, but one or more T3N operational states are not confirmed as ready.";
         }
@@ -46,6 +50,11 @@ public class SystemStatusService {
             agent.map(AgentStatus::configured).orElse(false),
             agentAuthenticated,
             agent.map(AgentStatus::agentDid).orElse(null),
+            registrationState,
+            agent.map(AgentStatus::agentCardUri).orElse(null),
+            agent.map(AgentStatus::agentCardSha256).orElse(null),
+            agent.map(AgentStatus::agentCardVerifiedAt).orElse(null),
+            agent.map(AgentStatus::agentCardServices).orElse(List.of()),
             contractResolved,
             contract.map(ContractIdentity::contractId).orElse(null),
             contract.map(ContractIdentity::contractVersion).orElse(null),
@@ -64,6 +73,11 @@ public class SystemStatusService {
         boolean agentConfigured,
         boolean agentAuthenticated,
         String agentDid,
+        String agentRegistrationState,
+        String agentCardUri,
+        String agentCardSha256,
+        String agentCardVerifiedAt,
+        List<String> agentCardServices,
         boolean contractResolved,
         String contractId,
         String contractVersion,
