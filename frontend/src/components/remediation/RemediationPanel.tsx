@@ -21,23 +21,25 @@ function stateCopy(execution: RemediationExecution | null): { execution: string;
 }
 
 export function RemediationPanel({ action, decision, execution, busy, onAuthorize, onExecute, onVerify }: Props) {
-  const canAuthorize = Boolean(action && decision?.decision === 'ALLOW' && action.status === 'EVALUATED');
-  const canExecute = Boolean(action && decision?.decision === 'ALLOW' && action.status === 'REMEDIATION_AUTHORIZED' && !execution);
-  const canVerify = Boolean(execution && (execution.state === 'PENDING_VERIFICATION' || execution.state === 'UNVERIFIED') && execution.operationId);
+  const hasVerifiedExecutor = action?.action === 'revoke-credential';
+  const canAuthorize = Boolean(hasVerifiedExecutor && action && decision?.decision === 'ALLOW' && action.status === 'EVALUATED');
+  const canExecute = Boolean(hasVerifiedExecutor && action && decision?.decision === 'ALLOW' && action.status === 'REMEDIATION_AUTHORIZED' && !execution);
+  const canVerify = Boolean(hasVerifiedExecutor && execution && (execution.state === 'PENDING_VERIFICATION' || execution.state === 'UNVERIFIED') && execution.operationId);
   const state = stateCopy(execution);
 
   return (
     <section className="card remediation-card" aria-labelledby="remediation-title">
       <div className="card-heading compact"><div className="section-icon section-icon-success"><LockKeyhole aria-hidden="true" /></div><div><p className="eyebrow">Secretless remediation</p><h2 id="remediation-title">Protected execution</h2></div></div>
       <p className="card-copy">The upstream credential stays in the tenant private map. A provider acknowledgement is not called completed until an independent read-back confirms the expected external state.</p>
-      {decision?.decision !== 'ALLOW' && <p className="inline-notice">A persisted ALLOW decision is required before remediation can be authorized.</p>}
-      {canAuthorize && <button className="button button-primary" type="button" onClick={onAuthorize} disabled={busy}><ShieldCheck aria-hidden="true" />Authorize remediation</button>}
+      {action && !hasVerifiedExecutor && <p className="inline-notice">This action can be evaluated by the T3N policy, but this demo does not claim a protected executor or independent completion verifier for it. Full execution and read-back are currently implemented only for credential revocation.</p>}
+      {(!action || hasVerifiedExecutor) && decision?.decision !== 'ALLOW' && <p className="inline-notice">A persisted ALLOW decision is required before credential revocation can be authorized.</p>}
+      {canAuthorize && <button className="button button-primary" type="button" onClick={onAuthorize} disabled={busy}><ShieldCheck aria-hidden="true" />Authorize credential revocation</button>}
       {canExecute && <>
         <div className="success-state"><ShieldCheck aria-hidden="true" /><span>Human authorization is recorded. Execution will use a one-time proof and a stable idempotency key.</span></div>
-        <button className="button button-primary" type="button" onClick={onExecute} disabled={busy}><PlayCircle aria-hidden="true" />Execute protected remediation</button>
+        <button className="button button-primary" type="button" onClick={onExecute} disabled={busy}><PlayCircle aria-hidden="true" />Execute protected credential revocation</button>
       </>}
 
-      {(execution || action?.status === 'REMEDIATION_AUTHORIZED' || action?.status === 'REMEDIATED') && (
+      {hasVerifiedExecutor && (execution || action?.status === 'REMEDIATION_AUTHORIZED' || action?.status === 'REMEDIATED') && (
         <div className="remediation-state-panel" aria-label="Remediation execution and verification status">
           <div><span>Authorization</span><strong>{action?.status === 'REMEDIATION_AUTHORIZED' || action?.status === 'REMEDIATED' ? 'AUTHORIZED' : 'NOT AUTHORIZED'}</strong></div>
           <div><span>Execution</span><strong>{state.execution}</strong></div>
@@ -46,13 +48,13 @@ export function RemediationPanel({ action, decision, execution, busy, onAuthoriz
         </div>
       )}
 
-      {execution?.state === 'PENDING_VERIFICATION' && <div className="inline-notice remediation-status-message"><Clock3 aria-hidden="true" /><span>The side effect was accepted, but completion still depends on independent verification.</span></div>}
-      {execution?.state === 'UNVERIFIED' && <div className="inline-notice remediation-status-message"><CircleAlert aria-hidden="true" /><span>The outcome is ambiguous or the external state was not confirmed. The system will not send the side effect again automatically.</span></div>}
-      {execution?.state === 'FAILED' && <div className="feedback feedback-error remediation-status-message"><CircleAlert aria-hidden="true" /><span>Execution failed before a verified completion state. Review the audit trail before any new action.</span></div>}
-      {execution?.state === 'COMPLETED' && <div className="success-state"><CheckCircle2 aria-hidden="true" /><span>Independent read-back verified the expected external state. This remediation is now COMPLETED.</span></div>}
+      {hasVerifiedExecutor && execution?.state === 'PENDING_VERIFICATION' && <div className="inline-notice remediation-status-message"><Clock3 aria-hidden="true" /><span>The side effect was accepted, but completion still depends on independent verification.</span></div>}
+      {hasVerifiedExecutor && execution?.state === 'UNVERIFIED' && <div className="inline-notice remediation-status-message"><CircleAlert aria-hidden="true" /><span>The outcome is ambiguous or the external state was not confirmed. The system will not send the side effect again automatically.</span></div>}
+      {hasVerifiedExecutor && execution?.state === 'FAILED' && <div className="feedback feedback-error remediation-status-message"><CircleAlert aria-hidden="true" /><span>Execution failed before a verified completion state. Review the audit trail before any new action.</span></div>}
+      {hasVerifiedExecutor && execution?.state === 'COMPLETED' && <div className="success-state"><CheckCircle2 aria-hidden="true" /><span>Independent read-back verified the expected external state. This remediation is now COMPLETED.</span></div>}
 
       {canVerify && <button className="button button-secondary" type="button" onClick={onVerify} disabled={busy}><RefreshCw aria-hidden="true" />Verify external state</button>}
-      {execution && <p className="remediation-meta">Verification attempts: {execution.verificationAttempts}{execution.failureCode ? ` · Last state: ${execution.failureCode}` : ''}</p>}
+      {hasVerifiedExecutor && execution && <p className="remediation-meta">Verification attempts: {execution.verificationAttempts}{execution.failureCode ? ` · Last state: ${execution.failureCode}` : ''}</p>}
     </section>
   );
 }

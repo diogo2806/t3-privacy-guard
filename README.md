@@ -227,6 +227,21 @@ The current Rust policy contains four concrete security actions:
 
 Extra non-secret fields are minimized with `REDACT`. Forbidden secret fields are denied. Unsupported actions, purposes, hosts or private references fail closed.
 
+## Enterprise scenario catalog
+
+The Protection demo exposes those four policy actions as business-readable, synthetic presets. Selecting a card only changes local demonstration context and the editable prompt; it does not call an API, authorize anything or predict the T3N result.
+
+| Scenario | Proposed action | What the demo proves |
+|---|---|---|
+| Credential compromised | `revoke-credential` | Prompt-injection denial plus a separate minimum-scope revocation path with human authorization, protected execution and independent read-back. |
+| Account takeover | `isolate-account` | The model can propose isolation with synthetic identifiers while T3N independently evaluates action, fields, purpose and destination. |
+| Record security incident | `create-incident` | Incident recording can be evaluated without outbound egress; adding an unexpected destination remains subject to T3N policy. |
+| Notify security contact | `notify-security` | The model requests only logical `verified_email`; no plaintext email or raw `{{profile.*}}` placeholder belongs in browser/model input. |
+
+The current complete execution/read-back contract verifies the closed external state `REVOKED`, so the dashboard exposes protected execution controls only for an actual `revoke-credential` proposal. `isolate-account`, `create-incident` and `notify-security` remain genuine policy-evaluation scenarios; the UI does not claim a verified executor for them.
+
+Switching scenarios clears the previous scenario result in the browser before a new analysis. This prevents a prior decision or execution state from being visually attributed to a different preset.
+
 ## Structural private-data boundary
 
 The initial private reference is intentionally narrow:
