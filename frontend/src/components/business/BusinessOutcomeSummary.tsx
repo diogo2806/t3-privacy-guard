@@ -42,12 +42,21 @@ function isAuthorized(action: ActionProposal | null): boolean {
 }
 
 function humanAuthorization(action: ActionProposal | null, decision: PolicyDecision | null): string {
+  if (!action) return NOT_OBSERVED;
   if (isAuthorized(action)) return 'AUTHORIZED';
-  if (action?.action === 'revoke-credential' && decision?.decision === 'ALLOW') return 'REQUIRED';
+  if (action.action === 'revoke-credential' && decision?.decision === 'ALLOW') return 'REQUIRED';
   return 'NOT APPLICABLE';
 }
 
-function externalAction(execution: RemediationExecution | null): string {
+function approvedDestination(action: ActionProposal | null, decision: PolicyDecision | null): string {
+  if (!action) return NOT_OBSERVED;
+  if (isAuthorized(action)) return action.host ?? 'MISSING — BLOCKED';
+  if (action.action === 'revoke-credential' && decision?.decision === 'ALLOW') return 'Not authorized yet';
+  return 'NOT APPLICABLE';
+}
+
+function externalAction(action: ActionProposal | null, execution: RemediationExecution | null): string {
+  if (!action) return NOT_OBSERVED;
   if (!execution) return 'NOT STARTED';
   if (execution.state === 'EXECUTING') return 'IN PROGRESS';
   if (execution.state === 'PENDING_VERIFICATION') return 'ACCEPTED — VERIFICATION PENDING';
@@ -82,8 +91,14 @@ function currentResult(
   return 'No threat has been analyzed yet.';
 }
 
+function requestedDestination(action: ActionProposal | null): string {
+  if (!action) return NOT_OBSERVED;
+  return action.host ?? 'No destination requested';
+}
+
 function policyDestination(action: ActionProposal | null, decision: PolicyDecision | null): string {
-  if (!action?.host) return 'No destination requested';
+  if (!action) return NOT_OBSERVED;
+  if (!action.host) return 'No destination requested';
   if (!decision) return `${action.host} — not evaluated`;
   if (decision.decision === 'DENY') return `${action.host} — blocked with proposal`;
   return `${action.host} — policy evaluated`;
@@ -99,7 +114,6 @@ export function BusinessOutcomeSummary({ scenario, incident, selectedAction, dec
   const verifiedOutcomeTime = remediationExecution?.state === 'COMPLETED' && remediationExecution.completedAt && verifiedOutcomeMs !== null
     ? formatObservedDuration(verifiedOutcomeMs)
     : NOT_VERIFIED;
-  const authorized = isAuthorized(selectedAction);
   const outcomeText = currentResult(threatDecision, selectedAction, decision, remediationExecution);
   const successful = remediationExecution?.state === 'COMPLETED';
   const unresolved = remediationExecution?.state === 'FAILED' || remediationExecution?.state === 'UNVERIFIED';
@@ -129,7 +143,7 @@ export function BusinessOutcomeSummary({ scenario, incident, selectedAction, dec
             <div><dt>Incident severity</dt><dd>{incident?.severity ?? NOT_OBSERVED}</dd></div>
             <div><dt>Agent action</dt><dd>{threatAction?.action ?? NOT_OBSERVED}</dd></div>
             <div><dt>Protected resource</dt><dd>{threatAction?.resource ?? NOT_OBSERVED}</dd></div>
-            <div><dt>Requested destination</dt><dd>{threatAction?.host ?? 'No destination requested'}</dd></div>
+            <div><dt>Requested destination</dt><dd>{requestedDestination(threatAction)}</dd></div>
             <div><dt>Requested field names</dt><dd>{threatAction ? `${threatAction.fields.length} · ${list(threatAction.fields)}` : NOT_OBSERVED}</dd></div>
             <div><dt>Requested private refs</dt><dd>{threatAction ? `${threatAction.privateRefs.length} · ${list(threatAction.privateRefs)}` : NOT_OBSERVED}</dd></div>
           </dl>
@@ -154,11 +168,11 @@ export function BusinessOutcomeSummary({ scenario, incident, selectedAction, dec
             <div><dt>Minimum-scope action</dt><dd>{selectedAction?.action ?? NOT_OBSERVED}</dd></div>
             <div><dt>Human authorization</dt><dd>{humanAuthorization(selectedAction, decision)}</dd></div>
             <div><dt>Policy-allowed destination</dt><dd>{selectedAction?.host && decision?.decision === 'ALLOW' ? selectedAction.host : NOT_OBSERVED}</dd></div>
-            <div><dt>Approved destination</dt><dd>{authorized ? (selectedAction?.host ?? 'MISSING — BLOCKED') : 'Not authorized yet'}</dd></div>
-            <div><dt>External action</dt><dd>{externalAction(remediationExecution)}</dd></div>
+            <div><dt>Approved destination</dt><dd>{approvedDestination(selectedAction, decision)}</dd></div>
+            <div><dt>External action</dt><dd>{externalAction(selectedAction, remediationExecution)}</dd></div>
             <div><dt>Verified final state</dt><dd>{verifiedFinalState(selectedAction, remediationExecution)}</dd></div>
             <div><dt>Time to verified outcome</dt><dd>{verifiedOutcomeTime}</dd></div>
-            <div><dt>Verification attempts</dt><dd>{remediationExecution?.verificationAttempts ?? 0}</dd></div>
+            <div><dt>Verification attempts</dt><dd>{remediationExecution ? remediationExecution.verificationAttempts : NOT_OBSERVED}</dd></div>
           </dl>
         </section>
       </div>
