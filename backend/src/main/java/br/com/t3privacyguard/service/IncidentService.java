@@ -200,7 +200,7 @@ public class IncidentService {
 
     @Transactional
     public RemediationAuthorizationResponse authorizeRemediation(String incidentId, String actionId, String authenticatedPrincipal) {
-        ActionProposalEntity action = requireAction(incidentId, actionId);
+        ActionProposalEntity action = requireActionForAuthorization(incidentId, actionId);
         requireSupportedRemediationExecutor(action);
         String authorizedBy = RemediationAuthorizationSigner.canonicalizeOperatorPrincipal(authenticatedPrincipal);
         String approvedHost = requireApprovedHost(action);
@@ -211,6 +211,9 @@ public class IncidentService {
         auditIntegrity.assertAppendable(incidentId);
 
         if (action.getRemediationAuthorizedBy() != null || action.getRemediationAuthorizedAt() != null) {
+            if (action.getStatus() != ProposalStatus.REMEDIATION_AUTHORIZED && action.getStatus() != ProposalStatus.REMEDIATED) {
+                throw new ConflictException("Stored human authorization provenance is inconsistent with action status");
+            }
             HumanAuthorizationProvenance existing = requireHumanAuthorizationProvenance(action);
             if (!existing.authorizedBy().equals(authorizedBy)) {
                 throw new ConflictException("Remediation was already authorized by a different authenticated operator and cannot be overwritten");
@@ -440,6 +443,13 @@ public class IncidentService {
     private ActionProposalEntity requireAction(String incidentId, String id) {
         requireIncident(incidentId);
         ActionProposalEntity action = actions.findById(id).orElseThrow(() -> new IncidentNotFoundException("Action proposal not found"));
+        if (!action.getIncidentId().equals(incidentId)) throw new IncidentNotFoundException("Action proposal not found for incident");
+        return action;
+    }
+
+    private ActionProposalEntity requireActionForAuthorization(String incidentId, String id) {
+        requireIncident(incidentId);
+        ActionProposalEntity action = actions.findByIdForAuthorization(id).orElseThrow(() -> new IncidentNotFoundException("Action proposal not found"));
         if (!action.getIncidentId().equals(incidentId)) throw new IncidentNotFoundException("Action proposal not found for incident");
         return action;
     }
