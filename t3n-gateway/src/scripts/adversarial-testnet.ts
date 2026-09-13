@@ -37,6 +37,15 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDir, '../../..');
 const outputPath = resolve(process.env.EVIDENCE_OUTPUT ?? resolve(repositoryRoot, 'docs/evidence/testnet-run.json'));
 const wasmPath = resolve(process.env.T3N_CONTRACT_WASM_PATH ?? resolve(repositoryRoot, 'contracts/privacy-guard/target/wasm32-wasip2/release/privacy_guard_contract.wasm'));
+const DEFAULT_NORMAL_PAYLOAD = Object.freeze({
+  incident_id: 'inc-demo-001',
+  credential_id: 'cred-demo-001',
+  reason: 'suspected compromise',
+});
+
+function normalPayload(extra: Record<string, string> = {}): Record<string, string> {
+  return { ...DEFAULT_NORMAL_PAYLOAD, ...extra };
+}
 
 function httpsHost(value: string, label: string): string {
   const parsed = new URL(value);
@@ -80,6 +89,9 @@ if (!config.agentApiKey) throw new Error('T3N_AGENT_API_KEY is required for test
 if (!config.executorApiKey) throw new Error('T3N_EXECUTOR_API_KEY is required for testnet evidence');
 if (process.env.EVIDENCE_RUN_DESTINATION_BINDING === 'true' && config.network !== 'testnet') {
   throw new Error('Destination-binding mutation evidence is testnet-only and cannot run against production');
+}
+if (process.env.EVIDENCE_RUN_PAYLOAD_MINIMIZATION === 'true' && config.network !== 'testnet') {
+  throw new Error('Payload-minimization evidence is testnet-only and cannot run against production');
 }
 
 const trustFloorStore = new TrustManifestFloorStore(config.trustManifestFloorStorePath);
@@ -154,6 +166,7 @@ async function expectProposalExecutorRejected(contractId: string, contractVersio
         purpose: 'incident-remediation',
         approved_host: executionHost(),
         fields: ['incident_id', 'credential_id', 'reason'],
+        normal_payload: normalPayload(),
         private_refs: [],
         policy_version: observedPolicyVersion,
         policy_hash: observedPolicyHash,
@@ -197,6 +210,7 @@ async function expectExecutorRevocationRejected(id: string, expected: string, re
       purpose: 'incident-remediation',
       approved_host: executionHost(),
       fields: ['incident_id', 'credential_id', 'reason'],
+      normal_payload: normalPayload(),
       policy_version: observedPolicyVersion,
       policy_hash: observedPolicyHash,
     }, executorDid);
@@ -309,6 +323,7 @@ async function destinationBindingScenario(tenantDid: string, executorDid: string
         purpose: 'incident-remediation',
         approved_host: approvedHost,
         fields: ['incident_id', 'credential_id', 'reason'],
+        normal_payload: normalPayload(),
         policy_version: approved.policy_version,
         policy_hash: approved.policy_hash,
       }, executorDid);
@@ -331,6 +346,68 @@ async function destinationBindingScenario(tenantDid: string, executorDid: string
   } finally {
     try { await writePrivateSecurityApiUrl(originalUrl, tenantDid); }
     catch (error) { throw new Error(`Failed to restore SECURITY_API_URL after destination-binding evidence: ${sanitizeEvidenceError(error)}`); }
+  }
+}
+
+async function payloadMinimizationScenario(executorDid: string): Promise<void> {
+  const id = 'LIVE-NORMAL-PAYLOAD-MINIMIZATION';
+  const expected = 'synthetic required value observed by external read-back while synthetic redacted value is not observed';
+  if (process.env.EVIDENCE_RUN_PAYLOAD_MINIMIZATION !== 'true') {
+    record(id, expected, null, 'NOT_RUN', 'Set EVIDENCE_RUN_PAYLOAD_MINIMIZATION=true only with a synthetic testnet endpoint whose read-back returns bounded payload_proof booleans.');
+    return;
+  }
+  if (!observedPolicyVersion || !observedPolicyHash) {
+    record(id, expected, null, 'FAIL', 'Versioned policy metadata was not established before payload-minimization evidence.');
+    return;
+  }
+  try {
+    const decision = await contract.evaluate({
+      request_id: 'live-normal-payload-minimization',
+      action: 'revoke-credential',
+      resource: 'credential:security-api',
+      purpose: 'incident-remediation',
+      host: executionHost(),
+      fields: ['incident_id', 'credential_id', 'reason', 'employee_department'],
+    });
+    observePolicy(decision);
+    if (decision.decision !== 'REDACT' || !decision.redacted_fields.includes('employee_department') || !decision.policy_version || !decision.policy_hash) {
+      record(id, expected, decision.decision, 'FAIL', 'The live policy did not classify employee_department as removable while preserving the remediation fields.');
+      return;
+    }
+    const remediation = await contract.remediate({
+      request_id: decision.request_id,
+      action: 'revoke-credential',
+      resource: 'credential:security-api',
+      purpose: 'incident-remediation',
+      approved_host: executionHost(),
+      fields: ['incident_id', 'credential_id', 'reason', 'employee_department'],
+      normal_payload: normalPayload({ reason: 'SENTINEL_MUST_EGRESS', employee_department: 'SENTINEL_MUST_NOT_EGRESS' }),
+      policy_version: decision.policy_version,
+      policy_hash: decision.policy_hash,
+    }, executorDid);
+    if (!remediation.operation_id) {
+      record(id, expected, 'ACCEPTED_WITHOUT_OPERATION_ID', 'FAIL', 'External acceptance did not provide an operation id for controlled read-back.');
+      return;
+    }
+    const verification = await contract.verifyRemediation({
+      request_id: remediation.request_id,
+      operation_id: remediation.operation_id,
+      expected_state: 'REVOKED',
+    });
+    const proof = verification.payload_proof;
+    const passed = verification.status === 'VERIFIED'
+      && verification.observed_state === 'REVOKED'
+      && proof?.must_egress_seen === true
+      && proof.must_not_egress_seen === false;
+    record(
+      id,
+      expected,
+      proof ? `must_egress_seen=${proof.must_egress_seen}; must_not_egress_seen=${proof.must_not_egress_seen}` : 'PAYLOAD_PROOF_MISSING',
+      passed ? 'PASS' : 'FAIL',
+      passed ? 'Controlled external read-back confirmed the required synthetic value arrived and the policy-redacted synthetic value did not.' : 'Controlled read-back did not prove the expected minimized external payload.',
+    );
+  } catch (error) {
+    record(id, expected, null, 'FAIL', sanitizeEvidenceError(error));
   }
 }
 
@@ -382,6 +459,7 @@ record(
 );
 
 await destinationBindingScenario(tenantDid, executorDid);
+await payloadMinimizationScenario(executorDid);
 
 if (process.env.EVIDENCE_RUN_EGRESS_NEGATIVES === 'true') {
   try {
@@ -437,6 +515,7 @@ if (process.env.EVIDENCE_RUN_REMEDIATION === 'true') {
         purpose: 'incident-remediation',
         approved_host: protectedHost,
         fields: ['incident_id', 'credential_id', 'reason'],
+        normal_payload: normalPayload(),
         policy_version: safe.policy_version,
         policy_hash: safe.policy_hash,
       }, executorDid);
