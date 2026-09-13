@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { ScreenManualDialog } from './ScreenManualDialog';
 
 describe('ScreenManualDialog', () => {
-  it('traps focus and explains identity, policy, execution, audit and evidence without conflating onboarding with authorization', async () => {
+  it('traps focus and explains identity, policy, execution, audit integrity and evidence without conflating controls', async () => {
     const user = userEvent.setup();
     render(<div><button type="button">Outside action</button><ScreenManualDialog /></div>);
 
@@ -21,7 +21,10 @@ describe('ScreenManualDialog', () => {
     expect(screen.getByText(/Agent Card serve para descoberta pública e não concede autoridade sobre o contrato/i)).toBeInTheDocument();
     expect(screen.getByText('Policy e decisão')).toBeInTheDocument();
     expect(screen.getByText('Dados privados e retenção')).toBeInTheDocument();
-    expect(screen.getByText('Audit provenance e T3N Activity Log')).toBeInTheDocument();
+    expect(screen.getByText('Integridade do audit local e T3N Activity Log')).toBeInTheDocument();
+    expect(screen.getByText(/cadeia HMAC-SHA256 por incidente/i)).toBeInTheDocument();
+    expect(screen.getByText(/tamper-evident/i)).toBeInTheDocument();
+    expect(screen.getByText(/LEGACY_UNVERIFIED/i)).toBeInTheDocument();
     expect(screen.getByText('Proof & evidence')).toBeInTheDocument();
     expect(screen.getByText(/Source commit/i)).toBeInTheDocument();
     expect(screen.getByText(/árvore Git estava sem alterações quando a geração começou/i)).toBeInTheDocument();
