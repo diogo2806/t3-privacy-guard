@@ -118,7 +118,7 @@ This is why `ALLOW` is not the same thing as execution and why HTTP `2xx` is not
 
 T3 Privacy Guard assumes the AI agent can be manipulated. The dashboard sends an actual textual prompt to a configured tool-calling model. The model can produce an unsafe structured proposal such as `host=attacker.example` plus `api_key`, but it cannot set a decision, identity, capability or secret. That proposal is persisted and evaluated independently by the T3N Rust/WASM policy, which returns `DENY`.
 
-A legitimate model proposal can receive `ALLOW`, but `ALLOW` still does not execute anything. An authenticated operator must explicitly authorize remediation. Immediately before execution the Spring backend signs a short-lived, one-time capability bound to the exact persisted action, decision, fields and logical private-data references. The gateway validates service authentication, signature, expiry, payload equality and replay state before T3N execution.
+A legitimate model proposal can receive `ALLOW`, but `ALLOW` still does not execute anything. An authenticated operator must explicitly authorize remediation. Immediately before execution the Spring backend signs a short-lived, one-time capability bound to the exact persisted action, decision, fields, logical private-data references and the exact policy version/hash that authorized the action. The gateway validates service authentication, signature, expiry, payload equality and replay state before T3N execution.
 
 Private profile values are structural to T3N. The agent, React, Spring Boot and gateway APIs carry only logical references such as `verified_email`; the Rust/WASM contract maps that closed reference to the supported T3N marker `{{profile.verified_contacts.email.value}}`, and T3N resolves the plaintext only during protected egress. The resolved value is never returned to the application.
 
@@ -176,7 +176,7 @@ The architecture deliberately prevents the model from owning security authority.
 |---|---|
 | Understand prompt and propose an action | AI model |
 | Authenticate tenant and agent identity | T3N sessions |
-| Decide allowed action/data/host | Rust/WASM policy |
+| Decide allowed action/data/host | Rust/WASM policy + versioned private T3N KV policy |
 | Approve business remediation | Authenticated operator |
 | Prove an exact approved execution | Short-lived one-time capability |
 | Resolve approved private profile value | T3N protected execution boundary |
@@ -226,6 +226,26 @@ The current Rust policy contains four concrete security actions:
 | `notify-security` | `incident-notification` | `incident_id`, `severity`, `summary` | `verified_email` allowed |
 
 Extra non-secret fields are minimized with `REDACT`. Forbidden secret fields are denied. Unsupported actions, purposes, hosts or private references fail closed.
+
+## Versioned operational policy in private T3N KV
+
+The mutable operational rule set is no longer hardcoded as application state. Contract `0.4.0` reads a canonical `PolicyDocument` from the private T3N KV map `privacy-guard-policy`. The document controls enabled actions, purpose, allowed hosts, normal field allowlists, supported logical private references, host requirement and whether human authorization is required.
+
+Critical security invariants remain compiled into Rust/WASM and cannot be relaxed by KV configuration. This includes schema/size ceilings, fail-closed behavior, authenticated T3N identity boundaries, forbidden secret classes, the closed private-reference vocabulary and safe host validation. A policy document cannot make `api_key`, passwords, tokens or private keys valid outbound fields and cannot bypass delegation or identity checks.
+
+Every valid policy decision carries:
+
+```text
+policyVersion   exact immutable policy version
+policyHash      SHA-256 of the canonical policy document
+requiresHumanAuthorization
+```
+
+The gateway provisioner stores immutable snapshots as `version:<version>`, maintains `current`, and records publication/rollback history. Publishing different canonical content under an existing version is rejected. Rollback is explicit through `T3N_POLICY_ROLLBACK_VERSION` and may target only a version already persisted in the private map. A missing, malformed, oversized or semantically invalid policy fails closed.
+
+Policy provenance follows the decision through Spring persistence, the API, the dashboard, deployment/evidence metadata and the remediation capability. Protected remediation re-reads the active T3N policy and requires the exact version/hash that was approved. If policy changes after authorization, the old approval cannot be silently reused; the action must be evaluated again.
+
+`policyHash` is provenance, not a hardware-attestation claim.
 
 ## Enterprise scenario catalog
 
@@ -310,9 +330,9 @@ Rules:
 - Canonical tenant/agent DIDs come from authenticated T3N sessions.
 - Delegated calls derive `pii_did` internally from the authenticated tenant session.
 - Member delegation restricts contract, functions, scopes, hosts and validity.
-- The model proposes; Rust/WASM policy decides. Provider failure, invalid tool output and T3N failure all fail closed.
+- The model proposes; Rust/WASM policy decides. Provider failure, invalid tool output, invalid/missing versioned policy and T3N failure all fail closed.
 - The model/application carry only logical private references; only the contract maps them to supported T3N profile markers.
-- `ALLOW` + authenticated operator + explicit human authorization + valid one-time capability are required before protected remediation.
+- `ALLOW` + exact policy provenance + authenticated operator + explicit human authorization + valid one-time capability are required before protected remediation.
 - Consumed capability nonces are persisted at `REMEDIATION_REPLAY_STORE_PATH` so replay protection survives gateway restart when `/data` is persistent.
 
 See the threat model and claims matrix in [`docs/submission/README.md`](docs/submission/README.md).
@@ -322,6 +342,8 @@ See the threat model and claims matrix in [`docs/submission/README.md`](docs/sub
 Relevant names include:
 
 ```text
+T3N_CONTRACT_VERSION
+T3N_POLICY_FILE
 OPERATOR_USERNAME
 OPERATOR_PASSWORD
 OPERATOR_SESSION_TIMEOUT
@@ -338,6 +360,8 @@ SECURITY_API_KEY
 SECURITY_API_URL
 SECURITY_VERIFICATION_URL
 ```
+
+`T3N_CONTRACT_VERSION` is `0.4.0` for the versioned-policy contract. `T3N_POLICY_FILE` points to the local source document used by the explicit policy provisioning script; the active runtime policy is loaded from private T3N KV.
 
 `SECURITY_API_URL` is the protected action endpoint. `SECURITY_VERIFICATION_URL` is the independent read-back endpoint. Both are seeded into the T3N private map by the setup script; the verification endpoint is not a browser/backend credential.
 
@@ -367,7 +391,7 @@ execute-remediation
 verify-remediation
 ```
 
-`execute-remediation` can return only the acceptance metadata needed for reconciliation. `verify-remediation` accepts a closed expected state and independently checks external operation/state data. A capability is rejected when its signed incident/action/decision/request/action/resource/purpose/fields/privateRefs differ from the body, when expired or when its nonce was already consumed.
+`evaluate-action` returns the exact policy version/hash used by the TEE. `execute-remediation` requires the approved version/hash and revalidates them against the current private KV policy before protected egress. It can return only the acceptance metadata needed for reconciliation. `verify-remediation` accepts a closed expected state and independently checks external operation/state data. A capability is rejected when its signed incident/action/decision/request/action/resource/purpose/fields/privateRefs/policyVersion/policyHash differ from the body, when expired or when its nonce was already consumed.
 
 ## Evidence
 
@@ -387,7 +411,7 @@ npm install
 npm run evidence:live
 ```
 
-Generated artifacts are `docs/evidence/deployment-manifest.json` and `docs/evidence/testnet-run.json`. The orchestrator binds WASM SHA-256, canonical DIDs and contract id/version and fails on mismatch, scenario `FAIL` or configured secret leakage. `NOT_RUN` is never counted as `PASS`.
+Generated artifacts are `docs/evidence/deployment-manifest.json` and `docs/evidence/testnet-run.json`. The orchestrator binds WASM SHA-256, canonical DIDs, contract id/version and policy version/hash and fails on mismatch, scenario `FAIL` or configured secret leakage. `NOT_RUN` is never counted as `PASS`.
 
 For live remediation proof, both `SECURITY_API_URL` and `SECURITY_VERIFICATION_URL` must be configured/sealed and the delegation includes only their derived HTTPS hosts. A live remediation scenario passes only on the documented execution plus independent verification sequence. An accepted 2xx without read-back cannot become a passing completion claim.
 
@@ -411,7 +435,7 @@ The submission guide records the concrete `scopes` documentation inconsistency a
 - Maven image: `3.9.16-eclipse-temurin-21`
 - Java runtime: `eclipse-temurin:21.0.12_8-jre`
 - Nginx: `1.27.5-alpine3.21-slim`
-- Rust contract: `0.3.0`, target `wasm32-wasip2`
+- Rust contract: `0.4.0`, target `wasm32-wasip2`
 
 ## Local builds
 
