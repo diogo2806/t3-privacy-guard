@@ -66,6 +66,9 @@ export function SystemStatusBar({ status, loading, onRefresh }: Props) {
   const overallLabel = loading ? 'Checking live status' : ready ? 'Operational' : scheduled ? 'Scheduled' : 'Unavailable / incomplete';
   const proposalPlatform = platformDelegation(status?.delegationMemberState, status?.delegationEffectiveState);
   const executorPlatform = platformDelegation(status?.executorDelegationMemberState, status?.executorDelegationEffectiveState);
+  const a2aPublished = registrationState === 'REGISTERED' && Boolean(status?.agentCardServices?.includes('A2A'));
+  const a2aState: PillState = a2aPublished ? 'ok' : status?.a2aConfigured ? 'pending' : 'off';
+  const a2aLabel = a2aPublished ? 'Published' : status?.a2aConfigured ? 'Configured · not published' : 'Not configured';
 
   return (
     <section className="status-panel status-panel-secondary" aria-label="Live T3N operational status">
@@ -91,6 +94,7 @@ export function SystemStatusBar({ status, loading, onRefresh }: Props) {
           <div className="status-item"><UserRoundCog aria-hidden="true" /><div><span>Proposal agent</span><StatusPill state={status?.agentAuthenticated ? 'ok' : 'off'} label={status?.agentAuthenticated ? 'Authenticated · evaluate only' : status?.agentConfigured ? 'Not authenticated' : 'Not configured'} /></div></div>
           <div className="status-item"><UserRoundCog aria-hidden="true" /><div><span>Protected executor</span><StatusPill state={status?.executorAuthenticated ? 'ok' : 'off'} label={status?.executorAuthenticated ? 'Authenticated · execute + verify' : status?.executorConfigured ? 'Not authenticated' : 'Not configured'} /></div></div>
           <div className="status-item"><BadgeCheck aria-hidden="true" /><div><span>Agent onboarding</span><StatusPill state={registrationState === 'REGISTERED' ? 'ok' : 'off'} label={registrationLabel(registrationState)} /></div></div>
+          <div className="status-item"><BadgeCheck aria-hidden="true" /><div><span>A2A evaluation service</span><StatusPill state={a2aState} label={a2aLabel} /></div></div>
           <div className="status-item"><Shield aria-hidden="true" /><div><span>Contract</span><StatusPill state={status?.contractResolved ? 'ok' : 'off'} label={status?.contractResolved ? `Resolved · v${status.contractVersion}` : 'Unavailable'} /></div></div>
           <div className="status-item"><KeyRound aria-hidden="true" /><div><span>Proposal Member grant</span><StatusPill state={memberPillState(status?.delegationMemberState)} label={memberLabel(status?.delegationMemberState)} /></div></div>
           <div className="status-item"><KeyRound aria-hidden="true" /><div><span>Proposal platform delegation</span><StatusPill state={proposalPlatform.state} label={proposalPlatform.label} /></div></div>
@@ -107,6 +111,12 @@ export function SystemStatusBar({ status, loading, onRefresh }: Props) {
           <div><span>Agent Card SHA-256</span><code>{status?.agentCardSha256 ?? 'Not available'}</code></div>
           <div><span>Agent Card services</span><code>{status?.agentCardServices?.length ? status.agentCardServices.join(', ') : 'None verified'}</code></div>
           <div><span>Card check</span><code>{status?.agentCardVerifiedAt ? new Date(status.agentCardVerifiedAt).toLocaleString() : 'Not available'}</code></div>
+          <div><span>A2A service advertised</span><code>{a2aPublished ? 'Yes · observed in resolved Agent Card' : 'No'}</code></div>
+          <div><span>A2A public endpoint</span><code>{status?.a2aPublicUrl ?? 'Not configured'}</code></div>
+          <div><span>A2A configuration check</span><code>{status?.a2aConfigurationCheckedAt ? new Date(status.a2aConfigurationCheckedAt).toLocaleString() : 'Not available'}</code></div>
+          <div><span>A2A capability</span><code>Policy evaluation only</code></div>
+          <div><span>A2A endpoint live test</span><code>Not performed by this status check</code></div>
+          <div><span>Protected remediation</span><code>Not exposed through A2A</code></div>
           <div><span>Contract</span><code>{status?.contractId ?? 'Unavailable'}</code></div>
           <div><span>Proposal functions</span><code>{status?.delegatedFunctions.length ? status.delegatedFunctions.join(', ') : 'None observed'}</code></div>
           <div><span>Proposal scopes</span><code>{status?.delegatedScopes.length ? status.delegatedScopes.join(', ') : 'None observed'}</code></div>
