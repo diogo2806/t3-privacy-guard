@@ -81,7 +81,7 @@ export function ScreenManualDialog() {
           </section>
           <section>
             <h3>Áreas da tela</h3>
-            <p><strong>Protection demo</strong> contém cenários, prompt, proposta, decisão, autorização humana, execução, retenção, Execution Trace e audit provenance. <strong>Proof &amp; evidence</strong> mostra somente resultados observados e metadados verificáveis. <strong>Show technical details</strong> expõe DIDs, contrato, onboarding, delegation, hosts e funções sem misturar esses dados com a jornada principal.</p>
+            <p><strong>Protection demo</strong> contém cenários, prompt, proposta, decisão, autorização humana, execução, retenção, Execution Trace e audit provenance. <strong>Proof &amp; evidence</strong> mostra somente resultados observados e metadados verificáveis. <strong>Show technical details</strong> expõe DIDs, contrato, onboarding, Member grant, effective access, hosts e funções sem misturar esses dados com a jornada principal.</p>
           </section>
           <section>
             <h3>Campos, cenários e ações</h3>
@@ -89,7 +89,8 @@ export function ScreenManualDialog() {
           </section>
           <section>
             <h3>Identidade, onboarding e autorização</h3>
-            <p><strong>Authenticated</strong> significa que a sessão T3N provou a identidade da chave e forneceu a DID canônica. <strong>Registered</strong> significa que um Agent Card público válido foi resolvido para exatamente a mesma Agent DID. <strong>Delegated</strong> significa que o tenant concedeu funções, escopos e hosts por Member Delegation. São controles independentes: registrar o Agent Card aumenta descoberta pública, mas não concede acesso ao contrato.</p>
+            <p><strong>Authenticated</strong> significa que a sessão T3N provou a identidade da chave e forneceu a DID canônica. <strong>Registered</strong> significa que um Agent Card público válido foi resolvido para exatamente a mesma Agent DID. <strong>Member grant</strong> significa que o documento de delegação do data owner contém funções, escopos, hosts e janela válidos para o Agent. <strong>Effective access</strong> é mais forte: o gateway consulta <code>checkDelegation()</code> usando a própria sessão autenticada do Agent, a Tenant DID autenticada como <code>pii_did</code>, o contrato e os escopos observados. Somente <strong>Authorized</strong> torna o plano de controle operacional.</p>
+            <p>Esses controles são independentes. Registrar o Agent Card aumenta descoberta pública, mas não concede acesso ao contrato. Um Member grant ativo também não é apresentado como autorização efetiva se a T3N responder que o Agent não está autorizado ou se a verificação da plataforma estiver indisponível. O contrato atual é tenant-owned; a tela não inventa Org Delegation para um contrato que não pertence a uma organização.</p>
             <p>O card público anuncia somente o serviço <strong>DID</strong> realmente suportado. Ele não contém API key, private key, token, endpoint interno, A2A, MCP ou x402. Os estados <strong>NOT REGISTERED</strong>, <strong>CARD/DID MISMATCH</strong> e <strong>UNAVAILABLE</strong> nunca são apresentados como sucesso. Um card divergente ou inválido não é aceito apenas por responder HTTP 200.</p>
           </section>
           <section>
@@ -122,15 +123,15 @@ export function ScreenManualDialog() {
           </section>
           <section>
             <h3>Permissões e regras</h3>
-            <p>Login na aplicação não concede autoridade T3N. A Agent DID vem da sessão autenticada, nunca de valor hardcoded. O Agent Card não concede funções. Member Delegation continua sendo a fonte de autorização. Rotas internas usam service token. A interface não promove DENY/REDACT para execução, não inventa receipt T3N e não transforma indisponibilidade em sucesso.</p>
+            <p>Login na aplicação não concede autoridade T3N. A Agent DID vem da sessão autenticada, nunca de valor hardcoded. O Agent Card não concede funções. O Member grant registra a autorização do data owner, mas o estado operacional depende também do veredito efetivo consultado pela sessão do Agent. <code>pii_did</code> vem da sessão autenticada do Tenant. Rotas internas usam service token. A interface não promove DENY/REDACT para execução, não inventa receipt T3N e não transforma indisponibilidade em sucesso.</p>
           </section>
           <section>
             <h3>Fluxo principal</h3>
-            <p>1. Entre na aplicação. 2. Confira status de tenant e agente. 3. Diferencie Agent onboarding de Delegation. 4. Escolha um cenário e revise o prompt. 5. Use Ask agent. 6. Inspecione a proposta real. 7. Leia a decisão T3N e sua policy version/hash. 8. Se houver ALLOW para revogação suportada, registre autorização humana. 9. Execute uma vez. 10. Verifique o estado externo. 11. Consulte Execution Trace e audit provenance. 12. Consulte Proof &amp; evidence e, quando necessário, os detalhes técnicos.</p>
+            <p>1. Entre na aplicação. 2. Confira status de tenant e agente. 3. Diferencie Agent onboarding, Member grant e Effective access. 4. Confirme que Effective access está Authorized antes de considerar o plano de controle operacional. 5. Escolha um cenário e revise o prompt. 6. Use Ask agent. 7. Inspecione a proposta real. 8. Leia a decisão T3N e sua policy version/hash. 9. Se houver ALLOW para revogação suportada, registre autorização humana. 10. Execute uma vez. 11. Verifique o estado externo. 12. Consulte Execution Trace, audit provenance e Proof &amp; evidence.</p>
           </section>
           <section>
             <h3>Mensagens e estados de erro</h3>
-            <p>Conteúdo sensível é rejeitado sem ecoar o literal. Falha de provedor, T3N, Agent Card, policy KV ou trust boundary não é apresentada como sucesso. Card ausente gera <strong>NOT REGISTERED</strong>; divergência de DID/schema gera <strong>CARD/DID MISMATCH</strong>; indisponibilidade de resolução gera <strong>UNAVAILABLE</strong>. Falha no Activity Log mantém o audit local disponível e marca a provenance de rede como não verificada. Mudança de policy após autorização bloqueia execução protegida. Sessão expirada exige novo login.</p>
+            <p>Conteúdo sensível é rejeitado sem ecoar o literal. Falha de provedor, T3N, Agent Card, policy KV ou trust boundary não é apresentada como sucesso. Member grant futuro aparece como <strong>SCHEDULED</strong>. Member grant ativo com <code>checkDelegation()</code> negativo aparece como acesso efetivo não autorizado; falha na consulta aparece como acesso efetivo indisponível. Card ausente gera <strong>NOT REGISTERED</strong>; divergência de DID/schema gera <strong>CARD/DID MISMATCH</strong>; indisponibilidade de resolução gera <strong>UNAVAILABLE</strong>. Falha no Activity Log mantém o audit local disponível e marca a provenance de rede como não verificada. Mudança de policy após autorização bloqueia execução protegida. Sessão expirada exige novo login.</p>
           </section>
         </div>
       </section>
