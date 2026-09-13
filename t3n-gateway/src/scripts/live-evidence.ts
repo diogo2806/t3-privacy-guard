@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TenantClient, getNodeUrl } from '@terminal3/t3n-sdk';
+import { AgentCardRegistrationService } from '../agent/agent-card.js';
 import { AgentSession } from '../agent/agent-session.js';
 import { DelegationService } from '../agent/delegation-service.js';
 import { readGatewayConfig } from '../config/env.js';
@@ -66,6 +67,15 @@ if (
 const tenantDid = tenantSession.getTenantDid();
 const agentDid = agentSession.getAgentDid();
 if (tenantDid === agentDid) throw new Error('Tenant DID and agent DID must be different');
+const agentRegistration = await new AgentCardRegistrationService(agentSession, config.network).verify();
+if (
+  agentRegistration.agentRegistrationState !== 'REGISTERED'
+  || agentRegistration.agentDid !== agentDid
+  || !agentRegistration.agentCardUri
+  || !agentRegistration.agentCardSha256
+) {
+  throw new Error(`Live evidence requires a public Agent Card matching the authenticated Agent DID (${agentRegistration.agentRegistrationState})`);
+}
 const wasmSha256 = await sha256File(wasmPath);
 const policySource = JSON.parse(await readFile(policyPath, 'utf8')) as unknown;
 const policy = canonicalizeOperationalPolicy(policySource);
@@ -106,6 +116,11 @@ const manifest: DeploymentManifest = {
   sdkVersion: '5.2.0',
   tenantDid,
   agentDid,
+  agentRegistrationState: agentRegistration.agentRegistrationState,
+  agentCardUri: agentRegistration.agentCardUri,
+  agentCardSha256: agentRegistration.agentCardSha256,
+  agentCardVerifiedAt: agentRegistration.agentCardVerifiedAt,
+  agentCardServices: agentRegistration.agentCardServices,
   contractId,
   numericContractId,
   contractVersion,
@@ -174,6 +189,9 @@ console.info(JSON.stringify({
   testnetPath,
   contractId,
   contractVersion,
+  agentRegistrationState: agentRegistration.agentRegistrationState,
+  agentCardUri: agentRegistration.agentCardUri,
+  agentCardSha256: agentRegistration.agentCardSha256,
   wasmSha256,
   policyVersion: policy.document.version,
   policyHash: policy.hash,
