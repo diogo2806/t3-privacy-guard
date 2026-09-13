@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { ScreenManualDialog } from './ScreenManualDialog';
 
 describe('ScreenManualDialog', () => {
-  it('traps focus and explains identity, member grants, effective access, policy, execution, audit and evidence', async () => {
+  it('traps focus and explains effective delegation, readiness, privacy and evidence provenance', async () => {
     const user = userEvent.setup();
     render(<div><button type="button">Outside action</button><ScreenManualDialog /></div>);
 
@@ -17,17 +17,17 @@ describe('ScreenManualDialog', () => {
     const dialog = screen.getByRole('dialog', { name: 'Incident Response Dashboard' });
     const closeButton = screen.getByRole('button', { name: 'Close Screen Manual' });
     expect(dialog).toHaveAttribute('aria-modal', 'true');
-    expect(screen.getByText('Identidade, onboarding e autorização')).toBeInTheDocument();
-    expect(screen.getByText(/Member grant.*documento de Member Delegation/i)).toBeInTheDocument();
-    expect(screen.getByText(/Effective T3N access.*checkDelegation/i)).toBeInTheDocument();
-    expect(screen.getByText(/Denied.*Unknown.*fecham o fluxo em segurança/i)).toBeInTheDocument();
-    expect(screen.getByText(/Card check.*última tentativa.*não significa verificação bem-sucedida/i)).toBeInTheDocument();
-    expect(screen.getByText(/registrar o Agent Card aumenta descoberta pública, mas não concede acesso/i)).toBeInTheDocument();
-    expect(screen.getByText('Policy e decisão')).toBeInTheDocument();
-    expect(screen.getByText('Dados privados e retenção')).toBeInTheDocument();
-    expect(screen.getByText('Audit provenance e T3N Activity Log')).toBeInTheDocument();
+    expect(screen.getByText('Identidade, Member grant e autorização efetiva')).toBeInTheDocument();
+    expect(dialog).toHaveTextContent(/Member grant.*não prova sozinho/i);
+    expect(dialog).toHaveTextContent(/Effective T3N access.*checkDelegation/i);
+    expect(dialog).toHaveTextContent(/Denied.*Unknown.*falham fechado/i);
+    expect(dialog).toHaveTextContent(/Proposal evaluation.*Protected remediation/i);
+    expect(dialog).toHaveTextContent(/Card check.*não significa sucesso/i);
+    expect(screen.getByText('Prompt, cenários e dados privados')).toBeInTheDocument();
+    expect(dialog).toHaveTextContent(/PII-free/i);
     expect(screen.getByText('Proof & evidence')).toBeInTheDocument();
-    expect(screen.getByText(/COMPLETED/i)).toBeInTheDocument();
+    expect(dialog).toHaveTextContent(/Source commit.*Source tree/i);
+    expect(dialog).toHaveTextContent(/COMPLETED/i);
     expect(closeButton).toHaveFocus();
 
     await user.tab();
