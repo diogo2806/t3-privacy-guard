@@ -67,7 +67,7 @@ public class GatewayRemediationClient {
             return result;
         } catch (RestClientResponseException ex) {
             String responseBody = ex.getResponseBodyAsString();
-            if (ex.getStatusCode().value() == 409 && responseBody != null && responseBody.contains("Protected destination changed")) {
+            if (ex.getStatusCode().value() == 409 && responseBody != null && responseBody.contains("EXECUTION_DESTINATION_CHANGED")) {
                 throw new RemediationDestinationChangedException("Protected destination changed after human authorization", ex);
             }
             throw new GatewayUnavailableException("Protected remediation acceptance is unavailable", ex);
