@@ -18,7 +18,7 @@ describe('ScreenManualDialog', () => {
     const closeButton = screen.getByRole('button', { name: 'Close Screen Manual' });
     expect(dialog).toHaveAttribute('aria-modal', 'true');
     expect(screen.getByText('Identidade, onboarding e autorização')).toBeInTheDocument();
-    expect(screen.getByText(/registrar o Agent Card aumenta descoberta pública, mas não concede acesso/i)).toBeInTheDocument();
+    expect(screen.getByText(/Agent Card serve para descoberta pública e não concede autoridade sobre o contrato/i)).toBeInTheDocument();
     expect(screen.getByText('Policy e decisão')).toBeInTheDocument();
     expect(screen.getByText('Dados privados e retenção')).toBeInTheDocument();
     expect(screen.getByText('Audit provenance e T3N Activity Log')).toBeInTheDocument();
