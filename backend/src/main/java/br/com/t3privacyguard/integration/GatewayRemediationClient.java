@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 
 @Component
 public class GatewayRemediationClient {
@@ -64,6 +65,12 @@ public class GatewayRemediationClient {
                 throw new GatewayUnavailableException("Gateway remediation policy metadata does not match the approved decision");
             }
             return result;
+        } catch (RestClientResponseException ex) {
+            String responseBody = ex.getResponseBodyAsString();
+            if (ex.getStatusCode().value() == 409 && responseBody != null && responseBody.contains("Protected destination changed")) {
+                throw new RemediationDestinationChangedException("Protected destination changed after human authorization", ex);
+            }
+            throw new GatewayUnavailableException("Protected remediation acceptance is unavailable", ex);
         } catch (RestClientException ex) {
             throw new GatewayUnavailableException("Protected remediation acceptance is unavailable", ex);
         }
