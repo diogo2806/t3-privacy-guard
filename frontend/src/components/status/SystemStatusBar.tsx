@@ -32,40 +32,26 @@ function effectivePillState(state?: EffectiveDelegationState): PillState {
 }
 
 function effectiveLabel(state?: EffectiveDelegationState): string {
-  if (state === 'ACTIVE') return 'ACTIVE';
-  if (state === 'INCOMPLETE') return 'INCOMPLETE';
-  return 'UNKNOWN';
-}
-
-function platformDelegation(memberState?: DelegationState, effectiveState?: EffectiveDelegationState): { state: PillState; label: string } {
-  if (memberState !== 'ACTIVE') {
-    return { state: memberState === 'SCHEDULED' ? 'pending' : 'off', label: 'Not checked' };
-  }
-  if (effectiveState === 'ACTIVE') return { state: 'ok', label: 'Authorized' };
-  if (effectiveState === 'INCOMPLETE') return { state: 'off', label: 'Not authorized' };
-  return { state: 'off', label: 'Unavailable' };
-}
-
-function isReady(status: SystemStatus | null): boolean {
-  return Boolean(
-    status?.gatewayReachable
-      && status.tenantAuthenticated
-      && status.agentAuthenticated
-      && status.executorAuthenticated
-      && status.contractResolved
-      && status.delegationEffectiveState === 'ACTIVE'
-      && status.executorDelegationEffectiveState === 'ACTIVE',
-  );
+  if (state === 'ACTIVE') return 'Confirmed';
+  if (state === 'DENIED') return 'Denied';
+  return 'Unknown';
 }
 
 export function SystemStatusBar({ status, loading, onRefresh }: Props) {
   const registrationState = status?.agentRegistrationState;
-  const ready = isReady(status);
+  const operational = Boolean(status?.protectedRemediationReady);
+  const evaluationOnly = Boolean(status?.evaluationReady && !status.protectedRemediationReady);
   const scheduled = status?.delegationMemberState === 'SCHEDULED' || status?.executorDelegationMemberState === 'SCHEDULED';
-  const overallState: PillState = loading || scheduled ? 'pending' : ready ? 'ok' : 'off';
-  const overallLabel = loading ? 'Checking live status' : ready ? 'Operational' : scheduled ? 'Scheduled' : 'Unavailable / incomplete';
-  const proposalPlatform = platformDelegation(status?.delegationMemberState, status?.delegationEffectiveState);
-  const executorPlatform = platformDelegation(status?.executorDelegationMemberState, status?.executorDelegationEffectiveState);
+  const overallState: PillState = loading || scheduled ? 'pending' : operational ? 'ok' : evaluationOnly ? 'pending' : 'off';
+  const overallLabel = loading
+    ? 'Checking live status'
+    : operational
+      ? 'Operational'
+      : evaluationOnly
+        ? 'Evaluation ready · execution blocked'
+        : scheduled
+          ? 'Scheduled'
+          : 'Unavailable / incomplete';
   const a2aPublished = registrationState === 'REGISTERED' && Boolean(status?.agentCardServices?.includes('A2A'));
   const a2aState: PillState = a2aPublished ? 'ok' : status?.a2aConfigured ? 'pending' : 'off';
   const a2aLabel = a2aPublished ? 'Published' : status?.a2aConfigured ? 'Configured · not published' : 'Not configured';
@@ -74,9 +60,17 @@ export function SystemStatusBar({ status, loading, onRefresh }: Props) {
     <section className="status-panel status-panel-secondary" aria-label="Live T3N operational status">
       <div className="status-overview">
         <div>
-          <p className="eyebrow">Technical T3N status</p>
+          <p className="eyebrow">Technical T3N authorization</p>
           <h2>Live control plane</h2>
-          <p>{loading ? 'Checking the controls used to evaluate and execute protected actions.' : ready ? 'T3N confirmed effective least-privilege access for the Proposal Agent and Protected Executor.' : scheduled ? 'A Member grant exists, but its authorization window has not begun. Effective access remains unavailable.' : 'One or more T3N controls are unavailable or not authorized. Member grants alone do not make protected operations ready.'}</p>
+          <p>{loading
+            ? 'Checking the controls used to evaluate and execute protected actions.'
+            : operational
+              ? 'T3N confirmed the exact least-privilege access required for Proposal evaluation and Protected Executor remediation.'
+              : evaluationOnly
+                ? 'Proposal evaluation is effectively authorized, but protected remediation is not ready.'
+                : scheduled
+                  ? 'A Member grant exists, but its authorization window has not begun. Effective access remains unavailable.'
+                  : 'One or more T3N controls are unavailable or denied. A Member grant alone never makes an operation ready.'}</p>
         </div>
         <StatusPill state={overallState} label={overallLabel} />
       </div>
@@ -92,16 +86,16 @@ export function SystemStatusBar({ status, loading, onRefresh }: Props) {
           <div className="status-item"><Server aria-hidden="true" /><div><span>Gateway</span><StatusPill state={status?.gatewayReachable ? 'ok' : 'off'} label={status?.gatewayReachable ? 'Online' : 'Unavailable'} /></div></div>
           <div className="status-item"><Shield aria-hidden="true" /><div><span>Tenant</span><StatusPill state={status?.tenantAuthenticated ? 'ok' : 'off'} label={status?.tenantAuthenticated ? `Authenticated · ${status.network ?? 'network'}` : 'Not authenticated'} /></div></div>
           <div className="status-item"><UserRoundCog aria-hidden="true" /><div><span>Proposal agent</span><StatusPill state={status?.agentAuthenticated ? 'ok' : 'off'} label={status?.agentAuthenticated ? 'Authenticated · evaluate only' : status?.agentConfigured ? 'Not authenticated' : 'Not configured'} /></div></div>
+          <div className="status-item"><KeyRound aria-hidden="true" /><div><span>Proposal Member grant</span><StatusPill state={memberPillState(status?.delegationMemberState)} label={memberLabel(status?.delegationMemberState)} /></div></div>
+          <div className="status-item"><KeyRound aria-hidden="true" /><div><span>Proposal effective T3N access</span><StatusPill state={effectivePillState(status?.delegationEffectiveState)} label={effectiveLabel(status?.delegationEffectiveState)} /></div></div>
           <div className="status-item"><UserRoundCog aria-hidden="true" /><div><span>Protected executor</span><StatusPill state={status?.executorAuthenticated ? 'ok' : 'off'} label={status?.executorAuthenticated ? 'Authenticated · execute + verify' : status?.executorConfigured ? 'Not authenticated' : 'Not configured'} /></div></div>
+          <div className="status-item"><KeyRound aria-hidden="true" /><div><span>Executor Member grant</span><StatusPill state={memberPillState(status?.executorDelegationMemberState)} label={memberLabel(status?.executorDelegationMemberState)} /></div></div>
+          <div className="status-item"><KeyRound aria-hidden="true" /><div><span>Executor effective T3N access</span><StatusPill state={effectivePillState(status?.executorDelegationEffectiveState)} label={effectiveLabel(status?.executorDelegationEffectiveState)} /></div></div>
+          <div className="status-item"><Shield aria-hidden="true" /><div><span>Contract</span><StatusPill state={status?.contractResolved ? 'ok' : 'off'} label={status?.contractResolved ? `Resolved · v${status.contractVersion}` : 'Unavailable'} /></div></div>
+          <div className="status-item"><Shield aria-hidden="true" /><div><span>Proposal evaluation</span><StatusPill state={status?.evaluationReady ? 'ok' : 'off'} label={status?.evaluationReady ? 'Ready' : 'Not ready'} /></div></div>
+          <div className="status-item"><Shield aria-hidden="true" /><div><span>Protected remediation</span><StatusPill state={status?.protectedRemediationReady ? 'ok' : 'off'} label={status?.protectedRemediationReady ? 'Ready' : 'Not ready'} /></div></div>
           <div className="status-item"><BadgeCheck aria-hidden="true" /><div><span>Agent onboarding</span><StatusPill state={registrationState === 'REGISTERED' ? 'ok' : 'off'} label={registrationLabel(registrationState)} /></div></div>
           <div className="status-item"><BadgeCheck aria-hidden="true" /><div><span>A2A evaluation service</span><StatusPill state={a2aState} label={a2aLabel} /></div></div>
-          <div className="status-item"><Shield aria-hidden="true" /><div><span>Contract</span><StatusPill state={status?.contractResolved ? 'ok' : 'off'} label={status?.contractResolved ? `Resolved · v${status.contractVersion}` : 'Unavailable'} /></div></div>
-          <div className="status-item"><KeyRound aria-hidden="true" /><div><span>Proposal Member grant</span><StatusPill state={memberPillState(status?.delegationMemberState)} label={memberLabel(status?.delegationMemberState)} /></div></div>
-          <div className="status-item"><KeyRound aria-hidden="true" /><div><span>Proposal platform delegation</span><StatusPill state={proposalPlatform.state} label={proposalPlatform.label} /></div></div>
-          <div className="status-item"><KeyRound aria-hidden="true" /><div><span>Proposal effective access</span><StatusPill state={effectivePillState(status?.delegationEffectiveState)} label={effectiveLabel(status?.delegationEffectiveState)} /></div></div>
-          <div className="status-item"><KeyRound aria-hidden="true" /><div><span>Executor Member grant</span><StatusPill state={memberPillState(status?.executorDelegationMemberState)} label={memberLabel(status?.executorDelegationMemberState)} /></div></div>
-          <div className="status-item"><KeyRound aria-hidden="true" /><div><span>Executor platform delegation</span><StatusPill state={executorPlatform.state} label={executorPlatform.label} /></div></div>
-          <div className="status-item"><KeyRound aria-hidden="true" /><div><span>Executor effective access</span><StatusPill state={effectivePillState(status?.executorDelegationEffectiveState)} label={effectiveLabel(status?.executorDelegationEffectiveState)} /></div></div>
         </div>
         <div className="status-meta">
           <div><span>Tenant DID</span><code>{status?.tenantDid ?? 'Unavailable'}</code></div>
@@ -116,18 +110,18 @@ export function SystemStatusBar({ status, loading, onRefresh }: Props) {
           <div><span>A2A configuration check</span><code>{status?.a2aConfigurationCheckedAt ? new Date(status.a2aConfigurationCheckedAt).toLocaleString() : 'Not available'}</code></div>
           <div><span>A2A capability</span><code>Policy evaluation only</code></div>
           <div><span>A2A endpoint live test</span><code>Not performed by this status check</code></div>
-          <div><span>Protected remediation</span><code>Not exposed through A2A</code></div>
+          <div><span>A2A protected remediation</span><code>Not exposed</code></div>
           <div><span>Contract</span><code>{status?.contractId ?? 'Unavailable'}</code></div>
-          <div><span>Proposal functions</span><code>{status?.delegatedFunctions.length ? status.delegatedFunctions.join(', ') : 'None observed'}</code></div>
-          <div><span>Proposal scopes</span><code>{status?.delegatedScopes.length ? status.delegatedScopes.join(', ') : 'None observed'}</code></div>
+          <div><span>Proposal grant functions</span><code>{status?.delegatedFunctions.length ? status.delegatedFunctions.join(', ') : 'None observed'}</code></div>
+          <div><span>Proposal grant scopes</span><code>{status?.delegatedScopes.length ? status.delegatedScopes.join(', ') : 'None observed'}</code></div>
           <div><span>Proposal allowed hosts</span><code>{status?.allowedHosts.length ? status.allowedHosts.join(', ') : 'None'}</code></div>
-          <div><span>Proposal delegation satisfied</span><code>{status?.delegationSatisfied.length ? status.delegationSatisfied.join(', ') : 'None reported'}</code></div>
-          <div><span>Proposal delegation missing</span><code>{status?.delegationMissing.length ? status.delegationMissing.join(', ') : 'None reported'}</code></div>
-          <div><span>Executor functions</span><code>{status?.executorDelegatedFunctions.length ? status.executorDelegatedFunctions.join(', ') : 'None observed'}</code></div>
-          <div><span>Executor scopes</span><code>{status?.executorDelegatedScopes.length ? status.executorDelegatedScopes.join(', ') : 'None observed'}</code></div>
+          <div><span>Proposal checked functions</span><code>{status?.delegationCheckedFunctions.length ? status.delegationCheckedFunctions.join(', ') : 'Not checked'}</code></div>
+          <div><span>Proposal checked scopes</span><code>{status?.delegationCheckedScopes.length ? status.delegationCheckedScopes.join(', ') : 'Not checked'}</code></div>
+          <div><span>Executor grant functions</span><code>{status?.executorDelegatedFunctions.length ? status.executorDelegatedFunctions.join(', ') : 'None observed'}</code></div>
+          <div><span>Executor grant scopes</span><code>{status?.executorDelegatedScopes.length ? status.executorDelegatedScopes.join(', ') : 'None observed'}</code></div>
           <div><span>Executor allowed hosts</span><code>{status?.executorAllowedHosts.length ? status.executorAllowedHosts.join(', ') : 'None observed'}</code></div>
-          <div><span>Executor delegation satisfied</span><code>{status?.executorDelegationSatisfied.length ? status.executorDelegationSatisfied.join(', ') : 'None reported'}</code></div>
-          <div><span>Executor delegation missing</span><code>{status?.executorDelegationMissing.length ? status.executorDelegationMissing.join(', ') : 'None reported'}</code></div>
+          <div><span>Executor checked functions</span><code>{status?.executorDelegationCheckedFunctions.length ? status.executorDelegationCheckedFunctions.join(', ') : 'Not checked'}</code></div>
+          <div><span>Executor checked scopes</span><code>{status?.executorDelegationCheckedScopes.length ? status.executorDelegationCheckedScopes.join(', ') : 'Not checked'}</code></div>
         </div>
       </details>
     </section>
