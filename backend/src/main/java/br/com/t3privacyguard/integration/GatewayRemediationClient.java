@@ -23,6 +23,23 @@ public class GatewayRemediationClient {
         this.serviceToken = serviceToken;
     }
 
+    public String requireExecutorDid() {
+        try {
+            ExecutorStatus result = restClient.get()
+                .uri("/internal/executor/status")
+                .header("X-Gateway-Service-Token", serviceToken)
+                .header(TraceContext.HEADER, TraceContext.currentOrGenerate())
+                .retrieve()
+                .body(ExecutorStatus.class);
+            if (result == null || !result.ready() || result.executorDid() == null || !result.executorDid().startsWith("did:t3n:")) {
+                throw new GatewayUnavailableException("Protected executor is not authenticated and ready");
+            }
+            return result.executorDid();
+        } catch (RestClientException ex) {
+            throw new GatewayUnavailableException("Protected executor identity is unavailable", ex);
+        }
+    }
+
     public RemediationResult execute(RemediationRequest request, String capability) {
         if (capability == null || capability.isBlank()) throw new IllegalArgumentException("Remediation capability is required");
         try {
@@ -65,6 +82,8 @@ public class GatewayRemediationClient {
         }
     }
 
+    public record ExecutorStatus(boolean configured, boolean connected, boolean ready, String executorDid, String network) {}
+
     public record RemediationRequest(
         @JsonProperty("incident_id") String incidentId,
         @JsonProperty("action_id") String actionId,
@@ -76,7 +95,8 @@ public class GatewayRemediationClient {
         List<String> fields,
         @JsonProperty("private_refs") List<String> privateRefs,
         @JsonProperty("policy_version") String policyVersion,
-        @JsonProperty("policy_hash") String policyHash
+        @JsonProperty("policy_hash") String policyHash,
+        @JsonProperty("executor_did") String executorDid
     ) {}
 
     public record RemediationResult(
