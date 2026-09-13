@@ -49,21 +49,27 @@ public class RemediationAuthorizationSigner {
     public String issue(
         String incidentId, String actionId, String requestId, String decisionId, String action,
         String resource, String purpose, String approvedHost, List<String> fields, Map<String, String> normalPayload,
-        List<String> privateRefs, String policyVersion, String policyHash
+        List<String> privateRefs, String policyVersion, String policyHash, String operatorPrincipal, Instant authorizationAt
     ) {
         if (policyVersion == null || policyVersion.isBlank() || policyHash == null || !policyHash.matches("[a-f0-9]{64}")) {
             throw new IllegalArgumentException("Versioned policy metadata is required for remediation authorization");
         }
+        if (authorizationAt == null) throw new IllegalArgumentException("Persisted human authorization timestamp is required");
+        String canonicalPrincipal = OperatorPrincipalBinding.canonicalize(operatorPrincipal);
         String canonicalApprovedHost = canonicalizeHost(approvedHost);
         String executorDid = executorDidSupplier.get();
         if (executorDid == null || !executorDid.startsWith("did:t3n:")) {
             throw new IllegalStateException("Authenticated protected executor DID is required for remediation authorization");
         }
-        Instant now = Instant.now();
+        Instant issuedAt = Instant.now();
+        if (authorizationAt.isAfter(issuedAt.plusSeconds(5))) {
+            throw new IllegalArgumentException("Persisted human authorization timestamp cannot be in the future");
+        }
         Claims claims = new Claims(
             incidentId, actionId, requestId, decisionId, action, resource, purpose, canonicalApprovedHost,
             listHash(fields), NormalPayloadCanonicalizer.sha256(normalPayload), listHash(privateRefs), policyVersion, policyHash, executorDid,
-            now.toEpochMilli(), now.plus(ttl).toEpochMilli(), UUID.randomUUID().toString()
+            OperatorPrincipalBinding.sha256(canonicalPrincipal), authorizationAt.toEpochMilli(), issuedAt.toEpochMilli(),
+            issuedAt.plus(ttl).toEpochMilli(), UUID.randomUUID().toString()
         );
         try {
             byte[] payload = mapper.writeValueAsBytes(claims);
@@ -124,7 +130,9 @@ public class RemediationAuthorizationSigner {
         String policyVersion,
         String policyHash,
         String executorDid,
+        String operatorPrincipalHash,
         long authorizedAt,
+        long issuedAt,
         long expiresAt,
         String nonce
     ) {}
