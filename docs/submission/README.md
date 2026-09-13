@@ -501,3 +501,100 @@ For judging and evidence, the claims are deliberately separate:
 - **Hardware attestation**: not implied by any of the states above and not claimed without a separate execution-specific artifact.
 
 The Evidence Center exposes those sanitized states and the Manual da Tela explains the expected failure cases (`TRUST MANIFEST UNAVAILABLE`, `ROLLBACK REJECTED`, `TRUST FLOOR CORRUPTED`, `VERSION NOT EXPOSED BY SDK`) together with policy-KV fail-closed states without exposing trust-manifest contents, policy secrets or credentials.
+
+## Public Agent onboarding and independent Activity provenance
+
+The current gateway completes the public-agent onboarding story without conflating identity, discoverability and authorization.
+
+```text
+separate agent credential
+      |
+      v
+AgentSession authentication
+      |
+      v
+canonical Agent DID
+      |
+      +--> Agent Card hosted by T3N
+      |      |
+      |      v
+      |    read-only public resolution
+      |      |
+      |      v
+      |    REGISTERED / NOT_REGISTERED / MISMATCH / UNAVAILABLE
+      |
+      v
+Member Delegation
+      |
+      v
+contract execution authority
+```
+
+The generated Agent Card is derived from the DID returned by the authenticated session, not from a configured/hardcoded DID. It advertises only the supported `DID` service for that same identity, is bounded to the hosted-card size limit and rejects sensitive metadata/private-key-shaped values. The implementation does not advertise unsupported A2A/MCP services or x402 payment capability. `REGISTERED` therefore means only that the public card resolved and matched the authenticated Agent DID and closed service schema. It does not mean `DELEGATED`, `AUTHORIZED`, TEE-attested or allowed to access private data.
+
+Operational commands are intentionally split:
+
+```bash
+cd t3n-gateway
+npm run agent:card:verify    # read-only registry verification
+npm run agent:card:publish   # explicit mutable host-card operation; may consume credits
+```
+
+The Evidence Center/status surface can show the observed onboarding state. The deployment manifest may contain the public card URI, SHA-256 of the exact resolved card, verification timestamp and service names. Those fields are public discoverability provenance; the hash is not a permission or attestation claim.
+
+The judge should explicitly read these three labels as different controls:
+
+```text
+Agent AUTHENTICATED  -> session/key identity proved
+Agent REGISTERED     -> public Agent Card resolved for that DID
+Delegation ACTIVE    -> tenant/data owner granted contract restrictions
+```
+
+The audit story also has two independent sources. Local business audit records application events such as human authorization. For T3N-observed functions, the application can read the official Activity Log through an authenticated, bounded gateway path and reconcile exact network provenance using T3N sequence + activity hash + function metadata. Timestamp proximity is not used as identity.
+
+Reconciliation states mean:
+
+- `MATCHED`: local network-backed event matches the observed T3N sequence/hash/function;
+- `LOCAL_ONLY`: event is intentionally local and has no T3N function;
+- `T3N_ONLY`: relevant T3N activity exists without a corresponding local event in the bounded result;
+- `UNMATCHED`: local event expects T3N provenance but exact network provenance was not verified.
+
+If the Activity Log is unavailable, the local audit remains visible but network provenance is explicitly unavailable. If the bounded T3N page is truncated, the result is marked incomplete and unmatched entries are not treated as proof that no T3N event exists. The two evidence dimensions should be read independently:
+
+```text
+Local business history     application audit
+T3N operation provenance   official Activity Log reconciliation
+```
+
+Updated judge sequence for identity/provenance:
+
+```text
+1. Confirm Tenant AUTHENTICATED.
+2. Confirm Agent AUTHENTICATED and note its canonical DID.
+3. Inspect Agent onboarding separately: REGISTERED is desirable evidence, negative states remain visible.
+4. Confirm Delegation ACTIVE independently from registration.
+5. In Evidence, compare Agent Card DID/hash metadata with the authenticated Agent DID.
+6. After policy/remediation activity, inspect Business Audit Trail and T3N reconciliation separately.
+7. Treat MATCHED as exact network provenance for the associated T3N-backed event, not as proof that every local business event occurred on T3N.
+```
+
+Additional claim matrix entries:
+
+| Claim | Current status | Source of truth |
+|---|---|---|
+| Agent Card builder uses only the canonical authenticated Agent DID | PROVED LOCAL | `agent-card.ts` + tests |
+| Agent Card rejects sensitive metadata and unsupported services | PROVED LOCAL | `agent-card.test.ts` |
+| Public card resolution distinguishes REGISTERED/NOT_REGISTERED/MISMATCH/UNAVAILABLE | PROVED LOCAL | `AgentCardRegistry` + tests |
+| Registered Agent Card is kept distinct from Member Delegation | PROVED LOCAL | status/evidence/frontend tests |
+| Deployment evidence records public Agent Card provenance without exposing agent credentials | PROVED LOCAL | deployment manifest + leak tests |
+| Public Agent Card is actually registered on a live T3N environment | OBSERVED ONLY WHEN REGISTERED | read-only live registry result in the evidence/status metadata |
+| T3N Activity reconciliation requires exact sequence/hash/function plus tenant/agent/contract boundary | PROVED LOCAL | `AuditEvidenceService` + tests |
+| Activity Log unavailability does not fabricate MATCHED network provenance | PROVED LOCAL | degraded reconciliation tests |
+
+Screenshot/video additions when live registration is available:
+
+- show `Agent AUTHENTICATED`, `Agent onboarding REGISTERED`, and `Delegation ACTIVE` together so their different meanings are visible;
+- capture the Evidence Center Agent Card URI/hash only if it contains no secret and is the observed public card;
+- show the audit reconciliation summary with `MATCHED`, `LOCAL_ONLY`, `T3N_ONLY` or `UNMATCHED` as observed, without forcing all rows to look successful.
+
+Never claim “registered = authorized”, “Agent Card = attestation”, “all audit events are on-chain/on-T3N”, or “MATCHED” when the official Activity Log was unavailable or incomplete.

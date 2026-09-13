@@ -176,6 +176,7 @@ The architecture deliberately prevents the model from owning security authority.
 |---|---|
 | Understand prompt and propose an action | AI model |
 | Authenticate tenant and agent identity | T3N sessions |
+| Publish/resolve public agent discoverability | T3N Agent Card registry |
 | Decide allowed action/data/host | Rust/WASM policy + versioned private T3N KV policy |
 | Approve business remediation | Authenticated operator |
 | Prove an exact approved execution | Short-lived one-time capability |
@@ -213,6 +214,57 @@ The only model tool surface is:
 Unknown properties are rejected. In particular the model cannot supply `decision`, `allow`, `override`, `approved`, `agent_did`, `pii_did`, API keys, credentials, secrets, remediation capabilities or literal `{{profile...}}` markers. `agent_did` comes only from the authenticated Agent session and `pii_did` only from the authenticated tenant session.
 
 Real private values must never be placed in demo prompts; the model asks only for an enumerated logical category when a supported private value is needed.
+
+## Public T3N Agent onboarding and discoverability
+
+The agent has three deliberately separate states: **authenticated**, **registered**, and **delegated**. Authentication proves control of the configured agent credential and yields the canonical Agent DID. Registration proves that a public Agent Card for that same DID can be resolved from T3N. Delegation is a separate tenant/data-owner grant that authorizes functions, scopes and hosts. Registration never grants access by itself.
+
+The onboarding flow is:
+
+```text
+separate T3N agent credential
+        |
+        v
+authenticated AgentSession
+        |
+        v
+canonical did:t3n:... from the session
+        |
+        v
+deterministic safe Agent Card
+        |
+        v
+T3N hosted public card
+        |
+        v
+read-only resolution + schema/DID verification
+        |
+        v
+REGISTERED
+        |
+        v
+Member Delegation remains a separate authorization step
+```
+
+`buildAgentCardForSession(...)` uses only `AgentSession.getAgentDid()` as the identity source. The card advertises the EIP-8004 registration type used by the installed T3N tooling, one `DID` service pointing to the same canonical DID, `active: true` and `x402Support: false`. It does not advertise A2A, MCP, x402 payment support or private/internal gateway endpoints that this project does not actually expose. Sensitive metadata keys and private-key-shaped values are rejected, and both generated and resolved cards are bounded by the hosted-card size limit.
+
+Operational commands from `t3n-gateway/`:
+
+```bash
+npm run agent:card:verify    # read-only; does not publish or grant permissions
+npm run agent:card:publish   # explicit mutable T3N operation; may consume credits
+```
+
+The publish command authenticates the agent, derives the DID from that session, writes the safe card locally, invokes the installed T3N CLI `agent host-card`, then performs read-only verification until the card resolves as `REGISTERED` or fails. It never takes a DID from `.env` as the canonical identity.
+
+Runtime/evidence states are intentionally precise:
+
+- `REGISTERED`: a valid public card resolved and its DID/service matches the authenticated Agent DID;
+- `NOT_REGISTERED`: the public card endpoint returned no card for the DID;
+- `MISMATCH`: a card was returned but failed the closed schema/DID/service validation;
+- `UNAVAILABLE`: authenticated DID or public resolution could not be verified at that moment.
+
+The dashboard shows onboarding separately from authentication and Member Delegation. Evidence may include the public card URI, SHA-256 of the exact resolved card, verification timestamp and declared service names. Those values are public discoverability provenance, not authorization and not hardware attestation.
 
 ## Current policy vocabulary
 
@@ -328,6 +380,7 @@ Rules:
 - `GATEWAY_SERVICE_TOKEN` is a separate service-to-service credential.
 - `REMEDIATION_CAPABILITY_KEY` signs one-time human authorization proofs and is distinct from every T3N/provider/remediation credential.
 - Canonical tenant/agent DIDs come from authenticated T3N sessions.
+- A public Agent Card is discoverability metadata and never grants functions, scopes, hosts or business authorization.
 - Delegated calls derive `pii_did` internally from the authenticated tenant session.
 - Member delegation restricts contract, functions, scopes, hosts and validity.
 - The model proposes; Rust/WASM policy decides. Provider failure, invalid tool output, invalid/missing versioned policy and T3N failure all fail closed.
@@ -375,9 +428,12 @@ The dashboard reports independent observed states:
 Gateway       ONLINE / UNAVAILABLE
 Tenant        AUTHENTICATED / NOT AUTHENTICATED
 Agent         AUTHENTICATED / NOT AUTHENTICATED / NOT CONFIGURED
+Onboarding    REGISTERED / NOT_REGISTERED / MISMATCH / UNAVAILABLE
 Contract      RESOLVED / UNAVAILABLE
 Delegation    ACTIVE / REVOKED / NOT_GRANTED / UNKNOWN
 ```
+
+`AUTHENTICATED` means the agent session proved control of its credential and returned the canonical DID. `REGISTERED` means a public T3N Agent Card for that DID was resolved and passed the closed card validation. `ACTIVE` delegation means the tenant/data owner separately granted contract functions/scopes/hosts. None of those terms is used as a synonym for another.
 
 `RESOLVED` means contract id/version were resolved. It is not hardware attestation. Delegated functions and allowed hosts come from the observed grant.
 
@@ -411,7 +467,9 @@ npm install
 npm run evidence:live
 ```
 
-Generated artifacts are `docs/evidence/deployment-manifest.json` and `docs/evidence/testnet-run.json`. The orchestrator binds WASM SHA-256, canonical DIDs, contract id/version and policy version/hash and fails on mismatch, scenario `FAIL` or configured secret leakage. `NOT_RUN` is never counted as `PASS`.
+Generated artifacts are `docs/evidence/deployment-manifest.json` and `docs/evidence/testnet-run.json`. The orchestrator binds WASM SHA-256, canonical DIDs, contract id/version and policy version/hash and fails on mismatch, scenario `FAIL` or configured secret leakage. The deployment manifest also records the observed Agent Card registration state and, when a card is resolved, its public URI, SHA-256, verification time and service names. `NOT_RUN` is never counted as `PASS`.
+
+Agent Card metadata proves only what was observed during public resolution. `REGISTERED` means the resolved card matched the authenticated Agent DID and supported service schema; it does not prove Member Delegation, policy authorization, TEE execution or hardware attestation.
 
 For live remediation proof, both `SECURITY_API_URL` and `SECURITY_VERIFICATION_URL` must be configured/sealed and the delegation includes only their derived HTTPS hosts. A live remediation scenario passes only on the documented execution plus independent verification sequence. An accepted 2xx without read-back cannot become a passing completion claim.
 
