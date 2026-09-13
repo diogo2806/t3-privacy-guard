@@ -55,7 +55,7 @@ For T3N authorization, the system also separates what is configured from what th
 
 For private profile data, the application carries logical references such as `verified_email`, not the private value. The Rust/WASM contract maps a closed reference to the supported T3N profile marker only inside the protected execution boundary. React, Spring Boot, the model and normal gateway responses do not receive the resolved plaintext.
 
-For side effects, an HTTP success response is not treated as business completion. The application records `COMPLETED` only after a separate read-back observes the expected closed external state.
+For side effects, an HTTP success response is not treated as business completion. The application records `COMPLETED` only after a separate read-back observes the expected closed external state and any action-specific verification assertion.
 
 ## Where it applies
 
@@ -151,7 +151,7 @@ The full action URL remains only in the private T3N KV. Inside `execute-remediat
 
 Private profile values are structural to T3N. The agent, React, Spring Boot and gateway APIs carry only logical references such as `verified_email`; the Rust/WASM contract maps that closed reference to the supported T3N marker `{{profile.verified_contacts.email.value}}`, and T3N resolves the plaintext only during protected egress. The resolved value is never returned to the application.
 
-A successful external HTTP response is **not** treated as completion. The backend first acquires a durable execution claim, the contract propagates the stable `requestId` as an idempotency key, accepted egress becomes `PENDING_VERIFICATION`, and a separate `verify-remediation` read-back must observe the closed expected state before Spring records `COMPLETED`. Ambiguous outcomes are `UNVERIFIED` and are never automatically re-executed.
+A successful external HTTP response is **not** treated as completion. The backend first acquires a durable execution claim, the contract propagates the stable `requestId` as an idempotency key, accepted egress becomes `PENDING_VERIFICATION`, and a separate `verify-remediation` read-back must observe the action-specific closed state before Spring records `COMPLETED`. Credential revocation requires `REVOKED`. Security notification requires `DELIVERED` plus `recipient_resolved=true`, which proves resolution occurred without returning the recipient value. Ambiguous outcomes are `UNVERIFIED` and are never automatically re-executed.
 
 ## Architecture
 
@@ -329,7 +329,7 @@ The current Rust policy contains four concrete security actions:
 | `revoke-credential` | `incident-remediation` | `incident_id`, `credential_id`, `reason` | none |
 | `isolate-account` | `incident-remediation` | `incident_id`, `account_id`, `reason` | none |
 | `create-incident` | `incident-recording` | `incident_id`, `severity`, `summary`, `source` | none |
-| `notify-security` | `incident-notification` | `incident_id`, `severity`, `summary` | `verified_email` allowed |
+| `notify-security` | `incident-notification` | `incident_id`, `severity`, `summary` | exactly `verified_email` for protected notification execution |
 
 Extra non-secret fields are minimized with `REDACT`. Forbidden secret fields are denied. Unsupported actions, purposes, hosts or private references fail closed.
 
@@ -362,9 +362,9 @@ The Protection demo exposes those four policy actions as business-readable, synt
 | Credential compromised | `revoke-credential` | Prompt-injection denial plus a separate minimum-scope revocation path with human authorization, destination binding, protected execution and independent read-back. |
 | Account takeover | `isolate-account` | The model can propose isolation with synthetic identifiers while T3N independently evaluates action, fields, purpose and destination. |
 | Record security incident | `create-incident` | Incident recording can be evaluated without outbound egress; adding an unexpected destination remains subject to T3N policy. |
-| Notify security contact | `notify-security` | The model requests only logical `verified_email`; no plaintext email or raw `{{profile.*}}` placeholder belongs in browser/model input. |
+| Notify security contact | `notify-security` | The model requests only logical `verified_email`; after `ALLOW` and explicit human authorization, the Protected Executor resolves the private recipient inside T3N and completion requires verified `DELIVERED` plus private-resolution confirmation without returning plaintext. |
 
-The current complete execution/read-back contract verifies the closed external state `REVOKED`, so the dashboard exposes protected execution controls only for an actual `revoke-credential` proposal. `isolate-account`, `create-incident` and `notify-security` remain genuine policy-evaluation scenarios; the UI does not claim a verified executor for them.
+The complete protected execution/read-back contract is closed to two implemented actions. `revoke-credential` completes only after independent read-back observes `REVOKED`. `notify-security` requires exactly the logical private reference `verified_email` and completes only after independent read-back observes `DELIVERED` with `recipient_resolved=true`. `isolate-account` and `create-incident` remain genuine policy-evaluation scenarios but do not expose protected execution controls.
 
 Switching scenarios clears the previous scenario result in the browser before a new analysis. This prevents a prior decision or execution state from being visually attributed to a different preset.
 
@@ -426,8 +426,8 @@ Rules:
 - the canonical hostname approved by the human is signed into the execution capability and must equal the hostname currently resolved from private `security_api_url` before any HTTP call;
 - `EXECUTION_DESTINATION_CHANGED` is a fail-closed blocked execution, requires a new evaluation/authorization and is not retried automatically;
 - an execution acknowledgement or any HTTP 2xx is only acceptance, never completion;
-- `COMPLETED` requires read-back matching the same `operation_id` and the closed expected state `REVOKED`;
-- a timeout after send, missing operation id, mismatched request id, unavailable verification or contradictory read-back becomes `UNVERIFIED`;
+- `COMPLETED` requires read-back matching the same `operation_id` and the action-specific closed contract: `REVOKED` for `revoke-credential`, or `DELIVERED` plus `recipient_resolved=true` for `notify-security`;
+- a timeout after send, missing operation id, mismatched request id, unavailable verification, missing private-resolution confirmation or contradictory read-back becomes `UNVERIFIED`;
 - `UNVERIFIED` may be re-verified when an operation id exists, but is never automatically re-executed;
 - persisted remediation state can be read after reload/restart without causing egress or a verification attempt;
 - the project does **not** claim exactly-once/at-most-once behavior from an external provider merely because an idempotency key is supplied. Provider support is required for that guarantee.
@@ -494,6 +494,7 @@ SECURITY_API_URL
 SECURITY_VERIFICATION_URL
 EVIDENCE_RUN_DESTINATION_BINDING
 EVIDENCE_DESTINATION_B_URL
+EVIDENCE_RUN_PROFILE_PLACEHOLDER
 ```
 
 `T3N_CONTRACT_VERSION` is `0.4.0` for the versioned-policy contract. `T3N_POLICY_FILE` points to the local source document used by the explicit policy provisioning script; the active runtime policy is loaded from private T3N KV.
@@ -505,6 +506,8 @@ EVIDENCE_DESTINATION_B_URL
 `SECURITY_API_URL` is the protected action endpoint. Its full URL remains private; only the hostname persisted in the proposal is human-approved and capability-bound. `SECURITY_VERIFICATION_URL` is the independent read-back endpoint and may use a different host because it verifies the result rather than receiving the authorized side effect. Both URLs are seeded into the T3N private map by the setup script; neither URL becomes a browser/backend credential.
 
 `EVIDENCE_RUN_DESTINATION_BINDING=true` enables the controlled A→B mutation scenario only on T3N testnet. `EVIDENCE_DESTINATION_B_URL` must point to a synthetic second destination. The runner temporarily changes the private action URL, requires the contract to return `EXECUTION_DESTINATION_CHANGED` before `hwp::call`, and restores the original URL in `finally`. This mutation is explicitly forbidden outside testnet.
+
+`EVIDENCE_RUN_PROFILE_PLACEHOLDER=true` enables the controlled live `notify-security` placeholder-resolution scenario only on T3N testnet. It requires a synthetic profile with a verified e-mail plus controlled execution and verification endpoints. The scenario passes only after `ALLOW -> PENDING_VERIFICATION -> VERIFIED (DELIVERED)` with `recipient_resolved=true`; otherwise it fails or remains `NOT_RUN` when not enabled.
 
 Business APIs require the Spring Security operator session and CSRF protection. The browser never receives T3N keys, AI provider keys, internal service token, remediation capability, remediation credential, audit-integrity key or resolved profile PII.
 
@@ -541,7 +544,7 @@ execute-remediation
 verify-remediation
 ```
 
-`evaluate-action` returns the exact policy version/hash used by the TEE. `execute-remediation` requires the approved version/hash **and the exact canonical approved hostname**, resolves the private `security_api_url`, rejects any host substitution before HTTP, and then revalidates the current policy against that same host. It can return only the acceptance metadata needed for reconciliation. `verify-remediation` accepts a closed expected state and independently checks external operation/state data; its endpoint is separate technical read-back provenance and is not the side-effect destination authorized by the operator. A capability is rejected when its signed incident/action/decision/request/action/resource/purpose/approvedHost/fields/privateRefs/policyVersion/policyHash/Executor DID differ from the body/runtime identity, when expired or when its nonce was already consumed.
+`evaluate-action` returns the exact policy version/hash used by the TEE. `execute-remediation` requires the approved version/hash **and the exact canonical approved hostname**, resolves the private `security_api_url`, rejects any host substitution before HTTP, and then revalidates the current policy against that same host. For `notify-security`, it also requires exactly `verified_email`, creates the T3N profile marker only inside Rust/WASM and sends it through `http-with-placeholders`. It can return only the acceptance metadata needed for reconciliation. `verify-remediation` accepts only the action-specific closed state: `REVOKED` for revocation or `DELIVERED` for notification; notification verification additionally requires `recipient_resolved=true` before it can become verified. Its endpoint is separate technical read-back provenance and is not the side-effect destination authorized by the operator. A capability is rejected when its signed incident/action/decision/request/action/resource/purpose/approvedHost/fields/privateRefs/policyVersion/policyHash/Executor DID differ from the body/runtime identity, when expired or when its nonce was already consumed.
 
 ## Evidence
 
@@ -571,7 +574,7 @@ For live remediation proof, both `SECURITY_API_URL` and `SECURITY_VERIFICATION_U
 
 The optional `LIVE-DESTINATION-BINDING` testnet scenario strengthens this evidence by approving host A, independently confirming policy ALLOW for host B, mutating only the private `security_api_url` to B, and requiring `BLOCKED_BEFORE_HTTP` through `EXECUTION_DESTINATION_CHANGED`. The original URL is restored in `finally`; outside testnet the scenario is rejected instead of run. A `NOT_RUN` result remains explicitly non-evidence.
 
-Profile-placeholder resolution must remain `NOT_RUN` in public evidence until a compatible T3N testnet profile/user context actually executes it. Local Rust/Java/gateway/frontend tests prove the closed-reference architecture but are not mislabeled as live profile-resolution evidence.
+`LIVE-PROFILE-PLACEHOLDER-RESOLUTION` is executable but opt-in. It must remain `NOT_RUN` in public evidence until a compatible synthetic T3N profile with a verified e-mail and controlled execution/read-back endpoints actually runs it. When enabled with `EVIDENCE_RUN_PROFILE_PLACEHOLDER=true`, it may become `PASS` only if the live sequence is `ALLOW -> PENDING_VERIFICATION -> VERIFIED (DELIVERED)` and the sanitized read-back reports `recipient_resolved=true`. The evidence does not persist the marker or recipient plaintext.
 
 The submission capture harness rejects AI/T3N/operator/service/capability/audit-integrity secrets in generated metadata and captures a remediation success only after the UI shows independently verified `COMPLETED`. Local audit integrity is rendered as a separate application signal from T3N Activity Log reconciliation and is not upgraded into live T3N proof.
 
