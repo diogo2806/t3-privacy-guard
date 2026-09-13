@@ -1,3 +1,5 @@
+import { createPublicKey } from 'node:crypto';
+
 export type T3nNetwork = 'testnet' | 'production';
 export type AiProvider = 'disabled' | 'openai-compatible';
 
@@ -10,7 +12,7 @@ export interface GatewayConfig {
   readonly contractTail: string;
   readonly contractVersion: string;
   readonly gatewayServiceToken: string;
-  readonly remediationCapabilityKey: string;
+  readonly remediationAuthorizationPublicKeySpki: string;
   readonly remediationReplayStorePath: string;
   readonly trustManifestFloorStorePath: string;
   readonly aiProvider: AiProvider;
@@ -18,6 +20,7 @@ export interface GatewayConfig {
   readonly aiApiKey: string | null;
   readonly aiModel: string | null;
   readonly a2aPublicUrl: string | null;
+  readonly remediationCapabilityKey?: undefined;
 }
 
 export class ConfigurationError extends Error {
@@ -31,6 +34,20 @@ function requiredSecret(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name]?.trim();
   if (!value || value.length < 32) throw new ConfigurationError(`${name} is required and must contain at least 32 characters`);
   return value;
+}
+
+function requiredEd25519PublicKey(env: NodeJS.ProcessEnv, name: string): string {
+  const value = env[name]?.trim();
+  if (!value) throw new ConfigurationError(`${name} is required`);
+  try {
+    const der = Buffer.from(value, 'base64');
+    if (!der.length || der.toString('base64') !== value.replace(/\s+/g, '')) throw new Error('invalid base64');
+    const key = createPublicKey({ key: der, format: 'der', type: 'spki' });
+    if (key.asymmetricKeyType !== 'ed25519') throw new Error('wrong key type');
+    return value;
+  } catch {
+    throw new ConfigurationError(`${name} must be a base64 SPKI Ed25519 public key`);
+  }
 }
 
 function requiredPath(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
@@ -158,7 +175,7 @@ export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): Gateway
     contractTail,
     contractVersion,
     gatewayServiceToken: requiredSecret(env, 'GATEWAY_SERVICE_TOKEN'),
-    remediationCapabilityKey: requiredSecret(env, 'REMEDIATION_CAPABILITY_KEY'),
+    remediationAuthorizationPublicKeySpki: requiredEd25519PublicKey(env, 'REMEDIATION_AUTH_PUBLIC_KEY_SPKI'),
     remediationReplayStorePath: requiredPath(env, 'REMEDIATION_REPLAY_STORE_PATH', '/data/remediation-capability-nonces.json'),
     trustManifestFloorStorePath: requiredPath(env, 'T3N_TRUST_FLOOR_STORE_PATH', '/data/t3n-trust-floor.json'),
     aiProvider: aiProviderValue,

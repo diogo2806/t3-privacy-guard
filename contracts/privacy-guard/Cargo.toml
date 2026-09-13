@@ -15,6 +15,8 @@ serde = { version = "1.0", default-features = false, features = ["derive", "allo
 serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 hex = { version = "0.4", default-features = false, features = ["alloc"] }
 sha2 = { version = "0.10", default-features = false }
+base64 = { version = "0.22", default-features = false, features = ["alloc"] }
+ed25519-dalek = { version = "2.1", default-features = false, features = ["pkcs8"] }
 
 [dev-dependencies]
 proptest = "1.6"
