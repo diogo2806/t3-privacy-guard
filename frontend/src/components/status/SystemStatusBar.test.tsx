@@ -41,4 +41,12 @@ describe('SystemStatusBar', () => {
     render(<SystemStatusBar status={status('MISMATCH')} loading={false} onRefresh={vi.fn()} />);
     expect(screen.getByText('Card/DID mismatch')).toHaveClass('status-pill-off');
   });
+
+  it('renders future delegation as scheduled and never operational', () => {
+    render(<SystemStatusBar status={{ ...status('REGISTERED'), delegationState: 'SCHEDULED', message: 'Delegation is scheduled.' }} loading={false} onRefresh={vi.fn()} />);
+    expect(screen.getByText('Scheduled')).toHaveClass('status-pill-pending');
+    expect(screen.getByText(/authorization window has not begun/i)).toBeInTheDocument();
+    expect(screen.getByText('Unavailable / incomplete')).toBeInTheDocument();
+    expect(screen.queryByText('Operational')).not.toBeInTheDocument();
+  });
 });
