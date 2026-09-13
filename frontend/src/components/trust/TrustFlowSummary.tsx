@@ -26,24 +26,13 @@ interface TrustStep {
   icon: LucideIcon;
 }
 
-function t3nReady(status: SystemStatus | null): boolean {
-  return Boolean(
-    status?.gatewayReachable
-      && status.tenantAuthenticated
-      && status.agentAuthenticated
-      && status.executorAuthenticated
-      && status.contractResolved
-      && status.delegationState === 'ACTIVE'
-      && status.executorDelegationState === 'ACTIVE',
-  );
-}
-
-function readinessState(status: SystemStatus | null, loading: boolean, ready: boolean): { className: string; label: string } {
+function readinessState(status: SystemStatus | null, loading: boolean): { className: string; label: string } {
   if (loading) return { className: 'trust-readiness-pending', label: 'Checking T3N' };
-  if (ready) return { className: 'trust-readiness-ready', label: 'T3N controls ready' };
+  if (status?.protectedRemediationReady) return { className: 'trust-readiness-ready', label: 'T3N controls ready' };
   if (status?.delegationState === 'SCHEDULED' || status?.executorDelegationState === 'SCHEDULED') {
     return { className: 'trust-readiness-pending', label: 'Delegation scheduled' };
   }
+  if (status?.evaluationReady) return { className: 'trust-readiness-unavailable', label: 'Evaluation ready · execution blocked' };
   return { className: 'trust-readiness-unavailable', label: 'T3N controls unavailable' };
 }
 
@@ -91,7 +80,7 @@ function trustSteps(
     {
       label: 'AI proposal',
       state: proposalReceived ? 'RECEIVED' : 'WAITING',
-      detail: proposalReceived ? 'A structured action proposal is available. The Proposal Agent can evaluate policy but has no T3N grant for protected execution.' : 'Waiting for an agent proposal.',
+      detail: proposalReceived ? 'A structured action proposal is available. The Proposal Agent can evaluate only when effective T3N access is confirmed and has no protected-execution grant.' : 'Waiting for an agent proposal.',
       tone: proposalReceived ? 'info' : 'pending',
       icon: BrainCircuit,
     },
@@ -112,7 +101,7 @@ function trustSteps(
     {
       label: 'Protected execution',
       state: executionState,
-      detail: executionState === 'NOT STARTED' ? 'No protected side effect is claimed. Execution uses a T3N principal separate from the Proposal Agent.' : executionState === 'EXECUTING' ? 'The Protected Executor has durably claimed execution and it is in progress.' : executionState === 'ACCEPTED' ? 'The external action was accepted by the Protected Executor; acceptance is not completion.' : executionState === 'UNVERIFIED' ? 'The external outcome is ambiguous and will not be reported as completed.' : 'Execution failed without verified completion.',
+      detail: executionState === 'NOT STARTED' ? 'No protected side effect is claimed. Execution requires independently confirmed effective T3N access for the Protected Executor.' : executionState === 'EXECUTING' ? 'The Protected Executor has durably claimed execution and it is in progress.' : executionState === 'ACCEPTED' ? 'The external action was accepted by the Protected Executor; acceptance is not completion.' : executionState === 'UNVERIFIED' ? 'The external outcome is ambiguous and will not be reported as completed.' : 'Execution failed without verified completion.',
       tone: executionTone,
       icon: ServerCog,
     },
@@ -130,19 +119,25 @@ function resultMessage(
   decision: PolicyDecision | null,
   selectedAction: ActionProposal | null,
   execution: RemediationExecution | null,
-  ready: boolean,
   statusLoading: boolean,
   proposalReceived: boolean,
   systemStatus: SystemStatus | null,
 ): string {
   if (!statusLoading && (systemStatus?.delegationState === 'SCHEDULED' || systemStatus?.executorDelegationState === 'SCHEDULED')) {
-    return 'A T3N delegation is scheduled, but its authorization window has not begun. Proposal evaluation or protected execution is not reported as ready.';
+    return 'A T3N Member Delegation is scheduled, but its authorization window has not begun. The affected capability remains unavailable.';
   }
-  if (!statusLoading && !ready) return 'T3N controls are unavailable or incomplete. Proposal evaluation or protected execution cannot be proven until both delegated principals are ready.';
+  if (!statusLoading && !systemStatus?.evaluationReady) {
+    if (systemStatus?.delegationEffectiveState === 'DENIED') return 'Proposal Member Delegation exists, but effective T3N access was denied for the required evaluation function/scopes. Evaluation remains blocked.';
+    return 'Proposal evaluation cannot be proven ready until effective T3N access is independently confirmed for the Proposal Agent.';
+  }
   if (!proposalReceived) return 'Start with a prompt. The AI may propose an action, but the Proposal Agent has no authority to execute it.';
   if (!decision) return 'An action proposal is available. T3N policy has not produced a decision yet.';
   if (decision.decision === 'DENY') return 'Policy blocked the proposal before protected egress. No execution is claimed.';
   if (decision.decision === 'REDACT') return 'Policy requires data minimization before the action may continue. No execution is claimed.';
+  if (!statusLoading && !systemStatus?.protectedRemediationReady) {
+    if (systemStatus?.executorDelegationEffectiveState === 'DENIED') return 'Policy allowed the proposal, but effective T3N access was denied for the Protected Executor. Protected remediation remains blocked.';
+    return 'Policy allowed the proposal, but Protected Executor effective T3N access is not confirmed. Protected remediation remains blocked.';
+  }
   if (!isHumanAuthorized(selectedAction)) return 'Policy allowed the proposal, but the Protected Executor remains blocked until a human authorizes it.';
   if (!execution) return 'Human authorization is recorded and bound to the Protected Executor. No protected execution has been claimed yet.';
   if (execution.state === 'EXECUTING') return 'Protected execution is in progress. Completion is not claimed.';
@@ -154,9 +149,8 @@ function resultMessage(
 
 export function TrustFlowSummary({ agentAnalysis, decision, selectedAction, remediationExecution, systemStatus, statusLoading }: Props) {
   const steps = trustSteps(agentAnalysis, decision, selectedAction, remediationExecution);
-  const ready = t3nReady(systemStatus);
   const proposalReceived = Boolean(agentAnalysis || selectedAction);
-  const readiness = readinessState(systemStatus, statusLoading, ready);
+  const readiness = readinessState(systemStatus, statusLoading);
 
   return (
     <section className="trust-flow card" aria-labelledby="trust-flow-title">
@@ -187,7 +181,7 @@ export function TrustFlowSummary({ agentAnalysis, decision, selectedAction, reme
         })}
       </ol>
 
-      <p className="trust-result" aria-live="polite"><strong>Result:</strong> {resultMessage(decision, selectedAction, remediationExecution, ready, statusLoading, proposalReceived, systemStatus)}</p>
+      <p className="trust-result" aria-live="polite"><strong>Result:</strong> {resultMessage(decision, selectedAction, remediationExecution, statusLoading, proposalReceived, systemStatus)}</p>
     </section>
   );
 }
