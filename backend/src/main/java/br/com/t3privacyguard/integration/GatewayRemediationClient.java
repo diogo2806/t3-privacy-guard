@@ -76,14 +76,18 @@ public class GatewayRemediationClient {
         }
     }
 
-    public VerificationResult verify(String requestId, String operationId) {
+    public VerificationResult verify(String requestId, String operationId, String action, String expectedState) {
         if (operationId == null || operationId.isBlank()) throw new IllegalArgumentException("operationId is required for verification");
+        if (action == null || action.isBlank()) throw new IllegalArgumentException("action is required for verification");
+        if (!("REVOKED".equals(expectedState) || "DELIVERED".equals(expectedState))) {
+            throw new IllegalArgumentException("expectedState is not supported");
+        }
         try {
             VerificationResult result = restClient.post()
                 .uri("/internal/contracts/privacy-guard/verify-remediation")
                 .header("X-Gateway-Service-Token", serviceToken)
                 .header(TraceContext.HEADER, TraceContext.currentOrGenerate())
-                .body(new VerificationRequest(requestId, operationId, "REVOKED"))
+                .body(new VerificationRequest(requestId, operationId, action, expectedState))
                 .retrieve()
                 .body(VerificationResult.class);
             if (result == null || !("VERIFIED".equals(result.status()) || "UNVERIFIED".equals(result.status()))) {
@@ -146,6 +150,7 @@ public class GatewayRemediationClient {
     public record VerificationRequest(
         @JsonProperty("request_id") String requestId,
         @JsonProperty("operation_id") String operationId,
+        String action,
         @JsonProperty("expected_state") String expectedState
     ) {}
 
@@ -153,11 +158,16 @@ public class GatewayRemediationClient {
         @JsonProperty("request_id") String requestId,
         String status,
         @JsonProperty("observed_state") String observedState,
+        @JsonProperty("recipient_resolved") Boolean recipientResolved,
         @JsonProperty("activity_sequence") Long activitySequence,
         @JsonProperty("activity_hash") String activityHash
     ) {
         public VerificationResult(String requestId, String status, String observedState) {
-            this(requestId, status, observedState, null, null);
+            this(requestId, status, observedState, null, null, null);
+        }
+
+        public VerificationResult(String requestId, String status, String observedState, Boolean recipientResolved) {
+            this(requestId, status, observedState, recipientResolved, null, null);
         }
     }
 }
