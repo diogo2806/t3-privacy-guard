@@ -20,13 +20,16 @@ function isReady(status: SystemStatus | null): boolean {
     status?.gatewayReachable
       && status.tenantAuthenticated
       && status.agentAuthenticated
+      && status.executorAuthenticated
       && status.contractResolved
-      && status.delegationState === 'ACTIVE',
+      && status.delegationState === 'ACTIVE'
+      && status.executorDelegationState === 'ACTIVE',
   );
 }
 
 export function SystemStatusBar({ status, loading, onRefresh }: Props) {
-  const delegationActive = status?.delegationState === 'ACTIVE';
+  const proposalDelegationActive = status?.delegationState === 'ACTIVE';
+  const executorDelegationActive = status?.executorDelegationState === 'ACTIVE';
   const registrationState = status?.agentRegistrationState;
   const ready = isReady(status);
   const overallState: PillState = loading ? 'pending' : ready ? 'ok' : 'off';
@@ -38,7 +41,7 @@ export function SystemStatusBar({ status, loading, onRefresh }: Props) {
         <div>
           <p className="eyebrow">Technical T3N status</p>
           <h2>Live control plane</h2>
-          <p>{loading ? 'Checking the controls used to evaluate and execute protected actions.' : ready ? 'Policy and protected execution controls are available.' : 'One or more T3N controls are unavailable. Decisions or execution may not be provable.'}</p>
+          <p>{loading ? 'Checking the controls used to evaluate and execute protected actions.' : ready ? 'Proposal and protected execution use separate authenticated T3N principals with least-privilege delegations.' : 'One or more T3N controls are unavailable. Decisions or protected execution may not be provable.'}</p>
         </div>
         <StatusPill state={overallState} label={overallLabel} />
       </div>
@@ -53,21 +56,26 @@ export function SystemStatusBar({ status, loading, onRefresh }: Props) {
         <div className="status-grid">
           <div className="status-item"><Server aria-hidden="true" /><div><span>Gateway</span><StatusPill state={status?.gatewayReachable ? 'ok' : 'off'} label={status?.gatewayReachable ? 'Online' : 'Unavailable'} /></div></div>
           <div className="status-item"><Shield aria-hidden="true" /><div><span>Tenant</span><StatusPill state={status?.tenantAuthenticated ? 'ok' : 'off'} label={status?.tenantAuthenticated ? `Authenticated · ${status.network ?? 'network'}` : 'Not authenticated'} /></div></div>
-          <div className="status-item"><UserRoundCog aria-hidden="true" /><div><span>Agent</span><StatusPill state={status?.agentAuthenticated ? 'ok' : 'off'} label={status?.agentAuthenticated ? 'Authenticated' : status?.agentConfigured ? 'Not authenticated' : 'Not configured'} /></div></div>
+          <div className="status-item"><UserRoundCog aria-hidden="true" /><div><span>Proposal agent</span><StatusPill state={status?.agentAuthenticated ? 'ok' : 'off'} label={status?.agentAuthenticated ? 'Authenticated · evaluate only' : status?.agentConfigured ? 'Not authenticated' : 'Not configured'} /></div></div>
+          <div className="status-item"><UserRoundCog aria-hidden="true" /><div><span>Protected executor</span><StatusPill state={status?.executorAuthenticated ? 'ok' : 'off'} label={status?.executorAuthenticated ? 'Authenticated · execute + verify' : status?.executorConfigured ? 'Not authenticated' : 'Not configured'} /></div></div>
           <div className="status-item"><BadgeCheck aria-hidden="true" /><div><span>Agent onboarding</span><StatusPill state={registrationState === 'REGISTERED' ? 'ok' : 'off'} label={registrationLabel(registrationState)} /></div></div>
           <div className="status-item"><Shield aria-hidden="true" /><div><span>Contract</span><StatusPill state={status?.contractResolved ? 'ok' : 'off'} label={status?.contractResolved ? `Resolved · v${status.contractVersion}` : 'Unavailable'} /></div></div>
-          <div className="status-item"><KeyRound aria-hidden="true" /><div><span>Delegation</span><StatusPill state={delegationActive ? 'ok' : 'off'} label={status?.delegationState ?? 'UNKNOWN'} /></div></div>
+          <div className="status-item"><KeyRound aria-hidden="true" /><div><span>Proposal delegation</span><StatusPill state={proposalDelegationActive ? 'ok' : 'off'} label={status?.delegationState ?? 'UNKNOWN'} /></div></div>
+          <div className="status-item"><KeyRound aria-hidden="true" /><div><span>Executor delegation</span><StatusPill state={executorDelegationActive ? 'ok' : 'off'} label={status?.executorDelegationState ?? 'UNKNOWN'} /></div></div>
         </div>
         <div className="status-meta">
           <div><span>Tenant DID</span><code>{status?.tenantDid ?? 'Unavailable'}</code></div>
-          <div><span>Agent DID</span><code>{status?.agentDid ?? 'Unavailable'}</code></div>
+          <div><span>Proposal Agent DID</span><code>{status?.agentDid ?? 'Unavailable'}</code></div>
+          <div><span>Protected Executor DID</span><code>{status?.executorDid ?? 'Unavailable'}</code></div>
           <div><span>Public Agent Card</span><code>{status?.agentCardUri ?? 'Not resolved'}</code></div>
           <div><span>Agent Card SHA-256</span><code>{status?.agentCardSha256 ?? 'Not available'}</code></div>
           <div><span>Agent Card services</span><code>{status?.agentCardServices?.length ? status.agentCardServices.join(', ') : 'None verified'}</code></div>
-          <div><span>Card verified</span><code>{status?.agentCardVerifiedAt ? new Date(status.agentCardVerifiedAt).toLocaleString() : 'Not available'}</code></div>
+          <div><span>Card check</span><code>{status?.agentCardVerifiedAt ? new Date(status.agentCardVerifiedAt).toLocaleString() : 'Not available'}</code></div>
           <div><span>Contract</span><code>{status?.contractId ?? 'Unavailable'}</code></div>
-          <div><span>Delegated functions</span><code>{status?.delegatedFunctions.length ? status.delegatedFunctions.join(', ') : 'None observed'}</code></div>
-          <div><span>Allowed hosts</span><code>{status?.allowedHosts.length ? status.allowedHosts.join(', ') : 'None observed'}</code></div>
+          <div><span>Proposal functions</span><code>{status?.delegatedFunctions.length ? status.delegatedFunctions.join(', ') : 'None observed'}</code></div>
+          <div><span>Proposal allowed hosts</span><code>{status?.allowedHosts.length ? status.allowedHosts.join(', ') : 'None'}</code></div>
+          <div><span>Executor functions</span><code>{status?.executorDelegatedFunctions.length ? status.executorDelegatedFunctions.join(', ') : 'None observed'}</code></div>
+          <div><span>Executor allowed hosts</span><code>{status?.executorAllowedHosts.length ? status.executorAllowedHosts.join(', ') : 'None observed'}</code></div>
         </div>
       </details>
     </section>
