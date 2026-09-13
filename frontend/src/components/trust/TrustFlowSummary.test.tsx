@@ -18,9 +18,13 @@ const READY_STATUS: SystemStatus = {
   contractResolved: true,
   contractId: 'z:tenant:privacy-guard',
   contractVersion: '0.3.0',
+  memberDelegationState: 'ACTIVE',
   delegationState: 'ACTIVE',
   delegatedFunctions: ['evaluate-action'],
+  delegatedScopes: ['incident_id'],
   allowedHosts: ['example.com'],
+  delegationSatisfied: ['member_delegation'],
+  delegationMissing: [],
   message: 'Ready',
 };
 
@@ -167,17 +171,46 @@ describe('TrustFlowSummary', () => {
     expect(container.querySelector('.trust-readiness-ready')).not.toBeInTheDocument();
   });
 
-  it('keeps a future delegation pending and never reports T3N controls ready', () => {
+  it('keeps a future member delegation pending and never reports T3N controls ready', () => {
     const { container } = render(<TrustFlowSummary
       agentAnalysis={null}
       decision={null}
       selectedAction={null}
       remediationExecution={null}
-      systemStatus={{ ...READY_STATUS, delegationState: 'SCHEDULED' }}
+      systemStatus={{ ...READY_STATUS, memberDelegationState: 'SCHEDULED', delegationState: 'INCOMPLETE' }}
       statusLoading={false}
     />);
     expect(screen.getByText('Delegation scheduled')).toBeInTheDocument();
     expect(screen.getByText(/authorization window has not begun/i)).toBeInTheDocument();
+    expect(container.querySelector('.trust-readiness-pending')).toBeInTheDocument();
+    expect(container.querySelector('.trust-readiness-ready')).not.toBeInTheDocument();
+  });
+
+  it('keeps active member grant non-operational when T3N effective access is incomplete', () => {
+    const { container } = render(<TrustFlowSummary
+      agentAnalysis={null}
+      decision={null}
+      selectedAction={null}
+      remediationExecution={null}
+      systemStatus={{ ...READY_STATUS, delegationState: 'INCOMPLETE' }}
+      statusLoading={false}
+    />);
+    expect(screen.getByText('T3N controls unavailable')).toBeInTheDocument();
+    expect(screen.getByText(/did not authorize effective delegated access/i)).toBeInTheDocument();
+    expect(container.querySelector('.trust-readiness-ready')).not.toBeInTheDocument();
+  });
+
+  it('shows effective-access verification outage as pending and non-operational', () => {
+    const { container } = render(<TrustFlowSummary
+      agentAnalysis={null}
+      decision={null}
+      selectedAction={null}
+      remediationExecution={null}
+      systemStatus={{ ...READY_STATUS, delegationState: 'UNKNOWN' }}
+      statusLoading={false}
+    />);
+    expect(screen.getByText('Checking effective access')).toBeInTheDocument();
+    expect(screen.getByText(/could not be verified with T3N/i)).toBeInTheDocument();
     expect(container.querySelector('.trust-readiness-pending')).toBeInTheDocument();
     expect(container.querySelector('.trust-readiness-ready')).not.toBeInTheDocument();
   });
