@@ -46,11 +46,16 @@ public class GatewayRemediationClient {
         if (capability == null || capability.isBlank()) throw new IllegalArgumentException("Remediation capability is required");
         if (request.approvedHost() == null || request.approvedHost().isBlank()) throw new IllegalArgumentException("Approved remediation destination is required");
         if (request.normalPayload() == null || request.normalPayload().isEmpty()) throw new IllegalArgumentException("Trusted normal remediation payload is required");
+        if (request.operatorPrincipalHash() == null || !request.operatorPrincipalHash().matches("[a-f0-9]{64}")) {
+            throw new IllegalArgumentException("Bound operator principal hash is required");
+        }
+        if (request.authorizedAt() <= 0) throw new IllegalArgumentException("Bound human authorization timestamp is required");
         try {
             String executorDid = requireExecutorDid();
             RemediationWireRequest wireRequest = new RemediationWireRequest(
                 request.incidentId(), request.actionId(), request.decisionId(), request.requestId(), request.action(), request.resource(), request.purpose(),
-                request.approvedHost(), request.fields(), request.normalPayload(), request.privateRefs(), request.policyVersion(), request.policyHash(), executorDid
+                request.approvedHost(), request.fields(), request.normalPayload(), request.privateRefs(), request.policyVersion(), request.policyHash(),
+                request.operatorPrincipalHash(), request.authorizedAt(), executorDid
             );
             RemediationResult result = restClient.post()
                 .uri("/internal/contracts/privacy-guard/remediate")
@@ -112,7 +117,9 @@ public class GatewayRemediationClient {
         @JsonProperty("normal_payload") Map<String, String> normalPayload,
         @JsonProperty("private_refs") List<String> privateRefs,
         @JsonProperty("policy_version") String policyVersion,
-        @JsonProperty("policy_hash") String policyHash
+        @JsonProperty("policy_hash") String policyHash,
+        @JsonProperty("operator_principal_hash") String operatorPrincipalHash,
+        @JsonProperty("authorized_at") long authorizedAt
     ) {}
 
     private record RemediationWireRequest(
@@ -129,6 +136,8 @@ public class GatewayRemediationClient {
         @JsonProperty("private_refs") List<String> privateRefs,
         @JsonProperty("policy_version") String policyVersion,
         @JsonProperty("policy_hash") String policyHash,
+        @JsonProperty("operator_principal_hash") String operatorPrincipalHash,
+        @JsonProperty("authorized_at") long authorizedAt,
         @JsonProperty("executor_did") String executorDid
     ) {}
 
