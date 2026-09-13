@@ -1,10 +1,28 @@
-use privacy_guard_contract::policy::{evaluate, evaluate_json, Decision, PolicyEvaluationRequest};
+use privacy_guard_contract::policy::{
+    evaluate_json, evaluate_with_policy, parse_policy_document, AppliedPolicy, Decision, PolicyEvaluationRequest,
+};
 use proptest::prelude::*;
 use std::collections::BTreeSet;
 
 const FORBIDDEN: &[&str] = &[
     "api_key", "card_number", "credential", "cpf", "password", "private_key", "secret", "ssn", "token",
 ];
+
+fn policy() -> AppliedPolicy {
+    parse_policy_document(br#"{
+      "version":"property-v1",
+      "actions":{
+        "create-incident":{"purpose":"incident-recording","allowed_fields":["incident_id","severity","summary","source"],"allowed_hosts":[],"allowed_private_refs":[],"requires_host":false,"requires_human_authorization":false},
+        "isolate-account":{"purpose":"incident-remediation","allowed_fields":["incident_id","account_id","reason"],"allowed_hosts":["postman-echo.com","security-api.internal"],"allowed_private_refs":[],"requires_host":true,"requires_human_authorization":true},
+        "notify-security":{"purpose":"incident-notification","allowed_fields":["incident_id","severity","summary"],"allowed_hosts":["postman-echo.com","security-api.internal"],"allowed_private_refs":["verified_email"],"requires_host":true,"requires_human_authorization":false},
+        "revoke-credential":{"purpose":"incident-remediation","allowed_fields":["incident_id","credential_id","reason"],"allowed_hosts":["postman-echo.com","security-api.internal"],"allowed_private_refs":[],"requires_host":true,"requires_human_authorization":true}
+      }
+    }"#).expect("property policy must be valid")
+}
+
+fn evaluate(request: &PolicyEvaluationRequest) -> privacy_guard_contract::policy::PolicyDecision {
+    evaluate_with_policy(request, &policy())
+}
 
 fn allowed_request(action: usize) -> PolicyEvaluationRequest {
     match action % 4 {
@@ -91,6 +109,8 @@ proptest! {
         }
         let decision = evaluate(&request);
         prop_assert_eq!(decision.decision, Decision::Allow);
+        prop_assert!(decision.policy_version.is_some());
+        prop_assert!(decision.policy_hash.is_some());
 
         let expected = expected_fields(&request.action);
         prop_assert!(decision.allowed_fields.iter().all(|field| expected.contains(field.as_str())));
