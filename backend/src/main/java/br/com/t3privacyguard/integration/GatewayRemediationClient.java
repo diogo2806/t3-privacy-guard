@@ -76,12 +76,16 @@ public class GatewayRemediationClient {
         }
     }
 
-    public VerificationResult verify(String requestId, String operationId, String action, String expectedState) {
+    public VerificationResult verify(String requestId, String operationId) {
+        return verifyClosedState(requestId, operationId, "revoke-credential", "REVOKED");
+    }
+
+    public VerificationResult verifyDelivery(String requestId, String operationId) {
+        return verifyClosedState(requestId, operationId, "notify-security", "DELIVERED");
+    }
+
+    private VerificationResult verifyClosedState(String requestId, String operationId, String action, String expectedState) {
         if (operationId == null || operationId.isBlank()) throw new IllegalArgumentException("operationId is required for verification");
-        if (action == null || action.isBlank()) throw new IllegalArgumentException("action is required for verification");
-        if (!("REVOKED".equals(expectedState) || "DELIVERED".equals(expectedState))) {
-            throw new IllegalArgumentException("expectedState is not supported");
-        }
         try {
             VerificationResult result = restClient.post()
                 .uri("/internal/contracts/privacy-guard/verify-remediation")
