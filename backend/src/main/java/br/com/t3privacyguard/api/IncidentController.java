@@ -1,6 +1,7 @@
 package br.com.t3privacyguard.api;
 
 import br.com.t3privacyguard.api.ApiModels.ActionResponse;
+import br.com.t3privacyguard.api.ApiModels.AuditEvidenceResponse;
 import br.com.t3privacyguard.api.ApiModels.AuditResponse;
 import br.com.t3privacyguard.api.ApiModels.CreateActionRequest;
 import br.com.t3privacyguard.api.ApiModels.CreateIncidentRequest;
@@ -9,6 +10,7 @@ import br.com.t3privacyguard.api.ApiModels.ExecutionTraceResponse;
 import br.com.t3privacyguard.api.ApiModels.IncidentResponse;
 import br.com.t3privacyguard.api.ApiModels.RemediationAuthorizationResponse;
 import br.com.t3privacyguard.api.ApiModels.RemediationExecutionResponse;
+import br.com.t3privacyguard.service.AuditEvidenceService;
 import br.com.t3privacyguard.service.IncidentService;
 import br.com.t3privacyguard.service.RemediationQueryService;
 import jakarta.validation.Valid;
@@ -19,6 +21,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -27,10 +30,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class IncidentController {
     private final IncidentService service;
     private final RemediationQueryService remediationQuery;
+    private final AuditEvidenceService auditEvidence;
 
-    public IncidentController(IncidentService service, RemediationQueryService remediationQuery) {
+    public IncidentController(IncidentService service, RemediationQueryService remediationQuery, AuditEvidenceService auditEvidence) {
         this.service = service;
         this.remediationQuery = remediationQuery;
+        this.auditEvidence = auditEvidence;
     }
 
     @PostMapping
@@ -77,4 +82,12 @@ public class IncidentController {
 
     @GetMapping("/{incidentId}/history")
     public List<AuditResponse> history(@PathVariable String incidentId) { return service.history(incidentId); }
+
+    @GetMapping("/{incidentId}/audit-evidence")
+    public AuditEvidenceResponse auditEvidence(
+        @PathVariable String incidentId,
+        @RequestParam(defaultValue = "100") int limit
+    ) {
+        return auditEvidence.read(incidentId, limit);
+    }
 }

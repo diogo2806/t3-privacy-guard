@@ -17,6 +17,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class GatewaySystemClient {
     private static final String SERVICE_TOKEN_HEADER = "X-Gateway-Service-Token";
+    private static final int MAX_ACTIVITY_LIMIT = 200;
 
     private final HttpClient httpClient;
     private final ObjectMapper mapper;
@@ -52,6 +53,12 @@ public class GatewaySystemClient {
         return get("/internal/agent/delegations/" + encoded, DelegationStatus.class, true);
     }
 
+    public Optional<ActivityPage> activity(long fromMs, long toMs, int limit) {
+        int boundedLimit = Math.max(1, Math.min(limit, MAX_ACTIVITY_LIMIT));
+        String path = "/internal/t3n/activity?fromMs=" + fromMs + "&toMs=" + toMs + "&limit=" + boundedLimit;
+        return get(path, ActivityPage.class, true);
+    }
+
     private <T> Optional<T> get(String path, Class<T> type, boolean internal) {
         try {
             HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + path))
@@ -73,4 +80,21 @@ public class GatewaySystemClient {
     public record AgentStatus(boolean configured, boolean connected, boolean ready, String agentDid, String network) {}
     public record ContractIdentity(String contractId, String contractVersion) {}
     public record DelegationStatus(String state, List<String> functions, List<String> allowedHosts) {}
+    public record ActivityEvent(
+        long sequence,
+        String hash,
+        long timestampMs,
+        String callerType,
+        String actorDid,
+        String onBehalfOfDid,
+        String contractId,
+        String function,
+        String outcome,
+        List<String> roles
+    ) {}
+    public record ActivityPage(List<ActivityEvent> events, Long nextSequence, boolean complete) {
+        public ActivityPage {
+            events = events == null ? List.of() : List.copyOf(events);
+        }
+    }
 }

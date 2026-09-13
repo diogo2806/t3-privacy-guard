@@ -171,7 +171,14 @@ public class IncidentService {
         String policyAudit = entity.getPolicyVersion() == null
             ? " with fail-closed policy metadata unavailable"
             : " under policy " + entity.getPolicyVersion() + " hash " + entity.getPolicyHash();
-        audit(incidentId, "POLICY_DECISION", "Policy decision " + entity.getDecision() + " with reason " + entity.getReasonCode() + policyAudit);
+        audit(
+            incidentId,
+            "POLICY_DECISION",
+            "Policy decision " + entity.getDecision() + " with reason " + entity.getReasonCode() + policyAudit,
+            gatewayDecision.activitySequence(),
+            gatewayDecision.activityHash(),
+            "evaluate-action"
+        );
         traces.record(action, "T3N_TEE_EVALUATION", decisionTraceState(entity.getDecision()), entity.getReasonCode(), elapsedMillis(startedAt));
         return decisionResponse(entity);
     }
@@ -226,17 +233,38 @@ public class IncidentService {
             ), capability);
             if (!action.getRequestId().equals(result.requestId())) {
                 RemediationExecutionEntity state = executionCoordinator.markUnverified(actionId, "REQUEST_ID_MISMATCH");
-                audit(incidentId, "REMEDIATION_UNVERIFIED", "Execution acknowledgement request id did not match; no automatic retry will occur");
+                audit(
+                    incidentId,
+                    "REMEDIATION_UNVERIFIED",
+                    "Execution acknowledgement request id did not match; no automatic retry will occur",
+                    result.activitySequence(),
+                    result.activityHash(),
+                    "execute-remediation"
+                );
                 traces.record(action, "EXTERNAL_ACCEPTANCE", "FAILED", "REQUEST_ID_MISMATCH", elapsedMillis(startedAt));
                 return remediationResponse(incidentId, actionId, state);
             }
             RemediationExecutionEntity pending = executionCoordinator.markPendingVerification(actionId, result.httpCode(), safeNullable(result.operationId(), 200));
-            audit(incidentId, "REMEDIATION_ACCEPTED", "External request accepted under policy " + decision.getPolicyVersion() + " hash " + decision.getPolicyHash() + "; independent verification is required before completion");
+            audit(
+                incidentId,
+                "REMEDIATION_ACCEPTED",
+                "External request accepted under policy " + decision.getPolicyVersion() + " hash " + decision.getPolicyHash() + "; independent verification is required before completion",
+                result.activitySequence(),
+                result.activityHash(),
+                "execute-remediation"
+            );
             traces.record(action, "EXTERNAL_ACCEPTANCE", "ACCEPTED", "HTTP_" + result.httpCode(), elapsedMillis(startedAt));
             return verifyPersistedRemediation(incidentId, action, pending);
         } catch (GatewayUnavailableException ex) {
             RemediationExecutionEntity state = executionCoordinator.markUnverified(actionId, "EXECUTION_RESULT_UNKNOWN");
-            audit(incidentId, "REMEDIATION_UNVERIFIED", "Execution outcome is ambiguous or policy binding could not be confirmed; automatic re-execution is blocked");
+            audit(
+                incidentId,
+                "REMEDIATION_UNVERIFIED",
+                "Execution outcome is ambiguous or policy binding could not be confirmed; automatic re-execution is blocked",
+                null,
+                null,
+                "execute-remediation"
+            );
             traces.record(action, "EXTERNAL_ACCEPTANCE", "UNAVAILABLE", "EXECUTION_RESULT_UNKNOWN", elapsedMillis(startedAt));
             return remediationResponse(incidentId, actionId, state);
         }
@@ -281,6 +309,14 @@ public class IncidentService {
             var verification = remediationGateway.verify(execution.getRequestId(), execution.getOperationId());
             if (!execution.getRequestId().equals(verification.requestId())) {
                 RemediationExecutionEntity state = executionCoordinator.markUnverified(action.getId(), "VERIFICATION_REQUEST_ID_MISMATCH");
+                audit(
+                    incidentId,
+                    "REMEDIATION_UNVERIFIED",
+                    "Verification response request id did not match; completion remains unverified",
+                    verification.activitySequence(),
+                    verification.activityHash(),
+                    "verify-remediation"
+                );
                 traces.record(action, "EXTERNAL_VERIFICATION", "FAILED", "VERIFICATION_REQUEST_ID_MISMATCH", elapsedMillis(startedAt));
                 return remediationResponse(incidentId, action.getId(), state);
             }
@@ -288,17 +324,38 @@ public class IncidentService {
                 RemediationExecutionEntity completed = executionCoordinator.markCompleted(action.getId());
                 action.markRemediated();
                 actions.save(action);
-                audit(incidentId, "REMEDIATION_VERIFIED", "Independent read-back confirmed expected external state REVOKED");
+                audit(
+                    incidentId,
+                    "REMEDIATION_VERIFIED",
+                    "Independent read-back confirmed expected external state REVOKED",
+                    verification.activitySequence(),
+                    verification.activityHash(),
+                    "verify-remediation"
+                );
                 traces.record(action, "EXTERNAL_VERIFICATION", "VERIFIED", null, elapsedMillis(startedAt));
                 return remediationResponse(incidentId, action.getId(), completed);
             }
             RemediationExecutionEntity state = executionCoordinator.markUnverified(action.getId(), "EXTERNAL_STATE_NOT_VERIFIED");
-            audit(incidentId, "REMEDIATION_UNVERIFIED", "Independent read-back did not confirm the expected external state");
+            audit(
+                incidentId,
+                "REMEDIATION_UNVERIFIED",
+                "Independent read-back did not confirm the expected external state",
+                verification.activitySequence(),
+                verification.activityHash(),
+                "verify-remediation"
+            );
             traces.record(action, "EXTERNAL_VERIFICATION", "FAILED", "EXTERNAL_STATE_NOT_VERIFIED", elapsedMillis(startedAt));
             return remediationResponse(incidentId, action.getId(), state);
         } catch (GatewayUnavailableException ex) {
             RemediationExecutionEntity state = executionCoordinator.markUnverified(action.getId(), "VERIFICATION_UNAVAILABLE");
-            audit(incidentId, "REMEDIATION_UNVERIFIED", "External verification is unavailable; no automatic re-execution will occur");
+            audit(
+                incidentId,
+                "REMEDIATION_UNVERIFIED",
+                "External verification is unavailable; no automatic re-execution will occur",
+                null,
+                null,
+                "verify-remediation"
+            );
             traces.record(action, "EXTERNAL_VERIFICATION", "UNAVAILABLE", "VERIFICATION_UNAVAILABLE", elapsedMillis(startedAt));
             return remediationResponse(incidentId, action.getId(), state);
         }
@@ -361,7 +418,23 @@ public class IncidentService {
     }
 
     private void audit(String incidentId, String type, String message) {
-        audits.save(new AuditEventEntity(UUID.randomUUID().toString(), incidentId, type, minimizer.sanitizeAuditMessage(message), Instant.now()));
+        audit(incidentId, type, message, null, null, null);
+    }
+
+    private void audit(String incidentId, String type, String message, Long t3nSequence, String t3nHash, String t3nFunction) {
+        Long sequence = t3nSequence != null && t3nSequence >= 0 ? t3nSequence : null;
+        String function = safeNullable(t3nFunction, 120);
+        String hash = sequence == null ? null : safeNullable(t3nHash, 128);
+        audits.save(new AuditEventEntity(
+            UUID.randomUUID().toString(),
+            incidentId,
+            type,
+            minimizer.sanitizeAuditMessage(message),
+            Instant.now(),
+            sequence,
+            hash,
+            function
+        ));
     }
 
     private IncidentResponse incidentResponse(IncidentEntity entity) {

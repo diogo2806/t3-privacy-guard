@@ -62,6 +62,38 @@ public class GatewayPolicyClient {
         @JsonProperty("redacted_private_refs") List<String> redactedPrivateRefs,
         @JsonProperty("policy_version") String policyVersion,
         @JsonProperty("policy_hash") String policyHash,
-        @JsonProperty("requires_human_authorization") Boolean requiresHumanAuthorization
-    ) {}
+        @JsonProperty("requires_human_authorization") Boolean requiresHumanAuthorization,
+        @JsonProperty("activity_sequence") Long activitySequence,
+        @JsonProperty("activity_hash") String activityHash
+    ) {
+        public GatewayDecision(
+            String requestId,
+            DecisionType decision,
+            String reasonCode,
+            String reason,
+            List<String> allowedFields,
+            List<String> redactedFields,
+            List<String> allowedPrivateRefs,
+            List<String> redactedPrivateRefs
+        ) {
+            this(requestId, decision, reasonCode, reason, allowedFields, redactedFields, allowedPrivateRefs, redactedPrivateRefs, null, null, null, null, null);
+        }
+
+        public GatewayDecision(
+            String requestId,
+            DecisionType decision,
+            String reasonCode,
+            String reason,
+            List<String> allowedFields,
+            List<String> redactedFields,
+            List<String> allowedPrivateRefs,
+            List<String> redactedPrivateRefs,
+            String policyVersion,
+            String policyHash,
+            Boolean requiresHumanAuthorization
+        ) {
+            this(requestId, decision, reasonCode, reason, allowedFields, redactedFields, allowedPrivateRefs, redactedPrivateRefs,
+                policyVersion, policyHash, requiresHumanAuthorization, null, null);
+        }
+    }
 }
