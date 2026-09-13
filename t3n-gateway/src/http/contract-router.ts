@@ -11,7 +11,7 @@ function policyTraceState(decision: PolicyDecisionType): string {
 }
 
 function validVerificationContract(body: RemediationVerificationRequest): boolean {
-  return (body.action === 'revoke-credential' && body.expected_state === 'REVOKED')
+  return ((body.action == null || body.action === 'revoke-credential') && body.expected_state === 'REVOKED')
     || (body.action === 'notify-security' && body.expected_state === 'DELIVERED');
 }
 
