@@ -15,13 +15,26 @@ const incident = {
   retentionState: 'ACTIVE' as const,
 };
 
+const severities = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const;
+
 describe('IncidentSummary', () => {
   it('shows the server-provided retention state without claiming anonymity', () => {
     render(<IncidentSummary incident={incident} />);
 
-    expect(screen.getByLabelText('Data retention')).toBeInTheDocument();
-    expect(screen.getByText(/This incident data expires automatically on/i)).toBeInTheDocument();
-    expect(screen.getByText(/Recognizable sensitive values are rejected before local storage/i)).toBeInTheDocument();
+    const retention = screen.getByLabelText('Data retention');
+    expect(retention).toHaveClass('retention-panel');
+    expect(screen.getByText(/Expires automatically on/i)).toBeInTheDocument();
+    expect(screen.getByText(/Sensitive values are rejected before local storage/i)).toBeInTheDocument();
     expect(screen.getByText(/it is not anonymous data/i)).toBeInTheDocument();
+  });
+
+  it.each(severities)('uses the shared visual patterns for %s severity', (severity) => {
+    const { container } = render(<IncidentSummary incident={{ ...incident, severity }} />);
+
+    const badge = screen.getByText(severity, { selector: 'span' });
+    expect(badge).toHaveClass('severity-badge', `severity-badge-${severity.toLowerCase()}`);
+    expect(container.querySelector('.card-heading > .section-icon')).toBeInTheDocument();
+    expect(container.querySelector('.icon-tile')).not.toBeInTheDocument();
+    expect(container.querySelector('.severity')).not.toBeInTheDocument();
   });
 });
