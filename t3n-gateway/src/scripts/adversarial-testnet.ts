@@ -81,6 +81,9 @@ if (!config.executorApiKey) throw new Error('T3N_EXECUTOR_API_KEY is required fo
 if (process.env.EVIDENCE_RUN_DESTINATION_BINDING === 'true' && config.network !== 'testnet') {
   throw new Error('Destination-binding mutation evidence is testnet-only and cannot run against production');
 }
+if (process.env.EVIDENCE_RUN_PROFILE_PLACEHOLDER === 'true' && config.network !== 'testnet') {
+  throw new Error('Private placeholder resolution evidence is testnet-only and cannot run against production');
+}
 
 const trustFloorStore = new TrustManifestFloorStore(config.trustManifestFloorStorePath);
 const tenantSession = new T3nSession(config, trustFloorStore);
@@ -175,6 +178,7 @@ async function expectProposalVerificationRejected(contractId: string, contractVe
       {
         request_id: 'live-proposal-verify-deny',
         operation_id: 'synthetic-operation-not-authorized-for-proposal',
+        action: 'revoke-credential',
         expected_state: 'REVOKED',
       },
     ));
@@ -334,6 +338,77 @@ async function destinationBindingScenario(tenantDid: string, executorDid: string
   }
 }
 
+async function profilePlaceholderResolutionScenario(executorDid: string): Promise<void> {
+  const id = 'LIVE-PROFILE-PLACEHOLDER-RESOLUTION';
+  const expected = 'ALLOW -> protected notify-security -> VERIFIED DELIVERED with recipient_resolved=true and no recipient plaintext returned';
+  if (process.env.EVIDENCE_RUN_PROFILE_PLACEHOLDER !== 'true') {
+    record(id, expected, null, 'NOT_RUN', 'Set EVIDENCE_RUN_PROFILE_PLACEHOLDER=true only with a synthetic T3N profile containing a verified email and controlled execution/verification endpoints.');
+    return;
+  }
+  if (config.network !== 'testnet') {
+    record(id, expected, null, 'FAIL', 'Private placeholder resolution evidence is forbidden outside T3N testnet.');
+    return;
+  }
+  if (!process.env.SECURITY_API_URL?.trim() || !process.env.SECURITY_VERIFICATION_URL?.trim()) {
+    record(id, expected, null, 'FAIL', 'SECURITY_API_URL and SECURITY_VERIFICATION_URL are required for live private placeholder evidence.');
+    return;
+  }
+
+  try {
+    const decision = await contract.evaluate({
+      request_id: 'live-private-placeholder-notify',
+      action: 'notify-security',
+      resource: 'incident:synthetic',
+      purpose: 'incident-notification',
+      host: executionHost(),
+      fields: ['incident_id', 'severity', 'summary'],
+      private_refs: ['verified_email'],
+    });
+    observePolicy(decision);
+    if (decision.decision !== 'ALLOW' || !decision.policy_version || !decision.policy_hash) {
+      record(id, expected, `policy=${decision.decision}`, 'FAIL', 'The live notification did not receive an ALLOW decision with versioned policy metadata.');
+      return;
+    }
+
+    const remediation = await contract.remediate({
+      request_id: decision.request_id,
+      action: 'notify-security',
+      resource: 'incident:synthetic',
+      purpose: 'incident-notification',
+      approved_host: executionHost(),
+      fields: ['incident_id', 'severity', 'summary'],
+      private_refs: ['verified_email'],
+      policy_version: decision.policy_version,
+      policy_hash: decision.policy_hash,
+    }, executorDid);
+    if (!remediation.operation_id) {
+      record(id, expected, `${decision.decision} -> ${remediation.status}`, 'FAIL', 'Controlled notification endpoint did not return an operation id; independent delivery verification is impossible.');
+      return;
+    }
+
+    const verification = await contract.verifyRemediation({
+      request_id: remediation.request_id,
+      operation_id: remediation.operation_id,
+      action: 'notify-security',
+      expected_state: 'DELIVERED',
+    });
+    const passed = verification.status === 'VERIFIED'
+      && verification.observed_state === 'DELIVERED'
+      && verification.recipient_resolved === true;
+    record(
+      id,
+      expected,
+      `${decision.decision} -> ${remediation.status} -> ${verification.status} (${verification.observed_state ?? 'NO_STATE'}); recipient_resolved=${verification.recipient_resolved === true}`,
+      passed ? 'PASS' : 'FAIL',
+      passed
+        ? 'Controlled read-back confirmed delivery and private recipient resolution. Evidence contains only the boolean resolution assertion; recipient plaintext and placeholder literals are not returned by the contract result.'
+        : 'Independent read-back did not confirm both DELIVERED and recipient_resolved=true.',
+    );
+  } catch (error) {
+    record(id, expected, null, 'FAIL', sanitizeEvidenceError(error));
+  }
+}
+
 await tenantSession.connect();
 await Promise.all([agentSession.connect(), executorSession.connect()]);
 const identity = await contract.identity();
@@ -373,13 +448,7 @@ record(
   observedPolicyVersion && observedPolicyHash ? `${observedPolicyVersion} / ${observedPolicyHash}` : null,
   observedPolicyVersion && observedPolicyHash ? 'PASS' : 'FAIL',
 );
-record(
-  'LIVE-PROFILE-PLACEHOLDER-RESOLUTION',
-  'verified_email resolved by T3N profile placeholder only during protected egress',
-  null,
-  'NOT_RUN',
-  'Requires a dedicated synthetic T3N profile with verified email and compatible delegated scope/user context. Local mapping tests do not count as live resolution proof.',
-);
+await profilePlaceholderResolutionScenario(executorDid);
 
 await destinationBindingScenario(tenantDid, executorDid);
 
@@ -446,6 +515,7 @@ if (process.env.EVIDENCE_RUN_REMEDIATION === 'true') {
         const verification = await contract.verifyRemediation({
           request_id: remediation.request_id,
           operation_id: remediation.operation_id,
+          action: 'revoke-credential',
           expected_state: 'REVOKED',
         });
         const actual = `${attack.decision} -> ${safe.decision} -> ${remediation.status} -> ${verification.status}${verification.observed_state ? ` (${verification.observed_state})` : ''}`;
@@ -481,6 +551,7 @@ const evidence: EvidenceBundle = {
   scenarios,
 };
 const serialized = `${JSON.stringify(evidence, null, 2)}\n`;
+if (serialized.includes('{{profile.')) throw new Error('Evidence artifact contains a forbidden raw profile placeholder');
 assertNoSecretLeak(serialized, [config.apiKey, config.agentApiKey, config.executorApiKey, process.env.EVIDENCE_SENTINEL_SECRET, process.env.SECURITY_API_KEY, process.env.AI_API_KEY, config.gatewayServiceToken, config.remediationCapabilityKey]);
 await mkdir(dirname(outputPath), { recursive: true });
 await writeFile(outputPath, serialized, 'utf8');
