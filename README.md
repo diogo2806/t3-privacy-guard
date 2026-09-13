@@ -216,8 +216,6 @@ Real private values must never be placed in demo prompts; the model asks only fo
 
 ## Current policy vocabulary
 
-The current Rust policy contains four concrete security actions:
-
 | Action | Purpose | Minimum normal fields | Private reference |
 |---|---|---|---|
 | `revoke-credential` | `incident-remediation` | `incident_id`, `credential_id`, `reason` | none |
@@ -459,3 +457,20 @@ Before tenant or agent authentication, the gateway verifies the official signed 
 When a floor already exists, authentication calls `fetchTrustedManifest(network, { minVersion })`. A lower manifest is rejected, the floor is never silently decreased, and malformed or unreadable persisted state fails closed instead of resetting rollback history. Tenant and Agent sessions receive the same `TrustManifestFloorStore` instance in each runtime, so they cannot establish independent floors for the same network. Atomic temp-file + fsync + rename persistence allows the accepted floor to survive process/container restart when `/data` is persistent.
 
 Evidence uses precise wording: `Trust anchor VERIFIED` means the signed manifest established the T3N cluster trust boundary; `Rollback floor PERSISTED` means the version high-water mark was durably stored and reused across restarts. Neither claim is described as per-request hardware attestation.
+
+## Tamper-evident local audit
+
+New local business-audit events are chained per incident with HMAC-SHA-256. The canonical UTF-8 payload is versioned and binds `incidentId`, monotonic `sequence`, event `type`, canonical UTC `createdAt`, sanitized `message` and `previousMac`. A minimal `audit_chain_heads` row is locked with `PESSIMISTIC_WRITE` so append and head advancement occur in one transaction; the `(incident_id, integrity_sequence)` uniqueness constraint adds a database-level guard against duplicate sequence values.
+
+`AUDIT_INTEGRITY_KEY` is a dedicated runtime secret. It must contain at least 32 characters, must differ from operator, gateway, remediation and T3N credentials, has no known default and is never persisted in H2 or returned by an API. `.env.example` contains only a placeholder. Changing this key without an explicit migration/key-rotation plan makes existing signed history fail verification rather than silently re-signing it.
+
+The application exposes local integrity separately from T3N Activity Log provenance:
+
+```text
+Local integrity   VERIFIED / BROKEN / LEGACY_UNVERIFIED / NOT_AVAILABLE
+T3N provenance    MATCHED / UNMATCHED / LOCAL_ONLY / T3N_ONLY
+```
+
+`VERIFIED` means the retained local chain was recalculated with the currently configured integrity key and its persisted head matched. `BROKEN` means sequence, link, MAC or retained tail did not validate. Events created before this mechanism remain `LEGACY_UNVERIFIED`; they are never backfilled with invented historical MACs. `NOT_AVAILABLE` means there are no retained local events to verify. Retention purge removes both audit rows and the chain head, so HMAC is never used to justify indefinite retention of incident content.
+
+This is a storage-only tamper-evidence control, not an immutability or `tamper-proof` claim. An attacker that compromises both the database and `AUDIT_INTEGRITY_KEY` can forge a new chain. T3N Activity Log remains an independent read-only provenance source for the subset of operations observed by T3N.
