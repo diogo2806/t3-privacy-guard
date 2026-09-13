@@ -91,7 +91,15 @@ public class GatewaySystemClient {
     public record ExecutorStatus(boolean configured, boolean connected, boolean ready, String executorDid, String network) {}
     public record AgentRegistrationStatus(String agentDid, String state, String cardUri, String cardSha256, String verifiedAt, List<String> services) {}
     public record ContractIdentity(String contractId, String contractVersion) {}
-    public record DelegationStatus(String state, List<String> functions, List<String> allowedHosts) {}
+    public record DelegationStatus(
+        String memberState,
+        String effectiveState,
+        List<String> functions,
+        List<String> scopes,
+        List<String> allowedHosts,
+        List<String> satisfied,
+        List<String> missing
+    ) {}
     public record ActivityEvent(
         long sequence,
         String hash,
