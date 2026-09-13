@@ -119,7 +119,6 @@ class AuditEvidenceServiceTest {
             "agent",
             actorDid,
             "did:t3n:tenant",
-            "did:t3n:org",
             contractId,
             function,
             "success",
