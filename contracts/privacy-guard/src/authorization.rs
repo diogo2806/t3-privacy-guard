@@ -16,6 +16,7 @@ const MAX_REPLAY_ENTRIES_PER_BUCKET: usize = 1_024;
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AuthorizationClaims {
+    key_id: String,
     incident_id: String,
     action_id: String,
     request_id: String,
@@ -49,15 +50,16 @@ struct ReplayBucket {
     entries: Vec<ReplayEntry>,
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
-    hex::encode(Sha256::digest(bytes))
+fn sha256_hex(bytes: &[u8]) -> String { hex::encode(Sha256::digest(bytes)) }
+
+fn valid_key_id(value: &str) -> bool {
+    !value.is_empty() && value.len() <= 32 && value.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
 }
 
 fn list_hash(values: &[String]) -> Result<String, String> {
     let mut canonical: Vec<String> = values.iter().map(|value| value.trim().to_string()).collect();
     canonical.sort();
-    let json = serde_json::to_vec(&canonical)
-        .map_err(|_| "authorization proof metadata could not be canonicalized".to_string())?;
+    let json = serde_json::to_vec(&canonical).map_err(|_| "authorization proof metadata could not be canonicalized".to_string())?;
     Ok(sha256_hex(&json))
 }
 
@@ -90,13 +92,32 @@ fn is_sha256(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
+fn token_parts(token: &str) -> Result<Vec<&str>, String> {
+    if token.is_empty() || token.len() > MAX_TOKEN_BYTES {
+        return Err("authorization proof is missing or exceeds the size limit".to_string());
+    }
+    let parts: Vec<&str> = token.split('.').collect();
+    if parts.len() != 3 || parts[0] != TOKEN_VERSION {
+        return Err("authorization proof version is unsupported".to_string());
+    }
+    Ok(parts)
+}
+
 fn decode_claims(payload_part: &str) -> Result<AuthorizationClaims, String> {
     if payload_part.is_empty() || !payload_part.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_') {
         return Err("authorization proof payload is invalid".to_string());
     }
-    let payload = URL_SAFE_NO_PAD.decode(payload_part.as_bytes())
-        .map_err(|_| "authorization proof payload is invalid".to_string())?;
-    serde_json::from_slice(&payload).map_err(|_| "authorization proof payload is invalid".to_string())
+    let payload = URL_SAFE_NO_PAD.decode(payload_part.as_bytes()).map_err(|_| "authorization proof payload is invalid".to_string())?;
+    let claims: AuthorizationClaims = serde_json::from_slice(&payload).map_err(|_| "authorization proof payload is invalid".to_string())?;
+    if !valid_key_id(&claims.key_id) {
+        return Err("authorization proof key id is invalid".to_string());
+    }
+    Ok(claims)
+}
+
+fn extract_key_id(token: &str) -> Result<String, String> {
+    let parts = token_parts(token)?;
+    Ok(decode_claims(parts[1])?.key_id)
 }
 
 fn validate_time(claims: &AuthorizationClaims, now_ms: u64) -> Result<(), String> {
@@ -106,12 +127,8 @@ fn validate_time(claims: &AuthorizationClaims, now_ms: u64) -> Result<(), String
         || claims.expires_at.saturating_sub(claims.issued_at) > MAX_CAPABILITY_LIFETIME_MS {
         return Err("authorization proof time bounds are invalid".to_string());
     }
-    if claims.expires_at <= now_ms {
-        return Err("authorization proof expired".to_string());
-    }
-    if claims.issued_at > now_ms.saturating_add(CLOCK_SKEW_MS) {
-        return Err("authorization proof was issued in the future".to_string());
-    }
+    if claims.expires_at <= now_ms { return Err("authorization proof expired".to_string()); }
+    if claims.issued_at > now_ms.saturating_add(CLOCK_SKEW_MS) { return Err("authorization proof was issued in the future".to_string()); }
     Ok(())
 }
 
@@ -141,60 +158,31 @@ fn validate_bindings(claims: &AuthorizationClaims, request: &RemediationExecutio
         || claims.policy_version != request.policy_version
         || claims.policy_hash != request.policy_hash
         || claims.executor_did != request.executor_did;
-    if mismatched {
-        return Err("authorization proof does not match the remediation request".to_string());
-    }
+    if mismatched { return Err("authorization proof does not match the remediation request".to_string()); }
     Ok(())
 }
 
-fn verify_proof(
-    token: &str,
-    request: &RemediationExecutionRequest,
-    public_key_spki: &str,
-    now_ms: u64,
-) -> Result<AuthorizationClaims, String> {
-    if token.is_empty() || token.len() > MAX_TOKEN_BYTES {
-        return Err("authorization proof is missing or exceeds the size limit".to_string());
-    }
-    let parts: Vec<&str> = token.split('.').collect();
-    if parts.len() != 3 || parts[0] != TOKEN_VERSION {
-        return Err("authorization proof version is unsupported".to_string());
-    }
-    let signature_bytes = URL_SAFE_NO_PAD.decode(parts[2].as_bytes())
-        .map_err(|_| "authorization proof signature is invalid".to_string())?;
-    let signature = Signature::from_slice(&signature_bytes)
-        .map_err(|_| "authorization proof signature is invalid".to_string())?;
-    let public_der = STANDARD.decode(public_key_spki.trim().as_bytes())
-        .map_err(|_| "authorization verification key is invalid".to_string())?;
-    let public_key = VerifyingKey::from_public_key_der(&public_der)
-        .map_err(|_| "authorization verification key is invalid".to_string())?;
-    let signing_input = format!("{}.{}", parts[0], parts[1]);
-    public_key.verify(signing_input.as_bytes(), &signature)
-        .map_err(|_| "authorization proof signature is invalid".to_string())?;
-
+fn verify_proof(token: &str, request: &RemediationExecutionRequest, public_key_spki: &str, now_ms: u64) -> Result<AuthorizationClaims, String> {
+    let parts = token_parts(token)?;
     let claims = decode_claims(parts[1])?;
+    let signature_bytes = URL_SAFE_NO_PAD.decode(parts[2].as_bytes()).map_err(|_| "authorization proof signature is invalid".to_string())?;
+    let signature = Signature::from_slice(&signature_bytes).map_err(|_| "authorization proof signature is invalid".to_string())?;
+    let public_der = STANDARD.decode(public_key_spki.trim().as_bytes()).map_err(|_| "authorization verification key is invalid".to_string())?;
+    let public_key = VerifyingKey::from_public_key_der(&public_der).map_err(|_| "authorization verification key is invalid".to_string())?;
+    let signing_input = format!("{}.{}", parts[0], parts[1]);
+    public_key.verify(signing_input.as_bytes(), &signature).map_err(|_| "authorization proof signature is invalid".to_string())?;
     validate_time(&claims, now_ms)?;
     validate_bindings(&claims, request)?;
     Ok(claims)
 }
 
-fn apply_nonce_to_bucket(
-    mut bucket: ReplayBucket,
-    claims: &AuthorizationClaims,
-    now_ms: u64,
-) -> Result<ReplayBucket, String> {
+fn apply_nonce_to_bucket(mut bucket: ReplayBucket, claims: &AuthorizationClaims, now_ms: u64) -> Result<ReplayBucket, String> {
     let bucket_epoch = claims.expires_at / REPLAY_BUCKET_MS;
     let nonce_hash = sha256_hex(claims.nonce.as_bytes());
-    if bucket.epoch != bucket_epoch {
-        bucket = ReplayBucket { epoch: bucket_epoch, entries: Vec::new() };
-    }
+    if bucket.epoch != bucket_epoch { bucket = ReplayBucket { epoch: bucket_epoch, entries: Vec::new() }; }
     bucket.entries.retain(|entry| entry.expires_at > now_ms);
-    if bucket.entries.iter().any(|entry| entry.nonce_hash == nonce_hash) {
-        return Err("authorization proof replay detected".to_string());
-    }
-    if bucket.entries.len() >= MAX_REPLAY_ENTRIES_PER_BUCKET {
-        return Err("authorization replay bucket capacity exceeded".to_string());
-    }
+    if bucket.entries.iter().any(|entry| entry.nonce_hash == nonce_hash) { return Err("authorization proof replay detected".to_string()); }
+    if bucket.entries.len() >= MAX_REPLAY_ENTRIES_PER_BUCKET { return Err("authorization replay bucket capacity exceeded".to_string()); }
     bucket.entries.push(ReplayEntry { nonce_hash, expires_at: claims.expires_at });
     Ok(bucket)
 }
@@ -205,18 +193,19 @@ use crate::host::{interfaces::kv_store, tenant::tenant_context};
 #[cfg(target_arch = "wasm32")]
 fn now_millis() -> Result<u64, String> {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let duration = SystemTime::now().duration_since(UNIX_EPOCH)
-        .map_err(|_| "trusted runtime clock is unavailable".to_string())?;
+    let duration = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_| "trusted runtime clock is unavailable".to_string())?;
     u64::try_from(duration.as_millis()).map_err(|_| "trusted runtime clock is out of range".to_string())
 }
 
 #[cfg(target_arch = "wasm32")]
-fn read_verification_key() -> Result<String, String> {
+fn read_verification_key(key_id: &str) -> Result<String, String> {
+    if !valid_key_id(key_id) { return Err("authorization proof key id is invalid".to_string()); }
     let tid = tenant_context::tenant_did();
     let map_name = alloc::format!("z:{}:secrets", hex::encode(&tid));
-    let bytes = kv_store::get(&map_name, b"remediation_auth_public_key_spki")
+    let key = alloc::format!("remediation_auth_public_key_spki:{key_id}");
+    let bytes = kv_store::get(&map_name, key.as_bytes())
         .map_err(|_| "authorization verification key store is unavailable".to_string())?
-        .ok_or_else(|| "authorization verification key is not provisioned".to_string())?;
+        .ok_or_else(|| "authorization verification key version is not provisioned".to_string())?;
     String::from_utf8(bytes).map_err(|_| "authorization verification key is invalid".to_string())
 }
 
@@ -227,24 +216,21 @@ fn consume_nonce(claims: &AuthorizationClaims, now_ms: u64) -> Result<(), String
     let bucket_epoch = claims.expires_at / REPLAY_BUCKET_MS;
     let bucket_slot = bucket_epoch % REPLAY_BUCKET_SLOTS;
     let key = alloc::format!("slot-{bucket_slot}");
-    let current = match kv_store::get(&map_name, key.as_bytes())
-        .map_err(|_| "authorization replay store is unavailable".to_string())? {
-        Some(bytes) => serde_json::from_slice::<ReplayBucket>(&bytes)
-            .map_err(|_| "authorization replay store is invalid".to_string())?,
+    let current = match kv_store::get(&map_name, key.as_bytes()).map_err(|_| "authorization replay store is unavailable".to_string())? {
+        Some(bytes) => serde_json::from_slice::<ReplayBucket>(&bytes).map_err(|_| "authorization replay store is invalid".to_string())?,
         None => ReplayBucket::default(),
     };
     let bucket = apply_nonce_to_bucket(current, claims, now_ms)?;
-    let encoded = serde_json::to_vec(&bucket)
-        .map_err(|_| "authorization replay state could not be encoded".to_string())?;
-    kv_store::put(&map_name, key.as_bytes(), &encoded)
-        .map_err(|_| "authorization replay state could not be persisted".to_string())?;
+    let encoded = serde_json::to_vec(&bucket).map_err(|_| "authorization replay state could not be encoded".to_string())?;
+    kv_store::put(&map_name, key.as_bytes(), &encoded).map_err(|_| "authorization replay state could not be persisted".to_string())?;
     Ok(())
 }
 
 #[cfg(target_arch = "wasm32")]
 pub fn verify_and_consume(request: &RemediationExecutionRequest) -> Result<(), String> {
     let now_ms = now_millis()?;
-    let public_key = read_verification_key()?;
+    let key_id = extract_key_id(&request.authorization_proof)?;
+    let public_key = read_verification_key(&key_id)?;
     let claims = verify_proof(&request.authorization_proof, request, &public_key, now_ms)?;
     consume_nonce(&claims, now_ms)
 }
@@ -260,50 +246,24 @@ mod tests {
 
     fn request() -> RemediationExecutionRequest {
         RemediationExecutionRequest {
-            incident_id: "incident-1".into(),
-            action_id: "action-1".into(),
-            decision_id: "decision-1".into(),
-            request_id: "request-1".into(),
-            agent_did: "did:t3n:proposal".into(),
-            executor_did: "did:t3n:executor".into(),
-            action: "revoke-credential".into(),
-            resource: "credential:test".into(),
-            purpose: "incident-remediation".into(),
-            approved_host: "security-a.example".into(),
+            incident_id: "incident-1".into(), action_id: "action-1".into(), decision_id: "decision-1".into(), request_id: "request-1".into(),
+            agent_did: "did:t3n:proposal".into(), executor_did: "did:t3n:executor".into(), action: "revoke-credential".into(),
+            resource: "credential:test".into(), purpose: "incident-remediation".into(), approved_host: "security-a.example".into(),
             fields: vec!["incident_id".into(), "credential_id".into(), "reason".into()],
-            normal_payload: BTreeMap::from([
-                ("credential_id".into(), "cred-demo-001".into()),
-                ("incident_id".into(), "inc-demo-001".into()),
-                ("reason".into(), "suspected compromise".into()),
-            ]),
-            private_refs: vec![],
-            policy_version: "2026-09-12.1".into(),
-            policy_hash: "a".repeat(64),
-            authorization_proof: "placeholder".into(),
+            normal_payload: BTreeMap::from([("credential_id".into(), "cred-demo-001".into()), ("incident_id".into(), "inc-demo-001".into()), ("reason".into(), "suspected compromise".into())]),
+            private_refs: vec![], policy_version: "2026-09-12.1".into(), policy_hash: "a".repeat(64), authorization_proof: "placeholder".into(),
         }
     }
 
     fn claims(request: &RemediationExecutionRequest, nonce: &str) -> serde_json::Value {
         serde_json::json!({
-            "incidentId": request.incident_id,
-            "actionId": request.action_id,
-            "requestId": request.request_id,
-            "decisionId": request.decision_id,
-            "action": request.action,
-            "resource": request.resource,
-            "purpose": request.purpose,
-            "approvedHost": request.approved_host,
-            "fieldsHash": list_hash(&request.fields).unwrap(),
-            "normalPayloadHash": normal_payload_hash(&request.normal_payload),
-            "privateRefsHash": list_hash(&request.private_refs).unwrap(),
-            "policyVersion": request.policy_version,
-            "policyHash": request.policy_hash,
-            "executorDid": request.executor_did,
-            "operatorPrincipalHash": "b".repeat(64),
-            "authorizedAt": NOW - 2_000,
-            "issuedAt": NOW - 1_000,
-            "expiresAt": NOW + 60_000,
-            "nonce": nonce
+            "keyId": "primary", "incidentId": request.incident_id, "actionId": request.action_id, "requestId": request.request_id,
+            "decisionId": request.decision_id, "action": request.action, "resource": request.resource, "purpose": request.purpose,
+            "approvedHost": request.approved_host, "fieldsHash": list_hash(&request.fields).unwrap(),
+            "normalPayloadHash": normal_payload_hash(&request.normal_payload), "privateRefsHash": list_hash(&request.private_refs).unwrap(),
+            "policyVersion": request.policy_version, "policyHash": request.policy_hash, "executorDid": request.executor_did,
+            "operatorPrincipalHash": "b".repeat(64), "authorizedAt": NOW - 2_000, "issuedAt": NOW - 1_000,
+            "expiresAt": NOW + 60_000, "nonce": nonce
         })
     }
 
@@ -316,22 +276,25 @@ mod tests {
         format!("{signing_input}.{}", URL_SAFE_NO_PAD.encode(signature.to_bytes()))
     }
 
-    fn signed_token(request: &RemediationExecutionRequest, nonce: &str) -> String {
-        sign_claims(&claims(request, nonce))
-    }
+    fn signed_token(request: &RemediationExecutionRequest, nonce: &str) -> String { sign_claims(&claims(request, nonce)) }
 
     #[test]
-    fn valid_v2_proof_is_bound_to_execution_and_human_provenance() {
+    fn valid_v2_proof_is_bound_to_key_execution_and_human_provenance() {
         let mut request = request();
         request.authorization_proof = signed_token(&request, "nonce-00000001");
         let verified = verify_proof(&request.authorization_proof, &request, PUBLIC_KEY_SPKI, NOW).unwrap();
+        assert_eq!(verified.key_id, "primary");
         assert_eq!(verified.operator_principal_hash, "b".repeat(64));
         assert!(verified.authorized_at <= verified.issued_at);
+        assert_eq!(extract_key_id(&request.authorization_proof).unwrap(), "primary");
     }
 
     #[test]
-    fn direct_execution_without_proof_and_legacy_v1_format_fail_closed() {
+    fn invalid_key_id_direct_execution_without_proof_and_legacy_format_fail_closed() {
         let request = request();
+        let mut invalid = claims(&request, "nonce-key-0001");
+        invalid["keyId"] = serde_json::json!("../bad");
+        assert!(verify_proof(&sign_claims(&invalid), &request, PUBLIC_KEY_SPKI, NOW).unwrap_err().contains("key id"));
         assert!(verify_proof("", &request, PUBLIC_KEY_SPKI, NOW).is_err());
         assert!(verify_proof("legacy.payload", &request, PUBLIC_KEY_SPKI, NOW).unwrap_err().contains("version"));
     }
@@ -349,14 +312,11 @@ mod tests {
         let request = request();
         let mut invalid_hash = claims(&request, "nonce-00000003");
         invalid_hash["operatorPrincipalHash"] = serde_json::json!("not-a-hash");
-        let token = sign_claims(&invalid_hash);
-        assert!(verify_proof(&token, &request, PUBLIC_KEY_SPKI, NOW).is_err());
-
+        assert!(verify_proof(&sign_claims(&invalid_hash), &request, PUBLIC_KEY_SPKI, NOW).is_err());
         let mut future_auth = claims(&request, "nonce-00000004");
         future_auth["authorizedAt"] = serde_json::json!(NOW + 2_000);
         future_auth["issuedAt"] = serde_json::json!(NOW + 1_000);
-        let token = sign_claims(&future_auth);
-        assert!(verify_proof(&token, &request, PUBLIC_KEY_SPKI, NOW).unwrap_err().contains("time bounds"));
+        assert!(verify_proof(&sign_claims(&future_auth), &request, PUBLIC_KEY_SPKI, NOW).unwrap_err().contains("time bounds"));
     }
 
     #[test]
@@ -366,22 +326,18 @@ mod tests {
         let mut bytes = token.into_bytes();
         let last = bytes.len() - 1;
         bytes[last] = if bytes[last] == b'A' { b'B' } else { b'A' };
-        let altered = String::from_utf8(bytes).unwrap();
-        assert!(verify_proof(&altered, &request, PUBLIC_KEY_SPKI, NOW).is_err());
-
+        assert!(verify_proof(&String::from_utf8(bytes).unwrap(), &request, PUBLIC_KEY_SPKI, NOW).is_err());
         let mut expired = claims(&request, "nonce-00000006");
         expired["issuedAt"] = serde_json::json!(NOW - 120_000);
         expired["authorizedAt"] = serde_json::json!(NOW - 121_000);
         expired["expiresAt"] = serde_json::json!(NOW - 60_000);
-        let token = sign_claims(&expired);
-        assert!(verify_proof(&token, &request, PUBLIC_KEY_SPKI, NOW).unwrap_err().contains("expired"));
+        assert!(verify_proof(&sign_claims(&expired), &request, PUBLIC_KEY_SPKI, NOW).unwrap_err().contains("expired"));
     }
 
     #[test]
     fn replay_bucket_rejects_the_same_nonce_twice() {
         let request = request();
-        let token = signed_token(&request, "nonce-00000007");
-        let verified = verify_proof(&token, &request, PUBLIC_KEY_SPKI, NOW).unwrap();
+        let verified = verify_proof(&signed_token(&request, "nonce-00000007"), &request, PUBLIC_KEY_SPKI, NOW).unwrap();
         let bucket = apply_nonce_to_bucket(ReplayBucket::default(), &verified, NOW).unwrap();
         assert!(apply_nonce_to_bucket(bucket, &verified, NOW).unwrap_err().contains("replay"));
     }
