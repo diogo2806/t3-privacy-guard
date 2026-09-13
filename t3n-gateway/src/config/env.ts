@@ -10,7 +10,8 @@ export interface GatewayConfig {
   readonly contractTail: string;
   readonly contractVersion: string;
   readonly gatewayServiceToken: string;
-  readonly remediationCapabilityKey: string;
+  readonly remediationAuthorizationPublicKey: string;
+  readonly remediationAuthorizationKeyId: string;
   readonly remediationReplayStorePath: string;
   readonly trustManifestFloorStorePath: string;
   readonly aiProvider: AiProvider;
@@ -30,6 +31,18 @@ export class ConfigurationError extends Error {
 function requiredSecret(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name]?.trim();
   if (!value || value.length < 32) throw new ConfigurationError(`${name} is required and must contain at least 32 characters`);
+  return value;
+}
+
+function requiredEd25519PublicKey(env: NodeJS.ProcessEnv, name: string): string {
+  const value = env[name]?.trim();
+  if (!value || !/^[a-f0-9]{64}$/.test(value)) throw new ConfigurationError(`${name} is required and must contain a 32-byte lowercase hex Ed25519 public key`);
+  return value;
+}
+
+function requiredKeyId(env: NodeJS.ProcessEnv, name: string): string {
+  const value = env[name]?.trim();
+  if (!value || !/^[A-Za-z0-9._-]{1,32}$/.test(value)) throw new ConfigurationError(`${name} is required and must match [A-Za-z0-9._-]{1,32}`);
   return value;
 }
 
@@ -158,7 +171,8 @@ export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): Gateway
     contractTail,
     contractVersion,
     gatewayServiceToken: requiredSecret(env, 'GATEWAY_SERVICE_TOKEN'),
-    remediationCapabilityKey: requiredSecret(env, 'REMEDIATION_CAPABILITY_KEY'),
+    remediationAuthorizationPublicKey: requiredEd25519PublicKey(env, 'REMEDIATION_AUTH_PUBLIC_KEY'),
+    remediationAuthorizationKeyId: requiredKeyId(env, 'REMEDIATION_AUTH_KEY_ID'),
     remediationReplayStorePath: requiredPath(env, 'REMEDIATION_REPLAY_STORE_PATH', '/data/remediation-capability-nonces.json'),
     trustManifestFloorStorePath: requiredPath(env, 'T3N_TRUST_FLOOR_STORE_PATH', '/data/t3n-trust-floor.json'),
     aiProvider: aiProviderValue,
