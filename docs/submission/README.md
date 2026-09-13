@@ -26,6 +26,8 @@ The operational policy used by contract `0.4.0` is versioned in private T3N KV. 
 
 The project reports only verifiable state: `NOT_RUN` never becomes `PASS`, simulated output is not labelled live, profile-placeholder resolution is not labelled proved live until a compatible testnet profile actually executes it, an observed Member grant is not labelled effective authority, external execution is not labelled completed from HTTP acceptance alone, and hardware attestation is not claimed without a concrete artifact.
 
+Each live evidence bundle also records the full public Git commit SHA and whether the source tree was `CLEAN` or `DIRTY` when evidence generation began. Submission evidence fails closed on a dirty tree by default. The source revision provides reproducibility and public-code traceability; the WASM SHA-256 and policy hash remain the identities of the executed artifacts, and none of these fields is described as an independent code audit or hardware attestation.
+
 ## Why this is more than PII detection
 
 A normal PII filter answers questions such as “does this prompt contain an email address?”. T3 Privacy Guard addresses a larger authority problem:
@@ -191,7 +193,7 @@ The Proposal Agent and Protected Executor are evaluated independently. The dashb
 16. Confirm execution is bound to the authenticated Protected Executor and the same policy provenance.
 17. Observe PENDING_VERIFICATION or the verification transition.
 18. Accept COMPLETED only when independent read-back shows VERIFIED.
-19. Open Evidence and confirm exact T3N_TESTNET claims, contract/WASM/policy provenance and NOT_RUN boundaries.
+19. Open Evidence and confirm the full Source commit, Source tree CLEAN/DIRTY state, exact T3N_TESTNET claims, contract/WASM/policy provenance and NOT_RUN boundaries.
 ```
 
 ## Architecture and trust boundaries
@@ -303,6 +305,7 @@ Trust model:
 | Missing/invalid policy fails closed | PROVED LOCAL | Rust policy tests + gateway contract path |
 | Critical forbidden-secret/private-ref invariants cannot be relaxed by KV policy | PROVED LOCAL | Rust adversarial/policy tests |
 | Policy version/hash propagate through decision, persistence, UI and evidence metadata | PROVED LOCAL | backend/frontend/evidence tests |
+| Live evidence source revision is a full Git SHA with explicit CLEAN/DIRTY state | PROVED LOCAL | `source-revision.test.ts`, manifest/backend/frontend evidence tests |
 | Remediation capability binds exact policy version/hash | PROVED LOCAL | signer/verifier + remediation tests |
 | Protected execution rejects stale policy provenance | PROVED LOCAL | Rust/gateway remediation tests |
 | Literal profile placeholders and unknown private refs are rejected | PROVED LOCAL | proposal schema + Spring validation + Rust policy tests |
@@ -498,6 +501,9 @@ For judging and evidence, the claims are separate:
 ## Evidence model
 
 ```text
+public source revision
+      | full 40-char Git SHA + CLEAN/DIRTY tree state
+      v
 verified T3N trust manifest
       |
       v
@@ -509,12 +515,12 @@ Tenant / Proposal Agent / Protected Executor authenticated sessions
       v
 WASM bytes -> SHA-256 ----+
 policy doc -> SHA-256 ----+--> deployment-manifest.json
-                           |      same DIDs / contract / version / hashes
+                           |      same source revision / DIDs / contract / version / hashes
                            v
                     testnet-run.json
 ```
 
-`PASS` means observed result matched expectation. `FAIL` means it did not. `NOT_RUN` means the scenario was not executed and is never counted as success. The profile-placeholder execution scenario remains `NOT_RUN` until a compatible profile/user context exists; local tests do not upgrade that claim to live proof.
+The live orchestrator captures the source revision before it writes generated evidence files. A dirty working tree is rejected by default; the explicit non-submission override records `sourceTreeClean=false` rather than hiding the state. The manifest and testnet run must contain the same source SHA/tree state or the evidence API rejects the bundle. `PASS` means observed result matched expectation. `FAIL` means it did not. `NOT_RUN` means the scenario was not executed and is never counted as success. The profile-placeholder execution scenario remains `NOT_RUN` until a compatible profile/user context exists; local tests do not upgrade that claim to live proof.
 
 The live remediation scenario is stricter:
 
@@ -558,7 +564,7 @@ When preparing egress evidence, configure `SECURITY_API_URL` and the separate `S
 9. Human authorization separate from execution and bound to the same version/hash and Protected Executor.
 10. Execution/verification panel showing the state machine.
 11. Verified remediation screenshot only after `Verification = VERIFIED` and `Final state = COMPLETED`.
-12. Evidence Center with T3N_TESTNET metadata/results, contract/WASM/policy provenance and optional scenarios honestly PASS/FAIL/NOT_RUN.
+12. Evidence Center with full Source commit, Source tree state, T3N_TESTNET metadata/results, contract/WASM/policy provenance and optional scenarios honestly PASS/FAIL/NOT_RUN.
 
 Never capture passwords, cookies, T3N keys, provider key, service/capability keys, remediation secret, resolved profile PII, `.env` or raw logs.
 
@@ -575,7 +581,7 @@ Never capture passwords, cookies, T3N keys, provider key, service/capability key
 125–140s Explicit human authorization bound to policy provenance + Protected Executor DID
 140–160s Protected execution -> active policy recheck -> PENDING_VERIFICATION
 160–175s Independent read-back -> VERIFIED/COMPLETED when available
-175–180s Evidence Center -> exact proof status and NOT_RUN boundaries
+175–180s Evidence Center -> source revision + exact proof status + NOT_RUN boundaries
 ```
 
 ## UX and claim wording rules
@@ -591,6 +597,9 @@ The submission must lead with user/business meaning, then expose the technical p
 - **effective access**: runtime result; `ACTIVE` only when Member grant is active and T3N returns `authorised=true`;
 - **authorized** in the platform-delegation status: only `checkDelegation().authorised=true`;
 - **human authorized**: business authorization persisted for the exact action, policy provenance and Protected Executor DID;
+- **source commit**: full public Git revision captured before evidence generation; source traceability, not independent verification;
+- **source tree CLEAN**: no tracked or untracked working-tree changes at capture time; reproducibility signal, not security certification;
+- **source tree DIRTY**: source differed from the recorded commit; disclosed explicitly and rejected for submission evidence by default;
 - **policy version**: immutable operational ruleset identifier loaded from private T3N KV;
 - **policy hash**: deterministic canonical SHA-256 proving policy provenance, not hardware attestation;
 - **logical private reference**: category such as `verified_email`, not the private value;
@@ -602,7 +611,7 @@ The submission must lead with user/business meaning, then expose the technical p
 - **execution proof**: short-lived server-to-gateway capability, not hardware attestation;
 - **proved live**: matching live evidence/capture exists.
 
-Do not say “Member grant ACTIVE = authorized”, “registered = authorized”, “Agent Card = attestation”, “guarantees GDPR compliance”, “hardware verified”, “exactly once”, “at most once”, “profile resolution proved live”, “all four scenarios execute end-to-end” or “completed from HTTP 2xx” without corresponding evidence/contract.
+Do not say “Verified source” solely because a Git SHA/tree state is present, “Member grant ACTIVE = authorized”, “registered = authorized”, “Agent Card = attestation”, “guarantees GDPR compliance”, “hardware verified”, “exactly once”, “at most once”, “profile resolution proved live”, “all four scenarios execute end-to-end” or “completed from HTTP 2xx” without corresponding evidence/contract.
 
 ## Post-challenge operation and handover
 
