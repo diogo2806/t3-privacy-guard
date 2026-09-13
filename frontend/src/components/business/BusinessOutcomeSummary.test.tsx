@@ -131,12 +131,28 @@ describe('BusinessOutcomeSummary', () => {
     expect(section('Threat observed').getByText('1 · verified_email')).toBeInTheDocument();
   });
 
+  it('shows actual policy-allowed private reference counts', () => {
+    const action = { ...THREAT_ACTION, privateRefs: ['verified_email'] };
+    const allow = { ...policyDecision(action, 'ALLOW'), allowedPrivateRefs: ['verified_email'] };
+    renderSummary({ incident: INCIDENT, selectedAction: action, decision: allow });
+    expect(section('T3N control outcome').getByText('1 · verified_email')).toBeInTheDocument();
+    expectValue('Policy-redacted private refs', '0 · None observed');
+  });
+
+  it('shows actual policy-redacted private reference counts', () => {
+    const action = { ...THREAT_ACTION, privateRefs: ['verified_email'] };
+    const redact = { ...policyDecision(action, 'REDACT'), redactedPrivateRefs: ['verified_email'] };
+    renderSummary({ incident: INCIDENT, selectedAction: action, decision: redact });
+    expectValue('Policy-redacted private refs', '1 · verified_email');
+  });
+
   it('shows ALLOW as requiring human authorization before protected execution', () => {
     const allow = policyDecision(SAFE_ACTION, 'ALLOW', '2026-09-13T15:00:01.420Z');
     renderSummary({ incident: INCIDENT, selectedAction: SAFE_ACTION, decision: allow });
     expect(screen.getByRole('status')).toHaveTextContent('Human authorization is still required');
     expect(section('Authorized response').getByText('REQUIRED')).toBeInTheDocument();
     expect(section('Authorized response').getByText('Not authorized yet')).toBeInTheDocument();
+    expectValue('Policy-allowed action', 'revoke-credential');
   });
 
   it('keeps accepted execution pending until independent verification completes', () => {
