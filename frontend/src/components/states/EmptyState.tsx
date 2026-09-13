@@ -1,11 +1,11 @@
 import { ShieldAlert } from 'lucide-react';
 
-export function EmptyState(_: { onRun: () => void; busy: boolean }) {
+export function EmptyState() {
   return (
-    <section className="empty-state">
+    <section className="empty-state" aria-labelledby="empty-state-title">
       <ShieldAlert aria-hidden="true" />
-      <h2>No incident selected yet</h2>
-      <p>Use the AI agent prompt panel above to run the attack prompt or submit a legitimate instruction. The model proposes an action and T3N independently decides it.</p>
+      <h2 id="empty-state-title">No scenario result yet</h2>
+      <p>Choose an enterprise scenario, review or edit its synthetic prompt, then use Ask agent. Scenario selection alone never calls an API, authorizes an action or predicts the T3N policy decision.</p>
     </section>
   );
 }

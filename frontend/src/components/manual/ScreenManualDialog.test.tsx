@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { ScreenManualDialog } from './ScreenManualDialog';
 
 describe('ScreenManualDialog', () => {
-  it('traps keyboard focus, explains the trust journey, closes with Escape and restores focus', async () => {
+  it('traps keyboard focus, explains the enterprise trust journey, closes with Escape and restores focus', async () => {
     const user = userEvent.setup();
     render(
       <div>
@@ -23,6 +23,12 @@ describe('ScreenManualDialog', () => {
     const closeButton = screen.getByRole('button', { name: 'Close Screen Manual' });
     expect(dialog).toHaveAttribute('aria-modal', 'true');
     expect(screen.getByText('What this screen is for')).toBeInTheDocument();
+    expect(screen.getByText('Enterprise scenarios')).toBeInTheDocument();
+    expect(screen.getByText(/Credential compromised/i)).toBeInTheDocument();
+    expect(screen.getByText(/Account takeover/i)).toBeInTheDocument();
+    expect(screen.getByText(/Record security incident/i)).toBeInTheDocument();
+    expect(screen.getByText(/Notify security contact/i)).toBeInTheDocument();
+    expect(screen.getByText(/verified_email/i)).toBeInTheDocument();
     expect(screen.getByText(/ALLOW does not mean executed/i)).toBeInTheDocument();
     expect(screen.getByText(/COMPLETED appears only after independent read-back/i)).toBeInTheDocument();
     expect(screen.getByText(/Protection demo/i)).toBeInTheDocument();
