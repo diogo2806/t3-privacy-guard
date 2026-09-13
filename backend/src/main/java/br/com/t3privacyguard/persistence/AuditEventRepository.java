@@ -5,5 +5,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface AuditEventRepository extends JpaRepository<AuditEventEntity, String> {
     List<AuditEventEntity> findByIncidentIdOrderByCreatedAtAsc(String incidentId);
+    boolean existsByIncidentIdAndIntegritySequenceIsNotNull(String incidentId);
     void deleteAllByIncidentId(String incidentId);
 }
