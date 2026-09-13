@@ -37,31 +37,32 @@ public class SystemStatusService {
         String authenticatedExecutorDid = executor.map(ExecutorStatus::executorDid).orElse(null);
         String registrationState = registrationState(registration, authenticatedAgentDid);
         boolean contractResolved = contract.isPresent();
-        String delegationState = proposalDelegation.map(DelegationStatus::state).orElse("UNKNOWN");
-        String executorDelegationState = executorDelegation.map(DelegationStatus::state).orElse("UNKNOWN");
-        boolean controlsReady = tenantAuthenticated
+
+        String delegationState = proposalDelegation.map(DelegationStatus::memberState).orElse("UNKNOWN");
+        String delegationEffectiveState = proposalDelegation.map(DelegationStatus::effectiveState).orElse("UNKNOWN");
+        String executorDelegationState = executorDelegation.map(DelegationStatus::memberState).orElse("UNKNOWN");
+        String executorDelegationEffectiveState = executorDelegation.map(DelegationStatus::effectiveState).orElse("UNKNOWN");
+
+        boolean evaluationReady = tenantAuthenticated
             && agentAuthenticated
-            && executorAuthenticated
             && contractResolved
             && "ACTIVE".equals(delegationState)
-            && "ACTIVE".equals(executorDelegationState);
+            && "ACTIVE".equals(delegationEffectiveState);
+        boolean protectedRemediationReady = evaluationReady
+            && executorAuthenticated
+            && "ACTIVE".equals(executorDelegationState)
+            && "ACTIVE".equals(executorDelegationEffectiveState);
 
-        String message;
-        if (!gatewayReachable) {
-            message = "T3N gateway is unreachable.";
-        } else if ("SCHEDULED".equals(delegationState) && "SCHEDULED".equals(executorDelegationState)) {
-            message = "Proposal and Executor delegations exist, but their authorization windows have not begun.";
-        } else if ("SCHEDULED".equals(delegationState)) {
-            message = "Proposal delegation exists, but its authorization window has not begun.";
-        } else if ("SCHEDULED".equals(executorDelegationState)) {
-            message = "Executor delegation exists, but its authorization window has not begun.";
-        } else if (controlsReady && "REGISTERED".equals(registrationState)) {
-            message = "T3N controls are ready: tenant, proposal agent and protected executor are authenticated with active least-privilege delegations, and the public Agent Card is registered.";
-        } else if (controlsReady) {
-            message = "T3N controls are ready, but public Agent onboarding is not confirmed as REGISTERED.";
-        } else {
-            message = "Gateway is online, but one or more T3N identity, contract, proposal delegation, or protected executor controls are not confirmed as ready.";
-        }
+        String message = statusMessage(
+            gatewayReachable,
+            delegationState,
+            delegationEffectiveState,
+            executorDelegationState,
+            executorDelegationEffectiveState,
+            evaluationReady,
+            protectedRemediationReady,
+            registrationState
+        );
 
         return new SystemStatusResponse(
             gatewayReachable,
@@ -82,14 +83,53 @@ public class SystemStatusService {
             contractResolved,
             contract.map(ContractIdentity::contractId).orElse(null),
             contract.map(ContractIdentity::contractVersion).orElse(null),
+            evaluationReady,
+            protectedRemediationReady,
             delegationState,
+            delegationEffectiveState,
             proposalDelegation.map(DelegationStatus::functions).orElse(List.of()),
+            proposalDelegation.map(DelegationStatus::scopes).orElse(List.of()),
             proposalDelegation.map(DelegationStatus::allowedHosts).orElse(List.of()),
+            proposalDelegation.map(DelegationStatus::checkedFunctions).orElse(List.of()),
+            proposalDelegation.map(DelegationStatus::checkedScopes).orElse(List.of()),
             executorDelegationState,
+            executorDelegationEffectiveState,
             executorDelegation.map(DelegationStatus::functions).orElse(List.of()),
+            executorDelegation.map(DelegationStatus::scopes).orElse(List.of()),
             executorDelegation.map(DelegationStatus::allowedHosts).orElse(List.of()),
+            executorDelegation.map(DelegationStatus::checkedFunctions).orElse(List.of()),
+            executorDelegation.map(DelegationStatus::checkedScopes).orElse(List.of()),
             message
         );
+    }
+
+    private static String statusMessage(
+        boolean gatewayReachable,
+        String proposalMemberState,
+        String proposalEffectiveState,
+        String executorMemberState,
+        String executorEffectiveState,
+        boolean evaluationReady,
+        boolean protectedRemediationReady,
+        String registrationState
+    ) {
+        if (!gatewayReachable) return "T3N gateway is unreachable.";
+        if ("SCHEDULED".equals(proposalMemberState) && "SCHEDULED".equals(executorMemberState)) {
+            return "Proposal and Executor Member Delegations exist, but their authorization windows have not begun.";
+        }
+        if ("SCHEDULED".equals(proposalMemberState)) return "Proposal Member Delegation exists, but its authorization window has not begun.";
+        if ("SCHEDULED".equals(executorMemberState)) return "Executor Member Delegation exists, but its authorization window has not begun.";
+        if (!"ACTIVE".equals(proposalMemberState)) return "Proposal Member Delegation is not active; policy evaluation is not ready.";
+        if ("DENIED".equals(proposalEffectiveState)) return "Proposal Member Delegation is active, but effective T3N access is denied for the required evaluation function/scopes.";
+        if (!"ACTIVE".equals(proposalEffectiveState)) return "Proposal Member Delegation is active, but effective T3N access could not be confirmed for policy evaluation.";
+        if (evaluationReady && !"ACTIVE".equals(executorMemberState)) return "Policy evaluation is ready, but the Executor Member Delegation is not active; protected remediation remains unavailable.";
+        if (evaluationReady && "DENIED".equals(executorEffectiveState)) return "Policy evaluation is ready, but effective T3N access is denied for the Protected Executor.";
+        if (evaluationReady && !"ACTIVE".equals(executorEffectiveState)) return "Policy evaluation is ready, but effective T3N access could not be confirmed for the Protected Executor.";
+        if (protectedRemediationReady && "REGISTERED".equals(registrationState)) {
+            return "T3N controls are ready: effective Proposal and Protected Executor access is confirmed for exact least-privilege functions/scopes, and the public Agent Card is registered.";
+        }
+        if (protectedRemediationReady) return "T3N controls are ready with effective Proposal and Protected Executor access confirmed, but public Agent onboarding is not confirmed as REGISTERED.";
+        return "Gateway is online, but one or more T3N identity, contract, Member Delegation, or effective-access checks are not confirmed as ready.";
     }
 
     private static String registrationState(Optional<AgentRegistrationStatus> registration, String authenticatedAgentDid) {
@@ -118,12 +158,22 @@ public class SystemStatusService {
         boolean contractResolved,
         String contractId,
         String contractVersion,
+        boolean evaluationReady,
+        boolean protectedRemediationReady,
         String delegationState,
+        String delegationEffectiveState,
         List<String> delegatedFunctions,
+        List<String> delegatedScopes,
         List<String> allowedHosts,
+        List<String> delegationCheckedFunctions,
+        List<String> delegationCheckedScopes,
         String executorDelegationState,
+        String executorDelegationEffectiveState,
         List<String> executorDelegatedFunctions,
+        List<String> executorDelegatedScopes,
         List<String> executorAllowedHosts,
+        List<String> executorDelegationCheckedFunctions,
+        List<String> executorDelegationCheckedScopes,
         String message
     ) {}
 }
