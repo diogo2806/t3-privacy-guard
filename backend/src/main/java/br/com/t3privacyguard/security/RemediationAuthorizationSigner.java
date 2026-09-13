@@ -1,6 +1,7 @@
 package br.com.t3privacyguard.security;
 
 import br.com.t3privacyguard.integration.GatewayRemediationClient;
+import br.com.t3privacyguard.persistence.ActionProposalEntity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.IDN;
 import java.nio.charset.StandardCharsets;
@@ -54,7 +55,8 @@ public class RemediationAuthorizationSigner {
     public String issue(
         String incidentId, String actionId, String requestId, String decisionId, String action,
         String resource, String purpose, String approvedHost, List<String> fields, Map<String, String> normalPayload,
-        List<String> privateRefs, String policyVersion, String policyHash
+        List<String> privateRefs, String policyVersion, String policyHash,
+        String remediationAuthorizedBy, Instant remediationAuthorizedAt
     ) {
         requireBoundValue(incidentId, "incidentId");
         requireBoundValue(actionId, "actionId");
@@ -71,11 +73,18 @@ public class RemediationAuthorizationSigner {
         if (executorDid == null || !executorDid.startsWith("did:t3n:")) {
             throw new IllegalStateException("Authenticated protected executor DID is required for remediation authorization");
         }
+        String operatorPrincipalHash = operatorPrincipalHash(remediationAuthorizedBy);
+        if (remediationAuthorizedAt == null) {
+            throw new IllegalArgumentException("Persisted human authorization timestamp is required");
+        }
         Instant now = Instant.now();
+        if (remediationAuthorizedAt.isAfter(now)) {
+            throw new IllegalArgumentException("Human authorization timestamp cannot be after capability issuance");
+        }
         Claims claims = new Claims(
             incidentId, actionId, requestId, decisionId, action, resource, purpose, canonicalApprovedHost,
             listHash(fields), NormalPayloadCanonicalizer.sha256(normalPayload), listHash(privateRefs), policyVersion, policyHash, executorDid,
-            now.toEpochMilli(), now.plus(ttl).toEpochMilli(), UUID.randomUUID().toString()
+            operatorPrincipalHash, remediationAuthorizedAt.toEpochMilli(), now.toEpochMilli(), now.plus(ttl).toEpochMilli(), UUID.randomUUID().toString()
         );
         try {
             byte[] payload = mapper.writeValueAsBytes(claims);
@@ -88,6 +97,15 @@ public class RemediationAuthorizationSigner {
             return signingInput + "." + signature;
         } catch (Exception ex) {
             throw new IllegalStateException("Unable to issue remediation authorization proof", ex);
+        }
+    }
+
+    public static String operatorPrincipalHash(String authenticatedPrincipal) {
+        String principal = ActionProposalEntity.canonicalizeAuthenticatedPrincipal(authenticatedPrincipal);
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(principal.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception ex) {
+            throw new IllegalStateException("Unable to hash authenticated operator principal", ex);
         }
     }
 
@@ -160,6 +178,8 @@ public class RemediationAuthorizationSigner {
         String policyVersion,
         String policyHash,
         String executorDid,
+        String operatorPrincipalHash,
+        long authorizedAt,
         long issuedAt,
         long expiresAt,
         String nonce
