@@ -17,7 +17,7 @@
 .status-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; margin-top: .75rem; }
 .status-meta > div { min-width: 0; padding: .7rem .8rem; border-radius: var(--radius-sm); background: rgba(7, 17, 31, .52); }
 .status-meta span { display: block; margin-bottom: .32rem; }
-.status-meta code { color: #cbd9eb; font-size: .78rem; }
+.status-meta code { color: var(--text-secondary); font-size: .78rem; }
 .status-footer { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: .75rem; color: var(--muted); }
 .status-footer p { margin: 0; }
 .dashboard-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(290px, .75fr); gap: 1rem; align-items: start; }
@@ -71,7 +71,7 @@
 .decision-code { display: flex; flex-direction: column; gap: .25rem; padding: .65rem; border-radius: var(--radius-sm); background: var(--surface-soft); }
 .field-list { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem; margin-top: .65rem; }
 .field-list > span { flex-basis: 100%; }
-.field-list code { border: 1px solid var(--border); border-radius: 7px; padding: .2rem .42rem; color: #cbd9eb; font-size: .75rem; }
+.field-list code { border: 1px solid var(--border); border-radius: 7px; padding: .2rem .42rem; color: var(--text-secondary); font-size: .75rem; }
 .inline-notice { padding: .65rem .75rem; border-left: 3px solid var(--warning); background: var(--warning-soft); color: #f8df91; }
 .success-state { display: flex; align-items: center; gap: .55rem; padding: .75rem; border-radius: var(--radius-sm); background: var(--success-soft); color: var(--success); }
 .success-state svg { width: 19px; }
@@ -104,9 +104,9 @@
 .audit-event-title { display: flex; align-items: flex-start; justify-content: space-between; gap: .5rem; }
 .audit-list strong { font-size: .8rem; text-transform: capitalize; }
 .audit-list p { margin: .18rem 0; color: var(--muted); font-size: .82rem; line-height: 1.45; }
-.audit-list time, .audit-list small { display: block; color: #60758f; font-size: .72rem; overflow-wrap: anywhere; }
+.audit-list time, .audit-list small { display: block; color: var(--text-tertiary); font-size: .72rem; overflow-wrap: anywhere; }
 .audit-list small + small { margin-top: .16rem; }
-.audit-list code { color: #a9bdd5; font-size: .7rem; overflow-wrap: anywhere; }
+.audit-list code { color: var(--text-secondary); font-size: .7rem; overflow-wrap: anywhere; }
 .audit-status { flex: 0 0 auto; border: 1px solid var(--border); border-radius: 999px; padding: .18rem .4rem; font-size: .62rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
 .audit-status-matched { border-color: rgba(52, 211, 153, .38); background: var(--success-soft); color: var(--success); }
 .audit-status-unmatched, .audit-status-unavailable { border-color: rgba(251, 191, 36, .4); background: var(--warning-soft); color: #f8df91; }
@@ -123,7 +123,7 @@
 .agent-prompt-card { border-color: rgba(34, 211, 238, .28); }
 .agent-prompt-label { display: block; margin-bottom: .4rem; color: var(--muted); font-size: .78rem; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; }
 .agent-prompt-input { width: 100%; resize: vertical; min-height: 120px; padding: .8rem .9rem; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: rgba(4, 12, 24, .75); color: var(--text); font: inherit; line-height: 1.5; }
-.agent-prompt-input:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+.agent-prompt-input:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
 .agent-prompt-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: .75rem; }
 .agent-provider-meta { display: flex; align-items: center; gap: .45rem; margin-bottom: .8rem; color: var(--muted); font-size: .8rem; }
 .agent-provider-meta svg { width: 17px; color: var(--accent); }
@@ -136,7 +136,7 @@
 .privacy-boundary-grid dt { color: var(--muted); font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; }
 .privacy-boundary-grid dd { margin: .3rem 0 0; color: var(--success); font-size: .78rem; font-weight: 800; }
 .private-reference-panel .card-copy { margin: .65rem 0 0; }
-.header-supporting-copy { margin: .35rem 0 0; max-width: 760px; color: #cbd9eb; font-size: .9rem; }
+.header-supporting-copy { margin: .35rem 0 0; max-width: 760px; color: var(--text-secondary); font-size: .9rem; }
 .status-panel-secondary { margin-top: 1rem; }
 .status-overview { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
 .status-overview h2, .status-overview p { margin-bottom: 0; }
@@ -144,7 +144,7 @@
 .status-pill-pending { color: var(--warning); background: var(--warning-soft); }
 .status-details { margin-top: .8rem; border-top: 1px solid var(--border); padding-top: .8rem; }
 .status-details summary { width: fit-content; color: var(--accent); cursor: pointer; font-size: .82rem; font-weight: 800; }
-.status-details summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+.status-details summary:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; border-radius: 4px; }
 .status-details .status-grid { margin-top: .8rem; }
 @media (max-width: 1040px) { .status-grid, .detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .dashboard-grid { grid-template-columns: 1fr; } .dashboard-side { position: static; } .remediation-state-panel { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 720px) { .app-shell { padding: 18px; } .app-header, .status-footer, .status-overview { align-items: stretch; flex-direction: column; } .manual-trigger { width: 100%; } .status-grid, .status-meta, .detail-grid, .two-column, .privacy-boundary-grid, .remediation-state-panel { grid-template-columns: 1fr; } .card-heading { grid-template-columns: auto 1fr; } .severity-badge { grid-column: 2; width: fit-content; } .retention-panel { padding: .75rem; } .retention-heading { align-items: flex-start; } .scenario-actions .button, .agent-prompt-actions .button { width: 100%; } .audit-card .audit-refresh { grid-column: 1 / -1; width: 100%; } .audit-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .audit-event-title { align-items: flex-start; flex-direction: column; } }
