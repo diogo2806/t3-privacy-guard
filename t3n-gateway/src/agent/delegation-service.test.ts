@@ -52,7 +52,7 @@ test('no member grant is incomplete and does not call platform delegation check'
   const { tenant, agent, checks } = fakeSessions({ grants: [] });
   const result = await new DelegationService(tenant, agent).status('z:tenant:privacy-guard');
   assert.equal(result.memberState, 'NOT_GRANTED');
-  assert.equal(result.state, 'INCOMPLETE');
+  assert.equal(result.effectiveState, 'INCOMPLETE');
   assert.equal(checks.length, 0);
 });
 
@@ -60,7 +60,7 @@ test('active member grant becomes effective only after authenticated principal c
   const { tenant, agent, checks } = fakeSessions(activePolicy(), { authorised: true, satisfied: [{ type: 'member_delegation' }], missing: [] });
   const result = await new DelegationService(tenant, agent).status('z:tenant:privacy-guard');
   assert.equal(result.memberState, 'ACTIVE');
-  assert.equal(result.state, 'ACTIVE');
+  assert.equal(result.effectiveState, 'ACTIVE');
   assert.deepEqual(result.satisfied, ['member_delegation']);
   assert.deepEqual(checks, [{ contract: 'z:tenant:privacy-guard', pii_did: 'did:t3n:tenant-test', functions: ['evaluate-action'], scopes: ['incident_id'] }]);
 });
@@ -69,7 +69,7 @@ test('active member grant remains incomplete when T3N says principal is not auth
   const { tenant, agent } = fakeSessions(activePolicy(), { authorised: false, satisfied: ['member_delegation'], missing: ['required_authority'] });
   const result = await new DelegationService(tenant, agent).status('z:tenant:privacy-guard');
   assert.equal(result.memberState, 'ACTIVE');
-  assert.equal(result.state, 'INCOMPLETE');
+  assert.equal(result.effectiveState, 'INCOMPLETE');
   assert.deepEqual(result.missing, ['required_authority']);
 });
 
@@ -78,8 +78,20 @@ test('active member grant fails closed when effective delegation check is unavai
     const { tenant, agent } = fakeSessions(activePolicy(), verdict);
     const result = await new DelegationService(tenant, agent).status('z:tenant:privacy-guard');
     assert.equal(result.memberState, 'ACTIVE');
-    assert.equal(result.state, 'UNKNOWN');
+    assert.equal(result.effectiveState, 'UNKNOWN');
   }
+});
+
+test('sanitizes malformed satisfied and missing metadata without exposing raw SDK objects', async () => {
+  const { tenant, agent } = fakeSessions(activePolicy(), {
+    authorised: true,
+    satisfied: [{ type: 'member_delegation', raw: { secret: 'ignored' } }, { unexpected: 'ignored' }, 42],
+    missing: [{ kind: 'scope' }, { token: 'ignored' }],
+  });
+  const result = await new DelegationService(tenant, agent).status('z:tenant:privacy-guard');
+  assert.equal(result.effectiveState, 'ACTIVE');
+  assert.deepEqual(result.satisfied, ['member_delegation']);
+  assert.deepEqual(result.missing, ['scope']);
 });
 
 test('scheduled member grant is incomplete and never calls effective delegation check', async () => {
@@ -87,7 +99,16 @@ test('scheduled member grant is incomplete and never calls effective delegation 
   const { tenant, agent, checks } = fakeSessions({ grants: [{ grantee: 'did:t3n:agent-test', contract_id: 'z:tenant:privacy-guard', functions: ['evaluate-action'], scopes: ['incident_id'], window: { valid_from_secs: now + 300, valid_until_secs: now + 600 } }] });
   const result = await new DelegationService(tenant, agent).status('z:tenant:privacy-guard');
   assert.equal(result.memberState, 'SCHEDULED');
-  assert.equal(result.state, 'INCOMPLETE');
+  assert.equal(result.effectiveState, 'INCOMPLETE');
+  assert.equal(checks.length, 0);
+});
+
+test('revoked member grant is incomplete and never calls effective delegation check', async () => {
+  const now = Math.floor(Date.now() / 1000);
+  const { tenant, agent, checks } = fakeSessions({ grants: [{ grantee: 'did:t3n:agent-test', contract_id: 'z:tenant:privacy-guard', functions: ['evaluate-action'], scopes: ['incident_id'], window: { valid_until_secs: now - 1 } }] });
+  const result = await new DelegationService(tenant, agent).status('z:tenant:privacy-guard');
+  assert.equal(result.memberState, 'REVOKED');
+  assert.equal(result.effectiveState, 'INCOMPLETE');
   assert.equal(checks.length, 0);
 });
 
@@ -97,7 +118,7 @@ test('reports UNKNOWN for unreadable or inverted matching grant windows', async 
     const { tenant, agent, checks } = fakeSessions({ grants: [{ grantee: 'did:t3n:agent-test', contract_id: 'z:tenant:privacy-guard', functions: ['evaluate-action'], scopes: ['incident_id'], window }] });
     const result = await new DelegationService(tenant, agent).status('z:tenant:privacy-guard');
     assert.equal(result.memberState, 'UNKNOWN');
-    assert.equal(result.state, 'UNKNOWN');
+    assert.equal(result.effectiveState, 'UNKNOWN');
     assert.equal(checks.length, 0);
   }
 });
