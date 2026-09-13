@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
 import java.security.Signature;
 import java.security.spec.X509EncodedKeySpec;
+import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -19,21 +20,23 @@ class RemediationAuthorizationSignerTest {
     private static final String POLICY_VERSION = "2026-09-12.1";
     private static final String POLICY_HASH = "a".repeat(64);
     private static final String EXECUTOR_DID = "did:t3n:protected-executor-test";
+    private static final String OPERATOR = "ops-reviewer";
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
-    void capabilityV2IsSignedAndBoundToActionPrivateReferencesPolicyDestinationPayloadAndExecutor() throws Exception {
+    void v2CapabilityIsEd25519SignedAndBoundToActionPolicyExecutorAndHumanApproval() throws Exception {
         var signer = new RemediationAuthorizationSigner(mapper, PRIVATE_KEY_PKCS8, 60, () -> EXECUTOR_DID);
         Map<String, String> normalPayload = Map.of(
             "incident_id", "inc-demo-001",
             "reason", "suspected compromise",
             "credential_id", "cred-demo-001"
         );
+        Instant authorizedAt = Instant.now().minusSeconds(2);
         String token = signer.issue(
             "incident-1", "action-1", "request-1", "decision-1",
             "notify-security", "incident:test", "incident-notification", "Security-A.Example",
             List.of("summary", "incident_id", "severity"), normalPayload, List.of("verified_email"),
-            POLICY_VERSION, POLICY_HASH
+            POLICY_VERSION, POLICY_HASH, OPERATOR, authorizedAt
         );
 
         String[] parts = token.split("\\.");
@@ -49,9 +52,11 @@ class RemediationAuthorizationSignerTest {
         assertThat(claims.get("policyVersion").asText()).isEqualTo(POLICY_VERSION);
         assertThat(claims.get("policyHash").asText()).isEqualTo(POLICY_HASH);
         assertThat(claims.get("executorDid").asText()).isEqualTo(EXECUTOR_DID);
-        assertThat(claims.get("nonce").asText()).isNotBlank();
+        assertThat(claims.get("operatorPrincipalHash").asText()).isEqualTo(RemediationAuthorizationSigner.operatorPrincipalHash(OPERATOR));
+        assertThat(claims.get("authorizedAt").asLong()).isEqualTo(authorizedAt.toEpochMilli());
+        assertThat(claims.get("issuedAt").asLong()).isGreaterThanOrEqualTo(claims.get("authorizedAt").asLong());
         assertThat(claims.get("expiresAt").asLong()).isGreaterThan(claims.get("issuedAt").asLong());
-        assertThat(claims.has("authorizedAt")).isFalse();
+        assertThat(claims.get("nonce").asText()).isNotBlank();
 
         var publicKey = KeyFactory.getInstance("Ed25519")
             .generatePublic(new X509EncodedKeySpec(Base64.getDecoder().decode(PUBLIC_KEY_SPKI)));
@@ -62,11 +67,26 @@ class RemediationAuthorizationSignerTest {
     }
 
     @Test
-    void rejectsLegacySharedSecretInsteadOfEd25519PrivateKey() {
-        assertThatThrownBy(() -> new RemediationAuthorizationSigner(
-            mapper, "test-remediation-capability-key-1234567890", 60, () -> EXECUTOR_DID
-        )).isInstanceOf(IllegalStateException.class)
-            .hasMessageContaining("REMEDIATION_AUTH_PRIVATE_KEY_PKCS8");
+    void rejectsMissingOrFutureHumanAuthorizationProvenance() {
+        var signer = new RemediationAuthorizationSigner(mapper, PRIVATE_KEY_PKCS8, 60, () -> EXECUTOR_DID);
+        Map<String, String> normalPayload = Map.of("incident_id", "inc", "credential_id", "cred", "reason", "test");
+
+        assertThatThrownBy(() -> signer.issue(
+            "incident-1", "action-1", "request-1", "decision-1", "revoke-credential", "credential:test", "incident-remediation",
+            "postman-echo.com", List.of("incident_id", "credential_id", "reason"), normalPayload, List.of(), POLICY_VERSION, POLICY_HASH, " ", Instant.now()
+        )).isInstanceOf(IllegalArgumentException.class);
+
+        assertThatThrownBy(() -> signer.issue(
+            "incident-1", "action-1", "request-1", "decision-1", "revoke-credential", "credential:test", "incident-remediation",
+            "postman-echo.com", List.of("incident_id", "credential_id", "reason"), normalPayload, List.of(), POLICY_VERSION, POLICY_HASH, OPERATOR, Instant.now().plusSeconds(30)
+        )).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("cannot be after capability issuance");
+    }
+
+    @Test
+    void rejectsLegacyHmacStyleSecretAsEd25519PrivateKey() {
+        assertThatThrownBy(() -> new RemediationAuthorizationSigner(mapper, "legacy-hmac-secret-that-is-long-enough-123", 60, () -> EXECUTOR_DID))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("base64 PKCS#8 Ed25519 private key");
     }
 
     @Test
