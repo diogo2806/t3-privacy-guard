@@ -13,11 +13,15 @@ export interface DelegationGrantRequest {
 }
 
 export type DelegationState = 'ACTIVE' | 'SCHEDULED' | 'REVOKED' | 'NOT_GRANTED' | 'UNKNOWN';
+export type EffectiveDelegationState = 'ACTIVE' | 'INCOMPLETE' | 'UNKNOWN';
 export interface DelegationStatus {
-  readonly state: DelegationState;
+  readonly memberState: DelegationState;
+  readonly effectiveState: EffectiveDelegationState;
   readonly functions: string[];
+  readonly scopes: string[];
   readonly allowedHosts: string[];
-  readonly policy: unknown;
+  readonly satisfied: string[];
+  readonly missing: string[];
 }
 
 interface GrantRecord {
@@ -48,6 +52,20 @@ function extractGrants(value: unknown, depth = 0): GrantRecord[] {
 
 function asStrings(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function delegationLabels(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const labels = value.flatMap((entry) => {
+    if (typeof entry === 'string') return [entry];
+    if (!entry || typeof entry !== 'object') return [];
+    const object = entry as Record<string, unknown>;
+    for (const key of ['type', 'kind', 'source', 'edge']) {
+      if (typeof object[key] === 'string') return [object[key] as string];
+    }
+    return [];
+  });
+  return [...new Set(labels.map((label) => label.trim()).filter(Boolean))].slice(0, 16);
 }
 
 function optionalFiniteNumber(object: Record<string, unknown>, key: string): number | null | undefined {
@@ -109,16 +127,66 @@ export class DelegationService {
   }
 
   async status(contractId: string): Promise<DelegationStatus> {
+    if (!contractId.trim()) throw new Error('contractId is required');
     await this.ensureSessions();
     const policy = await this.tenantSession.getClient().getMemberDelegation();
     const grant = this.findAgentGrant(policy, contractId);
-    if (!grant) return { state: 'NOT_GRANTED', functions: [], allowedHosts: [], policy };
+    if (!grant) return this.statusWithoutEffectiveAccess('NOT_GRANTED');
+
     const functions = asStrings(grant.functions);
     const scopes = asStrings(grant.scopes);
     const allowedHosts = asStrings(grant.allowed_hosts);
-    if (functions.length === 0 || scopes.length === 0) return { state: 'UNKNOWN', functions, allowedHosts, policy };
-    const state = interpretDelegationWindow(grant.window, Math.floor(Date.now() / 1000));
-    return { state, functions, allowedHosts, policy };
+    if (functions.length === 0 || scopes.length === 0) {
+      return { memberState: 'UNKNOWN', effectiveState: 'UNKNOWN', functions, scopes, allowedHosts, satisfied: [], missing: [] };
+    }
+
+    const memberState = interpretDelegationWindow(grant.window, Math.floor(Date.now() / 1000));
+    if (memberState !== 'ACTIVE') {
+      return {
+        memberState,
+        effectiveState: memberState === 'UNKNOWN' ? 'UNKNOWN' : 'INCOMPLETE',
+        functions,
+        scopes,
+        allowedHosts,
+        satisfied: [],
+        missing: [],
+      };
+    }
+
+    try {
+      const verdict = await this.agentSession.getClient().checkDelegation({
+        contract: contractId,
+        pii_did: this.tenantSession.getTenantDid(),
+        functions,
+        scopes,
+      });
+      if (!verdict || typeof verdict.authorised !== 'boolean') {
+        return { memberState, effectiveState: 'UNKNOWN', functions, scopes, allowedHosts, satisfied: [], missing: [] };
+      }
+      return {
+        memberState,
+        effectiveState: verdict.authorised ? 'ACTIVE' : 'INCOMPLETE',
+        functions,
+        scopes,
+        allowedHosts,
+        satisfied: delegationLabels(verdict.satisfied),
+        missing: delegationLabels(verdict.missing),
+      };
+    } catch {
+      return { memberState, effectiveState: 'UNKNOWN', functions, scopes, allowedHosts, satisfied: [], missing: [] };
+    }
+  }
+
+  private statusWithoutEffectiveAccess(memberState: DelegationState): DelegationStatus {
+    return {
+      memberState,
+      effectiveState: memberState === 'UNKNOWN' ? 'UNKNOWN' : 'INCOMPLETE',
+      functions: [],
+      scopes: [],
+      allowedHosts: [],
+      satisfied: [],
+      missing: [],
+    };
   }
 
   private findAgentGrant(policy: unknown, contractId: string): GrantRecord | undefined {
