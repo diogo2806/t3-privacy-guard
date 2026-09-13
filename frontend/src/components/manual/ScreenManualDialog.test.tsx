@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { ScreenManualDialog } from './ScreenManualDialog';
 
 describe('ScreenManualDialog', () => {
-  it('traps focus and explains identity, policy, execution, audit and evidence without conflating onboarding with authorization', async () => {
+  it('traps focus and explains identity, member grants, effective access, policy, execution, audit and evidence', async () => {
     const user = userEvent.setup();
     render(<div><button type="button">Outside action</button><ScreenManualDialog /></div>);
 
@@ -18,6 +18,9 @@ describe('ScreenManualDialog', () => {
     const closeButton = screen.getByRole('button', { name: 'Close Screen Manual' });
     expect(dialog).toHaveAttribute('aria-modal', 'true');
     expect(screen.getByText('Identidade, onboarding e autorização')).toBeInTheDocument();
+    expect(screen.getByText(/Member grant.*documento de Member Delegation/i)).toBeInTheDocument();
+    expect(screen.getByText(/Effective T3N access.*checkDelegation/i)).toBeInTheDocument();
+    expect(screen.getByText(/Denied.*Unknown.*fecham o fluxo em segurança/i)).toBeInTheDocument();
     expect(screen.getByText(/registrar o Agent Card aumenta descoberta pública, mas não concede acesso/i)).toBeInTheDocument();
     expect(screen.getByText('Policy e decisão')).toBeInTheDocument();
     expect(screen.getByText('Dados privados e retenção')).toBeInTheDocument();
