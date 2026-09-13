@@ -11,6 +11,7 @@ const action: ActionProposal = {
   fields: ['incident_id', 'credential_id', 'reason'],
   normalPayload: { incident_id: 'inc-demo-001', credential_id: 'cred-demo-001', reason: 'suspected compromise' },
   privateRefs: [], status: 'REMEDIATION_AUTHORIZED', createdAt: '2026-09-12T18:00:00Z',
+  remediationAuthorizedBy: 'ops-reviewer', remediationAuthorizedAt: '2026-09-12T18:00:01Z',
 };
 
 const decision: PolicyDecision = {
@@ -53,22 +54,44 @@ function renderPanel(
 }
 
 describe('RemediationPanel', () => {
-  it('shows the exact approved destination and trusted protected payload before execution', () => {
+  it('shows the exact approved destination, human provenance and trusted protected payload before execution', () => {
     renderPanel(null);
     expect(screen.getByText('Approved destination')).toBeInTheDocument();
     expect(screen.getByText('postman-echo.com')).toBeInTheDocument();
+    expect(screen.getByText('Authorized by')).toBeInTheDocument();
+    expect(screen.getByText('ops-reviewer')).toBeInTheDocument();
+    expect(screen.getByText('Authorized at')).toBeInTheDocument();
     expect(screen.getByText('Requested fields')).toBeInTheDocument();
     expect(screen.getByText('Allowed for egress')).toBeInTheDocument();
     expect(screen.getByText('Trusted synthetic values')).toBeInTheDocument();
     expect(screen.getByText('Protected egress payload')).toBeInTheDocument();
     expect(screen.getAllByText('reason=suspected compromise').length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText(/binds the exact destination and trusted payload/i)).toBeInTheDocument();
+    expect(screen.getByText(/binds the authenticated operator, exact destination and trusted payload/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Execute protected credential revocation' })).toBeInTheDocument();
+  });
+
+  it('does not invent identity for a legacy authorization and requires explicit re-authorization', () => {
+    const legacyAction: ActionProposal = {
+      ...action,
+      remediationAuthorizedBy: null,
+      remediationAuthorizedAt: null,
+    };
+    renderPanel(null, vi.fn(), legacyAction);
+
+    expect(screen.getAllByText('REAUTHORIZATION REQUIRED').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole('alert')).toHaveTextContent(/predates operator provenance binding/i);
+    expect(screen.getByRole('button', { name: 'Re-authorize credential revocation' })).toBeInTheDocument();
+    expect(screen.queryByText('Authorized by')).not.toBeInTheDocument();
+    expect(screen.queryByText('Authorized at')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Execute protected credential revocation' })).not.toBeInTheDocument();
   });
 
   it('shows REDACT as executable minimization when all required fields remain allowed', () => {
     const redactedAction: ActionProposal = {
       ...action,
       status: 'EVALUATED',
+      remediationAuthorizedBy: null,
+      remediationAuthorizedAt: null,
       fields: [...action.fields, 'employee_department'],
       normalPayload: { ...action.normalPayload, employee_department: 'finance' },
     };
@@ -92,7 +115,7 @@ describe('RemediationPanel', () => {
   });
 
   it('blocks authorization when REDACT removes a required remediation field', () => {
-    const currentAction = { ...action, status: 'EVALUATED' as const };
+    const currentAction = { ...action, status: 'EVALUATED' as const, remediationAuthorizedBy: null, remediationAuthorizedAt: null };
     const currentDecision = { ...decision, decision: 'REDACT' as const, allowedFields: ['incident_id', 'reason'], redactedFields: ['credential_id'] };
     renderPanel(null, vi.fn(), currentAction, currentDecision);
     expect(screen.getByText(/no longer contains all required remediation fields/i)).toBeInTheDocument();
@@ -100,7 +123,7 @@ describe('RemediationPanel', () => {
   });
 
   it('blocks authorization and execution when a supported action has no approved destination', () => {
-    renderPanel(null, vi.fn(), { ...action, host: null, status: 'EVALUATED' });
+    renderPanel(null, vi.fn(), { ...action, host: null, status: 'EVALUATED', remediationAuthorizedBy: null, remediationAuthorizedAt: null });
     expect(screen.getByText('MISSING — BLOCKED')).toBeInTheDocument();
     expect(screen.getByRole('alert')).toHaveTextContent(/no approved destination/i);
     expect(screen.queryByRole('button', { name: /Authorize credential revocation/i })).not.toBeInTheDocument();
@@ -145,6 +168,8 @@ describe('RemediationPanel', () => {
       resource: 'account:demo',
       fields: ['incident_id', 'account_id', 'reason'],
       status: 'EVALUATED',
+      remediationAuthorizedBy: null,
+      remediationAuthorizedAt: null,
     };
     renderPanel(null, vi.fn(), unsupported);
 

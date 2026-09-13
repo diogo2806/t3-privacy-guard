@@ -28,6 +28,11 @@ function executableDecision(decision: PolicyDecision | null): boolean {
     && REQUIRED_REMEDIATION_FIELDS.every((field) => decision.allowedFields.includes(field)));
 }
 
+function authorizationTimestamp(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'INVALID — BLOCKED' : date.toLocaleString();
+}
+
 export function RemediationPanel({ action, decision, execution, busy, onAuthorize, onExecute, onVerify }: Props) {
   const hasVerifiedExecutor = action?.action === 'revoke-credential';
   const hasApprovedDestination = Boolean(action?.host);
@@ -36,8 +41,14 @@ export function RemediationPanel({ action, decision, execution, busy, onAuthoriz
   const allowedPayloadEntries = payloadEntries.filter(([field]) => decision?.allowedFields.includes(field));
   const removedPayloadEntries = payloadEntries.filter(([field]) => decision?.redactedFields.includes(field));
   const decisionCanExecute = executableDecision(decision) && REQUIRED_REMEDIATION_FIELDS.every((field) => field in normalPayload);
-  const canAuthorize = Boolean(hasVerifiedExecutor && hasApprovedDestination && action && decisionCanExecute && action.status === 'EVALUATED');
-  const canExecute = Boolean(hasVerifiedExecutor && hasApprovedDestination && action && decisionCanExecute && action.status === 'REMEDIATION_AUTHORIZED' && !execution);
+  const statusAuthorized = action?.status === 'REMEDIATION_AUTHORIZED' || action?.status === 'REMEDIATED';
+  const hasBoundAuthorization = Boolean(action?.remediationAuthorizedBy && action?.remediationAuthorizedAt);
+  const legacyAuthorizationNeedsRebind = action?.status === 'REMEDIATION_AUTHORIZED' && !hasBoundAuthorization;
+  const authorizationState = statusAuthorized ? (hasBoundAuthorization ? 'AUTHORIZED' : 'REAUTHORIZATION REQUIRED') : 'NOT AUTHORIZED';
+  const canAuthorize = Boolean(hasVerifiedExecutor && hasApprovedDestination && action && decisionCanExecute
+    && (action.status === 'EVALUATED' || legacyAuthorizationNeedsRebind));
+  const canExecute = Boolean(hasVerifiedExecutor && hasApprovedDestination && action && decisionCanExecute
+    && action.status === 'REMEDIATION_AUTHORIZED' && hasBoundAuthorization && !execution);
   const canVerify = Boolean(hasVerifiedExecutor && execution && (execution.state === 'PENDING_VERIFICATION' || execution.state === 'UNVERIFIED') && execution.operationId);
   const destinationChanged = execution?.failureCode === 'EXECUTION_DESTINATION_CHANGED';
   const state = stateCopy(execution);
@@ -65,19 +76,22 @@ export function RemediationPanel({ action, decision, execution, busy, onAuthoriz
         <div className="remediation-state-panel" role="region" aria-label="Approved remediation destination and authorization status">
           <div><span>Policy decision</span><strong>{decision?.decision}</strong></div>
           <div><span>Approved destination</span><strong>{action.host || 'MISSING — BLOCKED'}</strong></div>
-          <div><span>Human authorization</span><strong>{action.status === 'REMEDIATION_AUTHORIZED' || action.status === 'REMEDIATED' ? 'AUTHORIZED' : 'NOT AUTHORIZED'}</strong></div>
+          <div><span>Human authorization</span><strong>{authorizationState}</strong></div>
+          {hasBoundAuthorization && <div><span>Authorized by</span><strong>{action.remediationAuthorizedBy}</strong></div>}
+          {hasBoundAuthorization && action.remediationAuthorizedAt && <div><span>Authorized at</span><strong>{authorizationTimestamp(action.remediationAuthorizedAt)}</strong></div>}
         </div>
       )}
+      {legacyAuthorizationNeedsRebind && <div className="feedback feedback-error remediation-status-message" role="alert"><CircleAlert aria-hidden="true" /><span>This authorization predates operator provenance binding. Re-authorize it with the current authenticated operator before protected execution.</span></div>}
       {hasVerifiedExecutor && action && decisionCanExecute && !action.host && <div className="feedback feedback-error remediation-status-message" role="alert"><CircleAlert aria-hidden="true" /><span>Execution is blocked because this action has no approved destination. Create and evaluate a new action before authorizing remediation.</span></div>}
-      {canAuthorize && <button className="button button-primary" type="button" onClick={onAuthorize} disabled={busy}><ShieldCheck aria-hidden="true" />Authorize credential revocation</button>}
+      {canAuthorize && <button className="button button-primary" type="button" onClick={onAuthorize} disabled={busy}><ShieldCheck aria-hidden="true" />{legacyAuthorizationNeedsRebind ? 'Re-authorize credential revocation' : 'Authorize credential revocation'}</button>}
       {canExecute && <>
-        <div className="success-state"><ShieldCheck aria-hidden="true" /><span>Human authorization binds the exact destination and trusted payload. T3N will serialize only the policy-allowed subset shown above.</span></div>
+        <div className="success-state"><ShieldCheck aria-hidden="true" /><span>Human authorization binds the authenticated operator, exact destination and trusted payload. T3N will serialize only the policy-allowed subset shown above.</span></div>
         <button className="button button-primary" type="button" onClick={onExecute} disabled={busy}><PlayCircle aria-hidden="true" />Execute protected credential revocation</button>
       </>}
 
-      {hasVerifiedExecutor && (execution || action?.status === 'REMEDIATION_AUTHORIZED' || action?.status === 'REMEDIATED') && (
+      {hasVerifiedExecutor && (execution || statusAuthorized) && (
         <div className="remediation-state-panel" role="region" aria-label="Remediation execution and verification status">
-          <div><span>Authorization</span><strong>{action?.status === 'REMEDIATION_AUTHORIZED' || action?.status === 'REMEDIATED' ? 'AUTHORIZED' : 'NOT AUTHORIZED'}</strong></div>
+          <div><span>Authorization</span><strong>{authorizationState}</strong></div>
           <div><span>Execution</span><strong>{state.execution}</strong></div>
           <div><span>Verification</span><strong>{state.verification}</strong></div>
           <div><span>Final state</span><strong>{state.final}</strong></div>

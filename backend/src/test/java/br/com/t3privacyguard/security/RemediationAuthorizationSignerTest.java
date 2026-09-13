@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -17,21 +18,23 @@ class RemediationAuthorizationSignerTest {
     private static final String POLICY_VERSION = "2026-09-12.1";
     private static final String POLICY_HASH = "a".repeat(64);
     private static final String EXECUTOR_DID = "did:t3n:protected-executor-test";
+    private static final String OPERATOR = "ops-reviewer";
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
-    void capabilityIsSignedAndBoundToActionPrivateReferencesPolicyDestinationPayloadAndExecutor() throws Exception {
+    void capabilityIsSignedAndBoundToActionPrivateReferencesPolicyDestinationPayloadExecutorAndHumanApproval() throws Exception {
         var signer = new RemediationAuthorizationSigner(mapper, KEY, 60, () -> EXECUTOR_DID);
         Map<String, String> normalPayload = Map.of(
             "incident_id", "inc-demo-001",
             "reason", "suspected compromise",
             "credential_id", "cred-demo-001"
         );
+        Instant authorizedAt = Instant.now().minusSeconds(2);
         String token = signer.issue(
             "incident-1", "action-1", "request-1", "decision-1",
             "notify-security", "incident:test", "incident-notification", "Security-A.Example",
             List.of("summary", "incident_id", "severity"), normalPayload, List.of("verified_email"),
-            POLICY_VERSION, POLICY_HASH
+            POLICY_VERSION, POLICY_HASH, OPERATOR, authorizedAt
         );
 
         String[] parts = token.split("\\.");
@@ -46,14 +49,33 @@ class RemediationAuthorizationSignerTest {
         assertThat(claims.get("policyVersion").asText()).isEqualTo(POLICY_VERSION);
         assertThat(claims.get("policyHash").asText()).isEqualTo(POLICY_HASH);
         assertThat(claims.get("executorDid").asText()).isEqualTo(EXECUTOR_DID);
+        assertThat(claims.get("operatorPrincipalHash").asText()).isEqualTo(RemediationAuthorizationSigner.operatorPrincipalHash(OPERATOR));
+        assertThat(claims.get("authorizedAt").asLong()).isEqualTo(authorizedAt.toEpochMilli());
+        assertThat(claims.get("issuedAt").asLong()).isGreaterThanOrEqualTo(claims.get("authorizedAt").asLong());
         assertThat(claims.get("nonce").asText()).isNotBlank();
-        assertThat(claims.get("expiresAt").asLong()).isGreaterThan(claims.get("authorizedAt").asLong());
+        assertThat(claims.get("expiresAt").asLong()).isGreaterThan(claims.get("issuedAt").asLong());
 
         Mac mac = Mac.getInstance("HmacSHA256");
         mac.init(new SecretKeySpec(KEY.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
         String expected = Base64.getUrlEncoder().withoutPadding()
             .encodeToString(mac.doFinal(parts[0].getBytes(StandardCharsets.US_ASCII)));
         assertThat(parts[1]).isEqualTo(expected);
+    }
+
+    @Test
+    void rejectsMissingOrFutureHumanAuthorizationProvenance() {
+        var signer = new RemediationAuthorizationSigner(mapper, KEY, 60, () -> EXECUTOR_DID);
+        Map<String, String> normalPayload = Map.of("incident_id", "inc", "credential_id", "cred", "reason", "test");
+
+        assertThatThrownBy(() -> signer.issue(
+            "incident-1", "action-1", "request-1", "decision-1", "revoke-credential", "credential:test", "incident-remediation",
+            "postman-echo.com", List.of("incident_id", "credential_id", "reason"), normalPayload, List.of(), POLICY_VERSION, POLICY_HASH, " ", Instant.now()
+        )).isInstanceOf(IllegalArgumentException.class);
+
+        assertThatThrownBy(() -> signer.issue(
+            "incident-1", "action-1", "request-1", "decision-1", "revoke-credential", "credential:test", "incident-remediation",
+            "postman-echo.com", List.of("incident_id", "credential_id", "reason"), normalPayload, List.of(), POLICY_VERSION, POLICY_HASH, OPERATOR, Instant.now().plusSeconds(30)
+        )).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("cannot be after capability issuance");
     }
 
     @Test
