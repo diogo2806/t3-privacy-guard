@@ -59,6 +59,9 @@ public class GatewayPolicyClient {
         @JsonProperty("allowed_fields") List<String> allowedFields,
         @JsonProperty("redacted_fields") List<String> redactedFields,
         @JsonProperty("allowed_private_refs") List<String> allowedPrivateRefs,
-        @JsonProperty("redacted_private_refs") List<String> redactedPrivateRefs
+        @JsonProperty("redacted_private_refs") List<String> redactedPrivateRefs,
+        @JsonProperty("policy_version") String policyVersion,
+        @JsonProperty("policy_hash") String policyHash,
+        @JsonProperty("requires_human_authorization") Boolean requiresHumanAuthorization
     ) {}
 }

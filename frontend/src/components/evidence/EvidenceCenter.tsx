@@ -52,12 +52,14 @@ export function EvidenceCenter({ evidence, loading, error, onRefresh }: Props) {
           <div><dt>Rollback floor</dt><dd>{rollbackFloorState}</dd></div>
           <div><dt>Trust manifest version</dt><dd>{evidence.metadata.trustManifestVersion}</dd></div>
           <div><dt>Contract version</dt><dd>{evidence.metadata.contractVersion}</dd></div>
+          <div><dt>Policy version</dt><dd>{evidence.metadata.policyVersion}</dd></div>
           <div className="evidence-wide"><dt>Contract</dt><dd><code>{evidence.metadata.contractId}</code></dd></div>
+          <div className="evidence-wide"><dt>Policy SHA-256</dt><dd><code>{evidence.metadata.policyHash}</code></dd></div>
           <div className="evidence-wide"><dt>WASM SHA-256</dt><dd><code>{evidence.metadata.wasmSha256}</code></dd></div>
           <div className="evidence-wide"><dt>Tenant DID</dt><dd><code>{evidence.metadata.tenantDid}</code></dd></div>
           <div className="evidence-wide"><dt>Agent DID</dt><dd><code>{evidence.metadata.agentDid}</code></dd></div>
         </dl>
-        <p className="evidence-disclaimer">Trust anchor VERIFIED means the T3N signed manifest established the cluster trust boundary for these authenticated sessions. Rollback floor PERSISTED means the accepted manifest version was stored across gateway restarts; it is not a claim of per-request hardware attestation.</p>
+        <p className="evidence-disclaimer">Policy version/hash identify the canonical operational policy used by this evidence run. Trust anchor VERIFIED means the T3N signed manifest established the cluster trust boundary for these authenticated sessions. Rollback floor PERSISTED means the accepted manifest version was stored across gateway restarts. These are policy/trust provenance signals, not a claim of per-request hardware attestation.</p>
       </div>
 
       <div className="card">

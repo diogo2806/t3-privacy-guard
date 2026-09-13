@@ -12,6 +12,8 @@ export interface DeploymentManifest {
   numericContractId: number | null;
   contractVersion: string;
   wasmSha256: string;
+  policyVersion: string;
+  policyHash: string;
   trustAnchorVerified: true;
   trustManifestFloorPersisted: true;
   trustManifestVersion: number;
@@ -26,6 +28,8 @@ export interface TestnetEvidenceIdentity {
   contractId: string;
   contractVersion: string;
   wasmSha256: string | null;
+  policyVersion: string | null;
+  policyHash: string | null;
 }
 
 export async function sha256File(path: string): Promise<string> {
@@ -41,6 +45,9 @@ export function assertManifestIdentity(manifest: DeploymentManifest): void {
   }
   if (!/^[a-f0-9]{64}$/.test(manifest.wasmSha256)) {
     throw new Error('Deployment manifest contains an invalid WASM SHA-256');
+  }
+  if (!manifest.policyVersion || !/^[a-f0-9]{64}$/.test(manifest.policyHash)) {
+    throw new Error('Deployment manifest contains invalid versioned policy provenance');
   }
   if (manifest.trustAnchorVerified !== true || manifest.trustManifestFloorPersisted !== true) {
     throw new Error('Deployment manifest must prove verified trust anchor and persisted rollback floor');
@@ -60,6 +67,8 @@ export function assertEvidenceMatchesDeployment(manifest: DeploymentManifest, ev
     ['contractId', manifest.contractId, evidence.contractId],
     ['contractVersion', manifest.contractVersion, evidence.contractVersion],
     ['wasmSha256', manifest.wasmSha256, evidence.wasmSha256],
+    ['policyVersion', manifest.policyVersion, evidence.policyVersion],
+    ['policyHash', manifest.policyHash, evidence.policyHash],
   ];
   for (const [field, expected, actual] of checks) {
     if (expected !== actual) throw new Error(`Evidence mismatch for ${field}`);

@@ -5,7 +5,9 @@ import { buildDelegatedExecutionRequest } from './privacy-guard-contract.js';
 const tenantDid = 'did:t3n:tenant123';
 const agentDid = 'did:t3n:agent456';
 const contractId = 'z:tenant123:privacy-guard';
-const contractVersion = '0.3.0';
+const contractVersion = '0.4.0';
+const policyVersion = '2026-09-12.1';
+const policyHash = 'a'.repeat(64);
 
 function input() {
   return {
@@ -28,22 +30,25 @@ test('evaluation execution is bound to the authenticated tenant DID', () => {
   );
 
   assert.equal(request.pii_did, tenantDid);
+  assert.equal(request.contract_version, '0.4.0');
   assert.equal(request.function_name, 'evaluate-action');
   assert.equal(request.input.agent_did, agentDid);
   assert.notEqual(request.pii_did, request.input.agent_did);
 });
 
-test('remediation execution uses the same tenant delegation subject', () => {
+test('remediation execution uses tenant delegation subject and exact policy provenance', () => {
   const request = buildDelegatedExecutionRequest(
     tenantDid,
     contractId,
     contractVersion,
     'execute-remediation',
-    input(),
+    { ...input(), policy_version: policyVersion, policy_hash: policyHash },
   );
 
   assert.equal(request.pii_did, tenantDid);
   assert.equal(request.function_name, 'execute-remediation');
+  assert.equal(request.input.policy_version, policyVersion);
+  assert.equal(request.input.policy_hash, policyHash);
 });
 
 test('verification execution uses the same tenant delegation subject', () => {

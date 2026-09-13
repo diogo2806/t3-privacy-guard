@@ -16,6 +16,9 @@ public class PolicyDecisionEntity {
     @Column(nullable = false, length = 4000) private String redactedFieldsJson;
     @Column(name = "allowed_private_refs_json", nullable = false, length = 1000) private String allowedPrivateRefsJson;
     @Column(name = "redacted_private_refs_json", nullable = false, length = 1000) private String redactedPrivateRefsJson;
+    @Column(name = "policy_version", length = 64) private String policyVersion;
+    @Column(name = "policy_hash", length = 64) private String policyHash;
+    @Column(name = "requires_human_authorization") private Boolean requiresHumanAuthorization;
     @Column(nullable = false) private Instant evaluatedAt;
 
     protected PolicyDecisionEntity() {}
@@ -23,7 +26,8 @@ public class PolicyDecisionEntity {
     public PolicyDecisionEntity(
         String id, String actionProposalId, DecisionType decision, String reasonCode, String reason,
         String allowedFieldsJson, String redactedFieldsJson, String allowedPrivateRefsJson,
-        String redactedPrivateRefsJson, Instant evaluatedAt
+        String redactedPrivateRefsJson, String policyVersion, String policyHash,
+        Boolean requiresHumanAuthorization, Instant evaluatedAt
     ) {
         this.id = id;
         this.actionProposalId = actionProposalId;
@@ -34,6 +38,9 @@ public class PolicyDecisionEntity {
         this.redactedFieldsJson = redactedFieldsJson;
         this.allowedPrivateRefsJson = allowedPrivateRefsJson;
         this.redactedPrivateRefsJson = redactedPrivateRefsJson;
+        this.policyVersion = policyVersion;
+        this.policyHash = policyHash;
+        this.requiresHumanAuthorization = requiresHumanAuthorization;
         this.evaluatedAt = evaluatedAt;
     }
 
@@ -46,5 +53,8 @@ public class PolicyDecisionEntity {
     public String getRedactedFieldsJson() { return redactedFieldsJson; }
     public String getAllowedPrivateRefsJson() { return allowedPrivateRefsJson; }
     public String getRedactedPrivateRefsJson() { return redactedPrivateRefsJson; }
+    public String getPolicyVersion() { return policyVersion; }
+    public String getPolicyHash() { return policyHash; }
+    public Boolean getRequiresHumanAuthorization() { return requiresHumanAuthorization; }
     public Instant getEvaluatedAt() { return evaluatedAt; }
 }

@@ -30,7 +30,7 @@ test('defaults to testnet, disabled AI, persistent trust floor and current contr
   assert.equal(config.network, 'testnet');
   assert.equal(config.port, 3001);
   assert.equal(config.agentApiKey, null);
-  assert.equal(config.contractVersion, '0.3.0');
+  assert.equal(config.contractVersion, '0.4.0');
   assert.equal(config.remediationReplayStorePath, '/data/remediation-capability-nonces.json');
   assert.equal(config.trustManifestFloorStorePath, '/data/t3n-trust-floor.json');
   assert.equal(config.aiProvider, 'disabled');

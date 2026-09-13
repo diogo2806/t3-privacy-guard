@@ -64,7 +64,8 @@ class IncidentRetentionServiceTest {
         ));
         decisions.save(new PolicyDecisionEntity(
             "decision-expired", actionId, DecisionType.ALLOW, "POLICY_ALLOW", "Allowed",
-            "[\"incident_id\"]", "[]", "[]", "[]", now.minus(Duration.ofDays(8))
+            "[\"incident_id\"]", "[]", "[]", "[]",
+            "2026-09-12.1", "a".repeat(64), true, now.minus(Duration.ofDays(8))
         ));
         remediations.save(new RemediationExecutionEntity("remediation-expired", actionId, "request-expired", now.minus(Duration.ofDays(8))));
         traces.save(new ExecutionTraceEventEntity(

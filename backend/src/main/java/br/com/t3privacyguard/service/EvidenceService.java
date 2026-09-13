@@ -46,6 +46,8 @@ public class EvidenceService {
                 required(manifest, "contractId"),
                 required(manifest, "contractVersion"),
                 required(manifest, "wasmSha256"),
+                required(manifest, "policyVersion"),
+                required(manifest, "policyHash"),
                 requiredBoolean(manifest, "trustAnchorVerified"),
                 requiredBoolean(manifest, "trustManifestFloorPersisted"),
                 requiredPositiveLong(manifest, "trustManifestVersion")
@@ -58,6 +60,8 @@ public class EvidenceService {
             assertSame(testnet, "contractId", metadata.contractId());
             assertSame(testnet, "contractVersion", metadata.contractVersion());
             assertSame(testnet, "wasmSha256", metadata.wasmSha256());
+            assertSame(testnet, "policyVersion", metadata.policyVersion());
+            assertSame(testnet, "policyHash", metadata.policyHash());
 
             JsonNode scenarioNodes = testnet.path("scenarios");
             if (!scenarioNodes.isArray()) throw new IllegalStateException("Evidence scenarios are missing");
@@ -91,6 +95,7 @@ public class EvidenceService {
         if (!value.tenantDid().startsWith("did:t3n:") || !value.agentDid().startsWith("did:t3n:")) throw new IllegalStateException("Evidence DIDs are invalid");
         if (value.tenantDid().equals(value.agentDid())) throw new IllegalStateException("Evidence tenant and agent DIDs must differ");
         if (!value.wasmSha256().matches("[a-f0-9]{64}")) throw new IllegalStateException("Evidence WASM SHA-256 is invalid");
+        if (value.policyVersion().isBlank() || !value.policyHash().matches("[a-f0-9]{64}")) throw new IllegalStateException("Evidence policy provenance is invalid");
         if (!value.trustAnchorVerified()) throw new IllegalStateException("Evidence trust anchor is not verified");
         if (!value.trustManifestFloorPersisted()) throw new IllegalStateException("Evidence trust manifest rollback floor is not persisted");
         if (value.trustManifestVersion() < 1) throw new IllegalStateException("Evidence trust manifest version is invalid");
@@ -136,6 +141,8 @@ public class EvidenceService {
         String contractId,
         String contractVersion,
         String wasmSha256,
+        String policyVersion,
+        String policyHash,
         boolean trustAnchorVerified,
         boolean trustManifestFloorPersisted,
         long trustManifestVersion

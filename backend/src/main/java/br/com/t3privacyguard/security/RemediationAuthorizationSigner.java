@@ -34,12 +34,17 @@ public class RemediationAuthorizationSigner {
 
     public String issue(
         String incidentId, String actionId, String requestId, String decisionId, String action,
-        String resource, String purpose, List<String> fields, List<String> privateRefs
+        String resource, String purpose, List<String> fields, List<String> privateRefs,
+        String policyVersion, String policyHash
     ) {
+        if (policyVersion == null || policyVersion.isBlank() || policyHash == null || !policyHash.matches("[a-f0-9]{64}")) {
+            throw new IllegalArgumentException("Versioned policy metadata is required for remediation authorization");
+        }
         Instant now = Instant.now();
         Claims claims = new Claims(
             incidentId, actionId, requestId, decisionId, action, resource, purpose,
-            listHash(fields), listHash(privateRefs), now.toEpochMilli(), now.plus(ttl).toEpochMilli(), UUID.randomUUID().toString()
+            listHash(fields), listHash(privateRefs), policyVersion, policyHash,
+            now.toEpochMilli(), now.plus(ttl).toEpochMilli(), UUID.randomUUID().toString()
         );
         try {
             byte[] payload = mapper.writeValueAsBytes(claims);
@@ -73,6 +78,8 @@ public class RemediationAuthorizationSigner {
         String purpose,
         String fieldsHash,
         String privateRefsHash,
+        String policyVersion,
+        String policyHash,
         long authorizedAt,
         long expiresAt,
         String nonce

@@ -9,6 +9,7 @@ import { readGatewayConfig } from '../config/env.js';
 import { PrivacyGuardContractService } from '../contract/privacy-guard-contract.js';
 import { assertEvidenceMatchesDeployment, assertManifestIdentity, sha256File, type DeploymentManifest, type TestnetEvidenceIdentity } from '../evidence/deployment-manifest.js';
 import { assertNoSecretLeak } from '../evidence/leak-detector.js';
+import { canonicalizeOperationalPolicy } from '../policy/policy-document.js';
 import { TrustManifestFloorStore } from '../security/trust-manifest-floor-store.js';
 import { T3nSession } from '../t3n/session.js';
 
@@ -17,6 +18,7 @@ const gatewayRoot = resolve(scriptDir, '../..');
 const repositoryRoot = resolve(gatewayRoot, '..');
 const evidenceDir = resolve(repositoryRoot, 'docs/evidence');
 const wasmPath = resolve(process.env.T3N_CONTRACT_WASM_PATH ?? resolve(repositoryRoot, 'contracts/privacy-guard/target/wasm32-wasip2/release/privacy_guard_contract.wasm'));
+const policyPath = resolve(gatewayRoot, process.env.T3N_POLICY_FILE ?? 'policy/privacy-guard-policy.json');
 const manifestPath = resolve(process.env.EVIDENCE_DEPLOYMENT_MANIFEST ?? resolve(evidenceDir, 'deployment-manifest.json'));
 const testnetPath = resolve(process.env.EVIDENCE_OUTPUT ?? resolve(evidenceDir, 'testnet-run.json'));
 
@@ -65,6 +67,8 @@ const tenantDid = tenantSession.getTenantDid();
 const agentDid = agentSession.getAgentDid();
 if (tenantDid === agentDid) throw new Error('Tenant DID and agent DID must be different');
 const wasmSha256 = await sha256File(wasmPath);
+const policySource = JSON.parse(await readFile(policyPath, 'utf8')) as unknown;
+const policy = canonicalizeOperationalPolicy(policySource);
 
 let contractId: string;
 let contractVersion: string;
@@ -86,6 +90,14 @@ try {
   contractId = identity.contractId;
   contractVersion = identity.contractVersion;
 }
+if (!numericContractId) throw new Error('T3N_CONTRACT_NUMERIC_ID is required for an existing contract so the versioned policy map can authorize this contract');
+
+const policySetup = spawnSync('npm', ['run', 'contract:setup-policy'], {
+  cwd: gatewayRoot,
+  env: { ...process.env, T3N_CONTRACT_NUMERIC_ID: String(numericContractId), T3N_POLICY_FILE: policyPath },
+  stdio: 'inherit',
+});
+if (policySetup.status !== 0) throw new Error('Versioned T3N operational policy setup/read-back failed');
 
 const manifest: DeploymentManifest = {
   source: 'T3N_TESTNET',
@@ -98,6 +110,8 @@ const manifest: DeploymentManifest = {
   numericContractId,
   contractVersion,
   wasmSha256,
+  policyVersion: policy.document.version,
+  policyHash: policy.hash,
   trustAnchorVerified: true,
   trustManifestFloorPersisted: true,
   trustManifestVersion: persistedTrustFloor.version,
@@ -120,7 +134,6 @@ await mkdir(dirname(manifestPath), { recursive: true });
 await writeFile(manifestPath, serializedManifest, 'utf8');
 
 if (process.env.EVIDENCE_PREPARE_EGRESS === 'true') {
-  if (!numericContractId) throw new Error('T3N_CONTRACT_NUMERIC_ID is required to prepare the private remediation map for an existing contract');
   if (!process.env.SECURITY_API_URL?.startsWith('https://')) {
     throw new Error('SECURITY_API_URL is required when preparing verifiable remediation evidence');
   }
@@ -162,6 +175,8 @@ console.info(JSON.stringify({
   contractId,
   contractVersion,
   wasmSha256,
+  policyVersion: policy.document.version,
+  policyHash: policy.hash,
   trustManifestVersion: persistedTrustFloor.version,
   trustFloorPersisted: true,
   evidenceLinked: true,

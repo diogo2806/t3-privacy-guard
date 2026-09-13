@@ -25,6 +25,20 @@ export interface PolicyDecision {
   readonly redacted_fields: string[];
   readonly allowed_private_refs: string[];
   readonly redacted_private_refs: string[];
+  readonly policy_version: string | null;
+  readonly policy_hash: string | null;
+  readonly requires_human_authorization: boolean;
+}
+
+export interface RemediationExecutionRequest {
+  readonly request_id: string;
+  readonly action: string;
+  readonly resource: string;
+  readonly purpose: string;
+  readonly fields: string[];
+  readonly private_refs?: string[];
+  readonly policy_version: string;
+  readonly policy_hash: string;
 }
 
 export interface RemediationResult {
@@ -32,6 +46,8 @@ export interface RemediationResult {
   readonly status: 'PENDING_VERIFICATION';
   readonly http_code: number;
   readonly operation_id?: string | null;
+  readonly policy_version: string;
+  readonly policy_hash: string;
 }
 
 export interface RemediationVerificationRequest {
@@ -54,6 +70,11 @@ export function buildDelegatedExecutionRequest<TInput>(tenantDid: string, contra
   return { contract_id: contractId, contract_version: contractVersion, function_name: functionName, pii_did: tenantDid, input };
 }
 
+function validPolicyMetadata(version: unknown, hash: unknown): boolean {
+  return (version == null && hash == null)
+    || (typeof version === 'string' && version.length > 0 && typeof hash === 'string' && /^[a-f0-9]{64}$/.test(hash));
+}
+
 function isDecision(value: unknown): value is PolicyDecision {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<PolicyDecision>;
@@ -64,7 +85,9 @@ function isDecision(value: unknown): value is PolicyDecision {
     && Array.isArray(candidate.allowed_fields)
     && Array.isArray(candidate.redacted_fields)
     && Array.isArray(candidate.allowed_private_refs)
-    && Array.isArray(candidate.redacted_private_refs);
+    && Array.isArray(candidate.redacted_private_refs)
+    && validPolicyMetadata(candidate.policy_version, candidate.policy_hash)
+    && typeof candidate.requires_human_authorization === 'boolean';
 }
 
 function isRemediation(value: unknown): value is RemediationResult {
@@ -72,7 +95,10 @@ function isRemediation(value: unknown): value is RemediationResult {
   const candidate = value as Partial<RemediationResult>;
   return typeof candidate.request_id === 'string'
     && candidate.status === 'PENDING_VERIFICATION'
-    && typeof candidate.http_code === 'number';
+    && typeof candidate.http_code === 'number'
+    && typeof candidate.policy_version === 'string'
+    && typeof candidate.policy_hash === 'string'
+    && /^[a-f0-9]{64}$/.test(candidate.policy_hash);
 }
 
 function isVerification(value: unknown): value is RemediationVerificationResult {
@@ -107,7 +133,7 @@ export class PrivacyGuardContractService {
     if (!isDecision(result)) throw new Error('T3N contract returned an invalid policy decision');
     return result;
   }
-  async remediate(request: Omit<PolicyEvaluationRequest, 'agent_did' | 'host'>): Promise<RemediationResult> {
+  async remediate(request: RemediationExecutionRequest): Promise<RemediationResult> {
     await this.agentSession.connect();
     const contractId = await this.canonicalContractId();
     const contractVersion = await this.currentVersion(contractId);
@@ -116,6 +142,9 @@ export class PrivacyGuardContractService {
       { ...request, private_refs: request.private_refs ?? [], agent_did: this.agentSession.getAgentDid() },
     ));
     if (!isRemediation(result)) throw new Error('T3N contract returned an invalid remediation result');
+    if (result.policy_version !== request.policy_version || result.policy_hash !== request.policy_hash) {
+      throw new Error('T3N remediation policy metadata does not match the approved decision');
+    }
     return result;
   }
   async verifyRemediation(request: RemediationVerificationRequest): Promise<RemediationVerificationResult> {
