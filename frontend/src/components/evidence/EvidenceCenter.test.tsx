@@ -1,5 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentRegistrationState, EvidenceBundle } from '../../services/privacyGuardApi';
 import { EvidenceCenter } from './EvidenceCenter';
@@ -26,7 +27,7 @@ function evidenceWithRegistrationState(agentRegistrationState: AgentRegistration
 }
 
 describe('EvidenceCenter', () => {
-  it('renders source revision, A2A observation, proposal agent, executor, policy and trust provenance without overstating authorization, liveness or attestation', () => {
+  it('shows totals and observed outcomes before technical provenance without counting NOT RUN as PASS', () => {
     const evidence = evidenceWithRegistrationState('REGISTERED');
     evidence.scenarios = [
       { id: 'LIVE-PROPOSAL-CANNOT-EXECUTE', expected: 'Proposal Agent DID rejected', actual: 'REJECTED', status: 'PASS' },
@@ -36,49 +37,62 @@ describe('EvidenceCenter', () => {
 
     render(<EvidenceCenter evidence={evidence} loading={false} error={null} onRefresh={vi.fn()} />);
 
-    expect(screen.getByText('Observed security outcomes on T3N testnet')).toBeInTheDocument();
-    expect(screen.getByText(SOURCE_COMMIT)).toBeInTheDocument();
-    expect(screen.getByText('CLEAN')).toBeInTheDocument();
-    expect(screen.getByText(/public source revision used to generate this evidence bundle/i)).toBeInTheDocument();
-    expect(screen.getByText(/WASM and policy hashes remain the executed artifact identities/i)).toBeInTheDocument();
-    expect(screen.getByText('REGISTERED')).toBeInTheDocument();
+    const summary = screen.getByLabelText('Evidence totals');
+    expect(summary).toHaveTextContent('1PASS');
+    expect(summary).toHaveTextContent('0FAIL');
+    expect(summary).toHaveTextContent('1NOT RUN');
+    expect(screen.getByText('Proposal agent blocked from protected execution')).toBeInTheDocument();
+    expect(screen.getByText('LIVE-PROPOSAL-CANNOT-EXECUTE')).toBeInTheDocument();
+    expect(screen.getByText(/NOT RUN is not proof/i)).toBeInTheDocument();
+  });
+
+  it('keeps source, identity, discoverability, contract and trust provenance available through accessible details', async () => {
+    const user = userEvent.setup();
+    const evidence = evidenceWithRegistrationState('REGISTERED');
+    render(<EvidenceCenter evidence={evidence} loading={false} error={null} onRefresh={vi.fn()} />);
+
+    await user.click(screen.getByText('Source & build'));
+    await user.click(screen.getByText('Trust & network'));
+    await user.click(screen.getByText('Identities & discoverability'));
+    await user.click(screen.getByText('Contract & policy'));
+
+    expect(screen.getByText(SOURCE_COMMIT)).toBeVisible();
+    expect(screen.getByText('did:t3n:proposal-agent')).toBeVisible();
+    expect(screen.getByText('did:t3n:protected-executor')).toBeVisible();
+    expect(screen.getByText('REGISTERED')).toBeVisible();
     expect(screen.getByText('OBSERVED')).toHaveClass('status-pill-ok');
-    expect(screen.getByText('Card check')).toBeInTheDocument();
-    expect(screen.queryByText('Card verified')).not.toBeInTheDocument();
-    expect(screen.getByText('did:t3n:proposal-agent')).toBeInTheDocument();
-    expect(screen.getByText('did:t3n:protected-executor')).toBeInTheDocument();
-    expect(screen.getByText('2026-09-12.1')).toBeInTheDocument();
-    expect(screen.getByText('b'.repeat(64))).toBeInTheDocument();
-    expect(screen.getByText('VERIFIED')).toBeInTheDocument();
-    expect(screen.getByText('PERSISTED')).toBeInTheDocument();
-    expect(screen.getByText(/separate authenticated T3N principal/i)).toBeInTheDocument();
-    expect(screen.getByText(/not a claim of per-request hardware attestation/i)).toBeInTheDocument();
-    expect(screen.getByText(/does not by itself prove that the public endpoint was reachable or live-tested/i)).toBeInTheDocument();
-    expect(screen.getByText(/Protected remediation is not exposed through A2A/i)).toBeInTheDocument();
+    expect(screen.getByText('b'.repeat(64))).toBeVisible();
+    expect(screen.getAllByText('VERIFIED').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('PERSISTED')).toBeVisible();
+    expect(screen.getByText(/not per-request hardware attestation/i)).toBeVisible();
+    expect(screen.getByText(/do not grant delegated authority/i)).toBeVisible();
+    expect(screen.getByText(/not that public reachability was proved/i)).toBeVisible();
   });
 
   it.each([
     ['NOT_REGISTERED', 'NOT REGISTERED'],
     ['MISMATCH', 'CARD/DID MISMATCH'],
     ['UNAVAILABLE', 'UNAVAILABLE'],
-  ] as const)('does not render %s onboarding state or absent A2A observation as successful verification', (state, label) => {
+  ] as const)('does not render %s onboarding state or absent A2A observation as successful verification', async (state, label) => {
+    const user = userEvent.setup();
     render(<EvidenceCenter evidence={evidenceWithRegistrationState(state)} loading={false} error={null} onRefresh={vi.fn()} />);
+    await user.click(screen.getByText('Identities & discoverability'));
 
-    expect(screen.getByText(label)).toBeInTheDocument();
+    expect(screen.getByText(label)).toBeVisible();
     expect(screen.getByText('NOT OBSERVED')).toHaveClass('status-pill-off');
-    expect(screen.getByText('Card check')).toBeInTheDocument();
-    expect(screen.queryByText('Card verified')).not.toBeInTheDocument();
-    expect(screen.getByText('Not resolved')).toBeInTheDocument();
-    expect(screen.getByText('Not available')).toBeInTheDocument();
+    expect(screen.getByText('Not resolved')).toBeVisible();
+    expect(screen.getByText('Not available')).toBeVisible();
   });
 
-  it('renders dirty source state explicitly without labelling it verified', () => {
+  it('renders dirty source state explicitly and explains that CLEAN/DIRTY is not an audit claim', async () => {
+    const user = userEvent.setup();
     const evidence = evidenceWithRegistrationState('MISMATCH');
     evidence.metadata.sourceTreeClean = false;
     render(<EvidenceCenter evidence={evidence} loading={false} error={null} onRefresh={vi.fn()} />);
+    await user.click(screen.getByText('Source & build'));
 
-    expect(screen.getByText('DIRTY')).toBeInTheDocument();
-    expect(screen.getByText(/DIRTY is disclosed explicitly and is not treated as verified source/i)).toBeInTheDocument();
+    expect(screen.getAllByText('DIRTY').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/not an independent source audit/i)).toBeVisible();
   });
 
   it('shows the proof meaning before an explicit empty live-evidence state', () => {
