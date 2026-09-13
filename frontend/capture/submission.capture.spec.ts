@@ -94,18 +94,22 @@ test('capture submission material only from live testnet evidence', async ({ pag
   await redactRow.screenshot({ path: redactFile });
   files.push('03-data-minimization.png');
 
+  const liveAiRow = page.getByTestId('evidence-scenario-LIVE-AI-MINIMUM-REMEDIATION');
+  await expect(liveAiRow).toContainText('PASS');
+
   await page.getByRole('button', { name: 'Protection flow', exact: true }).click();
   await page.getByRole('button', { name: /Credential compromised/i }).click();
   await page.getByRole('button', { name: 'Analyze with agent', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'DENY', exact: true })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Agent proposal' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Latest agent proposal' })).toBeVisible();
   await expect(page.getByText('attacker.example', { exact: true })).toBeVisible();
   files.push(await screenshot(page, '02-real-ai-attack-deny.png'));
 
-  await page.getByRole('button', { name: 'Prepare safe path', exact: true }).click();
+  await page.getByRole('button', { name: 'Ask agent for minimum proposal', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Latest agent proposal' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'ALLOW', exact: true })).toBeVisible();
   await expect(page.getByText('postman-echo.com', { exact: true })).toBeVisible();
-  files.push(await screenshot(page, '04-safe-allow.png'));
+  files.push(await screenshot(page, '04-live-agent-minimum-allow.png'));
 
   await page.getByRole('button', { name: 'Authorize credential revocation', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Execute protected credential revocation', exact: true })).toBeVisible();
