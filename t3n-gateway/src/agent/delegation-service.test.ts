@@ -94,6 +94,7 @@ test('reports DENIED when the authenticated principal check returns authorised=f
   const result = await new DelegationService(fake.tenant, fake.agent, PROPOSAL_DELEGATION_REQUIREMENTS).status('z:tenant:privacy-guard');
   assert.equal(result.memberState, 'ACTIVE');
   assert.equal(result.effectiveState, 'DENIED');
+  assert.equal(fake.checks.length, 1);
 });
 
 test('reports UNKNOWN when checkDelegation fails or returns an inconclusive payload', async () => {
@@ -102,17 +103,21 @@ test('reports UNKNOWN when checkDelegation fails or returns an inconclusive payl
     const result = await new DelegationService(fake.tenant, fake.agent, PROPOSAL_DELEGATION_REQUIREMENTS).status('z:tenant:privacy-guard');
     assert.equal(result.memberState, 'ACTIVE');
     assert.equal(result.effectiveState, 'UNKNOWN');
+    assert.equal(fake.checks.length, 1);
   }
 });
 
-test('reports NOT_GRANTED and never promotes a positive platform verdict into effective ACTIVE', async () => {
+test('reports NOT_GRANTED without issuing a positive delegated-principal check', async () => {
   const fake = fakeSessions({ grants: [] }, { authorised: true });
   const result = await new DelegationService(fake.tenant, fake.agent, PROPOSAL_DELEGATION_REQUIREMENTS).status('z:tenant:privacy-guard');
   assert.equal(result.memberState, 'NOT_GRANTED');
   assert.equal(result.effectiveState, 'DENIED');
+  assert.deepEqual(result.checkedFunctions, []);
+  assert.deepEqual(result.checkedScopes, []);
+  assert.equal(fake.checks.length, 0);
 });
 
-test('reports SCHEDULED and never promotes a positive platform verdict into effective ACTIVE', async () => {
+test('reports SCHEDULED without issuing checkDelegation before the grant is active', async () => {
   const now = Math.floor(Date.now() / 1000);
   const fake = fakeSessions({ grants: [{
     grantee: 'did:t3n:agent-test', contract_id: 'z:tenant:privacy-guard', functions: ['evaluate-action'], scopes: ['incident_id'],
@@ -121,9 +126,12 @@ test('reports SCHEDULED and never promotes a positive platform verdict into effe
   const result = await new DelegationService(fake.tenant, fake.agent, PROPOSAL_DELEGATION_REQUIREMENTS).status('z:tenant:privacy-guard');
   assert.equal(result.memberState, 'SCHEDULED');
   assert.equal(result.effectiveState, 'DENIED');
+  assert.deepEqual(result.checkedFunctions, []);
+  assert.deepEqual(result.checkedScopes, []);
+  assert.equal(fake.checks.length, 0);
 });
 
-test('reports REVOKED and never promotes a positive platform verdict into effective ACTIVE', async () => {
+test('reports REVOKED without issuing checkDelegation after the Member grant expired', async () => {
   const now = Math.floor(Date.now() / 1000);
   const fake = fakeSessions({ grants: [{
     grantee: 'did:t3n:agent-test', contract_id: 'z:tenant:privacy-guard', functions: ['evaluate-action'], scopes: ['incident_id'],
@@ -132,9 +140,12 @@ test('reports REVOKED and never promotes a positive platform verdict into effect
   const result = await new DelegationService(fake.tenant, fake.agent, PROPOSAL_DELEGATION_REQUIREMENTS).status('z:tenant:privacy-guard');
   assert.equal(result.memberState, 'REVOKED');
   assert.equal(result.effectiveState, 'DENIED');
+  assert.deepEqual(result.checkedFunctions, []);
+  assert.deepEqual(result.checkedScopes, []);
+  assert.equal(fake.checks.length, 0);
 });
 
-test('reports UNKNOWN for unreadable grant while remaining fail-closed', async () => {
+test('reports UNKNOWN for unreadable grant without issuing a potentially misleading platform check', async () => {
   const now = Math.floor(Date.now() / 1000);
   const fake = fakeSessions({ grants: [{
     grantee: 'did:t3n:agent-test', contract_id: 'z:tenant:privacy-guard', functions: ['evaluate-action'], scopes: ['incident_id'],
@@ -143,6 +154,9 @@ test('reports UNKNOWN for unreadable grant while remaining fail-closed', async (
   const result = await new DelegationService(fake.tenant, fake.agent, PROPOSAL_DELEGATION_REQUIREMENTS).status('z:tenant:privacy-guard');
   assert.equal(result.memberState, 'UNKNOWN');
   assert.equal(result.effectiveState, 'UNKNOWN');
+  assert.deepEqual(result.checkedFunctions, []);
+  assert.deepEqual(result.checkedScopes, []);
+  assert.equal(fake.checks.length, 0);
 });
 
 test('proposal and executor checks use independent principal clients and exact least-privilege requirements', async () => {
