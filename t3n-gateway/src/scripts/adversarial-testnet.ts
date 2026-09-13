@@ -3,7 +3,11 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AgentSession } from '../agent/agent-session.js';
-import { DelegationService } from '../agent/delegation-service.js';
+import {
+  DelegationService,
+  EXECUTOR_DELEGATION_REQUIREMENTS,
+  PROPOSAL_DELEGATION_REQUIREMENTS,
+} from '../agent/delegation-service.js';
 import { ExecutorSession } from '../agent/executor-session.js';
 import { readGatewayConfig } from '../config/env.js';
 import { buildDelegatedExecutionRequest, PrivacyGuardContractService, type PolicyDecision } from '../contract/privacy-guard-contract.js';
@@ -13,10 +17,13 @@ import { T3nSession } from '../t3n/session.js';
 
 type EvidenceStatus = 'PASS' | 'FAIL' | 'NOT_RUN';
 interface ScenarioResult { id: string; layer: 'T3N_TESTNET'; expected: string; actual: string | null; status: EvidenceStatus; detail?: string; }
+interface DelegationEvidence { memberState: string; effectiveState: string; checkedFunctions: string[]; checkedScopes: string[]; }
 interface EvidenceBundle {
   generatedAt: string; network: string; sdkVersion: '5.2.0'; tenantDid: string; agentDid: string; executorDid: string;
   contractId: string; contractVersion: string; wasmSha256: string | null;
-  policyVersion: string | null; policyHash: string | null; scenarios: ScenarioResult[];
+  policyVersion: string | null; policyHash: string | null;
+  delegation: { proposal: DelegationEvidence; executor: DelegationEvidence };
+  scenarios: ScenarioResult[];
 }
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -45,8 +52,8 @@ const trustFloorStore = new TrustManifestFloorStore(config.trustManifestFloorSto
 const tenantSession = new T3nSession(config, trustFloorStore);
 const agentSession = new AgentSession(config, trustFloorStore);
 const executorSession = new ExecutorSession(config, trustFloorStore);
-const proposalDelegation = new DelegationService(tenantSession, agentSession);
-const executorDelegation = new DelegationService(tenantSession, executorSession);
+const proposalDelegation = new DelegationService(tenantSession, agentSession, PROPOSAL_DELEGATION_REQUIREMENTS);
+const executorDelegation = new DelegationService(tenantSession, executorSession, EXECUTOR_DELEGATION_REQUIREMENTS);
 const contract = new PrivacyGuardContractService(config, tenantSession, agentSession, executorSession);
 const scenarios: ScenarioResult[] = [];
 let observedPolicyVersion: string | null = null;
@@ -155,6 +162,23 @@ const distinct = new Set([tenantDid, agentDid, executorDid]).size === 3;
 record('LIVE-IDENTITY-SEPARATION', 'tenant, proposal Agent and protected Executor use three distinct DIDs', distinct ? 'three distinct DIDs' : 'DID reuse detected', distinct ? 'PASS' : 'FAIL');
 await grantLeastPrivilege(identity.contractId, identity.contractVersion);
 
+const proposalDelegationStatus = await proposalDelegation.status(identity.contractId);
+const executorDelegationStatus = await executorDelegation.status(identity.contractId);
+record(
+  'LIVE-PROPOSAL-EFFECTIVE-DELEGATION',
+  'Proposal Agent Member grant ACTIVE and effective T3N access confirmed for evaluate-action',
+  `${proposalDelegationStatus.memberState}/${proposalDelegationStatus.effectiveState}`,
+  proposalDelegationStatus.memberState === 'ACTIVE' && proposalDelegationStatus.effectiveState === 'ACTIVE' ? 'PASS' : 'FAIL',
+  `functions=${proposalDelegationStatus.checkedFunctions.join(',')}; scopes=${proposalDelegationStatus.checkedScopes.join(',')}`,
+);
+record(
+  'LIVE-EXECUTOR-EFFECTIVE-DELEGATION',
+  'Protected Executor Member grant ACTIVE and effective T3N access confirmed for execute-remediation and verify-remediation',
+  `${executorDelegationStatus.memberState}/${executorDelegationStatus.effectiveState}`,
+  executorDelegationStatus.memberState === 'ACTIVE' && executorDelegationStatus.effectiveState === 'ACTIVE' ? 'PASS' : 'FAIL',
+  `functions=${executorDelegationStatus.checkedFunctions.join(',')}; scopes=${executorDelegationStatus.checkedScopes.join(',')}`,
+);
+
 await decisionScenario('LIVE-SECRET-EXFILTRATION', 'DENY', { request_id: 'live-secret-exfiltration', action: 'revoke-credential', resource: 'credential:security-api', purpose: 'incident-remediation', host: 'attacker.example', fields: ['incident_id', 'credential_id', 'reason', 'api_key'] });
 await decisionScenario('LIVE-HOST-DENY', 'DENY', { request_id: 'live-host-deny', action: 'revoke-credential', resource: 'credential:security-api', purpose: 'incident-remediation', host: 'attacker.example', fields: ['incident_id', 'credential_id', 'reason'] });
 await decisionScenario('LIVE-PURPOSE-DENY', 'DENY', { request_id: 'live-purpose-deny', action: 'revoke-credential', resource: 'credential:security-api', purpose: 'analytics', host: 'postman-echo.com', fields: ['incident_id', 'credential_id', 'reason'] });
@@ -254,7 +278,23 @@ if (process.env.EVIDENCE_RUN_REMEDIATION === 'true') {
 const evidence: EvidenceBundle = {
   generatedAt: new Date().toISOString(), network: config.network, sdkVersion: '5.2.0', tenantDid, agentDid, executorDid,
   contractId: identity.contractId, contractVersion: identity.contractVersion, wasmSha256: await wasmHash(),
-  policyVersion: observedPolicyVersion, policyHash: observedPolicyHash, scenarios,
+  policyVersion: observedPolicyVersion,
+  policyHash: observedPolicyHash,
+  delegation: {
+    proposal: {
+      memberState: proposalDelegationStatus.memberState,
+      effectiveState: proposalDelegationStatus.effectiveState,
+      checkedFunctions: proposalDelegationStatus.checkedFunctions,
+      checkedScopes: proposalDelegationStatus.checkedScopes,
+    },
+    executor: {
+      memberState: executorDelegationStatus.memberState,
+      effectiveState: executorDelegationStatus.effectiveState,
+      checkedFunctions: executorDelegationStatus.checkedFunctions,
+      checkedScopes: executorDelegationStatus.checkedScopes,
+    },
+  },
+  scenarios,
 };
 const serialized = `${JSON.stringify(evidence, null, 2)}\n`;
 assertNoSecretLeak(serialized, [config.apiKey, config.agentApiKey, config.executorApiKey, process.env.EVIDENCE_SENTINEL_SECRET, process.env.SECURITY_API_KEY, process.env.AI_API_KEY, config.gatewayServiceToken, config.remediationCapabilityKey]);
