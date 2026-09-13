@@ -1,6 +1,8 @@
 package br.com.t3privacyguard.service;
 
 import br.com.t3privacyguard.api.ApiModels.ActionResponse;
+import br.com.t3privacyguard.api.ApiModels.AuditHistoryResponse;
+import br.com.t3privacyguard.api.ApiModels.AuditIntegrityResponse;
 import br.com.t3privacyguard.api.ApiModels.AuditResponse;
 import br.com.t3privacyguard.api.ApiModels.CreateActionRequest;
 import br.com.t3privacyguard.api.ApiModels.CreateIncidentRequest;
@@ -9,6 +11,7 @@ import br.com.t3privacyguard.api.ApiModels.ExecutionTraceResponse;
 import br.com.t3privacyguard.api.ApiModels.IncidentResponse;
 import br.com.t3privacyguard.api.ApiModels.RemediationAuthorizationResponse;
 import br.com.t3privacyguard.api.ApiModels.RemediationExecutionResponse;
+import br.com.t3privacyguard.audit.AuditIntegrityService;
 import br.com.t3privacyguard.domain.DecisionType;
 import br.com.t3privacyguard.domain.ProposalStatus;
 import br.com.t3privacyguard.domain.RemediationStatus;
@@ -19,8 +22,6 @@ import br.com.t3privacyguard.integration.GatewayRemediationClient.RemediationReq
 import br.com.t3privacyguard.integration.GatewayUnavailableException;
 import br.com.t3privacyguard.persistence.ActionProposalEntity;
 import br.com.t3privacyguard.persistence.ActionProposalRepository;
-import br.com.t3privacyguard.persistence.AuditEventEntity;
-import br.com.t3privacyguard.persistence.AuditEventRepository;
 import br.com.t3privacyguard.persistence.IncidentEntity;
 import br.com.t3privacyguard.persistence.IncidentRepository;
 import br.com.t3privacyguard.persistence.PolicyDecisionEntity;
@@ -48,7 +49,7 @@ public class IncidentService {
     private final IncidentRepository incidents;
     private final ActionProposalRepository actions;
     private final PolicyDecisionRepository decisions;
-    private final AuditEventRepository audits;
+    private final AuditIntegrityService auditIntegrity;
     private final GatewayPolicyClient gateway;
     private final GatewayRemediationClient remediationGateway;
     private final RemediationAuthorizationSigner remediationAuthorizationSigner;
@@ -62,7 +63,7 @@ public class IncidentService {
         IncidentRepository incidents,
         ActionProposalRepository actions,
         PolicyDecisionRepository decisions,
-        AuditEventRepository audits,
+        AuditIntegrityService auditIntegrity,
         GatewayPolicyClient gateway,
         GatewayRemediationClient remediationGateway,
         RemediationAuthorizationSigner remediationAuthorizationSigner,
@@ -75,7 +76,7 @@ public class IncidentService {
         this.incidents = incidents;
         this.actions = actions;
         this.decisions = decisions;
-        this.audits = audits;
+        this.auditIntegrity = auditIntegrity;
         this.gateway = gateway;
         this.remediationGateway = remediationGateway;
         this.remediationAuthorizationSigner = remediationAuthorizationSigner;
@@ -198,6 +199,7 @@ public class IncidentService {
         PolicyDecisionEntity decision = decisions.findByActionProposalId(actionId)
             .orElseThrow(() -> new ConflictException("A persisted policy decision is required before remediation"));
         if (decision.getDecision() != DecisionType.ALLOW) throw new PolicyDeniedException("Remediation requires a persisted ALLOW policy decision");
+        auditIntegrity.assertAppendable(incidentId);
 
         RemediationExecutionCoordinator.ClaimResult claim = executionCoordinator.claim(actionId, action.getRequestId());
         if (!claim.acquired()) return reconcileExisting(incidentId, action, claim.execution());
@@ -235,6 +237,7 @@ public class IncidentService {
     public RemediationExecutionResponse verifyRemediation(String incidentId, String actionId) {
         ActionProposalEntity action = requireAction(incidentId, actionId);
         requireSupportedRemediationExecutor(action);
+        auditIntegrity.assertAppendable(incidentId);
         RemediationExecutionEntity execution = executionCoordinator.find(actionId)
             .orElseThrow(() -> new ConflictException("Remediation has not been started"));
         return reconcileExisting(incidentId, action, execution);
@@ -295,10 +298,16 @@ public class IncidentService {
     }
 
     @Transactional(readOnly = true)
-    public List<AuditResponse> history(String incidentId) {
+    public AuditHistoryResponse history(String incidentId) {
         requireIncident(incidentId);
-        return audits.findByIncidentIdOrderByCreatedAtAsc(incidentId).stream()
-            .map(event -> new AuditResponse(event.getId(), event.getIncidentId(), event.getType(), event.getMessage(), event.getCreatedAt())).toList();
+        AuditIntegrityService.Verification verification = auditIntegrity.verify(incidentId);
+        List<AuditResponse> events = verification.events().stream()
+            .map(event -> new AuditResponse(event.getId(), event.getIncidentId(), event.getType(), event.getMessage(), event.getCreatedAt(), event.getSequence()))
+            .toList();
+        return new AuditHistoryResponse(
+            new AuditIntegrityResponse(verification.state(), verification.eventsChecked(), verification.head(), verification.version(), verification.detail()),
+            events
+        );
     }
 
     @Transactional(readOnly = true)
@@ -332,7 +341,7 @@ public class IncidentService {
     }
 
     private void audit(String incidentId, String type, String message) {
-        audits.save(new AuditEventEntity(UUID.randomUUID().toString(), incidentId, type, minimizer.sanitizeAuditMessage(message), Instant.now()));
+        auditIntegrity.append(incidentId, type, minimizer.sanitizeAuditMessage(safe(message, 600)));
     }
 
     private IncidentResponse incidentResponse(IncidentEntity entity) {
