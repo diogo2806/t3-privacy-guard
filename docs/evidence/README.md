@@ -10,6 +10,8 @@ The operator dashboard presents evidence in business-first order. The **Proof & 
 
 The dashboard trust flow follows the same claim boundary as the evidence bundle: `ALLOW` is not execution, accepted external execution is not completion, `REGISTERED` Agent onboarding is not delegation, an observed `ACTIVE` Member grant is not by itself effective delegated authority, and `COMPLETED` is shown only after independent read-back verifies the expected external state. T3N control-plane or trust-boundary unavailability is surfaced explicitly rather than rendered as a successful state. Operational readiness requires T3N `checkDelegation()` to confirm effective access for the authenticated Proposal Agent and Protected Executor.
 
+The denied-to-legitimate demo follows the same evidence rule. After a malicious proposal is denied, **Ask agent for minimum proposal** invokes the same configured provider again inside the existing incident. The application does not create a fixed safe action. The second provider/model origin is persisted in the authenticated local audit chain, and the exact model output is independently evaluated by T3N. `DENY`, `REDACT` or an unsupported action remains visible without fallback.
+
 The dashboard also presents **local audit integrity** separately from T3N Activity Log provenance. `VERIFIED` means the retained application HMAC chain and authenticated head verified with configured key versions. It does not mean immutable storage, T3N execution proof or hardware attestation. A T3N `MATCHED` event and a local `BROKEN` chain are different signals and can coexist.
 
 ## Local automated evidence
@@ -20,7 +22,7 @@ From the repository root:
 bash scripts/run-local-evidence.sh
 ```
 
-This executes Rust policy/remediation/verification tests, including dev-only `proptest` suites that generate hundreds of policy/parser combinations, Java replay/authorization/distributed-idempotency/incident-retention/audit-integrity/audit-reconciliation tests, gateway Member-grant/effective-`checkDelegation`/`pii_did`/leak/trust-floor/Agent-Card tests plus deterministic generated agent-schema invariants and trace-correlation tests, and React accessibility/decision/remediation-state/evidence-provenance/local-audit-integrity/onboarding/effective-authorization/retention-state tests. Raw runtime logs are gitignored.
+This executes Rust policy/remediation/verification tests, including dev-only `proptest` suites that generate hundreds of policy/parser combinations, Java replay/authorization/distributed-idempotency/incident-retention/audit-integrity/audit-reconciliation tests, gateway Member-grant/effective-`checkDelegation`/`pii_did`/leak/trust-floor/Agent-Card tests plus deterministic generated agent-schema invariants and trace-correlation tests, and React accessibility/decision/remediation-state/evidence-provenance/local-audit-integrity/onboarding/effective-authorization/retention-state tests. The agent flow additionally verifies that a second prompt reuses the same incident, creates a distinct provider-generated proposal, is independently evaluated, records provider/model audit provenance, and creates no synthetic fallback action when the provider fails. Frontend tests verify the agent-driven CTA and the prompt-only existing-incident API contract. Raw runtime logs are gitignored.
 
 Local audit-integrity coverage includes a fixed canonical HMAC vector, one/many-event chains, content/link/sequence/provenance tampering, missing head, retained-tail deletion, manual insertion, concurrent append linearity, key mismatch/restart, explicit key rotation, legacy history and the protected-change fail-closed guard. These are local invariant tests, not T3N testnet evidence.
 
@@ -77,6 +79,8 @@ These are local privacy/integrity controls and are not presented as live T3N evi
 ## Tamper-evident local audit boundary
 
 New sanitized business-audit events are stored in a versioned HMAC-SHA-256 chain scoped to the incident. The canonical event input binds incident/event IDs, monotonic local sequence, type, canonical UTC timestamp, sanitized message, previous MAC and persisted T3N sequence/hash/function when present. A separately HMAC-authenticated chain head binds the final retained sequence/MAC and key version.
+
+Agent-generated actions also add a sanitized `AGENT_PROPOSAL_SOURCE` event after proposal persistence and before T3N policy evaluation. That event identifies the action plus bounded provider/model labels. It does not contain the prompt, provider key, tool-call raw response, credentials or private values. This gives retained local evidence that two actions in the same incident came from two separate model proposals rather than an application-authored fallback.
 
 Append is serialized by a pessimistic lock on the incident. Verification checks sequence continuity, previous-MAC linkage, event MACs, required key versions and the authenticated head. This detects DB-only edits, inserted rows, sequence/link changes, T3N-provenance metadata changes, missing head and retained-tail deletion when the attacker does not possess the HMAC key.
 
@@ -183,6 +187,7 @@ Prerequisites:
 - built release WASM at the documented path, or `T3N_CONTRACT_WASM_PATH`;
 - a clean Git working tree for submission evidence;
 - `T3N_CONTRACT_NUMERIC_ID` when the configured contract version already exists and an operation needs its numeric id;
+- optional live AI configuration `AI_PROVIDER=openai-compatible`, `AI_API_URL`, `AI_API_KEY`, `AI_MODEL` when `LIVE-AI-MINIMUM-REMEDIATION` is expected to run; with `AI_PROVIDER=disabled` that scenario must remain `NOT_RUN`;
 - synthetic `SECURITY_API_KEY`, `SECURITY_API_URL` and `SECURITY_VERIFICATION_URL` only when protected egress/read-back is enabled;
 - a synthetic second HTTPS endpoint in `EVIDENCE_DESTINATION_B_URL` only when the destination-binding negative is enabled.
 
@@ -209,11 +214,12 @@ The orchestrator:
 12. derives least-privilege allowed hosts from the configured HTTPS action/verification endpoints and, only for the controlled destination-binding scenario, the synthetic B endpoint;
 13. creates/updates the exact least-privilege Member grants: Proposal only `evaluate-action`, Executor only `execute-remediation` and `verify-remediation`, both with the fixed minimum scopes and no wildcard;
 14. calls `checkDelegation()` independently through each authenticated delegated principal for its fixed requirements and fails before scenario execution unless both Member state and effective state are `ACTIVE`;
-15. invokes the existing `evidence:testnet` runner, records sanitized Proposal/Executor Member/effective states and exact checked restrictions, and writes the same captured source SHA/tree state into `testnet-run.json`;
-16. when `EVIDENCE_RUN_DESTINATION_BINDING=true`, requires T3N testnet, independently proves policy ALLOW for distinct hosts A and B, temporarily changes private `security_api_url` from A to B, requires `EXECUTION_DESTINATION_CHANGED` before `hwp::call`, and restores A in `finally`;
-17. when `EVIDENCE_RUN_EGRESS_NEGATIVES=true`, revokes Proposal and Executor grants independently, requires direct principal-side `checkDelegation()` to return `authorised=false`, exercises protected rejection where applicable, and restores the known-good minimum grants in `finally`;
-18. verifies that testnet evidence and deployment manifest have the same source SHA/tree state, network, SDK, DIDs, contract id/version, WASM hash and policy provenance, and that recorded delegation evidence matches the live positive checks;
-19. fails if the runner reports failure, effective delegation is not confirmed, negative revocation/destination evidence fails, source identity is absent/malformed/mismatched, identities mismatch, trust/policy metadata is inconsistent, or leak detection finds configured secret material.
+15. invokes the existing `evidence:testnet` runner. The runner always keeps deterministic T3N policy scenarios separate from the optional live-AI scenario. When the OpenAI-compatible provider is configured it uses the same runtime `OpenAiCompatibleProvider` + `AgentService` for `LIVE-AI-MINIMUM-REMEDIATION`; when AI is disabled the scenario is `NOT_RUN`, not replaced by a fixture;
+16. records sanitized Proposal/Executor Member/effective states and exact checked restrictions and writes the same captured source SHA/tree state into `testnet-run.json`;
+17. when `EVIDENCE_RUN_DESTINATION_BINDING=true`, requires T3N testnet, independently proves policy ALLOW for distinct hosts A and B, temporarily changes private `security_api_url` from A to B, requires `EXECUTION_DESTINATION_CHANGED` before `hwp::call`, and restores A in `finally`;
+18. when `EVIDENCE_RUN_EGRESS_NEGATIVES=true`, revokes Proposal and Executor grants independently, requires direct principal-side `checkDelegation()` to return `authorised=false`, exercises protected rejection where applicable, and restores the known-good minimum grants in `finally`;
+19. verifies that testnet evidence and deployment manifest have the same source SHA/tree state, network, SDK, DIDs, contract id/version, WASM hash and policy provenance, and that recorded delegation evidence matches the live positive checks;
+20. fails if the runner reports failure, effective delegation is not confirmed, negative revocation/destination evidence fails, source identity is absent/malformed/mismatched, identities mismatch, trust/policy metadata is inconsistent, or leak detection finds configured secret material.
 
 The evidence chain is:
 
@@ -241,13 +247,40 @@ deployment-manifest.json
    | source revision + trust + onboarding + policy + contract + canonical DIDs
    v
 T3N testnet runner
-   | sanitized effective-delegation verdicts + live outcomes
+   | deterministic T3N scenarios
+   | + optional live configured AI proposal -> exact T3N evaluation
+   | + sanitized effective-delegation verdicts
    v
 testnet-run.json
    | same source revision + live outcomes
 ```
 
-This closes the linkage `public source -> commit -> WASM/policy identity -> T3N execution -> observed scenarios`. The source SHA proves which repository revision was captured; the WASM SHA-256 still identifies the binary bytes and the policy hash still identifies the canonical operational policy. A clean source tree is a reproducibility signal, not proof that the source was independently audited. Runtime readiness additionally requires the platform-side delegation verdict described above; the evidence bundle does not infer effective authorization from a Member grant alone. It is not described as hardware attestation unless a separate T3N API explicitly provides execution-specific attestation evidence.
+This closes the linkage `public source -> commit -> WASM/policy identity -> T3N execution -> observed scenarios`. When live AI is configured, `LIVE-AI-MINIMUM-REMEDIATION` additionally links `configured provider/model -> structured proposal -> exact T3N decision`. The source SHA proves which repository revision was captured; the WASM SHA-256 still identifies the binary bytes and the policy hash still identifies the canonical operational policy. A clean source tree is a reproducibility signal, not proof that the source was independently audited. Runtime readiness additionally requires the platform-side delegation verdict described above; the evidence bundle does not infer effective authorization from a Member grant alone. It is not described as hardware attestation unless a separate T3N API explicitly provides execution-specific attestation evidence.
+
+## Live AI minimum-remediation proof
+
+The deterministic `LIVE-MINIMAL-ALLOW` scenario proves the T3N policy result for a known minimum request. It is **not** proof that a real model generated that request.
+
+`LIVE-AI-MINIMUM-REMEDIATION` is separate. When `AI_PROVIDER=openai-compatible`, the runner constructs the same provider and `AgentService` used by the gateway runtime and sends a synthetic minimum remediation prompt that includes the approved host. The returned structured proposal is not rewritten before T3N evaluation.
+
+A `PASS` requires all of the following:
+
+```text
+real configured provider invoked
+provider + model identified
+proposal.action = revoke-credential
+proposal.resource = credential:production-security-api
+proposal.purpose = incident-remediation
+proposal.host = current approved synthetic host
+proposal.fields = incident_id + credential_id + reason only
+proposal.private_refs = empty
+same proposal sent to T3N evaluate-action
+T3N decision = ALLOW
+```
+
+The evidence detail records only bounded provider/model labels, resource, purpose, canonical host, field/private-reference names, T3N reason code and policy version/hash. It does not persist the prompt, raw provider response, API key, credentials, private values or arbitrary model text.
+
+If `AI_PROVIDER=disabled`, the scenario is `NOT_RUN` with an explicit explanation. If the configured provider fails, returns invalid tool output, proposes another action/field set/host, or T3N returns `DENY`/`REDACT`, the live-AI scenario is `FAIL`. The runner never substitutes the deterministic minimum fixture to manufacture a live-AI `PASS`.
 
 ## Optional protected egress + independent verification proof
 
@@ -336,7 +369,9 @@ GET /api/incidents/{incidentId}/actions/{actionId}/trace
 
 The timeline may contain stages such as `AGENT_PROPOSAL`, `T3N_TEE_EVALUATION`, `HUMAN_AUTHORIZATION`, `PROTECTED_EGRESS`, `EXTERNAL_ACCEPTANCE` and `EXTERNAL_VERIFICATION`. It reports the actual state observed at each stage, for example `SENT`, `ACCEPTED`, `VERIFIED`, `DENIED`, `FAILED` or `UNAVAILABLE`, plus timestamp, reason code and same-process duration when available.
 
-A retry can therefore have the same `requestId` and a different `traceId`. This is expected and demonstrates that observability does not alter business idempotency. The Business Audit Trail remains the persistent business history; the Execution Trace explains a technical attempt; the Evidence Bundle remains the reproducible T3N/testnet proof. None substitutes for the others.
+The persistent Business Audit Trail complements that timeline with `AGENT_PROPOSAL_SOURCE`, so a judge can associate each proposal action id with bounded provider/model provenance. A retry can therefore have the same logical incident but a distinct agent-generated action and a distinct policy result without inventing a new incident or application fallback.
+
+A retry can have the same `requestId` and a different `traceId`. This is expected and demonstrates that observability does not alter business idempotency. The Business Audit Trail remains the persistent business history; the Execution Trace explains a technical attempt; the Evidence Bundle remains the reproducible T3N/testnet proof. None substitutes for the others.
 
 The application does not fabricate a Terminal 3 request/receipt identifier. Such an identifier must be displayed or persisted only when the platform API actually returns one.
 
@@ -351,7 +386,7 @@ For an incident, the authenticated backend requests a bounded Activity Log windo
 The API/UI exposes four independent reconciliation states:
 
 - `MATCHED`: the local network-backed event matches the exact T3N sequence/hash/function/actor boundary;
-- `LOCAL_ONLY`: the business event has no T3N function by design, for example a purely local step;
+- `LOCAL_ONLY`: the business event has no T3N function by design, for example a purely local step or `AGENT_PROPOSAL_SOURCE`;
 - `T3N_ONLY`: a relevant T3N activity event exists without a matching local event in the bounded local result;
 - `UNMATCHED`: a local event expects T3N provenance but the exact required metadata/actor could not be verified.
 
@@ -385,9 +420,9 @@ The `limit` is server-validated between 1 and 200. The same response keeps `inte
 - policy version/hash;
 - WASM SHA-256.
 
-`testnet-run.json` contains the same `sourceCommitSha` and `sourceTreeClean` values plus live scenario outcomes including PASS/FAIL/NOT_RUN and the sanitized delegation evidence for Proposal/Executor. Missing, malformed or mismatched source provenance invalidates the bundle. Optional scenarios that were not executed stay `NOT_RUN`; they are never converted into PASS.
+`testnet-run.json` contains the same `sourceCommitSha` and `sourceTreeClean` values plus live scenario outcomes including PASS/FAIL/NOT_RUN and the sanitized delegation evidence for Proposal/Executor. `LIVE-AI-MINIMUM-REMEDIATION` additionally records sanitized provider/model labels and the actual structured proposal metadata inside its scenario detail when a live provider was invoked. Missing, malformed or mismatched source provenance invalidates the bundle. Optional scenarios that were not executed stay `NOT_RUN`; they are never converted into PASS.
 
-Both artifacts pass leak detection against configured Tenant/Proposal Agent/Protected Executor keys, remediation key, AI provider key, service token, capability signing key and optional sentinel before being accepted. Submission-capture metadata additionally treats `AUDIT_INTEGRITY_KEY` as prohibited secret material. Neither artifact contains `.env` contents, API keys, tokens, private keys, audit-integrity key material or raw Member Delegation documents.
+Both artifacts pass leak detection against configured Tenant/Proposal Agent/Protected Executor keys, remediation key, AI provider key, service token, capability signing key and optional sentinel before being accepted. Submission-capture metadata additionally treats `AUDIT_INTEGRITY_KEY` as prohibited secret material. Neither artifact contains `.env` contents, API keys, tokens, private keys, audit-integrity key material, prompts, raw provider responses or raw Member Delegation documents.
 
 ## Trust, onboarding and authorization evidence wording
 
@@ -407,6 +442,7 @@ The UI and evidence API deliberately distinguish these concepts:
 - **Effective access ACTIVE**: `checkDelegation()` executed as the authenticated grantee returned `authorised=true` for that principal's canonical contract, Tenant DID and fixed minimum functions/scopes. Only this state may contribute to operational readiness.
 - **Effective access DENIED**: `authorised=false`, or a known non-active Member state, prevents readiness.
 - **Effective access UNKNOWN**: the Member state or platform verdict could not be validated; readiness remains false.
+- **Live AI proposal PASS**: the configured provider/model actually produced the recorded minimum structured proposal and T3N independently returned `ALLOW` for that exact output. Deterministic fixture output or disabled provider cannot satisfy this label.
 - **Approved destination**: canonical hostname persisted in the action, evaluated by policy, shown to the operator and signed into the remediation capability. It is narrower than a policy allowlist and must equal the current private execution URL hostname before egress.
 - **Destination changed**: the protected action URL resolved to a different hostname after approval. This is a fail-closed authorization mismatch requiring a new evaluation and human authorization, not a generic transport outage.
 - **Local audit integrity VERIFIED**: the retained HMAC chain, sequence/linkage and authenticated head validated using configured key versions. This is an application integrity signal, not T3N/hardware attestation.
@@ -422,6 +458,6 @@ The policy-level logical-reference scenario can run independently. Actual `verif
 
 ## What is not live evidence
 
-Mocks, unit tests, property tests, generated cases, screenshots, docs and unexecuted commands are not T3N testnet proof. A Git commit SHA by itself is not live proof and `CLEAN` is not a security certification; they only link a generated bundle to a source revision. A locally generated Agent Card is not proof that it was hosted; `REGISTERED` requires read-only public resolution of the authenticated DID. An observed Member grant is not proof of effective authority; runtime readiness additionally requires the authenticated principal-side T3N `checkDelegation()` verdict. The generated deployment manifest plus matching successful `testnet-run.json` are the live evidence source of truth for contract scenarios. A screenshot of a 2xx response is not remediation completion proof; the matching verification state is required. A persisted trust floor is cluster-trust rollback protection, not execution-specific hardware attestation. Activity reconciliation is provenance for T3N-observed operations, not a replacement for local HMAC integrity. Local HMAC integrity is not live T3N proof, immutable storage or hardware attestation.
+Mocks, unit tests, property tests, generated cases, screenshots, docs and unexecuted commands are not T3N testnet proof. A Git commit SHA by itself is not live proof and `CLEAN` is not a security certification; they only link a generated bundle to a source revision. A locally generated Agent Card is not proof that it was hosted; `REGISTERED` requires read-only public resolution of the authenticated DID. An observed Member grant is not proof of effective authority; runtime readiness additionally requires the authenticated principal-side T3N `checkDelegation()` verdict. A deterministic `LIVE-MINIMAL-ALLOW` policy request is not proof that an AI model generated the same proposal. `AI_PROVIDER=disabled` must yield `LIVE-AI-MINIMUM-REMEDIATION = NOT_RUN`, never PASS. The generated deployment manifest plus matching successful `testnet-run.json` are the live evidence source of truth for contract scenarios. A screenshot of a 2xx response is not remediation completion proof; the matching verification state is required. A persisted trust floor is cluster-trust rollback protection, not execution-specific hardware attestation. Activity reconciliation is provenance for T3N-observed operations, not a replacement for local HMAC integrity. Local HMAC integrity is not live T3N proof, immutable storage or hardware attestation.
 
 See `scenario-matrix.md` for the security-scenario mapping.
