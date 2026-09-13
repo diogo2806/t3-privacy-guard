@@ -38,14 +38,16 @@ interface DelegationEvidence {
 }
 
 function configuredEgressHosts(): string[] {
-  const configured = [process.env.SECURITY_API_URL, process.env.SECURITY_VERIFICATION_URL]
+  const candidates = [process.env.SECURITY_API_URL, process.env.SECURITY_VERIFICATION_URL];
+  if (process.env.EVIDENCE_RUN_DESTINATION_BINDING === 'true') candidates.push(process.env.EVIDENCE_DESTINATION_B_URL);
+  const configured = candidates
     .map((value) => value?.trim())
     .filter((value): value is string => Boolean(value));
   if (configured.length === 0) return ['postman-echo.com'];
   return [...new Set(configured.map((value) => {
     const parsed = new URL(value);
     if (parsed.protocol !== 'https:') throw new Error('Evidence egress endpoints must use HTTPS');
-    return parsed.hostname;
+    return parsed.hostname.toLowerCase();
   }))];
 }
 
@@ -65,6 +67,9 @@ if (config.network !== 'testnet' && process.env.EVIDENCE_ALLOW_PRODUCTION !== 't
 }
 if (!config.agentApiKey) throw new Error('T3N_AGENT_API_KEY is required for live evidence');
 if (!config.executorApiKey) throw new Error('T3N_EXECUTOR_API_KEY is required for live evidence');
+if (process.env.EVIDENCE_RUN_DESTINATION_BINDING === 'true' && config.network !== 'testnet') {
+  throw new Error('Destination-binding mutation evidence is restricted to T3N testnet and cannot run in production');
+}
 
 const sourceRevision = resolveSourceRevision(repositoryRoot);
 if (!sourceRevision.sourceTreeClean && process.env.EVIDENCE_ALLOW_DIRTY_SOURCE !== 'true') {

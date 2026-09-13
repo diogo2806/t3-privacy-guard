@@ -18,6 +18,7 @@ import br.com.t3privacyguard.integration.GatewayPolicyClient.GatewayEvaluationRe
 import br.com.t3privacyguard.integration.GatewayRemediationClient;
 import br.com.t3privacyguard.integration.GatewayRemediationClient.RemediationRequest;
 import br.com.t3privacyguard.integration.GatewayUnavailableException;
+import br.com.t3privacyguard.integration.RemediationDestinationChangedException;
 import br.com.t3privacyguard.persistence.ActionProposalEntity;
 import br.com.t3privacyguard.persistence.ActionProposalRepository;
 import br.com.t3privacyguard.persistence.IncidentEntity;
@@ -112,10 +113,12 @@ public class IncidentService {
         if (actions.findByRequestId(requestId).isPresent()) throw new ConflictException("requestId already exists; duplicate/replay rejected");
         List<String> privateRefs = request.privateRefs() == null ? List.of() : request.privateRefs();
         validateLogicalPrivateRefs(privateRefs);
+        String host = blankToNull(request.host());
+        if (host != null) host = RemediationAuthorizationSigner.canonicalizeHost(host);
         try {
             ActionProposalEntity entity = actions.saveAndFlush(new ActionProposalEntity(
                 UUID.randomUUID().toString(), incidentId, requestId, request.action().trim(), request.resource().trim(), request.purpose().trim(),
-                blankToNull(request.host()), writeJson(request.fields()), writeJson(privateRefs), Instant.now()
+                host, writeJson(request.fields()), writeJson(privateRefs), Instant.now()
             ));
             audit(incidentId, "ACTION_PROPOSED", "Action " + entity.getAction() + " proposed as request " + requestId);
             traces.record(entity, "AGENT_PROPOSAL", "RECEIVED", null, null);
@@ -192,13 +195,14 @@ public class IncidentService {
     public RemediationAuthorizationResponse authorizeRemediation(String incidentId, String actionId) {
         ActionProposalEntity action = requireAction(incidentId, actionId);
         requireSupportedRemediationExecutor(action);
+        String approvedHost = requireApprovedHost(action);
         PolicyDecisionEntity decision = decisions.findByActionProposalId(actionId).orElseThrow(() -> new ConflictException("Action must be evaluated before remediation"));
         if (decision.getDecision() != DecisionType.ALLOW) throw new PolicyDeniedException("Remediation requires an ALLOW policy decision");
         requireVersionedPolicy(decision);
         auditIntegrity.assertAppendable(incidentId);
         action.authorizeRemediation();
         actions.save(action);
-        audit(incidentId, "REMEDIATION_AUTHORIZED", "Remediation authorized for request " + action.getRequestId() + " under policy " + decision.getPolicyVersion() + " hash " + decision.getPolicyHash());
+        audit(incidentId, "REMEDIATION_AUTHORIZED", "Remediation authorized for request " + action.getRequestId() + " to approved destination " + approvedHost + " under policy " + decision.getPolicyVersion() + " hash " + decision.getPolicyHash());
         traces.record(action, "HUMAN_AUTHORIZATION", "AUTHORIZED", null, null);
         return new RemediationAuthorizationResponse(incidentId, actionId, action.getRequestId(), action.getStatus().name());
     }
@@ -206,6 +210,7 @@ public class IncidentService {
     public RemediationExecutionResponse executeRemediation(String incidentId, String actionId) {
         ActionProposalEntity action = requireAction(incidentId, actionId);
         requireSupportedRemediationExecutor(action);
+        String approvedHost = requireApprovedHost(action);
         if (action.getStatus() != ProposalStatus.REMEDIATION_AUTHORIZED && action.getStatus() != ProposalStatus.REMEDIATED) {
             throw new PolicyDeniedException("Remediation must be explicitly authorized before execution");
         }
@@ -221,7 +226,7 @@ public class IncidentService {
         List<String> fields = readList(action.getFieldsJson());
         List<String> privateRefs = readList(action.getPrivateRefsJson());
         String capability = remediationAuthorizationSigner.issue(
-            incidentId, actionId, action.getRequestId(), decision.getId(), action.getAction(), action.getResource(), action.getPurpose(), fields, privateRefs,
+            incidentId, actionId, action.getRequestId(), decision.getId(), action.getAction(), action.getResource(), action.getPurpose(), approvedHost, fields, privateRefs,
             decision.getPolicyVersion(), decision.getPolicyHash()
         );
 
@@ -229,7 +234,7 @@ public class IncidentService {
         long startedAt = System.nanoTime();
         try {
             var result = remediationGateway.execute(new RemediationRequest(
-                incidentId, actionId, decision.getId(), action.getRequestId(), action.getAction(), action.getResource(), action.getPurpose(), fields, privateRefs,
+                incidentId, actionId, decision.getId(), action.getRequestId(), action.getAction(), action.getResource(), action.getPurpose(), approvedHost, fields, privateRefs,
                 decision.getPolicyVersion(), decision.getPolicyHash()
             ), capability);
             if (!action.getRequestId().equals(result.requestId())) {
@@ -249,13 +254,25 @@ public class IncidentService {
             audit(
                 incidentId,
                 "REMEDIATION_ACCEPTED",
-                "External request accepted under policy " + decision.getPolicyVersion() + " hash " + decision.getPolicyHash() + "; independent verification is required before completion",
+                "External request accepted for approved destination " + approvedHost + " under policy " + decision.getPolicyVersion() + " hash " + decision.getPolicyHash() + "; independent verification is required before completion",
                 result.activitySequence(),
                 result.activityHash(),
                 "execute-remediation"
             );
             traces.record(action, "EXTERNAL_ACCEPTANCE", "ACCEPTED", "HTTP_" + result.httpCode(), elapsedMillis(startedAt));
             return verifyPersistedRemediation(incidentId, action, pending);
+        } catch (RemediationDestinationChangedException ex) {
+            RemediationExecutionEntity state = executionCoordinator.markFailed(actionId, "EXECUTION_DESTINATION_CHANGED");
+            audit(
+                incidentId,
+                "REMEDIATION_BLOCKED",
+                "Protected execution was blocked because the configured destination no longer matched the destination approved by the human operator; re-evaluation and re-authorization are required",
+                null,
+                null,
+                "execute-remediation"
+            );
+            traces.record(action, "PROTECTED_EGRESS", "DENIED", "EXECUTION_DESTINATION_CHANGED", elapsedMillis(startedAt));
+            return remediationResponse(incidentId, actionId, state);
         } catch (GatewayUnavailableException ex) {
             RemediationExecutionEntity state = executionCoordinator.markUnverified(actionId, "EXECUTION_RESULT_UNKNOWN");
             audit(
@@ -390,6 +407,14 @@ public class IncidentService {
     private void requireSupportedRemediationExecutor(ActionProposalEntity action) {
         if (!SUPPORTED_REMEDIATION_ACTION.equals(action.getAction())) {
             throw new PolicyDeniedException("Protected remediation is not implemented for this action");
+        }
+    }
+
+    private String requireApprovedHost(ActionProposalEntity action) {
+        try {
+            return RemediationAuthorizationSigner.canonicalizeHost(action.getHost());
+        } catch (IllegalArgumentException ex) {
+            throw new PolicyDeniedException("Protected remediation requires a valid approved destination; re-evaluate and authorize a new action");
         }
     }
 

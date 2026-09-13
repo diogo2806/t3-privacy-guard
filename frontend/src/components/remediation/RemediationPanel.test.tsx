@@ -46,6 +46,28 @@ function renderPanel(current: RemediationExecution | null, onVerify = vi.fn(), c
 }
 
 describe('RemediationPanel', () => {
+  it('shows the exact approved destination before protected execution', () => {
+    renderPanel(null);
+    expect(screen.getByText('Approved destination')).toBeInTheDocument();
+    expect(screen.getByText('postman-echo.com')).toBeInTheDocument();
+    expect(screen.getByText(/requires a new action, policy evaluation and authorization/i)).toBeInTheDocument();
+  });
+
+  it('blocks authorization and execution when a supported action has no approved destination', () => {
+    renderPanel(null, vi.fn(), { ...action, host: null, status: 'EVALUATED' });
+    expect(screen.getByText('MISSING — BLOCKED')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(/no approved destination/i);
+    expect(screen.queryByRole('button', { name: /Authorize credential revocation/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Execute protected credential revocation/i })).not.toBeInTheDocument();
+  });
+
+  it('explains destination substitution as a new evaluation and authorization, not a generic outage', () => {
+    renderPanel(execution('FAILED', { failureCode: 'EXECUTION_DESTINATION_CHANGED', operationId: null, httpCode: null }));
+    expect(screen.getByRole('alert')).toHaveTextContent(/Destination changed/i);
+    expect(screen.getByRole('alert')).toHaveTextContent(/Create a new action/i);
+    expect(screen.getByRole('alert')).toHaveTextContent(/authorize it before executing again/i);
+  });
+
   it('does not call accepted execution completed while verification is pending', () => {
     renderPanel(execution('PENDING_VERIFICATION'));
     expect(screen.getByText('PENDING')).toBeInTheDocument();

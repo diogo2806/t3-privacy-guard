@@ -8,6 +8,7 @@ const contractId = 'z:tenant123:privacy-guard';
 const contractVersion = '0.4.0';
 const policyVersion = '2026-09-12.1';
 const policyHash = 'a'.repeat(64);
+const approvedHost = 'security-api.internal';
 
 function input() {
   return {
@@ -36,17 +37,18 @@ test('evaluation execution is bound to the authenticated tenant DID', () => {
   assert.notEqual(request.pii_did, request.input.agent_did);
 });
 
-test('remediation execution uses tenant delegation subject and exact policy provenance', () => {
+test('remediation execution uses tenant delegation subject, exact policy provenance and approved destination', () => {
   const request = buildDelegatedExecutionRequest(
     tenantDid,
     contractId,
     contractVersion,
     'execute-remediation',
-    { ...input(), policy_version: policyVersion, policy_hash: policyHash },
+    { ...input(), approved_host: approvedHost, policy_version: policyVersion, policy_hash: policyHash },
   );
 
   assert.equal(request.pii_did, tenantDid);
   assert.equal(request.function_name, 'execute-remediation');
+  assert.equal(request.input.approved_host, approvedHost);
   assert.equal(request.input.policy_version, policyVersion);
   assert.equal(request.input.policy_hash, policyHash);
 });

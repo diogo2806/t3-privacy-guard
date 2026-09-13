@@ -16,6 +16,7 @@ import br.com.t3privacyguard.domain.Severity;
 import br.com.t3privacyguard.integration.GatewayPolicyClient;
 import br.com.t3privacyguard.integration.GatewayPolicyClient.GatewayDecision;
 import br.com.t3privacyguard.integration.GatewayRemediationClient;
+import br.com.t3privacyguard.integration.GatewayRemediationClient.RemediationRequest;
 import br.com.t3privacyguard.integration.GatewayRemediationClient.RemediationResult;
 import br.com.t3privacyguard.integration.GatewayRemediationClient.VerificationResult;
 import br.com.t3privacyguard.integration.GatewayUnavailableException;
@@ -30,6 +31,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -68,6 +70,25 @@ class IncidentServiceTest {
         assertThat(actions.count()).isZero();
     }
 
+    @Test void canonicalizesApprovedDestinationBeforePersistence() {
+        var incident = createIncident("Destination binding");
+        var action = service.addAction(incident.id(), new CreateActionRequest(
+            "host-canonical", "revoke-credential", "credential:test", "incident-remediation", "Postman-Echo.COM",
+            List.of("incident_id", "credential_id", "reason"), List.of()
+        ));
+        assertThat(action.host()).isEqualTo("postman-echo.com");
+        assertThat(actions.findById(action.id()).orElseThrow().getHost()).isEqualTo("postman-echo.com");
+    }
+
+    @Test void rejectsUrlInsteadOfHostnameBeforePersistence() {
+        var incident = createIncident("Destination validation");
+        assertThatThrownBy(() -> service.addAction(incident.id(), new CreateActionRequest(
+            "host-url", "revoke-credential", "credential:test", "incident-remediation", "https://postman-echo.com/post",
+            List.of("incident_id", "credential_id", "reason"), List.of()
+        ))).isInstanceOf(IllegalArgumentException.class);
+        assertThat(actions.count()).isZero();
+    }
+
     @Test void persistsOnlyLogicalPrivateReferenceAndPropagatesPolicyResult() {
         var incident = createIncident("Private data");
         var action = service.addAction(incident.id(), new CreateActionRequest(
@@ -91,6 +112,20 @@ class IncidentServiceTest {
         when(gateway.evaluate(any())).thenReturn(decision("req-2", DecisionType.DENY, "HOST_NOT_ALLOWED", List.of(), List.of()));
         service.evaluate(incident.id(), action.id());
         assertThatThrownBy(() -> service.authorizeRemediation(incident.id(), action.id())).isInstanceOf(PolicyDeniedException.class);
+    }
+
+    @Test void supportedRemediationWithoutApprovedDestinationFailsClosed() {
+        var incident = createIncident("Missing destination");
+        var action = service.addAction(incident.id(), new CreateActionRequest(
+            "host-missing", "revoke-credential", "credential:test", "incident-remediation", null,
+            List.of("incident_id", "credential_id", "reason"), List.of()
+        ));
+        allow("host-missing");
+        service.evaluate(incident.id(), action.id());
+        assertThatThrownBy(() -> service.authorizeRemediation(incident.id(), action.id()))
+            .isInstanceOf(PolicyDeniedException.class)
+            .hasMessageContaining("approved destination");
+        verify(remediationGateway, times(0)).execute(any(), anyString());
     }
 
     @Test void persistedDecisionPreventsSecondGatewayExecution() {
@@ -129,6 +164,18 @@ class IncidentServiceTest {
         assertThat(remediations.count()).isZero();
         verify(remediationGateway, times(0)).execute(any(), anyString());
         verify(remediationGateway, times(0)).verify(anyString(), anyString());
+    }
+
+    @Test void executionCarriesThePersistedApprovedDestination() {
+        var context = authorizedAction("req-host-bound");
+        when(remediationGateway.execute(any(), anyString())).thenReturn(remediation("req-host-bound", 202, "op-host"));
+        when(remediationGateway.verify("req-host-bound", "op-host")).thenReturn(new VerificationResult("req-host-bound", "VERIFIED", "REVOKED"));
+
+        service.executeRemediation(context.incidentId(), context.actionId());
+
+        ArgumentCaptor<RemediationRequest> request = ArgumentCaptor.forClass(RemediationRequest.class);
+        verify(remediationGateway).execute(request.capture(), anyString());
+        assertThat(request.getValue().approvedHost()).isEqualTo("postman-echo.com");
     }
 
     @Test void completedRequiresIndependentReadBackAndReplayDoesNotReexecute() {

@@ -183,7 +183,8 @@ Prerequisites:
 - built release WASM at the documented path, or `T3N_CONTRACT_WASM_PATH`;
 - a clean Git working tree for submission evidence;
 - `T3N_CONTRACT_NUMERIC_ID` when the configured contract version already exists and an operation needs its numeric id;
-- synthetic `SECURITY_API_KEY`, `SECURITY_API_URL` and `SECURITY_VERIFICATION_URL` only when protected egress/read-back is enabled.
+- synthetic `SECURITY_API_KEY`, `SECURITY_API_URL` and `SECURITY_VERIFICATION_URL` only when protected egress/read-back is enabled;
+- a synthetic second HTTPS endpoint in `EVIDENCE_DESTINATION_B_URL` only when the destination-binding negative is enabled.
 
 From `t3n-gateway/`:
 
@@ -205,13 +206,14 @@ The orchestrator:
 9. provisions/read-backs the versioned private T3N operational policy and binds its version/hash;
 10. writes sanitized `docs/evidence/deployment-manifest.json` including source revision, trust-anchor, rollback-floor, Agent Card, policy and contract/WASM provenance;
 11. optionally prepares the private remediation map when `EVIDENCE_PREPARE_EGRESS=true`;
-12. derives least-privilege allowed hosts from the configured HTTPS action/verification endpoints;
+12. derives least-privilege allowed hosts from the configured HTTPS action/verification endpoints and, only for the controlled destination-binding scenario, the synthetic B endpoint;
 13. creates/updates the exact least-privilege Member grants: Proposal only `evaluate-action`, Executor only `execute-remediation` and `verify-remediation`, both with the fixed minimum scopes and no wildcard;
 14. calls `checkDelegation()` independently through each authenticated delegated principal for its fixed requirements and fails before scenario execution unless both Member state and effective state are `ACTIVE`;
 15. invokes the existing `evidence:testnet` runner, records sanitized Proposal/Executor Member/effective states and exact checked restrictions, and writes the same captured source SHA/tree state into `testnet-run.json`;
-16. when `EVIDENCE_RUN_EGRESS_NEGATIVES=true`, revokes Proposal and Executor grants independently, requires direct principal-side `checkDelegation()` to return `authorised=false`, exercises protected rejection where applicable, and restores the known-good minimum grants in `finally`;
-17. verifies that testnet evidence and deployment manifest have the same source SHA/tree state, network, SDK, DIDs, contract id/version, WASM hash and policy provenance, and that recorded delegation evidence matches the live positive checks;
-18. fails if the runner reports failure, effective delegation is not confirmed, negative revocation evidence fails, source identity is absent/malformed/mismatched, identities mismatch, trust/policy metadata is inconsistent, or leak detection finds configured secret material.
+16. when `EVIDENCE_RUN_DESTINATION_BINDING=true`, requires T3N testnet, independently proves policy ALLOW for distinct hosts A and B, temporarily changes private `security_api_url` from A to B, requires `EXECUTION_DESTINATION_CHANGED` before `hwp::call`, and restores A in `finally`;
+17. when `EVIDENCE_RUN_EGRESS_NEGATIVES=true`, revokes Proposal and Executor grants independently, requires direct principal-side `checkDelegation()` to return `authorised=false`, exercises protected rejection where applicable, and restores the known-good minimum grants in `finally`;
+18. verifies that testnet evidence and deployment manifest have the same source SHA/tree state, network, SDK, DIDs, contract id/version, WASM hash and policy provenance, and that recorded delegation evidence matches the live positive checks;
+19. fails if the runner reports failure, effective delegation is not confirmed, negative revocation/destination evidence fails, source identity is absent/malformed/mismatched, identities mismatch, trust/policy metadata is inconsistent, or leak detection finds configured secret material.
 
 The evidence chain is:
 
@@ -276,6 +278,40 @@ observed state = REVOKED
 An HTTP 2xx or `PENDING_VERIFICATION` alone is not completion evidence. Missing operation id, contradictory state or unavailable verification is not upgraded to `PASS`.
 
 Negative grant tests restore the known-good challenge grant in `finally`. They count as PASS only when the expected authorization/delegation rejection is observed; missing private configuration, transport errors or an inconclusive `checkDelegation()` response are FAIL.
+
+## Controlled approved-destination substitution proof
+
+The side-effect hostname approved by the human is a stricter control than the policy host allowlist. The full action URL remains in private T3N KV; the application capability carries only the canonical hostname already persisted in the proposal.
+
+To run the controlled negative, use **synthetic testnet destinations only**:
+
+```bash
+SECURITY_API_URL='https://security-a.example/remediate' \
+EVIDENCE_DESTINATION_B_URL='https://security-b.example/remediate' \
+EVIDENCE_PREPARE_EGRESS=true \
+EVIDENCE_RUN_DESTINATION_BINDING=true \
+npm run evidence:live
+```
+
+The scenario is deliberately rejected when `T3N_NETWORK` is not `testnet`, even if broader evidence execution is explicitly allowed elsewhere. A and B must be different hostnames and both must independently receive policy `ALLOW`; otherwise the scenario is `FAIL` because it would test the allowlist rather than the human-intent binding.
+
+The exact flow is:
+
+```text
+proposal host A
+  -> T3N policy ALLOW(A)
+  -> separately prove T3N policy ALLOW(B)
+  -> capability/execute request keeps approved_host=A
+  -> private security_api_url temporarily becomes B
+  -> Rust compares actualHost(B) to approvedHost(A)
+  -> EXECUTION_DESTINATION_CHANGED
+  -> BLOCKED_BEFORE_HTTP
+  -> restore original security_api_url in finally
+```
+
+`PASS` is recorded only when the contract returns the dedicated destination mismatch from the equality guard that is structurally before policy re-evaluation and before `hwp::call`. Any accepted execution or different rejection is `FAIL`. If the environment variables are not enabled, the case remains `NOT_RUN`; documentation or local tests never upgrade it to live proof.
+
+The independent `SECURITY_VERIFICATION_URL` is not substituted into this check. It is a read-back endpoint and may have a different host; `approved_host` binds the execution side effect only.
 
 ## Idempotency claim boundary
 
@@ -371,6 +407,8 @@ The UI and evidence API deliberately distinguish these concepts:
 - **Effective access ACTIVE**: `checkDelegation()` executed as the authenticated grantee returned `authorised=true` for that principal's canonical contract, Tenant DID and fixed minimum functions/scopes. Only this state may contribute to operational readiness.
 - **Effective access DENIED**: `authorised=false`, or a known non-active Member state, prevents readiness.
 - **Effective access UNKNOWN**: the Member state or platform verdict could not be validated; readiness remains false.
+- **Approved destination**: canonical hostname persisted in the action, evaluated by policy, shown to the operator and signed into the remediation capability. It is narrower than a policy allowlist and must equal the current private execution URL hostname before egress.
+- **Destination changed**: the protected action URL resolved to a different hostname after approval. This is a fail-closed authorization mismatch requiring a new evaluation and human authorization, not a generic transport outage.
 - **Local audit integrity VERIFIED**: the retained HMAC chain, sequence/linkage and authenticated head validated using configured key versions. This is an application integrity signal, not T3N/hardware attestation.
 - **Local audit integrity BROKEN/KEY_MISMATCH/LEGACY_UNVERIFIED**: local history is not eligible for a positive integrity claim; protected local changes fail closed where required.
 
