@@ -41,6 +41,9 @@ export function createContractRouter(
       const body = request.body as RemediationBody;
       verifier.verifyAndConsume(capability, body);
       const result = await service.remediate({
+        incident_id: body.incident_id,
+        action_id: body.action_id,
+        decision_id: body.decision_id,
         request_id: body.request_id,
         action: body.action,
         resource: body.resource,
@@ -50,6 +53,7 @@ export function createContractRouter(
         private_refs: body.private_refs ?? [],
         policy_version: body.policy_version,
         policy_hash: body.policy_hash,
+        authorization_proof: capability,
       }, body.executor_did);
       logTraceStage(response, 'PROTECTED_EGRESS', requestId, 'ACCEPTED');
       response.json(result);
