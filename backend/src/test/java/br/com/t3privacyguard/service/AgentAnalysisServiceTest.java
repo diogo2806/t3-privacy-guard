@@ -118,6 +118,12 @@ class AgentAnalysisServiceTest {
         assertThat(actions.count()).isEqualTo(2);
         assertThat(decisions.count()).isEqualTo(2);
         assertThat(remediations.count()).isZero();
+        assertThat(audits.findByIncidentIdOrderByCreatedAtAscIdAsc(first.incident().id()))
+            .filteredOn(event -> "AGENT_PROPOSAL_SOURCE".equals(event.getType()))
+            .hasSize(2)
+            .allSatisfy(event -> assertThat(event.getMessage())
+                .contains("provider openai-compatible")
+                .contains("model tool-model"));
     }
 
     @Test
