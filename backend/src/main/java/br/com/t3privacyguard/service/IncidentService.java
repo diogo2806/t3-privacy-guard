@@ -28,6 +28,7 @@ import br.com.t3privacyguard.persistence.PolicyDecisionRepository;
 import br.com.t3privacyguard.persistence.RemediationExecutionEntity;
 import br.com.t3privacyguard.privacy.IncidentDataMinimizer;
 import br.com.t3privacyguard.privacy.IncidentRetentionProperties;
+import br.com.t3privacyguard.security.OperatorPrincipalBinding;
 import br.com.t3privacyguard.security.RemediationAuthorizationSigner;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -199,7 +200,8 @@ public class IncidentService {
     }
 
     @Transactional
-    public RemediationAuthorizationResponse authorizeRemediation(String incidentId, String actionId) {
+    public RemediationAuthorizationResponse authorizeRemediation(String incidentId, String actionId, String authenticatedPrincipal) {
+        String principal = OperatorPrincipalBinding.canonicalize(authenticatedPrincipal);
         ActionProposalEntity action = requireAction(incidentId, actionId);
         requireSupportedRemediationExecutor(action);
         String approvedHost = requireApprovedHost(action);
@@ -208,11 +210,28 @@ public class IncidentService {
         requireExecutableDecision(decision, normalPayload);
         requireVersionedPolicy(decision);
         auditIntegrity.assertAppendable(incidentId);
-        action.authorizeRemediation();
+
+        boolean newlyBound;
+        try {
+            newlyBound = action.authorizeRemediation(principal, Instant.now());
+        } catch (IllegalStateException ex) {
+            throw new ConflictException(ex.getMessage());
+        }
         actions.save(action);
-        audit(incidentId, "REMEDIATION_AUTHORIZED", "Remediation authorized for request " + action.getRequestId() + " to approved destination " + approvedHost + " with trusted normal payload binding under policy " + decision.getPolicyVersion() + " hash " + decision.getPolicyHash());
-        traces.record(action, "HUMAN_AUTHORIZATION", "AUTHORIZED", null, null);
-        return new RemediationAuthorizationResponse(incidentId, actionId, action.getRequestId(), action.getStatus().name());
+        if (newlyBound) {
+            audit(
+                incidentId,
+                "REMEDIATION_AUTHORIZED",
+                "Remediation authorized by application operator " + principal + " for request " + action.getRequestId()
+                    + " to approved destination " + approvedHost + " with trusted normal payload binding under policy "
+                    + decision.getPolicyVersion() + " hash " + decision.getPolicyHash()
+            );
+            traces.record(action, "HUMAN_AUTHORIZATION", "AUTHORIZED", null, null);
+        }
+        return new RemediationAuthorizationResponse(
+            incidentId, actionId, action.getRequestId(), action.getStatus().name(),
+            action.getRemediationAuthorizedBy(), action.getRemediationAuthorizedAt()
+        );
     }
 
     public RemediationExecutionResponse executeRemediation(String incidentId, String actionId) {
@@ -223,6 +242,7 @@ public class IncidentService {
         if (action.getStatus() != ProposalStatus.REMEDIATION_AUTHORIZED && action.getStatus() != ProposalStatus.REMEDIATED) {
             throw new PolicyDeniedException("Remediation must be explicitly authorized before execution");
         }
+        HumanAuthorizationProvenance humanAuthorization = requireHumanAuthorizationProvenance(action);
         PolicyDecisionEntity decision = decisions.findByActionProposalId(actionId)
             .orElseThrow(() -> new ConflictException("A persisted policy decision is required before remediation"));
         requireExecutableDecision(decision, normalPayload);
@@ -236,7 +256,8 @@ public class IncidentService {
         List<String> privateRefs = readList(action.getPrivateRefsJson());
         String capability = remediationAuthorizationSigner.issue(
             incidentId, actionId, action.getRequestId(), decision.getId(), action.getAction(), action.getResource(), action.getPurpose(), approvedHost,
-            fields, normalPayload, privateRefs, decision.getPolicyVersion(), decision.getPolicyHash()
+            fields, normalPayload, privateRefs, decision.getPolicyVersion(), decision.getPolicyHash(),
+            humanAuthorization.principal(), humanAuthorization.authorizedAt()
         );
 
         traces.record(action, "PROTECTED_EGRESS", "SENT", null, null);
@@ -244,7 +265,8 @@ public class IncidentService {
         try {
             var result = remediationGateway.execute(new RemediationRequest(
                 incidentId, actionId, decision.getId(), action.getRequestId(), action.getAction(), action.getResource(), action.getPurpose(), approvedHost,
-                fields, normalPayload, privateRefs, decision.getPolicyVersion(), decision.getPolicyHash()
+                fields, normalPayload, privateRefs, decision.getPolicyVersion(), decision.getPolicyHash(),
+                humanAuthorization.principalHash(), humanAuthorization.authorizedAt().toEpochMilli()
             ), capability);
             if (!action.getRequestId().equals(result.requestId())) {
                 RemediationExecutionEntity state = executionCoordinator.markUnverified(actionId, "REQUEST_ID_MISMATCH");
@@ -263,7 +285,8 @@ public class IncidentService {
             audit(
                 incidentId,
                 "REMEDIATION_ACCEPTED",
-                "External request accepted for approved destination " + approvedHost + " under policy " + decision.getPolicyVersion() + " hash " + decision.getPolicyHash() + "; normal payload was minimized to the policy-allowed subset and independent verification is required before completion",
+                "External request accepted for approved destination " + approvedHost + " under policy " + decision.getPolicyVersion() + " hash " + decision.getPolicyHash()
+                    + "; human authorization provenance remained bound and independent verification is required before completion",
                 result.activitySequence(),
                 result.activityHash(),
                 "execute-remediation"
@@ -275,7 +298,7 @@ public class IncidentService {
             audit(
                 incidentId,
                 "REMEDIATION_BLOCKED",
-                "Protected execution was blocked because the configured destination no longer matched the destination approved by the human operator; re-evaluation and re-authorization are required",
+                "Protected execution was blocked because the configured destination no longer matched the destination approved by the human operator; a new action, evaluation and authorization are required",
                 null,
                 null,
                 "execute-remediation"
@@ -287,7 +310,7 @@ public class IncidentService {
             audit(
                 incidentId,
                 "REMEDIATION_UNVERIFIED",
-                "Execution outcome is ambiguous or policy binding could not be confirmed; automatic re-execution is blocked",
+                "Execution outcome is ambiguous or policy/authorization binding could not be confirmed; automatic re-execution is blocked",
                 null,
                 null,
                 "execute-remediation"
@@ -423,7 +446,7 @@ public class IncidentService {
         try {
             return RemediationAuthorizationSigner.canonicalizeHost(action.getHost());
         } catch (IllegalArgumentException ex) {
-            throw new PolicyDeniedException("Protected remediation requires a valid approved destination; re-evaluate and authorize a new action");
+            throw new PolicyDeniedException("Protected remediation requires a valid approved destination; create and evaluate a new action");
         }
     }
 
@@ -438,6 +461,27 @@ public class IncidentService {
             throw new ConflictException("Stored normal payload is inconsistent with the requested field set");
         }
         return payload;
+    }
+
+    private HumanAuthorizationProvenance requireHumanAuthorizationProvenance(ActionProposalEntity action) {
+        String storedPrincipal = action.getRemediationAuthorizedBy();
+        Instant authorizedAt = action.getRemediationAuthorizedAt();
+        if (storedPrincipal == null || authorizedAt == null) {
+            throw new ConflictException("LEGACY_AUTHORIZATION_UNBOUND: explicitly authorize this action again before execution");
+        }
+        final String canonical;
+        try {
+            canonical = OperatorPrincipalBinding.canonicalize(storedPrincipal);
+        } catch (IllegalArgumentException ex) {
+            throw new ConflictException("Stored human authorization principal is invalid");
+        }
+        if (!canonical.equals(storedPrincipal)) {
+            throw new ConflictException("Stored human authorization principal is not canonical");
+        }
+        if (authorizedAt.isAfter(Instant.now().plusSeconds(5))) {
+            throw new ConflictException("Stored human authorization timestamp is invalid");
+        }
+        return new HumanAuthorizationProvenance(canonical, OperatorPrincipalBinding.sha256(canonical), authorizedAt);
     }
 
     private void requireExecutableDecision(PolicyDecisionEntity decision, Map<String, String> normalPayload) {
@@ -510,7 +554,8 @@ public class IncidentService {
             : readMap(entity.getNormalPayloadJson());
         return new ActionResponse(
             entity.getId(), entity.getIncidentId(), entity.getRequestId(), entity.getAction(), entity.getResource(), entity.getPurpose(), entity.getHost(),
-            readList(entity.getFieldsJson()), normalPayload, readList(entity.getPrivateRefsJson()), entity.getStatus(), entity.getCreatedAt()
+            readList(entity.getFieldsJson()), normalPayload, readList(entity.getPrivateRefsJson()), entity.getStatus(),
+            entity.getRemediationAuthorizedBy(), entity.getRemediationAuthorizedAt(), entity.getCreatedAt()
         );
     }
 
@@ -563,4 +608,6 @@ public class IncidentService {
         return result.substring(0, Math.min(result.length(), max));
     }
     private static String safeNullable(String value, int max) { return value == null ? null : safe(value, max); }
+
+    private record HumanAuthorizationProvenance(String principal, String principalHash, Instant authorizedAt) {}
 }
