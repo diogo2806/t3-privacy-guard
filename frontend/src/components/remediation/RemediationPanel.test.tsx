@@ -8,7 +8,9 @@ import { RemediationPanel } from './RemediationPanel';
 const action: ActionProposal = {
   id: 'action-1', incidentId: 'incident-1', requestId: 'request-1', action: 'revoke-credential',
   resource: 'credential:test', purpose: 'incident-remediation', host: 'postman-echo.com',
-  fields: ['incident_id', 'credential_id', 'reason'], privateRefs: [], status: 'REMEDIATION_AUTHORIZED', createdAt: '2026-09-12T18:00:00Z',
+  fields: ['incident_id', 'credential_id', 'reason'],
+  normalPayload: { incident_id: 'inc-demo-001', credential_id: 'cred-demo-001', reason: 'suspected compromise' },
+  privateRefs: [], status: 'REMEDIATION_AUTHORIZED', createdAt: '2026-09-12T18:00:00Z',
 };
 
 const decision: PolicyDecision = {
@@ -30,11 +32,16 @@ function execution(state: RemediationExecution['state'], overrides: Partial<Reme
   };
 }
 
-function renderPanel(current: RemediationExecution | null, onVerify = vi.fn(), currentAction: ActionProposal = action) {
+function renderPanel(
+  current: RemediationExecution | null,
+  onVerify = vi.fn(),
+  currentAction: ActionProposal = action,
+  currentDecision: PolicyDecision = { ...decision, actionProposalId: currentAction.id },
+) {
   render(
     <RemediationPanel
       action={currentAction}
-      decision={{ ...decision, actionProposalId: currentAction.id }}
+      decision={currentDecision}
       execution={current}
       busy={false}
       onAuthorize={vi.fn()}
@@ -46,11 +53,48 @@ function renderPanel(current: RemediationExecution | null, onVerify = vi.fn(), c
 }
 
 describe('RemediationPanel', () => {
-  it('shows the exact approved destination before protected execution', () => {
+  it('shows the exact approved destination and trusted protected payload before execution', () => {
     renderPanel(null);
     expect(screen.getByText('Approved destination')).toBeInTheDocument();
     expect(screen.getByText('postman-echo.com')).toBeInTheDocument();
-    expect(screen.getByText(/requires a new action, policy evaluation and authorization/i)).toBeInTheDocument();
+    expect(screen.getByText('Requested fields')).toBeInTheDocument();
+    expect(screen.getByText('Allowed for egress')).toBeInTheDocument();
+    expect(screen.getByText('Trusted synthetic values')).toBeInTheDocument();
+    expect(screen.getByText('Protected egress payload')).toBeInTheDocument();
+    expect(screen.getAllByText('reason=suspected compromise').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText(/binds the exact destination and trusted payload/i)).toBeInTheDocument();
+  });
+
+  it('shows REDACT as executable minimization when all required fields remain allowed', () => {
+    const redactedAction: ActionProposal = {
+      ...action,
+      status: 'EVALUATED',
+      fields: [...action.fields, 'employee_department'],
+      normalPayload: { ...action.normalPayload, employee_department: 'finance' },
+    };
+    const redactedDecision: PolicyDecision = {
+      ...decision,
+      actionProposalId: redactedAction.id,
+      decision: 'REDACT',
+      reasonCode: 'DATA_MINIMIZED',
+      redactedFields: ['employee_department'],
+      allowedFields: ['incident_id', 'credential_id', 'reason'],
+    };
+    renderPanel(null, vi.fn(), redactedAction, redactedDecision);
+
+    expect(screen.getByText('Removed before egress')).toBeInTheDocument();
+    expect(screen.getByText('employee_department')).toBeInTheDocument();
+    expect(screen.getByText('employee_department=finance')).toBeInTheDocument();
+    expect(screen.queryByText('employee_department=finance', { selector: '.field-list:last-of-type code' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Authorize credential revocation' })).toBeInTheDocument();
+  });
+
+  it('blocks authorization when REDACT removes a required remediation field', () => {
+    const currentAction = { ...action, status: 'EVALUATED' as const };
+    const currentDecision = { ...decision, decision: 'REDACT' as const, allowedFields: ['incident_id', 'reason'], redactedFields: ['credential_id'] };
+    renderPanel(null, vi.fn(), currentAction, currentDecision);
+    expect(screen.getByText(/no longer contains all required remediation fields/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Authorize credential revocation' })).not.toBeInTheDocument();
   });
 
   it('blocks authorization and execution when a supported action has no approved destination', () => {
