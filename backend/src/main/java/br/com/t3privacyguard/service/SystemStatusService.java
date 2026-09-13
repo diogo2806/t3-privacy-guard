@@ -49,6 +49,12 @@ public class SystemStatusService {
         String message;
         if (!gatewayReachable) {
             message = "T3N gateway is unreachable.";
+        } else if ("SCHEDULED".equals(delegationState) && "SCHEDULED".equals(executorDelegationState)) {
+            message = "Proposal and Executor delegations exist, but their authorization windows have not begun.";
+        } else if ("SCHEDULED".equals(delegationState)) {
+            message = "Proposal delegation exists, but its authorization window has not begun.";
+        } else if ("SCHEDULED".equals(executorDelegationState)) {
+            message = "Executor delegation exists, but its authorization window has not begun.";
         } else if (controlsReady && "REGISTERED".equals(registrationState)) {
             message = "T3N controls are ready: tenant, proposal agent and protected executor are authenticated with active least-privilege delegations, and the public Agent Card is registered.";
         } else if (controlsReady) {
