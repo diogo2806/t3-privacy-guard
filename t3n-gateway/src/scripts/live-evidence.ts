@@ -5,7 +5,12 @@ import { fileURLToPath } from 'node:url';
 import { TenantClient, getNodeUrl } from '@terminal3/t3n-sdk';
 import { AgentCardRegistry } from '../agent/agent-card.js';
 import { AgentSession } from '../agent/agent-session.js';
-import { DelegationService } from '../agent/delegation-service.js';
+import {
+  DelegationService,
+  EXECUTOR_DELEGATION_REQUIREMENTS,
+  PROPOSAL_DELEGATION_REQUIREMENTS,
+  type DelegationStatus,
+} from '../agent/delegation-service.js';
 import { ExecutorSession } from '../agent/executor-session.js';
 import { readGatewayConfig } from '../config/env.js';
 import { PrivacyGuardContractService } from '../contract/privacy-guard-contract.js';
@@ -24,6 +29,13 @@ const policyPath = resolve(gatewayRoot, process.env.T3N_POLICY_FILE ?? 'policy/p
 const manifestPath = resolve(process.env.EVIDENCE_DEPLOYMENT_MANIFEST ?? resolve(evidenceDir, 'deployment-manifest.json'));
 const testnetPath = resolve(process.env.EVIDENCE_OUTPUT ?? resolve(evidenceDir, 'testnet-run.json'));
 
+interface DelegationEvidence {
+  readonly memberState: DelegationStatus['memberState'];
+  readonly effectiveState: DelegationStatus['effectiveState'];
+  readonly checkedFunctions: string[];
+  readonly checkedScopes: string[];
+}
+
 function configuredEgressHosts(): string[] {
   const configured = [process.env.SECURITY_API_URL, process.env.SECURITY_VERIFICATION_URL]
     .map((value) => value?.trim())
@@ -34,6 +46,16 @@ function configuredEgressHosts(): string[] {
     if (parsed.protocol !== 'https:') throw new Error('Evidence egress endpoints must use HTTPS');
     return parsed.hostname;
   }))];
+}
+
+function assertEffectiveDelegation(label: string, status: DelegationStatus): void {
+  if (status.memberState !== 'ACTIVE' || status.effectiveState !== 'ACTIVE') {
+    throw new Error(`${label} delegation is not effectively authorised by T3N`);
+  }
+}
+
+function sameStrings(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 const config = readGatewayConfig();
@@ -48,8 +70,8 @@ const tenantSession = new T3nSession(config, trustFloorStore);
 const agentSession = new AgentSession(config, trustFloorStore);
 const executorSession = new ExecutorSession(config, trustFloorStore);
 const agentCardRegistry = new AgentCardRegistry(agentSession);
-const proposalDelegation = new DelegationService(tenantSession, agentSession);
-const executorDelegation = new DelegationService(tenantSession, executorSession);
+const proposalDelegation = new DelegationService(tenantSession, agentSession, PROPOSAL_DELEGATION_REQUIREMENTS);
+const executorDelegation = new DelegationService(tenantSession, executorSession, EXECUTOR_DELEGATION_REQUIREMENTS);
 const contract = new PrivacyGuardContractService(config, tenantSession, agentSession, executorSession);
 await tenantSession.connect();
 await Promise.all([agentSession.connect(), executorSession.connect()]);
@@ -170,17 +192,22 @@ if (process.env.EVIDENCE_PREPARE_EGRESS === 'true') {
 await proposalDelegation.grant({
   contractId,
   versionReq: contractVersion,
-  functions: ['evaluate-action'],
-  scopes: ['incident_id', 'credential_id', 'reason'],
+  functions: [...PROPOSAL_DELEGATION_REQUIREMENTS.functions],
+  scopes: [...PROPOSAL_DELEGATION_REQUIREMENTS.scopes],
   allowedHosts: [],
 });
 await executorDelegation.grant({
   contractId,
   versionReq: contractVersion,
-  functions: ['execute-remediation', 'verify-remediation'],
-  scopes: ['incident_id', 'credential_id', 'reason'],
+  functions: [...EXECUTOR_DELEGATION_REQUIREMENTS.functions],
+  scopes: [...EXECUTOR_DELEGATION_REQUIREMENTS.scopes],
   allowedHosts: configuredEgressHosts(),
 });
+
+const proposalEffectiveStatus = await proposalDelegation.status(contractId);
+const executorEffectiveStatus = await executorDelegation.status(contractId);
+assertEffectiveDelegation('Proposal Agent', proposalEffectiveStatus);
+assertEffectiveDelegation('Protected Executor', executorEffectiveStatus);
 
 const run = spawnSync('npm', ['run', 'evidence:testnet'], {
   cwd: gatewayRoot,
@@ -189,9 +216,24 @@ const run = spawnSync('npm', ['run', 'evidence:testnet'], {
 });
 if (run.status !== 0) throw new Error('T3N testnet evidence runner reported a failure');
 
-const evidence = JSON.parse(await readFile(testnetPath, 'utf8')) as TestnetEvidenceIdentity & { scenarios?: Array<{ status?: string }> };
+const evidence = JSON.parse(await readFile(testnetPath, 'utf8')) as TestnetEvidenceIdentity & {
+  scenarios?: Array<{ status?: string }>;
+  delegation?: { proposal?: DelegationEvidence; executor?: DelegationEvidence };
+};
 assertEvidenceMatchesDeployment(manifest, evidence);
 if (evidence.scenarios?.some((scenario) => scenario.status === 'FAIL')) throw new Error('T3N testnet evidence contains FAIL scenarios');
+if (!evidence.delegation?.proposal || !evidence.delegation.executor) throw new Error('T3N testnet evidence is missing effective delegation verdicts');
+for (const [label, observed, runtime] of [
+  ['Proposal Agent', evidence.delegation.proposal, proposalEffectiveStatus],
+  ['Protected Executor', evidence.delegation.executor, executorEffectiveStatus],
+] as const) {
+  if (observed.memberState !== runtime.memberState || observed.effectiveState !== runtime.effectiveState) {
+    throw new Error(`${label} evidence delegation state differs from the live check`);
+  }
+  if (!sameStrings(observed.checkedFunctions, runtime.checkedFunctions) || !sameStrings(observed.checkedScopes, runtime.checkedScopes)) {
+    throw new Error(`${label} evidence delegation restrictions differ from the live check`);
+  }
+}
 
 const finalSerialized = await readFile(testnetPath, 'utf8');
 assertNoSecretLeak(finalSerialized, sensitiveValues);
@@ -205,6 +247,8 @@ console.info(JSON.stringify({
   policyHash: policy.hash,
   proposalAgentDid: agentDid,
   protectedExecutorDid: executorDid,
+  proposalEffectiveAccess: proposalEffectiveStatus.effectiveState,
+  executorEffectiveAccess: executorEffectiveStatus.effectiveState,
   agentRegistrationState: agentRegistration.state,
   agentCardSha256: agentRegistration.cardSha256,
   trustManifestVersion: persistedTrustFloor.version,
