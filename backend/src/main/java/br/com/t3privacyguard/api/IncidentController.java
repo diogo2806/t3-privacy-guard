@@ -1,7 +1,7 @@
 package br.com.t3privacyguard.api;
 
 import br.com.t3privacyguard.api.ApiModels.ActionResponse;
-import br.com.t3privacyguard.api.ApiModels.AuditResponse;
+import br.com.t3privacyguard.api.ApiModels.AuditHistoryResponse;
 import br.com.t3privacyguard.api.ApiModels.CreateActionRequest;
 import br.com.t3privacyguard.api.ApiModels.CreateIncidentRequest;
 import br.com.t3privacyguard.api.ApiModels.DecisionResponse;
@@ -76,5 +76,5 @@ public class IncidentController {
     }
 
     @GetMapping("/{incidentId}/history")
-    public List<AuditResponse> history(@PathVariable String incidentId) { return service.history(incidentId); }
+    public AuditHistoryResponse history(@PathVariable String incidentId) { return service.history(incidentId); }
 }
