@@ -11,6 +11,7 @@ import {
 import { ExecutorSession } from './agent/executor-session.js';
 import { OpenAiCompatibleProvider } from './agent/openai-compatible-provider.js';
 import { readGatewayConfig } from './config/env.js';
+import { EnterpriseIntegrationReadinessService } from './contract/enterprise-integration-readiness.js';
 import { PrivacyGuardContractService } from './contract/privacy-guard-contract.js';
 import { createA2aRouter } from './http/a2a-router.js';
 import { createActivityRouter } from './http/activity-router.js';
@@ -36,6 +37,7 @@ const activityLogService = new ActivityLogService(tenantSession);
 const delegationService = new DelegationService(tenantSession, agentSession, PROPOSAL_DELEGATION_REQUIREMENTS);
 const executorDelegationService = new DelegationService(tenantSession, executorSession, EXECUTOR_DELEGATION_REQUIREMENTS);
 const contractService = new PrivacyGuardContractService(config, tenantSession, agentSession, executorSession, activityLogService);
+const enterpriseIntegrationReadiness = new EnterpriseIntegrationReadinessService(tenantSession, executorDelegationService, contractService);
 const remediationVerifier = new RemediationAuthorizationVerifier(config.remediationCapabilityKey, config.remediationReplayStorePath);
 const aiProvider = config.aiProvider === 'openai-compatible' && config.aiApiUrl && config.aiApiKey && config.aiModel
   ? new OpenAiCompatibleProvider({ apiUrl: config.aiApiUrl, apiKey: config.aiApiKey, model: config.aiModel })
@@ -54,7 +56,7 @@ app.use('/internal/t3n/activity', createActivityRouter(activityLogService, confi
 app.use('/internal/agent', createAgentRouter(agentSession, delegationService, agentCardRegistry, config.gatewayServiceToken));
 app.use('/internal/executor', createExecutorRouter(executorSession, executorDelegationService, config.gatewayServiceToken));
 app.use('/internal/ai-agent', createAiAgentRouter(aiAgentService, config.gatewayServiceToken));
-app.use('/internal/contracts/privacy-guard', createContractRouter(contractService, remediationVerifier, config.gatewayServiceToken));
+app.use('/internal/contracts/privacy-guard', createContractRouter(contractService, remediationVerifier, config.gatewayServiceToken, enterpriseIntegrationReadiness));
 
 app.listen(config.port, '0.0.0.0', () => console.info(`t3n-gateway listening on port ${config.port}`));
 

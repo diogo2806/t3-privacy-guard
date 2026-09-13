@@ -8,6 +8,8 @@ import br.com.t3privacyguard.integration.GatewaySystemClient.AgentRegistrationSt
 import br.com.t3privacyguard.integration.GatewaySystemClient.AgentStatus;
 import br.com.t3privacyguard.integration.GatewaySystemClient.ContractIdentity;
 import br.com.t3privacyguard.integration.GatewaySystemClient.DelegationStatus;
+import br.com.t3privacyguard.integration.GatewaySystemClient.EnterpriseIntegrationReadiness;
+import br.com.t3privacyguard.integration.GatewaySystemClient.EnterpriseVerificationContract;
 import br.com.t3privacyguard.integration.GatewaySystemClient.ExecutorStatus;
 import br.com.t3privacyguard.integration.GatewaySystemClient.TenantStatus;
 import java.util.List;
@@ -31,6 +33,7 @@ class SystemStatusServiceTest {
         when(gateway.agentStatus()).thenReturn(Optional.of(new AgentStatus(true, true, true, "did:t3n:proposal-agent", "testnet")));
         when(gateway.executorStatus()).thenReturn(Optional.of(new ExecutorStatus(true, true, true, "did:t3n:protected-executor", "testnet")));
         when(gateway.agentRegistration()).thenReturn(Optional.of(registration("did:t3n:proposal-agent", "REGISTERED")));
+        when(gateway.enterpriseIntegrationReadiness()).thenReturn(Optional.of(integration("READY")));
         when(gateway.contractIdentity()).thenReturn(Optional.of(new ContractIdentity("z:tenant:privacy-guard", "0.4.0")));
     }
 
@@ -49,6 +52,12 @@ class SystemStatusServiceTest {
 
         assertThat(result.evaluationReady()).isTrue();
         assertThat(result.protectedRemediationReady()).isTrue();
+        assertThat(result.enterpriseIntegrationState()).isEqualTo("READY");
+        assertThat(result.enterpriseIntegrationReady()).isTrue();
+        assertThat(result.enterpriseExecutionHost()).isEqualTo("security.example");
+        assertThat(result.enterpriseVerificationHost()).isEqualTo("verification.example");
+        assertThat(result.enterpriseVerificationContracts()).containsExactly(new EnterpriseVerificationContract("revoke-credential", "REVOKED"));
+        assertThat(result.enterpriseEvaluationOnlyActions()).containsExactly("create-incident", "isolate-account", "notify-security");
         assertThat(result.delegationMemberState()).isEqualTo("ACTIVE");
         assertThat(result.delegationEffectiveState()).isEqualTo("ACTIVE");
         assertThat(result.delegationCheckedFunctions()).containsExactly("evaluate-action");
@@ -60,6 +69,46 @@ class SystemStatusServiceTest {
         assertThat(result.a2aPublicUrl()).isEqualTo("https://guard.example/a2a");
         assertThat(result.a2aConfigurationCheckedAt()).isEqualTo("2026-09-13T11:00:00Z");
         assertThat(result.message()).contains("exact least-privilege functions/scopes");
+    }
+
+    @Test
+    void enterpriseMismatchDoesNotRedefineT3nProtectedRemediationReadiness() {
+        when(gateway.enterpriseIntegrationReadiness()).thenReturn(Optional.of(integration("MISMATCH")));
+        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
+            "ACTIVE", "ACTIVE", List.of("evaluate-action"), List.of("incident_id"), List.of(),
+            List.of("evaluate-action"), List.of("incident_id", "credential_id", "reason")
+        )));
+        when(gateway.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
+            "ACTIVE", "ACTIVE", List.of("execute-remediation", "verify-remediation"), List.of("incident_id"), List.of("security.example"),
+            List.of("execute-remediation", "verify-remediation"), List.of("incident_id", "credential_id", "reason")
+        )));
+
+        var result = service.status();
+
+        assertThat(result.protectedRemediationReady()).isTrue();
+        assertThat(result.enterpriseIntegrationState()).isEqualTo("MISMATCH");
+        assertThat(result.enterpriseIntegrationReady()).isFalse();
+    }
+
+    @Test
+    void unavailableEnterpriseReadinessFailsClosedWithoutChangingT3nReadiness() {
+        when(gateway.enterpriseIntegrationReadiness()).thenReturn(Optional.empty());
+        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
+            "ACTIVE", "ACTIVE", List.of("evaluate-action"), List.of("incident_id"), List.of(),
+            List.of("evaluate-action"), List.of("incident_id", "credential_id", "reason")
+        )));
+        when(gateway.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
+            "ACTIVE", "ACTIVE", List.of("execute-remediation", "verify-remediation"), List.of("incident_id"), List.of("security.example"),
+            List.of("execute-remediation", "verify-remediation"), List.of("incident_id", "credential_id", "reason")
+        )));
+
+        var result = service.status();
+
+        assertThat(result.protectedRemediationReady()).isTrue();
+        assertThat(result.enterpriseIntegrationState()).isEqualTo("UNKNOWN");
+        assertThat(result.enterpriseIntegrationReady()).isFalse();
+        assertThat(result.enterpriseExecutionHost()).isNull();
+        assertThat(result.enterpriseSupportedVerifiedActions()).isEmpty();
     }
 
     @Test
@@ -214,6 +263,27 @@ class SystemStatusServiceTest {
             true,
             "https://guard.example/a2a",
             "2026-09-13T11:00:00Z"
+        );
+    }
+
+    private static EnterpriseIntegrationReadiness integration(String state) {
+        boolean ready = "READY".equals(state);
+        return new EnterpriseIntegrationReadiness(
+            state,
+            true,
+            true,
+            true,
+            "security.example",
+            "verification.example",
+            ready,
+            ready,
+            ready,
+            ready,
+            List.of("revoke-credential"),
+            List.of("revoke-credential"),
+            List.of(new EnterpriseVerificationContract("revoke-credential", "REVOKED")),
+            List.of("create-incident", "isolate-account", "notify-security"),
+            "2026-09-13T21:00:00Z"
         );
     }
 

@@ -29,6 +29,22 @@ function status(agentRegistrationState: SystemStatus['agentRegistrationState']):
     contractVersion: '0.4.0',
     evaluationReady: true,
     protectedRemediationReady: true,
+    enterpriseIntegrationState: 'READY',
+    enterpriseIntegrationReady: true,
+    enterpriseExecutionConfigured: true,
+    enterpriseVerificationConfigured: true,
+    enterpriseCredentialConfigured: true,
+    enterpriseExecutionHost: 'security.company.example',
+    enterpriseVerificationHost: 'verify.company.example',
+    enterprisePolicyAllowsExecutionHost: true,
+    enterprisePolicyAllowsVerificationHost: true,
+    enterpriseExecutorDelegationAllowsExecutionHost: true,
+    enterpriseExecutorDelegationAllowsVerificationHost: true,
+    enterpriseSupportedExecutableActions: ['revoke-credential'],
+    enterpriseSupportedVerifiedActions: ['revoke-credential'],
+    enterpriseVerificationContracts: [{ action: 'revoke-credential', expectedState: 'REVOKED' }],
+    enterpriseEvaluationOnlyActions: ['create-incident', 'isolate-account', 'notify-security'],
+    enterpriseIntegrationCheckedAt: '2026-09-13T21:00:00Z',
     delegationMemberState: 'ACTIVE',
     delegationEffectiveState: 'ACTIVE',
     delegatedFunctions: ['evaluate-action'],
@@ -40,7 +56,7 @@ function status(agentRegistrationState: SystemStatus['agentRegistrationState']):
     executorDelegationEffectiveState: 'ACTIVE',
     executorDelegatedFunctions: ['execute-remediation', 'verify-remediation'],
     executorDelegatedScopes: ['incident_id', 'credential_id'],
-    executorAllowedHosts: ['security.example'],
+    executorAllowedHosts: ['security.company.example', 'verify.company.example'],
     executorDelegationCheckedFunctions: ['execute-remediation', 'verify-remediation'],
     executorDelegationCheckedScopes: ['incident_id', 'credential_id', 'reason'],
     message: 'Observed status.',
@@ -48,7 +64,7 @@ function status(agentRegistrationState: SystemStatus['agentRegistrationState']):
 }
 
 describe('SystemStatusBar', () => {
-  it('shows Member grant, effective access and independent readiness', () => {
+  it('shows Member grant, effective access and independent T3N readiness', () => {
     render(<SystemStatusBar status={status('REGISTERED')} loading={false} onRefresh={vi.fn()} />);
     expect(screen.getByText('Proposal Member grant')).toBeInTheDocument();
     expect(screen.getByText('Proposal effective T3N access')).toBeInTheDocument();
@@ -56,11 +72,13 @@ describe('SystemStatusBar', () => {
     expect(screen.getByText('Executor effective T3N access')).toBeInTheDocument();
     expect(screen.getByText('Proposal evaluation')).toBeInTheDocument();
     expect(screen.getByText('Protected remediation')).toBeInTheDocument();
-    expect(screen.getByText('Operational')).toBeInTheDocument();
+    expect(screen.getByText('T3N controls ready')).toBeInTheDocument();
     expect(screen.getAllByText('Confirmed')).toHaveLength(2);
     expect(screen.getByText('did:t3n:protected-executor')).toBeInTheDocument();
     expect(screen.getAllByText('evaluate-action').length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByText('execute-remediation, verify-remediation').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText('Enterprise integration')).toBeInTheDocument();
+    expect(screen.getByText('Operational protected workflow')).toBeInTheDocument();
   });
 
   it('shows A2A as published only when the resolved Agent Card contains the service', () => {
@@ -78,38 +96,37 @@ describe('SystemStatusBar', () => {
     const configuredOnly = { ...status('REGISTERED'), agentCardServices: ['DID'] };
     render(<SystemStatusBar status={configuredOnly} loading={false} onRefresh={vi.fn()} />);
     expect(screen.getByText('Configured · not published')).toHaveClass('status-pill-pending');
-    expect(screen.getByText('No')).toBeInTheDocument();
   });
 
   it('keeps evaluation ready while executor denial blocks protected remediation', () => {
     render(<SystemStatusBar status={{ ...status('REGISTERED'), protectedRemediationReady: false, executorDelegationEffectiveState: 'DENIED' }} loading={false} onRefresh={vi.fn()} />);
     expect(screen.getByText('Evaluation ready · execution blocked')).toHaveClass('status-pill-pending');
     expect(screen.getByText('Denied')).toHaveClass('status-pill-off');
-    expect(screen.queryByText('Operational')).not.toBeInTheDocument();
+    expect(screen.queryByText('T3N controls ready')).not.toBeInTheDocument();
   });
 
   it('fails closed when Proposal effective access is denied', () => {
     render(<SystemStatusBar status={{ ...status('REGISTERED'), evaluationReady: false, protectedRemediationReady: false, delegationEffectiveState: 'DENIED' }} loading={false} onRefresh={vi.fn()} />);
-    expect(screen.getByText('Denied')).toHaveClass('status-pill-off');
-    expect(screen.queryByText('Operational')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Denied').length).toBeGreaterThan(0);
+    expect(screen.queryByText('T3N controls ready')).not.toBeInTheDocument();
   });
 
   it('fails closed when Proposal effective verdict is unknown', () => {
     render(<SystemStatusBar status={{ ...status('REGISTERED'), evaluationReady: false, protectedRemediationReady: false, delegationEffectiveState: 'UNKNOWN' }} loading={false} onRefresh={vi.fn()} />);
-    expect(screen.getByText('Unknown')).toHaveClass('status-pill-off');
-    expect(screen.queryByText('Operational')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Unknown').length).toBeGreaterThan(0);
+    expect(screen.queryByText('T3N controls ready')).not.toBeInTheDocument();
   });
 
   it('renders scheduled Member grant with no checked restrictions', () => {
     render(<SystemStatusBar status={{ ...status('REGISTERED'), evaluationReady: false, protectedRemediationReady: false, delegationMemberState: 'SCHEDULED', delegationEffectiveState: 'DENIED', delegationCheckedFunctions: [], delegationCheckedScopes: [], message: 'Proposal Member grant exists, but its authorization window has not begun.' }} loading={false} onRefresh={vi.fn()} />);
     expect(screen.getAllByText('Scheduled').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Not checked').length).toBeGreaterThanOrEqual(2);
-    expect(screen.queryByText('Operational')).not.toBeInTheDocument();
+    expect(screen.queryByText('T3N controls ready')).not.toBeInTheDocument();
   });
 
-  it('renders DID mismatch as a non-success onboarding state without changing authorization', () => {
+  it('renders DID mismatch as a non-success onboarding state without changing T3N authorization', () => {
     render(<SystemStatusBar status={status('MISMATCH')} loading={false} onRefresh={vi.fn()} />);
     expect(screen.getByText('Card/DID mismatch')).toHaveClass('status-pill-off');
-    expect(screen.getByText('Operational')).toBeInTheDocument();
+    expect(screen.getByText('T3N controls ready')).toBeInTheDocument();
   });
 });

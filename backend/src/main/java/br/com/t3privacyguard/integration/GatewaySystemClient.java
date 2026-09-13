@@ -20,6 +20,7 @@ public class GatewaySystemClient {
     private static final int MAX_ACTIVITY_LIMIT = 200;
     private static final List<String> MEMBER_DELEGATION_STATES = List.of("ACTIVE", "SCHEDULED", "REVOKED", "NOT_GRANTED", "UNKNOWN");
     private static final List<String> EFFECTIVE_DELEGATION_STATES = List.of("ACTIVE", "DENIED", "UNKNOWN");
+    private static final List<String> ENTERPRISE_INTEGRATION_STATES = List.of("READY", "INCOMPLETE", "MISMATCH", "UNKNOWN");
 
     private final HttpClient httpClient;
     private final ObjectMapper mapper;
@@ -45,6 +46,9 @@ public class GatewaySystemClient {
     public Optional<AgentStatus> agentStatus() { return get("/internal/agent/status", AgentStatus.class, true); }
     public Optional<ExecutorStatus> executorStatus() { return get("/internal/executor/status", ExecutorStatus.class, true); }
     public Optional<AgentRegistrationStatus> agentRegistration() { return get("/internal/agent/registration", AgentRegistrationStatus.class, true); }
+    public Optional<EnterpriseIntegrationReadiness> enterpriseIntegrationReadiness() {
+        return get("/internal/contracts/privacy-guard/enterprise-integration-readiness", EnterpriseIntegrationReadiness.class, true);
+    }
 
     public Optional<ContractIdentity> contractIdentity() {
         return get("/internal/contracts/privacy-guard/identity", ContractIdentity.class, true)
@@ -91,6 +95,13 @@ public class GatewaySystemClient {
         return values == null ? List.of() : List.copyOf(values);
     }
 
+    private static String safeHostname(String value) {
+        if (value == null) return null;
+        String normalized = value.trim().toLowerCase();
+        if (normalized.isBlank() || normalized.length() > 253 || normalized.matches(".*[\\s/:@].*")) return null;
+        return normalized;
+    }
+
     public record HealthResponse(String status, String service) {}
     public record TenantStatus(boolean connected, boolean ready, String tenantDid, String network) {}
     public record AgentStatus(boolean configured, boolean connected, boolean ready, String agentDid, String network) {}
@@ -124,6 +135,46 @@ public class GatewaySystemClient {
             allowedHosts = safeList(allowedHosts);
             checkedFunctions = safeList(checkedFunctions);
             checkedScopes = safeList(checkedScopes);
+        }
+    }
+    public record EnterpriseVerificationContract(String action, String expectedState) {}
+    public record EnterpriseIntegrationReadiness(
+        String state,
+        boolean executionConfigured,
+        boolean verificationConfigured,
+        boolean credentialConfigured,
+        String executionHost,
+        String verificationHost,
+        boolean policyAllowsExecutionHost,
+        boolean policyAllowsVerificationHost,
+        boolean executorDelegationAllowsExecutionHost,
+        boolean executorDelegationAllowsVerificationHost,
+        List<String> supportedExecutableActions,
+        List<String> supportedVerifiedActions,
+        List<EnterpriseVerificationContract> verificationContracts,
+        List<String> evaluationOnlyActions,
+        String checkedAt
+    ) {
+        public EnterpriseIntegrationReadiness {
+            state = ENTERPRISE_INTEGRATION_STATES.contains(state) ? state : "UNKNOWN";
+            executionHost = safeHostname(executionHost);
+            verificationHost = safeHostname(verificationHost);
+            supportedExecutableActions = safeList(supportedExecutableActions);
+            supportedVerifiedActions = safeList(supportedVerifiedActions);
+            verificationContracts = verificationContracts == null ? List.of() : List.copyOf(verificationContracts);
+            evaluationOnlyActions = safeList(evaluationOnlyActions);
+            boolean coherentReady = executionConfigured
+                && verificationConfigured
+                && credentialConfigured
+                && executionHost != null
+                && verificationHost != null
+                && policyAllowsExecutionHost
+                && policyAllowsVerificationHost
+                && executorDelegationAllowsExecutionHost
+                && executorDelegationAllowsVerificationHost
+                && !supportedExecutableActions.isEmpty()
+                && !supportedVerifiedActions.isEmpty();
+            if ("READY".equals(state) && !coherentReady) state = "UNKNOWN";
         }
     }
     public record ActivityEvent(
