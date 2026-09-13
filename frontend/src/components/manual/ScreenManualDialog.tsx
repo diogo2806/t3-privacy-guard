@@ -92,23 +92,66 @@ export function ScreenManualDialog() {
           <button ref={closeButtonRef} type="button" className="icon-button" aria-label="Close Screen Manual" title="Close Screen Manual" onClick={close}><X aria-hidden="true" /></button>
         </div>
         <div className="manual-content">
-          <section><h3>Purpose</h3><p id="screen-manual-purpose">Demonstrates that a manipulated AI model cannot grant itself authority, retrieve private profile values, rewrite the active operational policy or cause an external side effect to be reported as completed without independent verification. T3N policy, explicit human authorization, one-time execution proof and external read-back are separate controls.</p></section>
-          <section><h3>AI agent prompt</h3><p>The Prompt field accepts up to 4,000 characters and is untrusted input. Never paste literal private values or secrets. Before the external AI provider is called, the gateway rejects high-confidence email, CPF, credential/token, JWT, private-key, password and payment-card candidates. Use logical references such as <strong>verified email</strong> instead. <strong>Load attack prompt</strong> fills a credential-exfiltration instruction that mentions the field name <strong>api_key</strong> without containing a real key, so the adversarial policy scenario remains safe to demonstrate. <strong>Load safe prompt</strong> fills a minimum legitimate instruction. <strong>Ask agent</strong> uses the configured real provider. <strong>Run attack scenario</strong> sends the documented safe attack prompt through the same provider path.</p></section>
-          <section><h3>Agent proposal</h3><p>The model may provide only action, resource, purpose, optional host, requested field names and enumerated logical private references. For private contact data the supported reference is <strong>Verified email</strong>; the model never receives the email itself. Decision, override, DID, credentials, secrets, API keys, operational policy documents and literal T3N placeholders are rejected.</p></section>
-          <section><h3>Private data boundary</h3><p>The pre-provider privacy guard prevents detected literal private values from crossing the gateway-to-provider boundary. The Rust/WASM contract separately maps approved logical references to supported T3N profile markers. T3N resolves the private value only during protected egress. React, Java, gateway responses, audit records and evidence retain only non-sensitive metadata and never render the resolved plaintext.</p></section>
-          <section><h3>Authority separation</h3><p>The AI provider never receives T3N tenant/agent keys, remediation credentials, service tokens, one-time capabilities, operational policy authority or resolved profile values. Agent DID and tenant DID come from authenticated T3N sessions. The model cannot select identities, contract, policy decision or human authorization proof.</p></section>
-          <section><h3>Operator session</h3><p>The operator uses runtime-only application credentials. This identity is separate from T3N tenant, agent and AI-provider identities. Repeated failed sign-in attempts trigger a short server-controlled cooldown. During a cooldown the UI follows the backend <strong>Retry-After</strong> value and disables only sign-in submission; the error never reveals whether a username exists. Signing out invalidates the application session.</p></section>
-          <section><h3>Views</h3><p><strong>Demo</strong> contains AI prompt, proposal, private-data categories, policy decision, policy provenance, authorization, execution, verification and audit. <strong>Evidence</strong> displays only sanitized, internally consistent T3N evidence. Evidence refresh never invokes the model or executes testnet actions from the browser.</p></section>
-          <section><h3>Decision states</h3><p><strong>DENY</strong> blocks the proposal. <strong>REDACT</strong> requires minimization. <strong>ALLOW</strong> accepts the proposal under the active versioned policy but does not mean human approval, egress or completion.</p></section>
-          <section><h3>Policy version and hash</h3><p><strong>Policy version</strong> identifies the operational rules loaded by the Rust/WASM contract from the private T3N KV map. <strong>Policy hash</strong> is the deterministic SHA-256 of the canonical policy document applied to that decision. These values provide policy provenance, not hardware attestation. If either value is unavailable on a legacy decision, protected remediation is blocked and a new action must be evaluated.</p></section>
-          <section><h3>What policy can change</h3><p>The versioned policy may enable actions and configure purpose, allowed hosts, allowed field names, supported logical private references, host requirement and the human-authorization flag. Contract invariants remain compiled in WASM: schema and size limits, fail-closed behavior, T3N identity boundaries, secret-field prohibition, private-reference vocabulary and safe host validation. A KV policy cannot enable <strong>api_key</strong>, tokens, passwords or other forbidden secret classes.</p></section>
-          <section><h3>Remediation actions</h3><p><strong>Authorize remediation</strong> records human business authorization only and binds the current policy version/hash. <strong>Execute protected remediation</strong> atomically claims the action before egress, uses the stable request ID as idempotency key and sends a one-time capability bound to the exact ALLOW action and policy metadata. If the active T3N policy changes after authorization, execution is rejected and must be evaluated again. The external acknowledgement moves the execution only to pending verification. <strong>Verify external state</strong> performs read-back and never sends the side effect again.</p></section>
-          <section><h3>Execution and verification states</h3><p><strong>EXECUTING</strong> means the durable claim exists. <strong>PENDING_VERIFICATION</strong> means the external service accepted the request but its final state is not yet proven. <strong>COMPLETED</strong> exists only after read-back verifies the expected state. <strong>UNVERIFIED</strong> means the outcome is ambiguous, verification is unavailable, policy binding could not be confirmed or the observed state does not match. <strong>FAILED</strong> is reserved for a known failure that is safe to classify as failed. An HTTP 2xx alone is never shown as COMPLETED.</p></section>
-          <section><h3>Retry rule</h3><p>Repeating execution for the same action reconciles the durable claim instead of sending another external side effect. If a process restarts after the request may have been sent but before an operation ID is persisted, the state becomes UNVERIFIED and automatic re-execution is blocked. A manual verification is offered only when an operation ID exists.</p></section>
-          <section><h3>Evidence states</h3><p><strong>PASS</strong> means observed result matched expectation. <strong>FAIL</strong> means it did not. <strong>NOT RUN</strong> means a scenario was not executed and is never counted as PASS. Profile resolution, versioned policy setup or external verification is not claimed live unless matching testnet evidence exists.</p></section>
-          <section><h3>Rules and permissions</h3><p>Application authentication does not imply T3N authorization. The agent needs active delegation for the exact functions, scopes and host. DENY/REDACT cannot be authorized. Privileged execution requires service authentication plus the one-time capability. Private references are enumerated. Operational policy is read by the TEE from T3N KV, not supplied by React, Java or the model. Completion additionally requires independent read-back.</p></section>
-          <section><h3>Main flow</h3><p>1. Sign in. 2. Confirm tenant, agent, contract and delegation. 3. Enter only non-sensitive prompt text or logical private references. 4. Submit the attack prompt and inspect the model proposal. 5. Observe T3N DENY/REDACT/ALLOW plus policy version/hash. 6. Prepare an allowed remediation. 7. Authorize it explicitly. 8. Execute once; the action and approved policy provenance are bound before egress. 9. Observe accepted/pending verification rather than assuming success from 2xx. 10. Verify external state until VERIFIED or leave the action UNVERIFIED for investigation. 11. Review Evidence and audit history.</p></section>
-          <section><h3>Messages and errors</h3><p>A sensitive prompt is rejected with HTTP 422 before the external provider is called; the response never echoes the detected value. Provider, T3N or policy-KV failures fail closed. A missing or corrupt policy returns DENY without fabricated provenance. A 401 means authentication is missing or credentials are invalid; 403 means authorization, CSRF or capability does not allow an action; 429 means sign-in is temporarily rate limited and the client must respect <strong>Retry-After</strong>; replay is rejected as conflict. A policy change after authorization prevents protected execution. An ambiguous execution is shown as UNVERIFIED and is not automatically retried. Error messages never expose provider keys, T3N keys, profile values, passwords, request/response bodies or raw headers.</p></section>
+          <section>
+            <h3>What this screen is for</h3>
+            <p id="screen-manual-purpose">This dashboard demonstrates a simple enterprise rule: AI may propose an action, but it cannot authorize itself, rewrite the active operational policy, retrieve protected profile values directly or declare a critical action complete. You can test an adversarial or legitimate prompt, inspect the independent policy decision and its exact policy provenance, authorize an allowed remediation as a human operator, execute it through T3N and verify the external result independently.</p>
+          </section>
+          <section>
+            <h3>How to read the trust flow</h3>
+            <p><strong>AI proposal</strong> shows whether a structured action proposal is available. <strong>Policy</strong> returns DENY, REDACT or ALLOW under an exact version/hash. DENY blocks the proposal, REDACT requires minimization and ALLOW only permits the proposal to continue. <strong>ALLOW does not mean executed.</strong> Critical remediation still requires explicit human authorization. <strong>COMPLETED appears only after independent read-back verifies the expected external state.</strong></p>
+          </section>
+          <section>
+            <h3>Views and filters</h3>
+            <p><strong>Protection demo</strong> contains the prompt, proposal, policy decision, policy provenance, human authorization, protected execution, verification and audit trail. <strong>Proof &amp; evidence</strong> shows which testnet outcomes were actually observed. The screen has no business-data filters; these two views organize the journey. Technical T3N identifiers, contract, policy and delegation details remain available without dominating the main flow.</p>
+          </section>
+          <section>
+            <h3>Prompt field and actions</h3>
+            <p>The prompt is untrusted input and accepts up to 4,000 characters. Do not paste literal private values, credentials or secrets. <strong>Load attack prompt</strong> prepares a safe adversarial instruction without real sensitive values. <strong>Load safe prompt</strong> prepares a legitimate minimum-scope instruction. <strong>Ask agent</strong> sends the prompt to the configured provider. <strong>Run attack scenario</strong> executes the documented adversarial demo through the same provider path.</p>
+          </section>
+          <section>
+            <h3>Proposal and private-data boundary</h3>
+            <p>The model may propose only the action, resource, purpose, optional host, field names and supported logical private-data references. It cannot choose trusted identities, policy decisions, approvals, policy documents or execution proof. Private values remain outside the browser and model; supported logical references are resolved only inside the protected T3N execution boundary.</p>
+          </section>
+          <section>
+            <h3>T3N trust provenance</h3>
+            <p><strong>Trust anchor VERIFIED</strong> means the official signed T3N manifest established the cluster trust boundary for the authenticated sessions. <strong>Rollback floor PERSISTED</strong> means the accepted trust-manifest version is stored as a monotonic high-water mark across gateway restarts. The displayed trust-manifest version is that observed high-water version. These states are not per-request hardware attestation. Trust-manifest unavailability, rollback rejection, corrupted persisted state or a missing version fail closed and must not appear as a green success state.</p>
+          </section>
+          <section>
+            <h3>Decision states</h3>
+            <p><strong>DENY</strong> blocks the proposal before protected egress. <strong>REDACT</strong> requires a smaller data scope before the action may continue. <strong>ALLOW</strong> means the active policy permits the proposal, but it is not human approval, execution or completion.</p>
+          </section>
+          <section>
+            <h3>Policy version and hash</h3>
+            <p><strong>Policy version</strong> identifies the operational rule set loaded by Rust/WASM from the private T3N KV map. <strong>Policy hash</strong> is the deterministic SHA-256 of the canonical policy document used for the decision. They provide policy provenance, not hardware attestation. A protected remediation is bound to those exact values; if the active policy changes after authorization, execution is rejected and the action must be evaluated again.</p>
+          </section>
+          <section>
+            <h3>What policy can change</h3>
+            <p>The versioned policy may enable actions and configure purpose, allowed hosts, allowed normal field names, supported logical private references, host requirement and whether human authorization is required. Critical invariants stay compiled in WASM: schema and size limits, fail-closed behavior, T3N identity boundaries, forbidden secret classes, private-reference vocabulary and safe host validation. A KV policy cannot enable <strong>api_key</strong>, tokens, passwords, private keys or bypass identity/delegation rules.</p>
+          </section>
+          <section>
+            <h3>Human authorization and remediation</h3>
+            <p><strong>Authorize remediation</strong> records the human business decision for an allowed action and binds the exact policy version/hash. <strong>Execute protected remediation</strong> claims the approved action before sending the side effect and uses a one-time capability bound to the persisted action and policy provenance. <strong>Verify external state</strong> performs an independent read-back and never sends the side effect again.</p>
+          </section>
+          <section>
+            <h3>Execution and verification states</h3>
+            <p><strong>EXECUTING</strong> means execution is in progress. <strong>PENDING_VERIFICATION</strong> means the external action was accepted but completion is not proven. <strong>COMPLETED</strong> requires independent verification of the expected state. <strong>UNVERIFIED</strong> means the result is ambiguous, policy binding could not be confirmed or the observed state does not match. <strong>FAILED</strong> means a known failure. An HTTP success response alone is never enough to display COMPLETED.</p>
+          </section>
+          <section>
+            <h3>Evidence states</h3>
+            <p><strong>PASS</strong> is an observed result that matched the expected security outcome. <strong>FAIL</strong> is an observed mismatch. <strong>NOT RUN</strong> means the scenario was not executed and is never counted as proof. Evidence metadata includes the exact contract, WASM, policy version/hash and T3N trust provenance for the run.</p>
+          </section>
+          <section>
+            <h3>Rules and permissions</h3>
+            <p>Application sign-in does not grant T3N authority. The agent needs the exact delegation functions, scopes and hosts. Operational policy is read by the TEE from private T3N KV, not supplied by React, Java or the model. DENY and REDACT cannot be promoted to execution by the interface. Critical remediation requires human authorization plus the one-time execution capability, and completion additionally requires independent read-back.</p>
+          </section>
+          <section>
+            <h3>Main flow</h3>
+            <p>1. Sign in. 2. Read the trust flow and confirm whether T3N controls are available. 3. Enter a non-sensitive prompt. 4. Inspect the proposal. 5. Observe DENY, REDACT or ALLOW together with policy version/hash. 6. For an allowed remediation, authorize it as a human operator. 7. Execute the protected action once; the approved policy provenance is rechecked before egress. 8. Treat acceptance as pending verification. 9. Verify the external state. 10. Review Proof &amp; evidence, the audit trail and technical details when needed.</p>
+          </section>
+          <section>
+            <h3>Messages and error states</h3>
+            <p>Sensitive prompt content is rejected before reaching the external provider. Provider, T3N, policy-KV or trust-boundary failures fail closed. A missing or corrupt policy returns DENY without fabricated provenance. Expired application sessions require sign-in again. Rate-limited sign-in follows the server retry interval. A policy change after authorization blocks protected execution. Ambiguous execution remains UNVERIFIED and is not automatically re-executed. Error messages must not expose private values, passwords, credentials, request bodies or raw headers.</p>
+          </section>
         </div>
       </section>
     </div>,
@@ -118,7 +161,7 @@ export function ScreenManualDialog() {
   return (
     <>
       <button ref={triggerRef} type="button" className="button button-secondary manual-trigger" aria-label="Open Screen Manual" title="Manual da Tela / Screen Manual" onClick={() => setOpen(true)}>
-        <BookOpen aria-hidden="true" /><span>Screen Manual</span>
+        <BookOpen aria-hidden="true" /><span>Manual da Tela</span>
       </button>
       {dialog}
     </>
