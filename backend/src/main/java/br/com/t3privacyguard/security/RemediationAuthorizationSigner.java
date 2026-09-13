@@ -35,15 +35,18 @@ public class RemediationAuthorizationSigner {
     public String issue(
         String incidentId, String actionId, String requestId, String decisionId, String action,
         String resource, String purpose, List<String> fields, List<String> privateRefs,
-        String policyVersion, String policyHash
+        String policyVersion, String policyHash, String executorDid
     ) {
         if (policyVersion == null || policyVersion.isBlank() || policyHash == null || !policyHash.matches("[a-f0-9]{64}")) {
             throw new IllegalArgumentException("Versioned policy metadata is required for remediation authorization");
         }
+        if (executorDid == null || !executorDid.startsWith("did:t3n:")) {
+            throw new IllegalArgumentException("Authenticated protected executor DID is required for remediation authorization");
+        }
         Instant now = Instant.now();
         Claims claims = new Claims(
             incidentId, actionId, requestId, decisionId, action, resource, purpose,
-            listHash(fields), listHash(privateRefs), policyVersion, policyHash,
+            listHash(fields), listHash(privateRefs), policyVersion, policyHash, executorDid,
             now.toEpochMilli(), now.plus(ttl).toEpochMilli(), UUID.randomUUID().toString()
         );
         try {
@@ -80,6 +83,7 @@ public class RemediationAuthorizationSigner {
         String privateRefsHash,
         String policyVersion,
         String policyHash,
+        String executorDid,
         long authorizedAt,
         long expiresAt,
         String nonce
