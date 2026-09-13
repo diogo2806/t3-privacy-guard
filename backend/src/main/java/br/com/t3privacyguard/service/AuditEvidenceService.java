@@ -1,15 +1,16 @@
 package br.com.t3privacyguard.service;
 
 import br.com.t3privacyguard.api.ApiModels.AuditEvidenceResponse;
+import br.com.t3privacyguard.api.ApiModels.AuditIntegrityResponse;
 import br.com.t3privacyguard.api.ApiModels.AuditProvenance;
 import br.com.t3privacyguard.api.ApiModels.LocalAuditEvidence;
 import br.com.t3privacyguard.api.ApiModels.T3nActivityEvidence;
+import br.com.t3privacyguard.audit.AuditIntegrityService;
 import br.com.t3privacyguard.domain.AuditReconciliationStatus;
 import br.com.t3privacyguard.integration.GatewaySystemClient;
 import br.com.t3privacyguard.integration.GatewaySystemClient.ActivityEvent;
 import br.com.t3privacyguard.integration.GatewaySystemClient.ActivityPage;
 import br.com.t3privacyguard.persistence.AuditEventEntity;
-import br.com.t3privacyguard.persistence.AuditEventRepository;
 import br.com.t3privacyguard.persistence.IncidentEntity;
 import br.com.t3privacyguard.persistence.IncidentRepository;
 import java.time.Instant;
@@ -38,12 +39,12 @@ public class AuditEvidenceService {
     );
 
     private final IncidentRepository incidents;
-    private final AuditEventRepository audits;
+    private final AuditIntegrityService auditIntegrity;
     private final GatewaySystemClient gateway;
 
-    public AuditEvidenceService(IncidentRepository incidents, AuditEventRepository audits, GatewaySystemClient gateway) {
+    public AuditEvidenceService(IncidentRepository incidents, AuditIntegrityService auditIntegrity, GatewaySystemClient gateway) {
         this.incidents = incidents;
-        this.audits = audits;
+        this.auditIntegrity = auditIntegrity;
         this.gateway = gateway;
     }
 
@@ -52,7 +53,9 @@ public class AuditEvidenceService {
         if (requestedLimit < 1 || requestedLimit > MAX_LIMIT) throw new IllegalArgumentException("Activity limit must be between 1 and 200");
         IncidentEntity incident = incidents.findById(incidentId)
             .orElseThrow(() -> new IncidentNotFoundException("Incident not found"));
-        List<AuditEventEntity> local = audits.findByIncidentIdOrderByCreatedAtAsc(incidentId);
+        AuditIntegrityService.Verification integrity = auditIntegrity.verify(incidentId);
+        List<AuditEventEntity> local = integrity.events();
+        AuditIntegrityResponse integrityResponse = integrityResponse(integrity);
 
         Optional<GatewaySystemClient.TenantStatus> tenant = gateway.tenantStatus();
         Optional<GatewaySystemClient.AgentStatus> agent = gateway.agentStatus();
@@ -65,12 +68,12 @@ public class AuditEvidenceService {
             .flatMap(ignored -> gateway.activity(fromMs, toMs, requestedLimit));
 
         if (activity.isEmpty() || tenant.isEmpty() || contract.isEmpty()) {
-            return degraded(local, requestedLimit);
+            return degraded(local, integrityResponse, requestedLimit);
         }
 
         String tenantDid = tenant.get().tenantDid();
         String contractId = contract.get().contractId();
-        if (blank(tenantDid) || blank(contractId)) return degraded(local, requestedLimit);
+        if (blank(tenantDid) || blank(contractId)) return degraded(local, integrityResponse, requestedLimit);
 
         Optional<String> proposalAgentDid = agent
             .filter(GatewaySystemClient.AgentStatus::ready)
@@ -135,7 +138,7 @@ public class AuditEvidenceService {
 
         String message = provenanceMessage(page.complete(), proposalAgentDid.isPresent(), protectedExecutorDid.isPresent());
         AuditProvenance provenance = new AuditProvenance(true, true, page.complete(), matched, unmatched, localOnly, t3nOnly, message);
-        return new AuditEvidenceResponse(localEvidence, t3nEvidence, provenance, page.nextSequence(), requestedLimit);
+        return new AuditEvidenceResponse(localEvidence, t3nEvidence, provenance, integrityResponse, page.nextSequence(), requestedLimit);
     }
 
     private static Optional<String> expectedActorDid(
@@ -164,7 +167,7 @@ public class AuditEvidenceService {
         return "T3N activity is available. Reconciliation requires exact sequence, hash, contract, function and the canonical actor for that function.";
     }
 
-    private AuditEvidenceResponse degraded(List<AuditEventEntity> local, int limit) {
+    private AuditEvidenceResponse degraded(List<AuditEventEntity> local, AuditIntegrityResponse integrity, int limit) {
         List<LocalAuditEvidence> localEvidence = local.stream().map(event -> {
             AuditReconciliationStatus status = event.getT3nFunction() == null
                 ? AuditReconciliationStatus.LOCAL_ONLY
@@ -183,7 +186,17 @@ public class AuditEvidenceService {
             0,
             "T3N activity temporarily unavailable. Local business audit remains available; network provenance was not verified."
         );
-        return new AuditEvidenceResponse(localEvidence, List.of(), provenance, null, limit);
+        return new AuditEvidenceResponse(localEvidence, List.of(), provenance, integrity, null, limit);
+    }
+
+    private static AuditIntegrityResponse integrityResponse(AuditIntegrityService.Verification verification) {
+        return new AuditIntegrityResponse(
+            verification.state(),
+            verification.eventsChecked(),
+            verification.head(),
+            verification.version(),
+            verification.detail()
+        );
     }
 
     private static LocalAuditEvidence localEvidence(AuditEventEntity event, AuditReconciliationStatus status, Long matchedSequence) {
