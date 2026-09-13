@@ -21,6 +21,7 @@ describe('ScreenManualDialog', () => {
     expect(screen.getByText(/Member grant.*documento de Member Delegation/i)).toBeInTheDocument();
     expect(screen.getByText(/Effective T3N access.*checkDelegation/i)).toBeInTheDocument();
     expect(screen.getByText(/Denied.*Unknown.*fecham o fluxo em segurança/i)).toBeInTheDocument();
+    expect(screen.getByText(/Card check.*última tentativa.*não significa verificação bem-sucedida/i)).toBeInTheDocument();
     expect(screen.getByText(/registrar o Agent Card aumenta descoberta pública, mas não concede acesso/i)).toBeInTheDocument();
     expect(screen.getByText('Policy e decisão')).toBeInTheDocument();
     expect(screen.getByText('Dados privados e retenção')).toBeInTheDocument();
