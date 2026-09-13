@@ -14,7 +14,6 @@ public class TrustedNormalPayloadFactory {
     );
 
     private static final Map<String, String> SYNTHETIC_VALUES = Map.ofEntries(
-        Map.entry("incident_id", "inc-demo-001"),
         Map.entry("credential_id", "cred-demo-001"),
         Map.entry("reason", "suspected compromise"),
         Map.entry("employee_department", "finance"),
@@ -24,12 +23,13 @@ public class TrustedNormalPayloadFactory {
         Map.entry("source", "t3-privacy-guard")
     );
 
-    public Map<String, String> create(List<String> requestedFields) {
+    public Map<String, String> create(String incidentId, List<String> requestedFields) {
+        if (incidentId == null || incidentId.isBlank()) throw new IllegalArgumentException("Persisted incident id is required for trusted payload generation");
         LinkedHashMap<String, String> result = new LinkedHashMap<>();
         for (String raw : requestedFields == null ? List.<String>of() : requestedFields) {
             String key = normalizeKey(raw);
             if (key.isEmpty() || FORBIDDEN_KEYS.contains(key) || result.containsKey(key)) continue;
-            String value = SYNTHETIC_VALUES.get(key);
+            String value = "incident_id".equals(key) ? incidentId : SYNTHETIC_VALUES.get(key);
             if (value != null) result.put(key, value);
         }
         return Map.copyOf(result);
