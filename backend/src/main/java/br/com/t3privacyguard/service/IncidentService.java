@@ -329,7 +329,9 @@ public class IncidentService {
         long startedAt = System.nanoTime();
         String expectedState = expectedStateForAction(action.getAction());
         try {
-            var verification = remediationGateway.verify(execution.getRequestId(), execution.getOperationId(), action.getAction(), expectedState);
+            var verification = NOTIFY_SECURITY_ACTION.equals(action.getAction())
+                ? remediationGateway.verifyDelivery(execution.getRequestId(), execution.getOperationId())
+                : remediationGateway.verify(execution.getRequestId(), execution.getOperationId());
             if (!execution.getRequestId().equals(verification.requestId())) {
                 RemediationExecutionEntity state = executionCoordinator.markUnverified(action.getId(), "VERIFICATION_REQUEST_ID_MISMATCH");
                 audit(
