@@ -45,12 +45,18 @@ function listHash(values: string[] | undefined): string {
   return createHash('sha256').update(JSON.stringify([...(values ?? [])].map((value) => value.trim()).sort())).digest('hex');
 }
 
+function lexicalCompare(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
 export function canonicalNormalPayload(value: unknown): string {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('CAPABILITY_INVALID');
   const entries = Object.entries(value as Record<string, unknown>);
   if (entries.length > 16) throw new Error('CAPABILITY_INVALID');
   return entries
-    .sort(([left], [right]) => left.localeCompare(right))
+    .sort(([left], [right]) => lexicalCompare(left, right))
     .map(([key, raw]) => {
       if (!/^[a-z][a-z0-9_]{0,79}$/.test(key) || typeof raw !== 'string' || !raw.trim() || Buffer.byteLength(raw, 'utf8') > 512) {
         throw new Error('CAPABILITY_INVALID');
