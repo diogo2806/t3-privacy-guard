@@ -102,7 +102,7 @@ export function ScreenManualDialog() {
           </section>
           <section>
             <h3>Views and filters</h3>
-            <p><strong>Protection demo</strong> contains the prompt, proposal, policy decision, human authorization, protected execution, verification, the technical Execution Trace and the separate Business Audit Trail. <strong>Proof &amp; evidence</strong> shows which testnet outcomes were actually observed. The screen has no business-data filters; these two views organize the journey. Technical T3N identifiers, contract and delegation details remain available under <strong>Show technical details</strong> without dominating the main flow.</p>
+            <p><strong>Protection demo</strong> contains the prompt, proposal, policy decision, human authorization, protected execution, verification, incident retention, the technical Execution Trace and the separate Business Audit Trail. <strong>Proof &amp; evidence</strong> shows which testnet outcomes were actually observed. The screen has no business-data filters; these two views organize the journey. Technical T3N identifiers, contract and delegation details remain available under <strong>Show technical details</strong> without dominating the main flow.</p>
           </section>
           <section>
             <h3>Prompt field and actions</h3>
@@ -110,7 +110,11 @@ export function ScreenManualDialog() {
           </section>
           <section>
             <h3>Proposal and private-data boundary</h3>
-            <p>The model may propose only the action, resource, purpose, optional host, field names and supported logical private-data references. It cannot choose trusted identities, policy decisions, approvals or execution proof. Private values remain outside the browser and model; supported logical references are resolved only inside the protected T3N execution boundary.</p>
+            <p>The model may propose only the action, resource, purpose, optional host, field names and supported logical private-data references. It cannot choose trusted identities, policy decisions, approvals or execution proof. Resolved profile plaintext remains outside React, Spring Boot, normal gateway responses, audit records and evidence; supported logical references are resolved only inside the protected T3N execution boundary. Incident free text follows the separate minimization and retention rule below and is not claimed to be anonymous.</p>
+          </section>
+          <section>
+            <h3>Incident storage and retention</h3>
+            <p>Incident title, summary and source are normalized on the server before persistence. High-confidence email, valid CPF, credential/token, bearer token, JWT, private-key, password and payment-card candidates are rejected before the database write. Accepted operational text is capped to smaller local limits and remains potentially identifying data; minimization is not anonymization. Every incident receives a server-controlled <strong>expiresAt</strong> calculated from its creation time. The default retention is 7 days and configuration is limited to 1–30 days. Expired incidents stop being returned by incident APIs immediately, then a scheduled transactional purge hard-deletes execution-trace events, remediation executions, policy decisions, action proposals, audit events and the incident. Existing rows without an expiration are backfilled on startup from their original creation time.</p>
           </section>
           <section>
             <h3>T3N trust provenance</h3>
@@ -142,15 +146,15 @@ export function ScreenManualDialog() {
           </section>
           <section>
             <h3>Rules and permissions</h3>
-            <p>Application sign-in does not grant T3N authority. Policy must allow the exact action and scope, critical remediation requires human authorization, protected execution requires its runtime controls, and completion additionally requires independent read-back. DENY and REDACT cannot be promoted to execution by the interface. A Trace ID is correlation metadata only; it grants no authority and cannot be used to access another incident or action.</p>
+            <p>Application sign-in does not grant T3N authority. Policy must allow the exact action and scope, critical remediation requires human authorization, protected execution requires its runtime controls, and completion additionally requires independent read-back. DENY and REDACT cannot be promoted to execution by the interface. A Trace ID is correlation metadata only; it grants no authority and cannot be used to access another incident or action. Incident retention is controlled by the server, not by browser input, and expired incident content cannot be retrieved through the incident API.</p>
           </section>
           <section>
             <h3>Main flow</h3>
-            <p>1. Sign in. 2. Read the trust flow and confirm whether T3N controls are available. 3. Enter a non-sensitive prompt. 4. Inspect the proposal. 5. Observe DENY, REDACT or ALLOW. 6. For an allowed remediation, authorize it as a human operator. 7. Execute the protected action once. 8. Treat acceptance as pending verification. 9. Verify the external state. 10. Review the Execution Trace for technical correlation, the Business Audit Trail for persisted business events, and Proof &amp; evidence for reproducible T3N proof. 11. Open technical details when contract, delegation or trust-provenance metadata is needed.</p>
+            <p>1. Sign in. 2. Read the trust flow and confirm whether T3N controls are available. 3. Enter a non-sensitive prompt. 4. Inspect the proposal. 5. Observe DENY, REDACT or ALLOW. 6. Inspect the current incident and its automatic expiration date. 7. For an allowed remediation, authorize it as a human operator. 8. Execute the protected action once. 9. Treat acceptance as pending verification. 10. Verify the external state. 11. Review the Execution Trace for technical correlation, the Business Audit Trail for persisted business events, and Proof &amp; evidence for reproducible T3N proof. 12. Open technical details when contract, delegation or trust-provenance metadata is needed. Expired incident data is removed by the server retention process.</p>
           </section>
           <section>
             <h3>Messages and error states</h3>
-            <p>Sensitive prompt content is rejected before reaching the external provider. Provider, T3N or trust-boundary failures fail closed. Expired application sessions require sign-in again. Rate-limited sign-in follows the server retry interval. Ambiguous execution remains UNVERIFIED and is not automatically re-executed. Error messages and trace metadata must not expose private values, passwords, credentials, capabilities, request bodies or raw headers.</p>
+            <p>Sensitive prompt content is rejected before reaching the external provider. Incident content containing a high-confidence sensitive literal is rejected with HTTP 422 before persistence and the response does not echo that literal. Provider, T3N or trust-boundary failures fail closed. Expired application sessions require sign-in again. Rate-limited sign-in follows the server retry interval. Ambiguous execution remains UNVERIFIED and is not automatically re-executed. Error messages and trace metadata must not expose private values, passwords, credentials, capabilities, request bodies or raw headers.</p>
           </section>
         </div>
       </section>
