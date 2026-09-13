@@ -18,13 +18,15 @@ The structured proposal is persisted and sent to the independent Terminal 3 Rust
 
 Delegation is also split into two proofs. A **Member grant** is the Tenant-side record that names the grantee, contract, functions, scopes, hosts and validity window. It proves that a matching grant document exists, but it does not by itself prove that the authenticated principal is effectively authorized at that moment. When a matching grant is active, the gateway calls T3N `checkDelegation()` through the authenticated Proposal Agent or Protected Executor client. Only `authorised=true` produces **effective access `ACTIVE`**. `authorised=false` produces `INCOMPLETE`; transport, parsing or malformed verdicts produce `UNKNOWN`. Both non-success states fail closed.
 
+When `A2A_PUBLIC_URL` is configured, the same Proposal Agent evaluation boundary is exposed to external agents through A2A v1.0. External agents can request analysis and a T3N policy decision, but cannot provide canonical identities, grant themselves authority, request a human remediation capability or invoke protected remediation. The A2A adapter reuses the existing prompt guard, `AgentService` proposal schema and `evaluate-action` path; `agent_did` and Tenant `pii_did` remain server-derived.
+
 For private profile data, the application carries only a category such as `verified_email`. The Rust/WASM contract maps that closed reference to the supported T3N marker `{{profile.verified_contacts.email.value}}`; the real value can be resolved only by T3N during protected egress and is not returned to React, Java, the model or gateway responses.
 
 Protected credential revocation is fail-safe under retries. Spring creates a persistent atomic claim before egress. The TEE sends `requestId` as the stable idempotency key, but a 2xx only produces `PENDING_VERIFICATION`. A distinct T3N `verify-remediation` read-back must observe the matching `operation_id` and the closed expected state `REVOKED` before the business state becomes `COMPLETED`. Ambiguous outcomes become `UNVERIFIED`; they may be re-verified but are never automatically executed again.
 
 The operational policy used by contract `0.4.0` is versioned in private T3N KV. Each decision carries the exact `policyVersion` and deterministic SHA-256 `policyHash`; critical invariants remain compiled in WASM. Missing or invalid policy fails closed. Human authorization and protected execution are bound to the same version/hash so a policy change after approval cannot silently reuse stale authority.
 
-The project reports only verifiable state: `NOT_RUN` never becomes `PASS`, simulated output is not labelled live, profile-placeholder resolution is not labelled proved live until a compatible testnet profile actually executes it, an observed Member grant is not labelled effective authority, external execution is not labelled completed from HTTP acceptance alone, and hardware attestation is not claimed without a concrete artifact.
+The project reports only verifiable state: `NOT_RUN` never becomes `PASS`, simulated output is not labelled live, profile-placeholder resolution is not labelled proved live until a compatible testnet profile actually executes it, an observed Member grant is not labelled effective authority, external execution is not labelled completed from HTTP acceptance alone, A2A configuration/publication is not labelled endpoint liveness, and hardware attestation is not claimed without a concrete artifact.
 
 ## Why this is more than PII detection
 
@@ -177,21 +179,22 @@ The Proposal Agent and Protected Executor are evaluated independently. The dashb
 2. Read the product thesis before inspecting low-level metadata.
 3. Confirm Tenant, Proposal Agent and Protected Executor are authenticated as separate principals.
 4. Inspect Agent onboarding separately from authorization.
-5. Open technical status and distinguish Member grant, Platform delegation and Effective access for Proposal Agent and Executor.
-6. Treat the control plane as operational only when both Effective access states are ACTIVE.
-7. Choose Credential compromised and inspect the synthetic attack prompt.
-8. Click Ask agent and inspect the real model proposal.
-9. Observe independent T3N TEE DENY and the exact policy version/hash.
-10. Switch through Account takeover, Record security incident and Notify security contact; confirm preset selection grants no authority.
-11. For Notify security contact, confirm only logical verified_email appears, never plaintext email or raw profile placeholder.
-12. Return to Credential compromised and prepare the minimum revocation path.
-13. Observe T3N ALLOW/REDACT and the minimum-data boundary.
-14. Record explicit human authorization only after ALLOW under the displayed policy version/hash.
-15. Execute protected credential revocation when synthetic egress/read-back is configured.
-16. Confirm execution is bound to the authenticated Protected Executor and the same policy provenance.
-17. Observe PENDING_VERIFICATION or the verification transition.
-18. Accept COMPLETED only when independent read-back shows VERIFIED.
-19. Open Evidence and confirm exact T3N_TESTNET claims, contract/WASM/policy provenance and NOT_RUN boundaries.
+5. If A2A is configured, distinguish Configured, Published and endpoint-live-test-not-performed states.
+6. Open technical status and distinguish Member grant, Platform delegation and Effective access for Proposal Agent and Executor.
+7. Treat the control plane as operational only when both Effective access states are ACTIVE.
+8. Choose Credential compromised and inspect the synthetic attack prompt.
+9. Click Ask agent and inspect the real model proposal.
+10. Observe independent T3N TEE DENY and the exact policy version/hash.
+11. Switch through Account takeover, Record security incident and Notify security contact; confirm preset selection grants no authority.
+12. For Notify security contact, confirm only logical verified_email appears, never plaintext email or raw profile placeholder.
+13. Return to Credential compromised and prepare the minimum revocation path.
+14. Observe T3N ALLOW/REDACT and the minimum-data boundary.
+15. Record explicit human authorization only after ALLOW under the displayed policy version/hash.
+16. Execute protected credential revocation when synthetic egress/read-back is configured.
+17. Confirm execution is bound to the authenticated Protected Executor and the same policy provenance.
+18. Observe PENDING_VERIFICATION or the verification transition.
+19. Accept COMPLETED only when independent read-back shows VERIFIED.
+20. Open Evidence and confirm exact T3N_TESTNET claims, Agent Card services, contract/WASM/policy provenance and NOT_RUN boundaries.
 ```
 
 ## Architecture and trust boundaries
@@ -207,6 +210,8 @@ Browser / Spring Boot
       |
       v
 T3N Gateway
+      |
+      +--> optional public A2A v1.0 -> evaluation only
       |
       +--> Tenant session ----------------------+
       |                                         |
@@ -250,6 +255,7 @@ Trust model:
 - **Scenario selection is presentation state.** It loads synthetic input and grants no authority.
 - **The model is not a security boundary.** It can only call one proposal tool with a closed JSON schema.
 - **Unknown or privileged model fields are rejected.** Decisions, overrides, identities, credentials, secrets, API keys and literal `{{profile...}}` markers are rejected before T3N evaluation.
+- **Public A2A is evaluation-only.** An A2A client can request analysis/policy evaluation but cannot supply canonical identities, human authorization, remediation capability or Protected Executor authority.
 - **Private data is referenced, not copied.** The model/application may request `verified_email`; only Rust/WASM can convert it to the official T3N profile marker.
 - **T3N identities are server-derived.** Tenant, Proposal Agent and Protected Executor DIDs come from authenticated sessions.
 - **A Member grant is necessary but not sufficient.** Runtime readiness uses the authenticated principal-side T3N `checkDelegation()` verdict.
@@ -269,6 +275,7 @@ Trust model:
 | Which demo context is selected? | Browser presentation state only |
 | What did the user ask? | Untrusted prompt |
 | What action does the model suggest? | AI proposal |
+| May an external agent request analysis? | Optional A2A evaluation surface only; no remediation authority |
 | Which Tenant identity is the authorization subject? | Authenticated Tenant session |
 | Which principal proposes policy evaluation? | Authenticated Proposal Agent session |
 | Which principal executes protected remediation? | Authenticated Protected Executor session |
@@ -288,6 +295,11 @@ Trust model:
 |---|---|---|
 | Real configured model produces structured proposals | PROVED LOCAL | provider adapter + agent/backend tests |
 | Tool schema cannot accept decision/override/DID/secret authority fields | PROVED LOCAL | `proposal-schema.test.ts` |
+| A2A request schema rejects client identity/decision/capability fields | PROVED LOCAL | `a2a-router.test.ts` |
+| A2A reuses the prompt guard and existing policy-evaluation path | PROVED LOCAL | `a2a-service.test.ts`, `a2a-router.test.ts` |
+| A2A response excludes human authorization and protected-remediation capability | PROVED LOCAL | `a2a-router.test.ts` |
+| A2A is advertised in the T3N Agent Card only when configured and observed schema matches | PROVED LOCAL | `agent-card.test.ts`, `env.test.ts` |
+| Public A2A endpoint is externally reachable | NOT CLAIMED | requires an external live reachability test |
 | Four enterprise presets map to existing policy actions without authorizing them | PROVED LOCAL | `scenarioDefinitions.ts` + `EnterpriseScenarioCatalog.test.tsx` |
 | Scenario selection does not submit the prompt automatically | PROVED LOCAL | `EnterpriseScenarioCatalog.test.tsx` + controlled prompt flow |
 | Tenant DID derives from authenticated T3N session | PROVED LOCAL | gateway session code/tests |
@@ -437,7 +449,7 @@ Member Delegation is treated as the Tenant-side grant document. Non-empty functi
 
 ### Delegated `pii_did`
 
-Every effective-delegation check and delegated execution derives `pii_did` internally from `tenantSession.getTenantDid()`. Browser, Java and LLM cannot supply or override the authorization subject.
+Every effective-delegation check and delegated execution derives `pii_did` internally from `tenantSession.getTenantDid()`. Browser, Java, LLM and A2A clients cannot supply or override the authorization subject.
 
 ### Profile placeholders
 
@@ -451,14 +463,16 @@ Operational rules are provisioned to private T3N KV under immutable version snap
 
 The contract exposes separate `execute-remediation` and `verify-remediation` functions. Executor Member Delegation includes both only when required. Evidence orchestration derives the allowed HTTPS hosts from the configured remediation and verification endpoints rather than broadening the grant arbitrarily.
 
-## Public Agent onboarding and independent Activity provenance
+## Public Agent onboarding, A2A and independent Activity provenance
 
-Public registration and authorization are intentionally not conflated:
+Public registration, interoperability and authorization are intentionally not conflated:
 
 ```text
 Proposal Agent AUTHENTICATED
       |
       +--> Agent Card -> REGISTERED / NOT_REGISTERED / MISMATCH / UNAVAILABLE
+      |      |
+      |      +--> optional A2A discovery service -> evaluation only
       |
       +--> Member grant -> ACTIVE / SCHEDULED / REVOKED / NOT_GRANTED / UNKNOWN
                           |
@@ -467,7 +481,9 @@ Proposal Agent AUTHENTICATED
                                                +--> Effective access ACTIVE / INCOMPLETE / UNKNOWN
 ```
 
-The generated Agent Card is derived from the DID returned by the authenticated Proposal Agent session, not from a configured/hardcoded DID. It advertises only the supported `DID` service for that same identity, is bounded to the hosted-card size limit and rejects sensitive metadata/private-key-shaped values. The implementation does not advertise unsupported A2A/MCP services or x402 payment capability.
+The generated T3N Agent Card is derived from the DID returned by the authenticated Proposal Agent session, not from a configured/hardcoded DID. It always advertises the supported `DID` service. When `A2A_PUBLIC_URL` is a valid HTTPS `/a2a` endpoint, it also advertises the `A2A` discovery service at `/.well-known/agent-card.json` with version `1.0`; when A2A is not configured, that service must be absent. The card remains bounded to the hosted-card size limit and rejects sensitive metadata/private-key-shaped values, unsupported MCP/x402 claims and unsupported trust metadata.
+
+The public A2A Agent Card exposes exactly one skill, **A2A evaluation service**. `POST /a2a` accepts bounded JSON-RPC `SendMessage` requests with one `ROLE_USER` text part. Unknown fields fail closed; client-supplied `agent_did`, `pii_did`, `decision`, capabilities and credential-shaped authority are not accepted. The prompt passes through the same pre-provider privacy guard and structured proposal schema as the operator flow. The response is limited to proposal, policy decision, reason code, policy version/hash and Proposal Agent DID. Human authorization and protected remediation remain operator-controlled and are not exposed through A2A.
 
 Operational commands:
 
@@ -477,7 +493,7 @@ npm run agent:card:verify    # read-only registry verification
 npm run agent:card:publish   # explicit mutable host-card operation; may consume credits
 ```
 
-The Evidence Center/status surface can show the observed onboarding state. The deployment manifest may contain the public card URI, SHA-256 of the exact resolved card, verification timestamp and service names. Those fields are public discoverability provenance; the hash is not a permission or attestation claim.
+The Evidence Center/status surface can show the observed onboarding state and whether A2A was observed in the resolved card. The deployment manifest may contain the public card URI, SHA-256 of the exact resolved card, verification timestamp and service names. Those fields are public discoverability provenance. An observed `A2A` service proves card publication at that check; it does not by itself prove endpoint reachability, and the UI must not label configuration/publication as `verified live` without a real external test.
 
 Local business audit and T3N Activity Log are independent evidence sources. `MATCHED` requires exact T3N sequence/hash/function provenance; `LOCAL_ONLY`, `T3N_ONLY` and `UNMATCHED` preserve the distinction when exact reconciliation is absent. An unavailable or truncated Activity Log is never converted into fabricated network proof.
 
@@ -504,6 +520,7 @@ verified T3N trust manifest
 Tenant / Proposal Agent / Protected Executor authenticated sessions
       |
       +--> Proposal Agent Card provenance
+      |      +--> optional A2A service observed in resolved card
       |
       +--> Member grants + checkDelegation effective access
       v
@@ -514,7 +531,7 @@ policy doc -> SHA-256 ----+--> deployment-manifest.json
                     testnet-run.json
 ```
 
-`PASS` means observed result matched expectation. `FAIL` means it did not. `NOT_RUN` means the scenario was not executed and is never counted as success. The profile-placeholder execution scenario remains `NOT_RUN` until a compatible profile/user context exists; local tests do not upgrade that claim to live proof.
+`PASS` means observed result matched expectation. `FAIL` means it did not. `NOT_RUN` means the scenario was not executed and is never counted as success. The profile-placeholder execution scenario remains `NOT_RUN` until a compatible profile/user context exists; local tests do not upgrade that claim to live proof. The presence of `A2A` in `agentCardServices` is card-observation evidence only, not endpoint-liveness evidence.
 
 The live remediation scenario is stricter:
 
@@ -549,16 +566,17 @@ When preparing egress evidence, configure `SECURITY_API_URL` and the separate `S
 
 1. Product header + live T3N operational status.
 2. Expanded technical status showing separate Tenant, Proposal Agent and Protected Executor DIDs.
-3. Separate Proposal/Executor **Member grant**, **Platform delegation** and **Effective access** states; capture `Operational` only when both effective states are `ACTIVE`.
-4. Four enterprise scenario cards with Credential compromised selected and the statement that presets are not permissions.
-5. Attack prompt + provider/model provenance + model proposal + `DENY` + policy version/hash.
-6. `REDACT` data-minimization evidence.
-7. Notify security contact selected, showing logical `verified_email` and no plaintext address/raw placeholder.
-8. Legitimate credential-revocation proposal/minimum remediation + `ALLOW` + policy provenance.
-9. Human authorization separate from execution and bound to the same version/hash and Protected Executor.
-10. Execution/verification panel showing the state machine.
-11. Verified remediation screenshot only after `Verification = VERIFIED` and `Final state = COMPLETED`.
-12. Evidence Center with T3N_TESTNET metadata/results, contract/WASM/policy provenance and optional scenarios honestly PASS/FAIL/NOT_RUN.
+3. Agent onboarding plus A2A evaluation-service state, showing `Published` only when A2A is observed in the resolved Agent Card and showing that endpoint live test was not performed by status.
+4. Separate Proposal/Executor **Member grant**, **Platform delegation** and **Effective access** states; capture `Operational` only when both effective states are `ACTIVE`.
+5. Four enterprise scenario cards with Credential compromised selected and the statement that presets are not permissions.
+6. Attack prompt + provider/model provenance + model proposal + `DENY` + policy version/hash.
+7. `REDACT` data-minimization evidence.
+8. Notify security contact selected, showing logical `verified_email` and no plaintext address/raw placeholder.
+9. Legitimate credential-revocation proposal/minimum remediation + `ALLOW` + policy provenance.
+10. Human authorization separate from execution and bound to the same version/hash and Protected Executor.
+11. Execution/verification panel showing the state machine.
+12. Verified remediation screenshot only after `Verification = VERIFIED` and `Final state = COMPLETED`.
+13. Evidence Center with T3N_TESTNET metadata/results, Agent Card services, contract/WASM/policy provenance and optional scenarios honestly PASS/FAIL/NOT_RUN.
 
 Never capture passwords, cookies, T3N keys, provider key, service/capability keys, remediation secret, resolved profile PII, `.env` or raw logs.
 
@@ -567,7 +585,7 @@ Never capture passwords, cookies, T3N keys, provider key, service/capability key
 ```text
 0–10s    Product thesis: AI proposes; it does not own authority
 10–25s   Show three authenticated T3N identities
-25–40s   Show Agent Card vs Member grant vs Platform delegation vs Effective access
+25–40s   Show Agent Card/A2A vs Member grant vs Platform delegation vs Effective access
 40–65s   Credential attack prompt -> real provider -> malicious structured proposal
 65–85s   Independent T3N TEE DENY + policy provenance; no protected egress
 85–105s  Switch scenarios; show isolation, record incident and logical verified_email context
@@ -586,6 +604,9 @@ The submission must lead with user/business meaning, then expose the technical p
 - **agent proposal**: model-produced structured request, not authorization;
 - **authenticated**: a T3N session proved a principal identity and yielded its canonical DID;
 - **registered**: the public Proposal Agent Card resolved and matched the authenticated DID; not authorization;
+- **A2A configured**: `A2A_PUBLIC_URL` passed local validation; not proof of publication or reachability;
+- **A2A published**: the expected A2A service was observed in the resolved T3N Agent Card; not proof that the endpoint is externally reachable;
+- **A2A evaluation service**: external analysis + T3N policy decision only; never human authorization or protected remediation;
 - **Member grant**: Tenant-side grant record with grantee, contract, functions, scopes, hosts and validity window;
 - **Platform delegation**: principal-side `checkDelegation()` verdict from T3N;
 - **effective access**: runtime result; `ACTIVE` only when Member grant is active and T3N returns `authorised=true`;
@@ -602,7 +623,7 @@ The submission must lead with user/business meaning, then expose the technical p
 - **execution proof**: short-lived server-to-gateway capability, not hardware attestation;
 - **proved live**: matching live evidence/capture exists.
 
-Do not say “Member grant ACTIVE = authorized”, “registered = authorized”, “Agent Card = attestation”, “guarantees GDPR compliance”, “hardware verified”, “exactly once”, “at most once”, “profile resolution proved live”, “all four scenarios execute end-to-end” or “completed from HTTP 2xx” without corresponding evidence/contract.
+Do not say “A2A configured/published = verified live”, “A2A can remediate”, “Member grant ACTIVE = authorized”, “registered = authorized”, “Agent Card = attestation”, “guarantees GDPR compliance”, “hardware verified”, “exactly once”, “at most once”, “profile resolution proved live”, “all four scenarios execute end-to-end” or “completed from HTTP 2xx” without corresponding evidence/contract.
 
 ## Post-challenge operation and handover
 
