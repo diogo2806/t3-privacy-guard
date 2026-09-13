@@ -127,5 +127,15 @@
 .privacy-boundary-grid dt { color: var(--muted); font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; }
 .privacy-boundary-grid dd { margin: .3rem 0 0; color: var(--success); font-size: .78rem; font-weight: 800; }
 .private-reference-panel .card-copy { margin: .65rem 0 0; }
+.header-supporting-copy { margin: .35rem 0 0; max-width: 760px; color: #cbd9eb; font-size: .9rem; }
+.status-panel-secondary { margin-top: 1rem; }
+.status-overview { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.status-overview h2, .status-overview p { margin-bottom: 0; }
+.status-overview > div > p:last-child { margin-top: .35rem; color: var(--muted); }
+.status-pill-pending { color: var(--warning); background: var(--warning-soft); }
+.status-details { margin-top: .8rem; border-top: 1px solid var(--border); padding-top: .8rem; }
+.status-details summary { width: fit-content; color: var(--accent); cursor: pointer; font-size: .82rem; font-weight: 800; }
+.status-details summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+.status-details .status-grid { margin-top: .8rem; }
 @media (max-width: 1040px) { .status-grid, .detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .dashboard-grid { grid-template-columns: 1fr; } .dashboard-side { position: static; } .remediation-state-panel { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 720px) { .app-shell { padding: 18px; } .app-header, .status-footer { align-items: stretch; flex-direction: column; } .manual-trigger { width: 100%; } .status-grid, .status-meta, .detail-grid, .two-column, .privacy-boundary-grid, .remediation-state-panel { grid-template-columns: 1fr; } .card-heading { grid-template-columns: auto 1fr; } .severity-badge { grid-column: 2; width: fit-content; } .scenario-actions .button, .agent-prompt-actions .button { width: 100%; } .audit-card .audit-refresh { grid-column: 1 / -1; width: 100%; } .audit-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .audit-event-title { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 720px) { .app-shell { padding: 18px; } .app-header, .status-footer, .status-overview { align-items: stretch; flex-direction: column; } .manual-trigger { width: 100%; } .status-grid, .status-meta, .detail-grid, .two-column, .privacy-boundary-grid, .remediation-state-panel { grid-template-columns: 1fr; } .card-heading { grid-template-columns: auto 1fr; } .severity-badge { grid-column: 2; width: fit-content; } .scenario-actions .button, .agent-prompt-actions .button { width: 100%; } .audit-card .audit-refresh { grid-column: 1 / -1; width: 100%; } .audit-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .audit-event-title { align-items: flex-start; flex-direction: column; } }
