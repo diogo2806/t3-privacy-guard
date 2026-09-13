@@ -15,8 +15,8 @@ export interface DelegationGrantRequest {
 export type DelegationState = 'ACTIVE' | 'SCHEDULED' | 'REVOKED' | 'NOT_GRANTED' | 'UNKNOWN';
 export type EffectiveDelegationState = 'ACTIVE' | 'INCOMPLETE' | 'UNKNOWN';
 export interface DelegationStatus {
-  readonly state: EffectiveDelegationState;
   readonly memberState: DelegationState;
+  readonly effectiveState: EffectiveDelegationState;
   readonly functions: string[];
   readonly scopes: string[];
   readonly allowedHosts: string[];
@@ -137,14 +137,14 @@ export class DelegationService {
     const scopes = asStrings(grant.scopes);
     const allowedHosts = asStrings(grant.allowed_hosts);
     if (functions.length === 0 || scopes.length === 0) {
-      return { state: 'UNKNOWN', memberState: 'UNKNOWN', functions, scopes, allowedHosts, satisfied: [], missing: [] };
+      return { memberState: 'UNKNOWN', effectiveState: 'UNKNOWN', functions, scopes, allowedHosts, satisfied: [], missing: [] };
     }
 
     const memberState = interpretDelegationWindow(grant.window, Math.floor(Date.now() / 1000));
     if (memberState !== 'ACTIVE') {
       return {
-        state: memberState === 'UNKNOWN' ? 'UNKNOWN' : 'INCOMPLETE',
         memberState,
+        effectiveState: memberState === 'UNKNOWN' ? 'UNKNOWN' : 'INCOMPLETE',
         functions,
         scopes,
         allowedHosts,
@@ -161,11 +161,11 @@ export class DelegationService {
         scopes,
       });
       if (!verdict || typeof verdict.authorised !== 'boolean') {
-        return { state: 'UNKNOWN', memberState, functions, scopes, allowedHosts, satisfied: [], missing: [] };
+        return { memberState, effectiveState: 'UNKNOWN', functions, scopes, allowedHosts, satisfied: [], missing: [] };
       }
       return {
-        state: verdict.authorised ? 'ACTIVE' : 'INCOMPLETE',
         memberState,
+        effectiveState: verdict.authorised ? 'ACTIVE' : 'INCOMPLETE',
         functions,
         scopes,
         allowedHosts,
@@ -173,14 +173,14 @@ export class DelegationService {
         missing: delegationLabels(verdict.missing),
       };
     } catch {
-      return { state: 'UNKNOWN', memberState, functions, scopes, allowedHosts, satisfied: [], missing: [] };
+      return { memberState, effectiveState: 'UNKNOWN', functions, scopes, allowedHosts, satisfied: [], missing: [] };
     }
   }
 
   private statusWithoutEffectiveAccess(memberState: DelegationState): DelegationStatus {
     return {
-      state: memberState === 'UNKNOWN' ? 'UNKNOWN' : 'INCOMPLETE',
       memberState,
+      effectiveState: memberState === 'UNKNOWN' ? 'UNKNOWN' : 'INCOMPLETE',
       functions: [],
       scopes: [],
       allowedHosts: [],
