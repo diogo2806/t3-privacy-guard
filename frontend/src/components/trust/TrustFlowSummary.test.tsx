@@ -31,56 +31,21 @@ const READY_STATUS: SystemStatus = {
 };
 
 const ACTION: ActionProposal = {
-  id: 'action-1',
-  incidentId: 'incident-1',
-  requestId: 'request-1',
-  action: 'revoke-credential',
-  resource: 'credential:1',
-  purpose: 'incident-remediation',
-  host: 'example.com',
-  fields: ['incident_id', 'credential_id', 'reason'],
-  privateRefs: [],
-  status: 'EVALUATED',
-  createdAt: '2026-09-12T00:00:00Z',
+  id: 'action-1', incidentId: 'incident-1', requestId: 'request-1', action: 'revoke-credential', resource: 'credential:1',
+  purpose: 'incident-remediation', host: 'example.com', fields: ['incident_id', 'credential_id', 'reason'], privateRefs: [],
+  status: 'EVALUATED', createdAt: '2026-09-12T00:00:00Z',
 };
 
 function decision(value: PolicyDecision['decision']): PolicyDecision {
-  return {
-    id: 'decision-1',
-    actionProposalId: ACTION.id,
-    decision: value,
-    reasonCode: value,
-    reason: value,
-    allowedFields: [],
-    redactedFields: [],
-    allowedPrivateRefs: [],
-    redactedPrivateRefs: [],
-    evaluatedAt: '2026-09-12T00:00:01Z',
-  };
+  return { id: 'decision-1', actionProposalId: ACTION.id, decision: value, reasonCode: value, reason: value, allowedFields: [], redactedFields: [], allowedPrivateRefs: [], redactedPrivateRefs: [], evaluatedAt: '2026-09-12T00:00:01Z' };
 }
 
 function execution(state: RemediationExecution['state']): RemediationExecution {
-  return {
-    incidentId: ACTION.incidentId,
-    actionId: ACTION.id,
-    requestId: ACTION.requestId,
-    state,
-    verificationAttempts: state === 'COMPLETED' ? 1 : 0,
-    startedAt: '2026-09-12T00:00:02Z',
-    completedAt: state === 'COMPLETED' ? '2026-09-12T00:00:03Z' : null,
-  };
+  return { incidentId: ACTION.incidentId, actionId: ACTION.id, requestId: ACTION.requestId, state, verificationAttempts: state === 'COMPLETED' ? 1 : 0, startedAt: '2026-09-12T00:00:02Z', completedAt: state === 'COMPLETED' ? '2026-09-12T00:00:03Z' : null };
 }
 
 function renderSummary(overrides: Partial<ComponentProps<typeof TrustFlowSummary>> = {}) {
-  render(<TrustFlowSummary
-    agentAnalysis={null}
-    decision={null}
-    selectedAction={null}
-    remediationExecution={null}
-    systemStatus={READY_STATUS}
-    statusLoading={false}
-    {...overrides}
-  />);
+  render(<TrustFlowSummary agentAnalysis={null} decision={null} selectedAction={null} remediationExecution={null} systemStatus={READY_STATUS} statusLoading={false} {...overrides} />);
 }
 
 describe('TrustFlowSummary', () => {
@@ -118,11 +83,7 @@ describe('TrustFlowSummary', () => {
   });
 
   it('shows accepted execution as pending verification rather than completed', () => {
-    renderSummary({
-      selectedAction: { ...ACTION, status: 'REMEDIATION_AUTHORIZED' },
-      decision: decision('ALLOW'),
-      remediationExecution: execution('PENDING_VERIFICATION'),
-    });
+    renderSummary({ selectedAction: { ...ACTION, status: 'REMEDIATION_AUTHORIZED' }, decision: decision('ALLOW'), remediationExecution: execution('PENDING_VERIFICATION') });
     expect(screen.getByText('ACCEPTED')).toBeInTheDocument();
     expect(screen.getByText('PENDING')).toBeInTheDocument();
     expect(screen.getByText(/Completion is pending independent verification/i)).toBeInTheDocument();
@@ -141,17 +102,26 @@ describe('TrustFlowSummary', () => {
   });
 
   it('marks controls unavailable when executor is not ready', () => {
-    const { container } = render(<TrustFlowSummary
-      agentAnalysis={null}
-      decision={null}
-      selectedAction={null}
-      remediationExecution={null}
-      systemStatus={{ ...READY_STATUS, executorAuthenticated: false, executorDelegationState: 'UNKNOWN' }}
-      statusLoading={false}
-    />);
+    const { container } = render(<TrustFlowSummary agentAnalysis={null} decision={null} selectedAction={null} remediationExecution={null} systemStatus={{ ...READY_STATUS, executorAuthenticated: false, executorDelegationState: 'UNKNOWN' }} statusLoading={false} />);
     expect(screen.getByText('T3N controls unavailable')).toBeInTheDocument();
     expect(screen.getByText(/both delegated principals are ready/i)).toBeInTheDocument();
     expect(container.querySelector('.trust-readiness-unavailable')).toBeInTheDocument();
+    expect(container.querySelector('.trust-readiness-ready')).not.toBeInTheDocument();
+  });
+
+  it('keeps scheduled proposal delegation pending and never ready', () => {
+    const { container } = render(<TrustFlowSummary agentAnalysis={null} decision={null} selectedAction={null} remediationExecution={null} systemStatus={{ ...READY_STATUS, delegationState: 'SCHEDULED' }} statusLoading={false} />);
+    expect(screen.getByText('Delegation scheduled')).toBeInTheDocument();
+    expect(screen.getByText(/authorization window has not begun/i)).toBeInTheDocument();
+    expect(container.querySelector('.trust-readiness-pending')).toBeInTheDocument();
+    expect(container.querySelector('.trust-readiness-ready')).not.toBeInTheDocument();
+  });
+
+  it('keeps scheduled executor delegation pending and never ready', () => {
+    const { container } = render(<TrustFlowSummary agentAnalysis={null} decision={null} selectedAction={null} remediationExecution={null} systemStatus={{ ...READY_STATUS, executorDelegationState: 'SCHEDULED' }} statusLoading={false} />);
+    expect(screen.getByText('Delegation scheduled')).toBeInTheDocument();
+    expect(screen.getByText(/authorization window has not begun/i)).toBeInTheDocument();
+    expect(container.querySelector('.trust-readiness-pending')).toBeInTheDocument();
     expect(container.querySelector('.trust-readiness-ready')).not.toBeInTheDocument();
   });
 });
