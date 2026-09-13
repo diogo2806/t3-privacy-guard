@@ -39,7 +39,8 @@ function t3nReady(status: SystemStatus | null): boolean {
 function readinessState(status: SystemStatus | null, loading: boolean, ready: boolean): { className: string; label: string } {
   if (loading) return { className: 'trust-readiness-pending', label: 'Checking T3N' };
   if (ready) return { className: 'trust-readiness-ready', label: 'T3N controls ready' };
-  if (status?.delegationState === 'SCHEDULED') return { className: 'trust-readiness-pending', label: 'Delegation scheduled' };
+  if (status?.memberDelegationState === 'SCHEDULED') return { className: 'trust-readiness-pending', label: 'Delegation scheduled' };
+  if (status?.memberDelegationState === 'ACTIVE' && status?.delegationState === 'UNKNOWN') return { className: 'trust-readiness-pending', label: 'Checking effective access' };
   return { className: 'trust-readiness-unavailable', label: 'T3N controls unavailable' };
 }
 
@@ -131,7 +132,9 @@ function resultMessage(
   proposalReceived: boolean,
   systemStatus: SystemStatus | null,
 ): string {
-  if (!statusLoading && systemStatus?.delegationState === 'SCHEDULED') return 'Delegation exists, but its authorization window has not begun. Policy decisions and protected execution are not reported as ready.';
+  if (!statusLoading && systemStatus?.memberDelegationState === 'SCHEDULED') return 'Member delegation exists, but its authorization window has not begun. Policy decisions and protected execution are not reported as ready.';
+  if (!statusLoading && systemStatus?.memberDelegationState === 'ACTIVE' && systemStatus?.delegationState === 'INCOMPLETE') return 'The Member grant is active, but T3N did not authorize effective delegated access. Protected execution is not ready.';
+  if (!statusLoading && systemStatus?.memberDelegationState === 'ACTIVE' && systemStatus?.delegationState === 'UNKNOWN') return 'The Member grant is active, but effective delegated access could not be verified with T3N. Protected execution is not ready.';
   if (!statusLoading && !ready) return 'T3N controls are unavailable or incomplete. Policy decisions and protected execution cannot be proven until live status recovers.';
   if (!proposalReceived) return 'Start with a prompt. The AI may propose an action, but it has no authority to execute it.';
   if (!decision) return 'An action proposal is available. T3N policy has not produced a decision yet.';
