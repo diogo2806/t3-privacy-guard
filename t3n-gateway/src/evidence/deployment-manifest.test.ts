@@ -35,9 +35,8 @@ test('rejects malformed or missing source revision provenance', () => {
   invalidSha.sourceCommitSha = 'abc1234';
   assert.throws(() => assertManifestIdentity(invalidSha), /source commit SHA/i);
 
-  const missingTreeState = manifest() as DeploymentManifest & { sourceTreeClean: unknown };
-  missingTreeState.sourceTreeClean = undefined;
-  assert.throws(() => assertManifestIdentity(missingTreeState as DeploymentManifest), /source tree state/i);
+  const missingTreeState = { ...manifest(), sourceTreeClean: undefined } as unknown as DeploymentManifest;
+  assert.throws(() => assertManifestIdentity(missingTreeState), /source tree state/i);
 });
 
 test('rejects reused tenant proposal-agent or executor DID', () => {
