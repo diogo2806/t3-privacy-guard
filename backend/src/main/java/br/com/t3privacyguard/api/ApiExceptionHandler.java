@@ -1,5 +1,6 @@
 package br.com.t3privacyguard.api;
 
+import br.com.t3privacyguard.audit.AuditIntegrityException;
 import br.com.t3privacyguard.integration.GatewayUnavailableException;
 import br.com.t3privacyguard.integration.SensitivePromptRejectedException;
 import br.com.t3privacyguard.privacy.UnsafeIncidentContentException;
@@ -21,6 +22,11 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(ConflictException.class)
     ResponseEntity<ProblemDetail> conflict(ConflictException ex) { return problem(HttpStatus.CONFLICT, "Request conflict", ex.getMessage()); }
+
+    @ExceptionHandler(AuditIntegrityException.class)
+    ResponseEntity<ProblemDetail> auditIntegrity(AuditIntegrityException ex) {
+        return problem(HttpStatus.CONFLICT, "Audit integrity check failed", "Local audit history is not verifiable. Protected changes are blocked until the integrity failure is investigated.");
+    }
 
     @ExceptionHandler(PolicyDeniedException.class)
     ResponseEntity<ProblemDetail> denied(PolicyDeniedException ex) { return problem(HttpStatus.FORBIDDEN, "Policy denied remediation", ex.getMessage()); }
