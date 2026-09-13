@@ -8,7 +8,7 @@ The product thesis is intentionally simple:
 
 > **AI can propose. Policy decides. Humans authorize. T3N executes. Independent evidence proves the outcome.**
 
-The current challenge implementation applies that pattern to confidential incident response. The Rust policy already recognizes four concrete operational actions: credential revocation, account isolation, incident recording and security notification. The dashboard currently emphasizes the adversarial credential-remediation flow because it exercises the strongest end-to-end controls in one scenario.
+The current challenge implementation applies that pattern to confidential incident response. The Rust policy recognizes four concrete operational actions: credential revocation, account isolation, incident recording and security notification. The dashboard exposes all four as task-oriented, synthetic demonstration presets while keeping the actual model proposal and T3N decision authoritative. Credential revocation remains the only current action with the full protected-execution plus independent `REVOKED` read-back path.
 
 ## Executive summary
 
@@ -89,7 +89,18 @@ The current Rust policy defines these real action contracts:
 | `create-incident` | `incident-recording` | `incident_id`, `severity`, `summary`, `source` | none |
 | `notify-security` | `incident-notification` | `incident_id`, `severity`, `summary` | `verified_email` allowed |
 
-The challenge UI currently spotlights credential revocation because it demonstrates policy enforcement, explicit authorization, protected egress, replay resistance and independent completion verification in a single path. The other policy actions are not presented here as broader vertical products that have already been built.
+The UI presents those capabilities as four user-facing scenarios without copying policy authority into React:
+
+| UI scenario | Intended action | What the judge can demonstrate | Current execution boundary |
+|---|---|---|---|
+| Credential compromised | `revoke-credential` | safe preset, synthetic exfiltration attack, actual agent proposal, T3N decision, human authorization, protected execution and read-back | full protected execution implemented |
+| Account takeover | `isolate-account` | synthetic account isolation proposal + actual T3N policy result | policy evaluation only |
+| Record security incident | `create-incident` | local incident-recording proposal; outbound host should not be required | policy evaluation only |
+| Notify security contact | `notify-security` | notification proposal using only logical `verified_email`, never a plaintext email | policy evaluation only |
+
+Scenario selection changes presentation metadata and an editable synthetic prompt only. It does not invoke the provider, grant permission, preselect a T3N decision, choose identity, generate a capability or create a side effect. Changing scenarios clears the previous proposal/result. If the model returns an action that differs from the selected preset, the UI shows that actual proposal and T3N evaluates it normally instead of rewriting it.
+
+The executor/read-back distinction is deliberate. The existing verifier accepts the closed state `REVOKED`, so borrowing that flow for account isolation, incident creation or notification would make a false product claim. Those three scenarios remain visibly marked **Policy evaluation only** until action-specific execution semantics and independent verification exist.
 
 ## Judge quick path
 
@@ -97,17 +108,21 @@ The challenge UI currently spotlights credential revocation because it demonstra
 1. Sign in as application operator
 2. Read the product thesis before inspecting low-level metadata
 3. Confirm Gateway / Tenant / Agent / Contract / Delegation separately
-4. Inspect the attack prompt
-5. Click Run attack scenario
-6. Inspect the real model's structured Agent proposal
-7. Observe independent T3N TEE DENY
-8. Submit a legitimate prompt or prepare the minimum safe action
-9. Observe T3N ALLOW/REDACT and the logical private-data boundary
-10. Record explicit human authorization only after ALLOW
-11. Execute protected remediation when synthetic egress/read-back is configured
-12. Observe PENDING_VERIFICATION or the verification transition
-13. Accept COMPLETED only when independent read-back shows VERIFIED
-14. Open Evidence and confirm exact T3N_TESTNET claims and NOT_RUN boundaries
+4. Inspect the four enterprise scenario cards and their execution boundary
+5. Select Credential compromised and inspect the safe synthetic preset
+6. Run the credential attack prompt
+7. Inspect the real model's structured Agent proposal
+8. Observe independent T3N TEE DENY
+9. Select Account takeover / Record security incident / Notify security contact
+10. For each, edit or submit the synthetic preset and inspect the actual model proposal + T3N decision
+11. Confirm Notify security contact uses logical verified_email and no plaintext address
+12. Return to Credential compromised and prepare the minimum credential revocation
+13. Observe T3N ALLOW/REDACT
+14. Record explicit human authorization only after ALLOW
+15. Execute protected credential remediation when synthetic egress/read-back is configured
+16. Observe PENDING_VERIFICATION or the verification transition
+17. Accept COMPLETED only when independent read-back shows VERIFIED
+18. Open Evidence and confirm exact T3N_TESTNET claims and NOT_RUN boundaries
 ```
 
 ## Architecture and trust boundaries
@@ -265,6 +280,8 @@ If the profile field is unavailable, user context is missing, placeholder is den
 
 ## Verified remediation flow
 
+The following execution/read-back state machine currently applies to credential revocation only. Other scenario actions stop at policy evaluation in the operator UI until they have their own supported executor and verifier.
+
 ```text
 T3N TEE ALLOW
       |
@@ -371,15 +388,16 @@ When preparing egress evidence, configure `SECURITY_API_URL` and the separate `S
 
 Screenshots must tell the same authority-separation story as the product, not merely prove that screens exist.
 
-1. Product header + live T3N operational status.
-2. Attack prompt + provider/model provenance + model proposal + `DENY`.
-3. `REDACT` data-minimization evidence.
-4. Private-reference panel showing `Verified email`, Agent plaintext `NO`, Java plaintext `NO`, T3N egress resolution boundary.
-5. Legitimate proposal/minimum remediation + `ALLOW`.
-6. Human authorization separate from execution.
-7. Execution/verification panel showing the state machine.
-8. Verified remediation screenshot only after `Verification = VERIFIED` and `Final state = COMPLETED`.
-9. Evidence Center with T3N_TESTNET metadata/results and optional scenarios honestly PASS/FAIL/NOT RUN.
+1. Product header + live T3N operational status + four-scenario catalog.
+2. Credential attack prompt + provider/model provenance + actual model proposal + `DENY`.
+3. Account takeover and Record security incident examples showing real proposal/T3N evaluation and the **Policy evaluation only** boundary.
+4. Notify security contact showing logical `verified_email` only and no plaintext address.
+5. `REDACT` data-minimization evidence.
+6. Legitimate credential proposal/minimum remediation + `ALLOW`.
+7. Human authorization separate from execution.
+8. Execution/verification panel showing the state machine.
+9. Verified remediation screenshot only after `Verification = VERIFIED` and `Final state = COMPLETED`.
+10. Evidence Center with T3N_TESTNET metadata/results and optional scenarios honestly PASS/FAIL/NOT RUN.
 
 Never capture passwords, cookies, T3N keys, provider key, service/capability keys, remediation secret, resolved profile PII, `.env` or raw logs.
 
@@ -387,22 +405,25 @@ Never capture passwords, cookies, T3N keys, provider key, service/capability key
 
 ```text
 0–10s    Product thesis: AI proposes; it does not own authority
-10–25s   Show authenticated tenant/agent/contract/delegation
-25–50s   Attack prompt -> real provider -> malicious structured proposal
+10–25s   Show authenticated tenant/agent/contract/delegation + four scenario cards
+25–50s   Credential attack -> real provider -> malicious structured proposal
 50–70s   Independent T3N TEE DENY; no protected egress
-70–95s   Show logical private reference instead of private value
-95–115s  Minimum legitimate request -> ALLOW/REDACT
-115–130s Explicit human authorization
-130–150s Protected execution -> accepted/PENDING_VERIFICATION
-150–165s Independent read-back -> VERIFIED/COMPLETED when available
-165–180s Evidence Center -> exact proof status and NOT_RUN boundaries
+70–100s  Switch through account/incident/notification presets; show real proposal + policy-only boundary
+100–115s Show verified_email as a logical reference, never plaintext
+115–135s Minimum credential request -> ALLOW/REDACT
+135–150s Explicit human authorization
+150–165s Protected execution -> accepted/PENDING_VERIFICATION
+165–175s Independent read-back -> VERIFIED/COMPLETED when available
+175–180s Evidence Center -> exact proof status and NOT_RUN boundaries
 ```
 
 ## UX and claim wording rules
 
 The submission must lead with user/business meaning, then expose the technical proof. Technical labels remain precise.
 
+- **scenario preset**: synthetic presentation content that helps demonstrate a task; never a permission or security decision;
 - **agent proposal**: model-produced structured request, not authorization;
+- **policy evaluation only**: the real proposal is evaluated by T3N, but no action-specific protected executor/read-back is claimed for that scenario;
 - **logical private reference**: category such as `verified_email`, not the private value;
 - **resolved by T3N at egress**: only claim for executions where T3N actually resolved the placeholder;
 - **authenticated**: a session identity was authenticated;
