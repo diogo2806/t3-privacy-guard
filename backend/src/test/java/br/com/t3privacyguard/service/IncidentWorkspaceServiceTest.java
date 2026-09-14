@@ -17,6 +17,7 @@ import br.com.t3privacyguard.persistence.PolicyDecisionEntity;
 import br.com.t3privacyguard.persistence.PolicyDecisionRepository;
 import br.com.t3privacyguard.persistence.RemediationExecutionEntity;
 import br.com.t3privacyguard.persistence.RemediationExecutionRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -26,7 +27,9 @@ class IncidentWorkspaceServiceTest {
     private final ActionProposalRepository actions = mock(ActionProposalRepository.class);
     private final PolicyDecisionRepository decisions = mock(PolicyDecisionRepository.class);
     private final RemediationExecutionRepository remediations = mock(RemediationExecutionRepository.class);
-    private final IncidentWorkspaceService service = new IncidentWorkspaceService(incidents, actions, decisions, remediations);
+    private final IncidentWorkspaceService service = new IncidentWorkspaceService(
+        incidents, actions, decisions, remediations, new ObjectMapper()
+    );
 
     @Test
     void derivesOperationalStagesFromPersistedLatestStateUsingBatchReads() {
@@ -38,14 +41,14 @@ class IncidentWorkspaceServiceTest {
         IncidentEntity completed = incident("i-5", "Complete", Severity.LOW, now.minusSeconds(300));
 
         ActionProposalEntity blockedAction = evaluatedAction("a-2", "i-2", "revoke-credential", now.minusSeconds(110));
-        ActionProposalEntity approvalAction = evaluatedAction("a-3", "i-3", "notify-security", now.minusSeconds(170));
+        ActionProposalEntity approvalAction = executableRevocation("a-3", "i-3", now.minusSeconds(170));
         ActionProposalEntity verifyAction = authorizedAction("a-4", "i-4", now.minusSeconds(230));
         ActionProposalEntity completedAction = authorizedAction("a-5", "i-5", now.minusSeconds(290));
 
         PolicyDecisionEntity denied = decision("d-2", blockedAction.getId(), DecisionType.DENY, now.minusSeconds(100));
-        PolicyDecisionEntity allowed = decision("d-3", approvalAction.getId(), DecisionType.ALLOW, now.minusSeconds(160));
-        PolicyDecisionEntity verifyAllowed = decision("d-4", verifyAction.getId(), DecisionType.ALLOW, now.minusSeconds(220));
-        PolicyDecisionEntity completedAllowed = decision("d-5", completedAction.getId(), DecisionType.ALLOW, now.minusSeconds(280));
+        PolicyDecisionEntity allowed = executableDecision("d-3", approvalAction.getId(), DecisionType.ALLOW, now.minusSeconds(160));
+        PolicyDecisionEntity verifyAllowed = executableDecision("d-4", verifyAction.getId(), DecisionType.ALLOW, now.minusSeconds(220));
+        PolicyDecisionEntity completedAllowed = executableDecision("d-5", completedAction.getId(), DecisionType.ALLOW, now.minusSeconds(280));
 
         RemediationExecutionEntity pending = new RemediationExecutionEntity("r-4", verifyAction.getId(), verifyAction.getRequestId(), now.minusSeconds(200));
         pending.markPendingVerification(202, "op-4", now.minusSeconds(190));
@@ -109,10 +112,10 @@ class IncidentWorkspaceServiceTest {
         when(actions.findByIncidentIdInOrderByCreatedAtAsc(any()))
             .thenReturn(List.of(authorizedAction, executingAction, unverifiedAction, failedAction));
         when(decisions.findByActionProposalIdIn(any())).thenReturn(List.of(
-            decision("d-1", authorizedAction.getId(), DecisionType.ALLOW, now.minusSeconds(45)),
-            decision("d-2", executingAction.getId(), DecisionType.ALLOW, now.minusSeconds(105)),
-            decision("d-3", unverifiedAction.getId(), DecisionType.ALLOW, now.minusSeconds(165)),
-            decision("d-4", failedAction.getId(), DecisionType.ALLOW, now.minusSeconds(225))
+            executableDecision("d-1", authorizedAction.getId(), DecisionType.ALLOW, now.minusSeconds(45)),
+            executableDecision("d-2", executingAction.getId(), DecisionType.ALLOW, now.minusSeconds(105)),
+            executableDecision("d-3", unverifiedAction.getId(), DecisionType.ALLOW, now.minusSeconds(165)),
+            executableDecision("d-4", failedAction.getId(), DecisionType.ALLOW, now.minusSeconds(225))
         ));
         when(remediations.findByActionProposalIdIn(any())).thenReturn(List.of(executingExecution, unverifiedExecution, failedExecution));
 
@@ -152,6 +155,24 @@ class IncidentWorkspaceServiceTest {
         assertThat(item.stage()).isEqualTo("POLICY_REVIEWED");
         assertThat(item.nextRequiredAction()).isEqualTo("Review minimized policy result");
         assertThat(item.requiresAttention()).isTrue();
+    }
+
+    @Test
+    void exposesHumanApprovalForExecutableRedactMinimum() {
+        Instant now = Instant.parse("2026-09-14T13:00:00Z");
+        IncidentEntity incident = incident("i-1", "Executable minimized proposal", Severity.HIGH, now.minusSeconds(60));
+        ActionProposalEntity action = executableRevocation("a-1", "i-1", now.minusSeconds(50));
+        PolicyDecisionEntity decision = executableDecision("d-1", action.getId(), DecisionType.REDACT, now.minusSeconds(40));
+
+        when(incidents.findByExpiresAtAfterOrderByCreatedAtDesc(any(Instant.class))).thenReturn(List.of(incident));
+        when(actions.findByIncidentIdInOrderByCreatedAtAsc(any())).thenReturn(List.of(action));
+        when(decisions.findByActionProposalIdIn(any())).thenReturn(List.of(decision));
+        when(remediations.findByActionProposalIdIn(any())).thenReturn(List.of());
+
+        var item = service.getWorkspace().incidents().get(0);
+
+        assertThat(item.stage()).isEqualTo("HUMAN_APPROVAL_REQUIRED");
+        assertThat(item.nextRequiredAction()).isEqualTo("Authorize remediation");
     }
 
     @Test
@@ -211,8 +232,19 @@ class IncidentWorkspaceServiceTest {
         return action;
     }
 
+    private static ActionProposalEntity executableRevocation(String id, String incidentId, Instant createdAt) {
+        ActionProposalEntity action = new ActionProposalEntity(
+            id, incidentId, "request-" + id, "revoke-credential", "resource:test", "incident-remediation", "security.example",
+            "[\"incident_id\",\"credential_id\",\"reason\"]",
+            "{\"incident_id\":\"inc-demo\",\"credential_id\":\"cred-demo\",\"reason\":\"suspected compromise\"}",
+            "[]", createdAt
+        );
+        action.markEvaluated();
+        return action;
+    }
+
     private static ActionProposalEntity authorizedAction(String id, String incidentId, Instant createdAt) {
-        ActionProposalEntity action = evaluatedAction(id, incidentId, "revoke-credential", createdAt);
+        ActionProposalEntity action = executableRevocation(id, incidentId, createdAt);
         action.authorizeRemediation("approver-01", createdAt.plusSeconds(1));
         return action;
     }
@@ -220,6 +252,14 @@ class IncidentWorkspaceServiceTest {
     private static PolicyDecisionEntity decision(String id, String actionId, DecisionType type, Instant evaluatedAt) {
         return new PolicyDecisionEntity(
             id, actionId, type, "TEST", "Synthetic decision", "[]", "[]", "[]", "[]",
+            "policy-v1", "a".repeat(64), true, evaluatedAt
+        );
+    }
+
+    private static PolicyDecisionEntity executableDecision(String id, String actionId, DecisionType type, Instant evaluatedAt) {
+        return new PolicyDecisionEntity(
+            id, actionId, type, "TEST", "Synthetic decision",
+            "[\"incident_id\",\"credential_id\",\"reason\"]", "[]", "[]", "[]",
             "policy-v1", "a".repeat(64), true, evaluatedAt
         );
     }
