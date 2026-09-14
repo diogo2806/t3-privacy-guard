@@ -12,6 +12,8 @@ import br.com.t3privacyguard.persistence.PolicyDecisionEntity;
 import br.com.t3privacyguard.persistence.PolicyDecisionRepository;
 import br.com.t3privacyguard.persistence.RemediationExecutionEntity;
 import br.com.t3privacyguard.persistence.RemediationExecutionRepository;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -25,23 +27,30 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class IncidentWorkspaceService {
-    private static final Set<String> PROTECTED_EXECUTION_ACTIONS = Set.of("revoke-credential", "notify-security");
+    private static final String REVOKE_CREDENTIAL = "revoke-credential";
+    private static final String NOTIFY_SECURITY = "notify-security";
+    private static final Set<String> PROTECTED_EXECUTION_ACTIONS = Set.of(REVOKE_CREDENTIAL, NOTIFY_SECURITY);
+    private static final Set<String> REVOKE_REQUIRED_FIELDS = Set.of("incident_id", "credential_id", "reason");
+    private static final Set<String> NOTIFY_REQUIRED_FIELDS = Set.of("incident_id", "severity", "summary");
 
     private final IncidentRepository incidents;
     private final ActionProposalRepository actions;
     private final PolicyDecisionRepository decisions;
     private final RemediationExecutionRepository remediations;
+    private final ObjectMapper mapper;
 
     public IncidentWorkspaceService(
         IncidentRepository incidents,
         ActionProposalRepository actions,
         PolicyDecisionRepository decisions,
-        RemediationExecutionRepository remediations
+        RemediationExecutionRepository remediations,
+        ObjectMapper mapper
     ) {
         this.incidents = incidents;
         this.actions = actions;
         this.decisions = decisions;
         this.remediations = remediations;
+        this.mapper = mapper;
     }
 
     @Transactional(readOnly = true)
@@ -93,7 +102,7 @@ public class IncidentWorkspaceService {
         return new IncidentWorkspaceResponse(now, attentionCount, List.copyOf(items));
     }
 
-    private static OperationalState derive(
+    private OperationalState derive(
         ActionProposalEntity action,
         PolicyDecisionEntity decision,
         RemediationExecutionEntity remediation
@@ -125,13 +134,46 @@ public class IncidentWorkspaceService {
         if (decision.getDecision() == DecisionType.DENY) {
             return state("POLICY_BLOCKED", "Review blocked proposal", true);
         }
+        if (PROTECTED_EXECUTION_ACTIONS.contains(action.getAction()) && canRequestHumanAuthorization(action, decision)) {
+            return state("HUMAN_APPROVAL_REQUIRED", "Authorize remediation", true);
+        }
         if (decision.getDecision() == DecisionType.REDACT) {
             return state("POLICY_REVIEWED", "Review minimized policy result", true);
         }
-        if (PROTECTED_EXECUTION_ACTIONS.contains(action.getAction())) {
-            return state("HUMAN_APPROVAL_REQUIRED", "Authorize remediation", true);
-        }
         return state("POLICY_REVIEWED", "Review policy result", true);
+    }
+
+    private boolean canRequestHumanAuthorization(ActionProposalEntity action, PolicyDecisionEntity decision) {
+        if (decision.getDecision() == DecisionType.DENY) return false;
+        try {
+            Set<String> required = REVOKE_CREDENTIAL.equals(action.getAction()) ? REVOKE_REQUIRED_FIELDS : NOTIFY_REQUIRED_FIELDS;
+            Set<String> allowed = Set.copyOf(readList(decision.getAllowedFieldsJson()));
+            Map<String, String> normalPayload = readMap(action.getNormalPayloadJson());
+            if (!allowed.containsAll(required) || !normalPayload.keySet().containsAll(required)) return false;
+            if (action.getHost() == null || action.getHost().isBlank()) return false;
+
+            List<String> privateRefs = readList(action.getPrivateRefsJson());
+            if (REVOKE_CREDENTIAL.equals(action.getAction())) {
+                return "incident-remediation".equals(action.getPurpose()) && privateRefs.isEmpty();
+            }
+            List<String> allowedPrivateRefs = readList(decision.getAllowedPrivateRefsJson());
+            return "incident-notification".equals(action.getPurpose())
+                && privateRefs.size() == 1
+                && "verified_email".equals(privateRefs.get(0))
+                && allowedPrivateRefs.contains("verified_email");
+        } catch (RuntimeException ex) {
+            return false;
+        }
+    }
+
+    private List<String> readList(String json) {
+        try { return mapper.readValue(json, new TypeReference<List<String>>() {}); }
+        catch (Exception ex) { throw new IllegalStateException("Stored workspace metadata is invalid", ex); }
+    }
+
+    private Map<String, String> readMap(String json) {
+        try { return mapper.readValue(json, new TypeReference<Map<String, String>>() {}); }
+        catch (Exception ex) { throw new IllegalStateException("Stored workspace normal payload is invalid", ex); }
     }
 
     private static OperationalState state(String stage, String nextAction, boolean requiresAttention) {
