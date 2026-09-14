@@ -396,8 +396,10 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
   });
 
   const selectAction = (action: ActionProposal) => {
-    const generation = selectionGeneration.current;
+    const generation = selectionGeneration.current + 1;
+    selectionGeneration.current = generation;
     setSelectedAction(action);
+    setAgentAnalysis(null);
     setDecision(null);
     setRemediationExecution(null);
     setExecutionTrace([]);
