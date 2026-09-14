@@ -30,6 +30,9 @@ public class RemediationExecutionEntity {
     @Column(nullable = false, length = 32)
     private RemediationStatus status;
 
+    @Column(name = "execution_principal", length = 160)
+    private String executionPrincipal;
+
     @Column(name = "http_code")
     private Integer httpCode;
 
@@ -57,10 +60,15 @@ public class RemediationExecutionEntity {
     protected RemediationExecutionEntity() {}
 
     public RemediationExecutionEntity(String id, String actionProposalId, String requestId, Instant now) {
+        this(id, actionProposalId, requestId, now, null);
+    }
+
+    public RemediationExecutionEntity(String id, String actionProposalId, String requestId, Instant now, String executionPrincipal) {
         this.id = id;
         this.actionProposalId = actionProposalId;
         this.requestId = requestId;
         this.status = RemediationStatus.EXECUTING;
+        this.executionPrincipal = executionPrincipal == null ? null : ActionProposalEntity.canonicalizeAuthenticatedPrincipal(executionPrincipal);
         this.startedAt = now;
         this.lastAttemptAt = now;
         this.verificationAttempts = 0;
@@ -102,6 +110,7 @@ public class RemediationExecutionEntity {
     public String getActionProposalId() { return actionProposalId; }
     public String getRequestId() { return requestId; }
     public RemediationStatus getStatus() { return status; }
+    public String getExecutionPrincipal() { return executionPrincipal; }
     public Integer getHttpCode() { return httpCode; }
     public String getOperationId() { return operationId; }
     public Instant getStartedAt() { return startedAt; }
