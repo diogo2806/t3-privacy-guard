@@ -51,7 +51,7 @@ public class AuditEvidenceService {
     @Transactional(readOnly = true)
     public AuditEvidenceResponse read(String incidentId, int requestedLimit) {
         if (requestedLimit < 1 || requestedLimit > MAX_LIMIT) throw new IllegalArgumentException("Activity limit must be between 1 and 200");
-        IncidentEntity incident = incidents.findById(incidentId)
+        IncidentEntity incident = incidents.findByIdAndExpiresAtAfter(incidentId, Instant.now())
             .orElseThrow(() -> new IncidentNotFoundException("Incident not found"));
         AuditIntegrityService.Verification integrity = auditIntegrity.verify(incidentId);
         List<AuditEventEntity> local = integrity.events();
