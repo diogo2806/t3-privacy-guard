@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { ScreenManualDialog } from './ScreenManualDialog';
 
 describe('ScreenManualDialog', () => {
-  it('traps focus and explains executive demo, effective authorization, business outcome, A2A, privacy, local integrity and T3N provenance', async () => {
+  it('traps focus and explains executive demo, effective authorization, human proof, business outcome, A2A, privacy and provenance', async () => {
     const user = userEvent.setup();
     render(<div><button type="button">Outside action</button><ScreenManualDialog /></div>);
 
@@ -18,7 +18,7 @@ describe('ScreenManualDialog', () => {
     const closeButton = screen.getByRole('button', { name: 'Close Screen Manual' });
     expect(dialog).toHaveAttribute('aria-modal', 'true');
     expect(screen.getByRole('heading', { name: 'Executive Demo' })).toBeInTheDocument();
-    expect(dialog).toHaveTextContent(/projeção do mesmo estado.*não cria incidente.*autorização.*execução.*evidence paralela/i);
+    expect(dialog).toHaveTextContent(/projeção do mesmo estado runtime.*não cria incidente.*autorização.*execução.*evidence paralela/i);
     expect(dialog).toHaveTextContent(/BLOCKED BEFORE PROTECTED EGRESS.*MINIMIZATION REQUIRED.*HUMAN AUTHORIZATION REQUIRED/i);
     expect(dialog).toHaveTextContent(/AUTHORIZED \/ NOT EXECUTED.*ACCEPTED \/ NOT VERIFIED/i);
     expect(dialog).toHaveTextContent(/Proof at a glance.*não substitui.*Evidence Center/i);
@@ -38,6 +38,11 @@ describe('ScreenManualDialog', () => {
     expect(screen.getByText('Agent Card e A2A público')).toBeInTheDocument();
     expect(dialog).toHaveTextContent(/A2A.*avaliação pública/i);
     expect(dialog).toHaveTextContent(/PII-free/i);
+    expect(screen.getByText('Policy, minimização, autorização humana e execução')).toBeInTheDocument();
+    expect(dialog).toHaveTextContent(/prova.*v2.*one-time.*Ed25519/i);
+    expect(dialog).toHaveTextContent(/Gateway proof check.*fail-fast.*não substitui T3N/i);
+    expect(dialog).toHaveTextContent(/Antes de ler.*security_api_url.*security_api_key.*WASM verifica assinatura.*nonce/i);
+    expect(dialog).toHaveTextContent(/não afirma que T3N verificou identidade civil do humano/i);
     expect(screen.getByText('Integridade do audit local e T3N Activity Log')).toBeInTheDocument();
     expect(dialog).toHaveTextContent(/HMAC-SHA256/i);
     expect(dialog).toHaveTextContent(/tamper-evident/i);
@@ -46,6 +51,7 @@ describe('ScreenManualDialog', () => {
     expect(dialog).toHaveTextContent(/evaluate-action.*Proposal Agent.*execute-remediation.*verify-remediation.*Protected Executor/i);
     expect(screen.getByText('Proof & evidence')).toBeInTheDocument();
     expect(dialog).toHaveTextContent(/Source tree/i);
+    expect(dialog).toHaveTextContent(/prova assinada.*nonce.*chave privada.*não secreta/i);
     expect(dialog).toHaveTextContent(/COMPLETED/i);
     expect(closeButton).toHaveFocus();
 
