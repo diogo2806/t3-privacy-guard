@@ -28,11 +28,11 @@ function policy(hosts = ['security.company.example', 'verify.company.example']):
       },
       'notify-security': {
         purpose: 'incident-notification',
-        allowed_fields: ['incident_id'],
+        allowed_fields: ['incident_id', 'severity', 'summary'],
         allowed_hosts: hosts,
         allowed_private_refs: ['verified_email'],
         requires_host: true,
-        requires_human_authorization: false,
+        requires_human_authorization: true,
       },
       'revoke-credential': {
         purpose: 'incident-remediation',
@@ -51,17 +51,17 @@ function delegation(overrides: Partial<DelegationStatus> = {}): DelegationStatus
     memberState: 'ACTIVE',
     effectiveState: 'ACTIVE',
     functions: ['execute-remediation', 'verify-remediation'],
-    scopes: ['incident_id', 'credential_id', 'reason'],
+    scopes: ['incident_id', 'credential_id', 'reason', 'verified_contacts.email.value'],
     allowedHosts: ['security.company.example', 'verify.company.example'],
     checkedFunctions: ['execute-remediation', 'verify-remediation'],
-    checkedScopes: ['incident_id', 'credential_id', 'reason'],
+    checkedScopes: ['incident_id', 'credential_id', 'reason', 'verified_contacts.email.value'],
     ...overrides,
   };
 }
 
 function evaluate(overrides: Partial<Parameters<typeof evaluateEnterpriseIntegrationReadiness>[0]> = {}) {
   return evaluateEnterpriseIntegrationReadiness({
-    executionUrl: 'https://security.company.example/private/revoke?tenant=acme',
+    executionUrl: 'https://security.company.example/private/remediate?tenant=acme',
     verificationUrl: 'https://verify.company.example/private/read-back#state',
     credentialConfigured: true,
     policy: policy(),
@@ -72,7 +72,7 @@ function evaluate(overrides: Partial<Parameters<typeof evaluateEnterpriseIntegra
 }
 
 describe('enterprise integration readiness', () => {
-  it('reports READY only when config, policy, delegation and verification contract align', () => {
+  it('reports READY only when config, both executable policy rules, delegation and verification contracts align', () => {
     const result = evaluate();
     assert.equal(result.state, 'READY');
     assert.equal(result.executionHost, 'security.company.example');
@@ -81,10 +81,13 @@ describe('enterprise integration readiness', () => {
     assert.equal(result.policyAllowsVerificationHost, true);
     assert.equal(result.executorDelegationAllowsExecutionHost, true);
     assert.equal(result.executorDelegationAllowsVerificationHost, true);
-    assert.deepEqual(result.supportedExecutableActions, ['revoke-credential']);
-    assert.deepEqual(result.supportedVerifiedActions, ['revoke-credential']);
-    assert.deepEqual(result.verificationContracts, [{ action: 'revoke-credential', expectedState: 'REVOKED' }]);
-    assert.deepEqual(result.evaluationOnlyActions, ['create-incident', 'isolate-account', 'notify-security']);
+    assert.deepEqual(result.supportedExecutableActions, ['revoke-credential', 'notify-security']);
+    assert.deepEqual(result.supportedVerifiedActions, ['revoke-credential', 'notify-security']);
+    assert.deepEqual(result.verificationContracts, [
+      { action: 'revoke-credential', expectedState: 'REVOKED' },
+      { action: 'notify-security', expectedState: 'DELIVERED' },
+    ]);
+    assert.deepEqual(result.evaluationOnlyActions, ['create-incident', 'isolate-account']);
   });
 
   it('reports INCOMPLETE when a required endpoint is absent', () => {
@@ -108,6 +111,17 @@ describe('enterprise integration readiness', () => {
 
   it('reports MISMATCH when active policy does not allow the configured host', () => {
     const result = evaluate({ policy: policy(['different.example', 'verify.company.example']) });
+    assert.equal(result.state, 'MISMATCH');
+    assert.equal(result.policyAllowsExecutionHost, false);
+  });
+
+  it('reports MISMATCH when only one executable action allows the configured host', () => {
+    const partial = policy();
+    partial.actions['notify-security'] = {
+      ...partial.actions['notify-security'],
+      allowed_hosts: ['verify.company.example'],
+    };
+    const result = evaluate({ policy: partial });
     assert.equal(result.state, 'MISMATCH');
     assert.equal(result.policyAllowsExecutionHost, false);
   });

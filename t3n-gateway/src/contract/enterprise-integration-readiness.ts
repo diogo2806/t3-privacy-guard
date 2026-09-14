@@ -47,6 +47,7 @@ interface PrivateConfiguration {
 
 const VERIFICATION_CONTRACTS: readonly EnterpriseVerificationContract[] = Object.freeze([
   Object.freeze({ action: 'revoke-credential', expectedState: 'REVOKED' }),
+  Object.freeze({ action: 'notify-security', expectedState: 'DELIVERED' }),
 ]);
 const DEMO_HOSTS = new Set(['postman-echo.com']);
 
@@ -74,6 +75,11 @@ function canonicalHttpsHost(value: string | null): string | null {
 
 function normalizedHosts(values: readonly string[]): Set<string> {
   return new Set(values.map((value) => value.trim().toLowerCase().replace(/\.$/, '')).filter(Boolean));
+}
+
+function allSupportedRulesAllowHost(rules: readonly OperationalPolicyDocument['actions'][string][], host: string | null): boolean {
+  if (host == null || rules.length !== VERIFICATION_CONTRACTS.length) return false;
+  return rules.every((rule) => normalizedHosts(rule.allowed_hosts).has(host));
 }
 
 function isDemoHost(host: string | null): boolean {
@@ -112,11 +118,10 @@ export function evaluateEnterpriseIntegrationReadiness(input: EnterpriseIntegrat
     const evaluationOnlyActions = Object.keys(input.policy.actions).filter((action) => !supportedSet.has(action)).sort();
     const supportedPolicyRules = supportedExecutableActions
       .map((action) => input.policy.actions[action])
-      .filter((rule) => rule != null);
-    const policyExecutionHosts = new Set(supportedPolicyRules.flatMap((rule) => rule.allowed_hosts));
+      .filter((rule): rule is OperationalPolicyDocument['actions'][string] => rule != null);
     const executorHosts = normalizedHosts(input.executorDelegation.allowedHosts);
-    const policyAllowsExecutionHost = executionHost != null && policyExecutionHosts.has(executionHost);
-    const policyAllowsVerificationHost = verificationHost != null && policyExecutionHosts.has(verificationHost);
+    const policyAllowsExecutionHost = allSupportedRulesAllowHost(supportedPolicyRules, executionHost);
+    const policyAllowsVerificationHost = allSupportedRulesAllowHost(supportedPolicyRules, verificationHost);
     const delegationActive = input.executorDelegation.memberState === 'ACTIVE' && input.executorDelegation.effectiveState === 'ACTIVE';
     const executorDelegationAllowsExecutionHost = executionHost != null && delegationActive && executorHosts.has(executionHost);
     const executorDelegationAllowsVerificationHost = verificationHost != null && delegationActive && executorHosts.has(verificationHost);
