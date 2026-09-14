@@ -55,6 +55,11 @@ public class ApiExceptionHandler {
     @ExceptionHandler(GatewayUnavailableException.class)
     ResponseEntity<ProblemDetail> gateway(GatewayUnavailableException ex) { return problem(HttpStatus.SERVICE_UNAVAILABLE, "T3N policy service unavailable", "The action was not authorized because policy evaluation could not be completed."); }
 
+    @ExceptionHandler(InvalidBusinessImpactWindowException.class)
+    ResponseEntity<ProblemDetail> invalidBusinessImpactWindow(InvalidBusinessImpactWindowException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "Invalid business impact window", ex.getMessage());
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ResponseEntity<ProblemDetail> validation(MethodArgumentNotValidException ex) { return problem(HttpStatus.BAD_REQUEST, "Invalid request", "One or more request fields are invalid."); }
 
