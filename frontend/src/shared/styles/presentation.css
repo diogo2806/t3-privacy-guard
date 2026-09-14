@@ -14,6 +14,10 @@
   padding-bottom: .75rem;
   border-bottom: 1px solid var(--border-subtle);
 }
+.executive-demo-product-lockup { display: flex; align-items: center; gap: .65rem; margin-bottom: .45rem; }
+.executive-demo-product-lockup .eyebrow { margin: 0; }
+.executive-demo-brand-mark { width: 36px; height: 36px; border-radius: 11px; }
+.executive-demo-brand-mark svg { width: 20px; height: 20px; }
 .executive-demo-header h1 { max-width: 980px; margin: 0; font-size: clamp(1.35rem, 2.25vw, 2rem); line-height: 1.12; }
 .executive-demo-subheadline { max-width: 980px; margin: .45rem 0 0; color: var(--text-secondary); font-size: .9rem; line-height: 1.45; }
 .executive-demo-readiness {
