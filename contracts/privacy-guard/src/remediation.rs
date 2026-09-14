@@ -9,6 +9,7 @@ const MAX_NORMAL_PAYLOAD_ENTRIES: usize = 16;
 const MAX_NORMAL_KEY_LEN: usize = 80;
 const MAX_NORMAL_VALUE_BYTES: usize = 512;
 const MAX_AUTHORIZATION_PROOF_BYTES: usize = 8_192;
+const MAX_OPERATION_ID_BYTES: usize = 128;
 const FORBIDDEN_NORMAL_PAYLOAD_KEYS: &[&str] = &[
     "api_key", "card_number", "credential", "cpf", "password", "private_key", "secret", "ssn", "token",
 ];
@@ -201,9 +202,20 @@ fn expected_state_for_action(action: &str) -> Result<&'static str, String> {
     }
 }
 
+fn valid_operation_id(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    !bytes.is_empty()
+        && bytes.len() <= MAX_OPERATION_ID_BYTES
+        && bytes[0].is_ascii_alphanumeric()
+        && bytes.iter().all(|byte| byte.is_ascii_alphanumeric() || *byte == b'-' || *byte == b'_')
+}
+
 fn validate_verification_request(request: &RemediationVerificationRequest) -> Result<(), String> {
     if request.request_id.trim().is_empty() || request.operation_id.trim().is_empty() {
         return Err("verification identifiers are required".to_string());
+    }
+    if !valid_operation_id(&request.operation_id) {
+        return Err("verification operation id is not a safe opaque identifier".to_string());
     }
     if request.expected_state != expected_state_for_action(&request.action)? {
         return Err("verification expected_state does not match the remediation action".to_string());
@@ -264,7 +276,7 @@ fn profile_marker(logical_ref: &str) -> Result<&'static str, String> {
 fn extract_operation_id(payload: &[u8]) -> Option<String> {
     serde_json::from_slice::<serde_json::Value>(payload)
         .ok()
-        .and_then(|value| value.get("operation_id").and_then(|entry| entry.as_str()).map(str::to_string))
+        .and_then(|value| value.get("operation_id").and_then(|entry| entry.as_str()).filter(|entry| valid_operation_id(entry)).map(str::to_string))
 }
 
 fn extract_payload_proof(parsed: &serde_json::Value) -> Option<PayloadMinimizationProof> {
@@ -691,6 +703,8 @@ mod tests {
         assert!(validate_verification_request(&notify).is_ok());
         let mismatched = RemediationVerificationRequest { expected_state: "REVOKED".into(), ..notify };
         assert!(validate_verification_request(&mismatched).is_err());
+        let private_value_as_operation_id = RemediationVerificationRequest { operation_id: "private@example.test".into(), ..revoke };
+        assert!(validate_verification_request(&private_value_as_operation_id).is_err());
     }
 
     #[test]
@@ -735,6 +749,9 @@ mod tests {
         assert_eq!(result.operation_id.as_deref(), Some("operation-123"));
         assert!(!serialized.contains(sentinel));
         assert!(!serialized.to_ascii_lowercase().contains("recipient"));
+
+        let smuggled = serde_json::json!({ "operation_id": "private@example.test", "state": "DELIVERED" });
+        assert_eq!(extract_operation_id(&serde_json::to_vec(&smuggled).unwrap()), None);
     }
 
     #[test] fn malformed_upstream_body_does_not_escape_raw_content() { assert_eq!(extract_operation_id(b"not-json"), None); }
