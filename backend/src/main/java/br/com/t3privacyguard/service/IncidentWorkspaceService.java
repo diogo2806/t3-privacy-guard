@@ -87,6 +87,8 @@ public class IncidentWorkspaceService {
                 incident.getId(),
                 incident.getTitle(),
                 incident.getSeverity(),
+                incident.getSource(),
+                incident.getOriginType(),
                 incident.getStatus(),
                 incident.getCreatedAt(),
                 action == null ? null : action.getId(),
