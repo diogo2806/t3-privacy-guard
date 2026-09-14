@@ -1,6 +1,6 @@
 import { createPublicKey } from 'node:crypto';
 import { TenantClient, getNodeUrl } from '@terminal3/t3n-sdk';
-import { readGatewayConfig } from '../config/env.js';
+import { readGatewayConfig, rejectDocumentationPlaceholder } from '../config/env.js';
 import { authorizationPublicKeyFingerprint } from '../security/remediation-authorization.js';
 import { TrustManifestFloorStore } from '../security/trust-manifest-floor-store.js';
 import { T3nSession } from '../t3n/session.js';
@@ -14,6 +14,7 @@ const securityApiUrl = process.env.SECURITY_API_URL?.trim();
 const securityVerificationUrl = process.env.SECURITY_VERIFICATION_URL?.trim();
 if (!Number.isInteger(numericContractId) || numericContractId <= 0) throw new Error('T3N_CONTRACT_NUMERIC_ID is required after contract registration');
 if (!securityApiKey) throw new Error('SECURITY_API_KEY is required at setup time');
+rejectDocumentationPlaceholder(securityApiKey, 'SECURITY_API_KEY');
 if (!securityApiUrl?.startsWith('https://')) throw new Error('SECURITY_API_URL must be an HTTPS URL');
 if (!securityVerificationUrl?.startsWith('https://')) throw new Error('SECURITY_VERIFICATION_URL must be an HTTPS URL');
 
