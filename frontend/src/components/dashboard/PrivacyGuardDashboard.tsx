@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   PrivacyGuardApiError,
   privacyGuardApi,
@@ -10,6 +10,8 @@ import {
   type EvidenceBundle,
   type ExecutionTraceEvent,
   type Incident,
+  type IncidentWorkspace,
+  type IncidentWorkspaceItem,
   type OperatorSession,
   type PolicyDecision,
   type RemediationExecution,
@@ -26,6 +28,7 @@ import { ControlImpactSummary } from '../business/ControlImpactSummary';
 import { ExecutiveDemoView } from '../demo/ExecutiveDemoView';
 import { EvidenceCenter } from '../evidence/EvidenceCenter';
 import { IncidentSummary } from '../incidents/IncidentSummary';
+import { IncidentWorkspaceQueue } from '../incidents/IncidentWorkspaceQueue';
 import { AppHeader } from '../layout/AppHeader';
 import { DecisionPanel } from '../policy/DecisionPanel';
 import { RemediationPanel } from '../remediation/RemediationPanel';
@@ -88,6 +91,7 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
   const [view, setView] = useState<DashboardView>('demo');
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [selectedScenarioId, setSelectedScenarioId] = useState(DEFAULT_ENTERPRISE_SCENARIO.id);
+  const [incidentScenarioId, setIncidentScenarioId] = useState<string | null>(null);
   const [prompt, setPrompt] = useState(DEFAULT_ENTERPRISE_SCENARIO.prompt);
   const [incident, setIncident] = useState<Incident | null>(null);
   const [actions, setActions] = useState<ActionProposal[]>([]);
@@ -97,6 +101,12 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
   const [remediationExecution, setRemediationExecution] = useState<RemediationExecution | null>(null);
   const [executionTrace, setExecutionTrace] = useState<ExecutionTraceEvent[]>([]);
   const [history, setHistory] = useState<AuditEvent[]>([]);
+  const [workspace, setWorkspace] = useState<IncidentWorkspace | null>(null);
+  const [workspaceLoading, setWorkspaceLoading] = useState(false);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  const [selectedWorkspaceIncidentId, setSelectedWorkspaceIncidentId] = useState<string | null>(null);
+  const [incidentDetailLoading, setIncidentDetailLoading] = useState(false);
+  const [incidentDetailError, setIncidentDetailError] = useState<string | null>(null);
   const [businessImpact, setBusinessImpact] = useState<BusinessImpact | null>(null);
   const [businessImpactWindow, setBusinessImpactWindow] = useState<BusinessImpactWindow>('retained');
   const [businessImpactLoading, setBusinessImpactLoading] = useState(false);
@@ -108,13 +118,29 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const selectionGeneration = useRef(0);
 
   const selectedScenario = ENTERPRISE_SCENARIOS.find((scenario) => scenario.id === selectedScenarioId) ?? DEFAULT_ENTERPRISE_SCENARIO;
+  const incidentScenario = incidentScenarioId ? (ENTERPRISE_SCENARIOS.find((scenario) => scenario.id === incidentScenarioId) ?? null) : null;
+  const scenarioContext = incident ? incidentScenario : selectedScenario;
+
+  const isCurrentSelection = useCallback((generation?: number) => generation === undefined || selectionGeneration.current === generation, []);
 
   const handleError = useCallback((cause: unknown, fallback: string) => {
     if (cause instanceof PrivacyGuardApiError && cause.status === 401) { onSessionExpired(); return; }
     setError(cause instanceof Error ? cause.message : fallback);
   }, [onSessionExpired]);
+
+  const clearIncidentRuntime = useCallback(() => {
+    setIncident(null);
+    setActions([]);
+    setSelectedAction(null);
+    setDecision(null);
+    setAgentAnalysis(null);
+    setRemediationExecution(null);
+    setExecutionTrace([]);
+    setHistory([]);
+  }, []);
 
   const refreshSystem = useCallback(async () => {
     setStatusLoading(true);
@@ -122,6 +148,19 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
     catch (cause) { setSystemStatus(null); handleError(cause, 'Unable to load system status.'); }
     finally { setStatusLoading(false); }
   }, [handleError]);
+
+  const refreshWorkspace = useCallback(async (): Promise<IncidentWorkspace | null> => {
+    setWorkspaceLoading(true); setWorkspaceError(null);
+    try {
+      const result = await privacyGuardApi.incidentWorkspace();
+      setWorkspace(result);
+      return result;
+    } catch (cause) {
+      if (cause instanceof PrivacyGuardApiError && cause.status === 401) onSessionExpired();
+      else setWorkspaceError(cause instanceof Error ? cause.message : 'Incident workspace could not be loaded safely.');
+      return null;
+    } finally { setWorkspaceLoading(false); }
+  }, [onSessionExpired]);
 
   const refreshBusinessImpact = useCallback(async () => {
     setBusinessImpactLoading(true); setBusinessImpactError(null);
@@ -144,43 +183,103 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
     } finally { setEvidenceLoading(false); }
   }, [onSessionExpired]);
 
-  const loadDecision = useCallback(async (currentIncident: Incident, action: ActionProposal) => {
-    if (action.status === 'PENDING') { setDecision(null); return; }
-    try { setDecision(await privacyGuardApi.getDecision(currentIncident.id, action.id)); }
-    catch (cause) { if (cause instanceof PrivacyGuardApiError && cause.status === 401) onSessionExpired(); else setDecision(null); }
-  }, [onSessionExpired]);
-
-  const loadRemediation = useCallback(async (currentIncident: Incident, action: ActionProposal) => {
-    try { setRemediationExecution(await privacyGuardApi.getRemediation(currentIncident.id, action.id)); }
-    catch (cause) {
+  const loadDecision = useCallback(async (currentIncident: Incident, action: ActionProposal, generation?: number) => {
+    if (action.status === 'PENDING') { if (isCurrentSelection(generation)) setDecision(null); return; }
+    try {
+      const result = await privacyGuardApi.getDecision(currentIncident.id, action.id);
+      if (isCurrentSelection(generation)) setDecision(result);
+    } catch (cause) {
       if (cause instanceof PrivacyGuardApiError && cause.status === 401) onSessionExpired();
-      else setRemediationExecution(null);
+      else if (isCurrentSelection(generation)) setDecision(null);
     }
-  }, [onSessionExpired]);
+  }, [isCurrentSelection, onSessionExpired]);
 
-  const loadExecutionTrace = useCallback(async (currentIncident: Incident, action: ActionProposal) => {
-    try { setExecutionTrace(await privacyGuardApi.executionTrace(currentIncident.id, action.id)); }
-    catch (cause) {
+  const loadRemediation = useCallback(async (currentIncident: Incident, action: ActionProposal, generation?: number) => {
+    try {
+      const result = await privacyGuardApi.getRemediation(currentIncident.id, action.id);
+      if (isCurrentSelection(generation)) setRemediationExecution(result);
+    } catch (cause) {
       if (cause instanceof PrivacyGuardApiError && cause.status === 401) onSessionExpired();
-      else setExecutionTrace([]);
+      else if (isCurrentSelection(generation)) setRemediationExecution(null);
     }
-  }, [onSessionExpired]);
+  }, [isCurrentSelection, onSessionExpired]);
 
-  const refreshIncident = useCallback(async (currentIncident: Incident, preferredActionId?: string) => {
+  const loadExecutionTrace = useCallback(async (currentIncident: Incident, action: ActionProposal, generation?: number) => {
+    try {
+      const result = await privacyGuardApi.executionTrace(currentIncident.id, action.id);
+      if (isCurrentSelection(generation)) setExecutionTrace(result);
+    } catch (cause) {
+      if (cause instanceof PrivacyGuardApiError && cause.status === 401) onSessionExpired();
+      else if (isCurrentSelection(generation)) setExecutionTrace([]);
+    }
+  }, [isCurrentSelection, onSessionExpired]);
+
+  const refreshIncident = useCallback(async (currentIncident: Incident, preferredActionId?: string, generation?: number) => {
     const [currentActions, currentHistory] = await Promise.all([privacyGuardApi.listActions(currentIncident.id), privacyGuardApi.history(currentIncident.id)]);
+    if (!isCurrentSelection(generation)) return;
     setActions(currentActions); setHistory(currentHistory);
     const selected = currentActions.find((item) => item.id === preferredActionId) ?? currentActions.at(-1) ?? null;
     setSelectedAction(selected);
-    if (selected) await Promise.all([loadDecision(currentIncident, selected), loadRemediation(currentIncident, selected), loadExecutionTrace(currentIncident, selected)]);
-    else { setDecision(null); setRemediationExecution(null); setExecutionTrace([]); }
-  }, [loadDecision, loadExecutionTrace, loadRemediation]);
+    if (selected) await Promise.all([
+      loadDecision(currentIncident, selected, generation),
+      loadRemediation(currentIncident, selected, generation),
+      loadExecutionTrace(currentIncident, selected, generation),
+    ]);
+    else if (isCurrentSelection(generation)) { setDecision(null); setRemediationExecution(null); setExecutionTrace([]); }
+  }, [isCurrentSelection, loadDecision, loadExecutionTrace, loadRemediation]);
+
+  const removeWorkspaceIncident = useCallback((incidentId: string) => {
+    setWorkspace((current) => {
+      if (!current) return current;
+      const incidents = current.incidents.filter((item) => item.id !== incidentId);
+      return { ...current, incidents, attentionCount: incidents.filter((item) => item.requiresAttention).length };
+    });
+  }, []);
+
+  const openWorkspaceIncident = useCallback(async (item: IncidentWorkspaceItem) => {
+    const generation = selectionGeneration.current + 1;
+    selectionGeneration.current = generation;
+    setSelectedWorkspaceIncidentId(item.id);
+    setIncidentScenarioId(null);
+    setIncidentDetailLoading(true);
+    setIncidentDetailError(null);
+    setError(null);
+    setNotice(null);
+    clearIncidentRuntime();
+
+    try {
+      const currentIncident = await privacyGuardApi.getIncident(item.id);
+      if (!isCurrentSelection(generation)) return;
+      setIncident(currentIncident);
+      await refreshIncident(currentIncident, item.latestActionId ?? undefined, generation);
+    } catch (cause) {
+      if (!isCurrentSelection(generation)) return;
+      clearIncidentRuntime();
+      if (cause instanceof PrivacyGuardApiError && cause.status === 401) {
+        onSessionExpired();
+      } else if (cause instanceof PrivacyGuardApiError && cause.status === 404) {
+        removeWorkspaceIncident(item.id);
+        setSelectedWorkspaceIncidentId(null);
+        setNotice('This incident is no longer active and was removed from the workspace. Select another active incident or run a new scenario.');
+      } else {
+        setIncidentDetailError(cause instanceof Error ? cause.message : 'Selected incident could not be opened safely.');
+      }
+    } finally {
+      if (isCurrentSelection(generation)) setIncidentDetailLoading(false);
+    }
+  }, [clearIncidentRuntime, isCurrentSelection, onSessionExpired, refreshIncident, removeWorkspaceIncident]);
 
   useEffect(() => {
+    let active = true;
     void refreshSystem();
-    void privacyGuardApi.listIncidents().then(async (items) => {
-      const current = items[0] ?? null; setIncident(current); if (current) await refreshIncident(current);
-    }).catch((cause) => handleError(cause, 'Unable to load incidents.'));
-  }, [handleError, refreshIncident, refreshSystem]);
+    void (async () => {
+      const currentWorkspace = await refreshWorkspace();
+      if (!active || !currentWorkspace) return;
+      const current = currentWorkspace.incidents[0] ?? null;
+      if (current) await openWorkspaceIncident(current);
+    })();
+    return () => { active = false; selectionGeneration.current += 1; };
+  }, [openWorkspaceIncident, refreshSystem, refreshWorkspace]);
 
   useEffect(() => { void refreshBusinessImpact(); }, [refreshBusinessImpact]);
 
@@ -195,38 +294,53 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
   };
 
   const analyzeAgentPrompt = (currentPrompt: string) => run(async () => {
+    const previousGeneration = selectionGeneration.current;
     const result = await privacyGuardApi.analyzeAgent(currentPrompt);
+    if (!isCurrentSelection(previousGeneration)) {
+      await Promise.all([refreshWorkspace(), refreshBusinessImpact()]);
+      return;
+    }
+
+    const generation = previousGeneration + 1;
+    selectionGeneration.current = generation;
+    setSelectedWorkspaceIncidentId(result.incident.id);
+    setIncidentScenarioId(selectedScenario.id);
     setAgentAnalysis(result); setRemediationExecution(null); setIncident(result.incident); setSelectedAction(result.action); setDecision(result.decision);
-    await Promise.all([refreshIncident(result.incident, result.action.id), refreshBusinessImpact()]);
+    await Promise.all([refreshIncident(result.incident, result.action.id, generation), refreshBusinessImpact(), refreshWorkspace()]);
+    if (!isCurrentSelection(generation)) return;
     if (result.decision.decision === 'DENY') setNotice('The independent T3N policy blocked the agent proposal before protected egress.');
     else if (result.decision.decision === 'REDACT') setNotice('T3N requires data minimization before the proposal can continue.');
     else setNotice('T3N policy allowed the proposal to continue. ALLOW is not authorization or execution.');
   });
 
   const selectScenario = (scenario: EnterpriseScenarioDefinition) => {
+    selectionGeneration.current += 1;
     setSelectedScenarioId(scenario.id);
+    setIncidentScenarioId(null);
+    setSelectedWorkspaceIncidentId(null);
+    setIncidentDetailError(null);
+    setIncidentDetailLoading(false);
     setPrompt(scenario.prompt);
-    setAgentAnalysis(null);
-    setIncident(null);
-    setActions([]);
-    setSelectedAction(null);
-    setDecision(null);
-    setRemediationExecution(null);
-    setExecutionTrace([]);
-    setHistory([]);
+    clearIncidentRuntime();
     setError(null);
     setNotice(`${scenario.title} loaded with synthetic demo data. No API call or authorization has occurred yet.`);
   };
 
   const askAgentForRemediation = () => run(async () => {
-    if (!incident || !selectedScenario.remediationPrompt) return;
-    const result = await privacyGuardApi.analyzeAgentInIncident(incident.id, selectedScenario.remediationPrompt);
+    if (!incident || !incidentScenario?.remediationPrompt) return;
+    const generation = selectionGeneration.current;
+    const result = await privacyGuardApi.analyzeAgentInIncident(incident.id, incidentScenario.remediationPrompt);
+    if (!isCurrentSelection(generation)) {
+      await Promise.all([refreshWorkspace(), refreshBusinessImpact()]);
+      return;
+    }
     setAgentAnalysis(result);
     setRemediationExecution(null);
     setIncident(result.incident);
     setSelectedAction(result.action);
     setDecision(result.decision);
-    await Promise.all([refreshIncident(result.incident, result.action.id), refreshBusinessImpact()]);
+    await Promise.all([refreshIncident(result.incident, result.action.id, generation), refreshBusinessImpact(), refreshWorkspace()]);
+    if (!isCurrentSelection(generation)) return;
 
     if (result.decision.decision === 'DENY') {
       setNotice('The agent produced a new remediation proposal, but T3N denied it. No fallback action was created.');
@@ -241,16 +355,18 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
 
   const retryEvaluation = () => run(async () => {
     if (!incident || !selectedAction) return;
+    const generation = selectionGeneration.current;
     const result = await privacyGuardApi.evaluate(incident.id, selectedAction.id);
-    setDecision(result);
-    await Promise.all([refreshIncident(incident, selectedAction.id), refreshBusinessImpact()]);
+    if (isCurrentSelection(generation)) setDecision(result);
+    await Promise.all([refreshIncident(incident, selectedAction.id, generation), refreshBusinessImpact(), refreshWorkspace()]);
   });
 
   const authorize = () => run(async () => {
     if (!incident || !selectedAction) return;
+    const generation = selectionGeneration.current;
     await privacyGuardApi.authorizeRemediation(incident.id, selectedAction.id);
-    await Promise.all([refreshIncident(incident, selectedAction.id), refreshBusinessImpact()]);
-    setNotice('Human authorization recorded. Protected execution still requires the bound executor and one-time proof.');
+    await Promise.all([refreshIncident(incident, selectedAction.id, generation), refreshBusinessImpact(), refreshWorkspace()]);
+    if (isCurrentSelection(generation)) setNotice('Human authorization recorded. Protected execution still requires the bound executor and one-time proof.');
   });
 
   const executionNotice = (result: RemediationExecution) => {
@@ -263,27 +379,41 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
 
   const execute = () => run(async () => {
     if (!incident || !selectedAction) return;
+    const generation = selectionGeneration.current;
     const result = await privacyGuardApi.executeRemediation(incident.id, selectedAction.id);
-    setRemediationExecution(result);
-    await Promise.all([refreshIncident(incident, selectedAction.id), refreshBusinessImpact()]);
-    setNotice(executionNotice(result));
+    if (isCurrentSelection(generation)) setRemediationExecution(result);
+    await Promise.all([refreshIncident(incident, selectedAction.id, generation), refreshBusinessImpact(), refreshWorkspace()]);
+    if (isCurrentSelection(generation)) setNotice(executionNotice(result));
   });
 
   const verifyExternalState = () => run(async () => {
     if (!incident || !selectedAction) return;
+    const generation = selectionGeneration.current;
     const result = await privacyGuardApi.verifyRemediation(incident.id, selectedAction.id);
-    setRemediationExecution(result);
-    await Promise.all([refreshIncident(incident, selectedAction.id), refreshBusinessImpact()]);
-    setNotice(executionNotice(result));
+    if (isCurrentSelection(generation)) setRemediationExecution(result);
+    await Promise.all([refreshIncident(incident, selectedAction.id, generation), refreshBusinessImpact(), refreshWorkspace()]);
+    if (isCurrentSelection(generation)) setNotice(executionNotice(result));
   });
 
   const selectAction = (action: ActionProposal) => {
+    const generation = selectionGeneration.current;
     setSelectedAction(action);
-    if (incident) void Promise.all([loadDecision(incident, action), loadRemediation(incident, action), loadExecutionTrace(incident, action)]);
-    else { setDecision(null); setRemediationExecution(null); setExecutionTrace([]); }
+    setDecision(null);
+    setRemediationExecution(null);
+    setExecutionTrace([]);
+    if (incident) void Promise.all([
+      loadDecision(incident, action, generation),
+      loadRemediation(incident, action, generation),
+      loadExecutionTrace(incident, action, generation),
+    ]);
   };
 
-  const showSafePath = Boolean(selectedScenario.remediationPrompt) && decision?.decision === 'DENY' && Boolean(incident);
+  const retrySelectedIncident = () => {
+    const selected = workspace?.incidents.find((item) => item.id === selectedWorkspaceIncidentId);
+    if (selected) void openWorkspaceIncident(selected);
+  };
+
+  const showSafePath = Boolean(incidentScenario?.remediationPrompt) && decision?.decision === 'DENY' && Boolean(incident);
 
   return (
     <>
@@ -308,7 +438,7 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
             <SystemStatusBar status={systemStatus} loading={statusLoading} onRefresh={() => void refreshSystem()} />
           </details>
           <BusinessOutcomeSummary
-            scenario={selectedScenario}
+            scenario={scenarioContext}
             incident={incident}
             selectedAction={selectedAction}
             decision={decision}
@@ -322,17 +452,28 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
             window={businessImpactWindow}
             onWindowChange={setBusinessImpactWindow}
           />
+          <IncidentWorkspaceQueue
+            workspace={workspace}
+            selectedIncidentId={selectedWorkspaceIncidentId}
+            loading={workspaceLoading}
+            error={workspaceError}
+            detailLoading={incidentDetailLoading}
+            detailError={incidentDetailError}
+            onSelect={(item) => void openWorkspaceIncident(item)}
+            onRetry={() => { void refreshWorkspace(); }}
+            onRetrySelected={retrySelectedIncident}
+          />
           <main className="dashboard-grid">
             <div className="dashboard-main">
               <EnterpriseScenarioCatalog selectedId={selectedScenarioId} busy={busy} onSelect={selectScenario} />
               <AgentPromptPanel busy={busy} prompt={prompt} onPromptChange={setPrompt} onAnalyze={analyzeAgentPrompt} />
               <AgentProposalPanel analysis={agentAnalysis} />
-              {!incident ? <EmptyState /> : <>
+              {!incidentDetailLoading && (!incident ? <EmptyState /> : <>
                 <IncidentSummary incident={incident} />
                 {showSafePath && <NextRequiredAction busy={busy} onAskAgent={() => void askAgentForRemediation()} />}
                 <div className="two-column"><ActionProposalPanel actions={actions} selectedActionId={selectedAction?.id ?? null} onSelect={selectAction} /><DecisionPanel decision={decision} /></div>
                 <RemediationPanel action={selectedAction} decision={decision} execution={remediationExecution} busy={busy} onAuthorize={authorize} onExecute={execute} onVerify={verifyExternalState} />
-              </>}
+              </>)}
             </div>
             <aside className="dashboard-side" aria-label="Live activity"><ExecutionTrace events={executionTrace} action={selectedAction} /><AuditTrail events={history} /></aside>
           </main>
@@ -341,7 +482,7 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
 
       {view === 'presentation' && (
         <ExecutiveDemoView
-          scenario={selectedScenario}
+          scenario={scenarioContext}
           systemStatus={systemStatus}
           statusLoading={statusLoading}
           agentAnalysis={agentAnalysis}
