@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { ScreenManualDialog } from './ScreenManualDialog';
 
 describe('ScreenManualDialog', () => {
-  it('traps focus and explains executive demo, human proof, private notification, business outcome, A2A, privacy and provenance', async () => {
+  it('traps focus and explains executive demo, human proof, private notification, business outcome, control impact, A2A, privacy and provenance', async () => {
     const user = userEvent.setup();
     render(<div><button type="button">Outside action</button><ScreenManualDialog /></div>);
 
@@ -29,6 +29,12 @@ describe('ScreenManualDialog', () => {
     expect(dialog).toHaveTextContent(/Time to verified outcome.*completedAt.*COMPLETED/i);
     expect(dialog).toHaveTextContent(/não calcula dinheiro economizado.*ROI/i);
     expect(dialog).toHaveTextContent(/Not yet observed.*Not verified yet/i);
+    expect(screen.getByRole('heading', { name: 'Measured control impact' })).toBeInTheDocument();
+    expect(dialog).toHaveTextContent(/Observed block rate.*DENY.*decisões avaliadas.*100/i);
+    expect(dialog).toHaveTextContent(/Verified completion.*COMPLETED.*UNVERIFIED.*FAILED.*100/i);
+    expect(dialog).toHaveTextContent(/Median policy decision.*evaluatedAt.*action.createdAt/i);
+    expect(dialog).toHaveTextContent(/Financial ROI is NOT MEASURED/i);
+    expect(dialog).toHaveTextContent(/Retained.*24 hours.*7 days/i);
     expect(screen.getByText('Identidade, Member grant e autorização efetiva')).toBeInTheDocument();
     expect(dialog).toHaveTextContent(/checkDelegation.*cliente autenticado do próprio principal/i);
     expect(dialog).toHaveTextContent(/evaluate-action.*execute-remediation.*verify-remediation/i);
