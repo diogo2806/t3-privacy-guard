@@ -1,6 +1,7 @@
 package br.com.t3privacyguard.api;
 
 import br.com.t3privacyguard.domain.DecisionType;
+import br.com.t3privacyguard.domain.IncidentOriginType;
 import br.com.t3privacyguard.domain.ProposalStatus;
 import br.com.t3privacyguard.domain.RemediationStatus;
 import br.com.t3privacyguard.domain.Severity;
@@ -20,6 +21,8 @@ public final class IncidentWorkspaceModels {
         String id,
         String title,
         Severity severity,
+        String source,
+        IncidentOriginType originType,
         String incidentStatus,
         Instant createdAt,
         String latestActionId,

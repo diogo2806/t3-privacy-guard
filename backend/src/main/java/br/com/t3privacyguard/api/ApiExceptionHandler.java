@@ -23,6 +23,11 @@ public class ApiExceptionHandler {
     @ExceptionHandler(ConflictException.class)
     ResponseEntity<ProblemDetail> conflict(ConflictException ex) { return problem(HttpStatus.CONFLICT, "Request conflict", ex.getMessage()); }
 
+    @ExceptionHandler(ExternalIncidentExpiredException.class)
+    ResponseEntity<ProblemDetail> expiredExternalIncident(ExternalIncidentExpiredException ex) {
+        return problem(HttpStatus.GONE, "External event id expired", ex.getMessage());
+    }
+
     @ExceptionHandler(AuditIntegrityException.class)
     ResponseEntity<ProblemDetail> auditIntegrity(AuditIntegrityException ex) {
         return problem(HttpStatus.CONFLICT, "Audit integrity check failed", "Local audit history is not verifiable. Protected changes are blocked until the integrity failure is investigated.");

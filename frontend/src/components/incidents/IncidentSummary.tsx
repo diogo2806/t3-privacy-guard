@@ -12,7 +12,7 @@ export function IncidentSummary({ incident }: { incident: Incident }) {
     <Surface className="incident-card">
       <SectionHeader eyebrow="Incident" title={incident.title} icon={<AlertTriangle aria-hidden="true" />} tone="danger" compact={false} trailing={<StatusBadge tone={severityTone}>{incident.severity}</StatusBadge>} />
       <p className="card-copy">{incident.summary}</p>
-      <dl className="detail-grid"><div><dt>Incident ID</dt><dd><code>{incident.id}</code></dd></div><div><dt>Source</dt><dd>{incident.source}</dd></div><div><dt>Status</dt><dd>{incident.status}</dd></div><div><dt>Created</dt><dd>{new Date(incident.createdAt).toLocaleString()}</dd></div></dl>
+      <dl className="detail-grid"><div><dt>Incident ID</dt><dd><code>{incident.id}</code></dd></div><div><dt>Source</dt><dd>{incident.source}</dd></div><div><dt>Status</dt><dd>{incident.status}</dd></div><div><dt>Received at</dt><dd>{new Date(incident.createdAt).toLocaleString()}</dd></div></dl>
       <div className="retention-panel" aria-label="Data retention">
         <div className="retention-heading">
           <div className="section-icon"><Clock aria-hidden="true" /></div>

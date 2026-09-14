@@ -13,6 +13,8 @@ const workspace: IncidentWorkspace = {
       id: 'inc-critical',
       title: 'Credential compromise',
       severity: 'CRITICAL',
+      source: 'Approved integration: Security automation',
+      originType: 'EXTERNAL',
       incidentStatus: 'OPEN',
       createdAt: '2026-09-14T12:58:00Z',
       latestActionId: 'action-1',
@@ -28,6 +30,8 @@ const workspace: IncidentWorkspace = {
       id: 'inc-complete',
       title: 'Verified notification',
       severity: 'HIGH',
+      source: 'Synthetic scenario',
+      originType: 'APPLICATION',
       incidentStatus: 'REMEDIATED',
       createdAt: '2026-09-14T12:30:00Z',
       latestActionId: 'action-2',
@@ -60,15 +64,34 @@ function renderQueue(overrides: Partial<ComponentProps<typeof IncidentWorkspaceQ
 }
 
 describe('IncidentWorkspaceQueue', () => {
-  it('shows all active incidents and keeps terminal truth distinct from attention', () => {
+  it('shows all active incidents with source provenance and received time', () => {
     renderQueue();
 
     expect(screen.getByText('2 incidents need attention')).toBeInTheDocument();
     expect(screen.getByText('Credential compromise')).toBeInTheDocument();
+    expect(screen.getByText('External · Source: Approved integration: Security automation')).toBeInTheDocument();
     expect(screen.getByText('Needs human approval')).toBeInTheDocument();
     expect(screen.getByText('Verified notification')).toBeInTheDocument();
+    expect(screen.getByText('Demo / app · Source: Synthetic scenario')).toBeInTheDocument();
     expect(screen.getByText('Verified complete')).toBeInTheDocument();
+    expect(screen.getAllByText(/Received /i)).toHaveLength(2);
     expect(screen.getByRole('button', { name: /Open Credential compromise/i })).toHaveAttribute('aria-current', 'true');
+  });
+
+  it('filters external and demo application incidents without changing backend state', () => {
+    renderQueue();
+
+    fireEvent.click(screen.getByRole('button', { name: 'External' }));
+    expect(screen.getByText('Credential compromise')).toBeInTheDocument();
+    expect(screen.queryByText('Verified notification')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Demo' }));
+    expect(screen.queryByText('Credential compromise')).not.toBeInTheDocument();
+    expect(screen.getByText('Verified notification')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'All' }));
+    expect(screen.getByText('Credential compromise')).toBeInTheDocument();
+    expect(screen.getByText('Verified notification')).toBeInTheDocument();
   });
 
   it('uses singular attention copy when exactly one incident requires action', () => {
@@ -91,6 +114,14 @@ describe('IncidentWorkspaceQueue', () => {
 
     expect(screen.getByText('No active incidents.')).toBeInTheDocument();
     expect(screen.getByText(/Run a scenario or wait for a new incident/i)).toBeInTheDocument();
+  });
+
+  it('shows a filtered empty state without reporting a load failure', () => {
+    renderQueue({ workspace: { ...workspace, incidents: [workspace.incidents[0]] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Demo' }));
+
+    expect(screen.getByText('No incidents match this source filter.')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('keeps list failure and selected-detail failure recoverable', () => {

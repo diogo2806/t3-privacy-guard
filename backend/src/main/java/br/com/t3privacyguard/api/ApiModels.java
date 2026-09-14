@@ -7,6 +7,7 @@ import br.com.t3privacyguard.domain.ProposalStatus;
 import br.com.t3privacyguard.domain.Severity;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import java.util.List;
@@ -20,6 +21,21 @@ public final class ApiModels {
         @NotNull Severity severity,
         @NotBlank @Size(max = 2000) String summary,
         @NotBlank @Size(max = 120) String source
+    ) {}
+
+    public record IncidentIntakeRequest(
+        @NotBlank
+        @Size(max = 128)
+        @Pattern(regexp = "[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
+        String externalEventId,
+        @NotBlank @Size(max = 160) String title,
+        @NotNull Severity severity,
+        @NotBlank @Size(max = 2000) String summary
+    ) {}
+
+    public record IncidentIntakeResponse(
+        IncidentResponse incident,
+        boolean replayed
     ) {}
 
     public record IncidentResponse(

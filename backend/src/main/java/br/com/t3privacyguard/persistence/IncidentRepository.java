@@ -14,6 +14,7 @@ public interface IncidentRepository extends JpaRepository<IncidentEntity, String
     List<IncidentEntity> findByExpiresAtLessThanEqual(Instant now);
     List<IncidentEntity> findByExpiresAtAfterOrderByCreatedAtDesc(Instant now);
     Optional<IncidentEntity> findByIdAndExpiresAtAfter(String id, Instant now);
+    Optional<IncidentEntity> findByIntegrationIdAndExternalEventId(String integrationId, String externalEventId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select incident from IncidentEntity incident where incident.id = :id")

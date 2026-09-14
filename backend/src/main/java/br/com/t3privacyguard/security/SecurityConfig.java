@@ -10,6 +10,7 @@ import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -24,6 +25,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 
 @Configuration
@@ -110,7 +112,45 @@ public class SecurityConfig {
     }
 
     @Bean
-    SecurityFilterChain securityFilterChain(
+    @Order(1)
+    SecurityFilterChain incidentIntakeSecurityFilterChain(
+        HttpSecurity http,
+        ObjectMapper objectMapper,
+        IncidentIntakeCredentialRegistry intakeCredentials
+    ) throws Exception {
+        http
+            .securityMatcher("/api/integrations/**")
+            .csrf(AbstractHttpConfigurer::disable)
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers(HttpMethod.POST, "/api/integrations/incidents")
+                    .hasAuthority(IncidentIntakeAuthenticationFilter.INTAKE_AUTHORITY)
+                .anyRequest().denyAll())
+            .formLogin(AbstractHttpConfigurer::disable)
+            .httpBasic(AbstractHttpConfigurer::disable)
+            .logout(AbstractHttpConfigurer::disable)
+            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .addFilterBefore(new IncidentIntakeAuthenticationFilter(intakeCredentials), UsernamePasswordAuthenticationFilter.class)
+            .exceptionHandling(errors -> errors
+                .authenticationEntryPoint((request, response, exception) -> writeProblem(
+                    objectMapper,
+                    response,
+                    HttpServletResponse.SC_UNAUTHORIZED,
+                    "Integration authentication required",
+                    "A valid incident intake credential is required."
+                ))
+                .accessDeniedHandler((request, response, exception) -> writeProblem(
+                    objectMapper,
+                    response,
+                    HttpServletResponse.SC_FORBIDDEN,
+                    "Integration action not allowed",
+                    "This integration credential is not allowed to perform the requested action."
+                )));
+        return http.build();
+    }
+
+    @Bean
+    @Order(2)
+    SecurityFilterChain operatorSecurityFilterChain(
         HttpSecurity http,
         ObjectMapper objectMapper,
         @Value("${privacy-guard.operator.cookie-secure:false}") boolean cookieSecure

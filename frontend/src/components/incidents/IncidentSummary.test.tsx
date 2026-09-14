@@ -8,7 +8,7 @@ const incident = {
   title: 'Synthetic incident',
   severity: 'HIGH' as const,
   summary: 'Only minimized operational text is shown.',
-  source: 'test-source',
+  source: 'Approved integration: Security automation',
   status: 'OPEN',
   createdAt: '2026-09-12T12:00:00Z',
   expiresAt: '2026-09-19T12:00:00Z',
@@ -18,6 +18,15 @@ const incident = {
 const severities = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const;
 
 describe('IncidentSummary', () => {
+  it('shows source and received time without exposing integration credentials', () => {
+    render(<IncidentSummary incident={incident} />);
+
+    expect(screen.getByText('Source')).toBeInTheDocument();
+    expect(screen.getByText('Approved integration: Security automation')).toBeInTheDocument();
+    expect(screen.getByText('Received at')).toBeInTheDocument();
+    expect(screen.queryByText(/Bearer/i)).not.toBeInTheDocument();
+  });
+
   it('shows the server-provided retention state without claiming anonymity', () => {
     render(<IncidentSummary incident={incident} />);
 
