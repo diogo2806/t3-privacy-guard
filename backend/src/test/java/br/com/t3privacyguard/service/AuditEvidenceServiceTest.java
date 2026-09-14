@@ -1,7 +1,9 @@
 package br.com.t3privacyguard.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import br.com.t3privacyguard.audit.AuditIntegrityService;
@@ -35,7 +37,23 @@ class AuditEvidenceServiceTest {
         service = new AuditEvidenceService(incidents, auditIntegrity, gateway);
         Instant createdAt = Instant.now().minusSeconds(60);
         incident = new IncidentEntity("incident-1", "Test", Severity.HIGH, "Summary", "test", createdAt, createdAt.plusSeconds(3600));
-        when(incidents.findById("incident-1")).thenReturn(Optional.of(incident));
+        when(incidents.findByIdAndExpiresAtAfter(
+            org.mockito.ArgumentMatchers.eq("incident-1"),
+            org.mockito.ArgumentMatchers.any(Instant.class)
+        )).thenReturn(Optional.of(incident));
+    }
+
+    @Test
+    void expiredIncidentIsRejectedBeforeAuditOrGatewayAccess() {
+        when(incidents.findByIdAndExpiresAtAfter(
+            org.mockito.ArgumentMatchers.eq("incident-1"),
+            org.mockito.ArgumentMatchers.any(Instant.class)
+        )).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.read("incident-1", 100))
+            .isInstanceOf(IncidentNotFoundException.class)
+            .hasMessage("Incident not found");
+        verifyNoInteractions(auditIntegrity, gateway);
     }
 
     @Test
