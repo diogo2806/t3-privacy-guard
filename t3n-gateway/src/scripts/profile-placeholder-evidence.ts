@@ -23,10 +23,55 @@ interface TestnetEvidence {
   [key: string]: unknown;
 }
 
+interface AuthorizationClaims {
+  incidentId: string;
+  actionId: string;
+  requestId: string;
+  decisionId: string;
+  action: string;
+  resource: string;
+  purpose: string;
+  approvedHost: string;
+  policyVersion: string;
+  policyHash: string;
+  executorDid: string;
+}
+
 const ID = 'LIVE-PROFILE-PLACEHOLDER-RESOLUTION';
-const EXPECTED = 'ALLOW -> protected notify-security -> VERIFIED DELIVERED with recipient_resolved=true and no recipient plaintext returned';
+const EXPECTED = 'human-authorized ALLOW -> protected notify-security -> VERIFIED DELIVERED with recipient_resolved=true and no recipient plaintext returned';
+const FIELDS = ['incident_id', 'severity', 'summary'];
+const PRIVATE_REFS = ['verified_email'];
+const NORMAL_PAYLOAD = {
+  incident_id: 'inc-demo-001',
+  severity: 'critical',
+  summary: 'synthetic security incident',
+};
 
 if (process.env.EVIDENCE_RUN_PROFILE_PLACEHOLDER !== 'true') process.exit(0);
+
+const authorizationProof = process.env.EVIDENCE_NOTIFICATION_AUTHORIZATION_PROOF?.trim();
+if (!authorizationProof) {
+  throw new Error('EVIDENCE_NOTIFICATION_AUTHORIZATION_PROOF is required; generate it through the authenticated backend human-authorization flow for the fixed synthetic notify-security request');
+}
+
+function decodeClaims(token: string): AuthorizationClaims {
+  const parts = token.split('.');
+  if (parts.length !== 3 || parts[0] !== 'v2') throw new Error('Evidence notification authorization proof must use v2');
+  try {
+    return JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as AuthorizationClaims;
+  } catch {
+    throw new Error('Evidence notification authorization proof payload is invalid');
+  }
+}
+
+const claims = decodeClaims(authorizationProof);
+if (claims.action !== 'notify-security' || claims.purpose !== 'incident-notification') {
+  throw new Error('Evidence notification authorization proof is not bound to notify-security / incident-notification');
+}
+if (!claims.incidentId || !claims.actionId || !claims.requestId || !claims.decisionId || !claims.resource
+  || !claims.approvedHost || !claims.policyVersion || !claims.policyHash || !claims.executorDid) {
+  throw new Error('Evidence notification authorization proof is missing required bound claims');
+}
 
 const config = readGatewayConfig();
 if (config.network !== 'testnet') throw new Error('Private placeholder resolution evidence is testnet-only');
@@ -68,35 +113,41 @@ try {
   await Promise.all([agentSession.connect(), executorSession.connect()]);
   const executorDid = executorSession.getExecutorDid();
   const host = executionHost();
+  if (claims.executorDid !== executorDid) throw new Error('Authorization proof is bound to a different Protected Executor');
+  if (claims.approvedHost.toLowerCase() !== host) throw new Error('Authorization proof is bound to a different approved execution host');
 
   const decision = await contract.evaluate({
-    request_id: 'live-private-placeholder-notify',
+    request_id: claims.requestId,
     action: 'notify-security',
-    resource: 'incident:synthetic',
+    resource: claims.resource,
     purpose: 'incident-notification',
     host,
-    fields: ['incident_id', 'severity', 'summary'],
-    private_refs: ['verified_email'],
+    fields: FIELDS,
+    private_refs: PRIVATE_REFS,
   });
   if (decision.decision !== 'ALLOW' || !decision.policy_version || !decision.policy_hash) {
     throw new Error(`Notification policy was ${decision.decision}; ALLOW with versioned policy metadata is required`);
   }
+  if (decision.policy_version !== claims.policyVersion || decision.policy_hash !== claims.policyHash) {
+    throw new Error('Authorization proof policy metadata no longer matches the active notification policy');
+  }
 
   const remediation = await contract.remediate({
-    request_id: decision.request_id,
+    incident_id: claims.incidentId,
+    action_id: claims.actionId,
+    decision_id: claims.decisionId,
+    request_id: claims.requestId,
     action: 'notify-security',
-    resource: 'incident:synthetic',
+    resource: claims.resource,
     purpose: 'incident-notification',
     approved_host: host,
-    fields: ['incident_id', 'severity', 'summary'],
-    normal_payload: {
-      incident_id: 'inc-demo-001',
-      severity: 'critical',
-      summary: 'synthetic security incident',
-    },
-    private_refs: ['verified_email'],
-    policy_version: decision.policy_version,
-    policy_hash: decision.policy_hash,
+    fields: FIELDS,
+    normal_payload: NORMAL_PAYLOAD,
+    private_refs: PRIVATE_REFS,
+    policy_version: claims.policyVersion,
+    policy_hash: claims.policyHash,
+    executor_did: executorDid,
+    authorization_proof: authorizationProof,
   }, executorDid);
   if (!remediation.operation_id) throw new Error('Controlled notification endpoint did not return an operation id');
 
@@ -117,7 +168,7 @@ try {
     actual: `${decision.decision} -> ${remediation.status} -> ${verification.status} (${verification.observed_state ?? 'NO_STATE'}); recipient_resolved=${verification.recipient_resolved === true}`,
     status: passed ? 'PASS' : 'FAIL',
     detail: passed
-      ? 'Controlled read-back confirmed delivery and private recipient resolution. Only the boolean resolution assertion is persisted; recipient plaintext and placeholder literals are not returned.'
+      ? 'Controlled read-back confirmed delivery and private recipient resolution after the signed human-authorization proof passed the T3N/WASM boundary. Only the boolean resolution assertion is persisted.'
       : 'Independent read-back did not confirm both DELIVERED and recipient_resolved=true.',
   };
 } catch (error) {
@@ -142,6 +193,7 @@ assertNoSecretLeak(serialized, [
   process.env.AI_API_KEY,
   config.gatewayServiceToken,
   config.remediationCapabilityKey,
+  authorizationProof,
 ]);
 await writeFile(outputPath, serialized, 'utf8');
 if (result.status === 'FAIL') process.exitCode = 1;
