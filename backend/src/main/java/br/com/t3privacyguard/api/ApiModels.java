@@ -3,7 +3,6 @@ package br.com.t3privacyguard.api;
 import br.com.t3privacyguard.audit.AuditIntegrityState;
 import br.com.t3privacyguard.domain.AuditReconciliationStatus;
 import br.com.t3privacyguard.domain.DecisionType;
-import br.com.t3privacyguard.domain.IncidentOriginType;
 import br.com.t3privacyguard.domain.ProposalStatus;
 import br.com.t3privacyguard.domain.Severity;
 import jakarta.validation.constraints.NotBlank;
@@ -45,7 +44,6 @@ public final class ApiModels {
         Severity severity,
         String summary,
         String source,
-        IncidentOriginType originType,
         String status,
         Instant createdAt,
         Instant expiresAt,
