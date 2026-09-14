@@ -72,13 +72,15 @@ export interface PayloadMinimizationProof {
 export interface RemediationVerificationRequest {
   readonly request_id: string;
   readonly operation_id: string;
-  readonly expected_state: 'REVOKED';
+  readonly action?: 'revoke-credential' | 'notify-security';
+  readonly expected_state: 'REVOKED' | 'DELIVERED';
 }
 
 export interface RemediationVerificationResult extends ActivityAnnotated {
   readonly request_id: string;
   readonly status: 'VERIFIED' | 'UNVERIFIED';
   readonly observed_state?: string | null;
+  readonly recipient_resolved?: boolean | null;
   readonly payload_proof?: PayloadMinimizationProof | null;
 }
 
@@ -132,6 +134,7 @@ function isVerification(value: unknown): value is RemediationVerificationResult 
   return typeof candidate.request_id === 'string'
     && (candidate.status === 'VERIFIED' || candidate.status === 'UNVERIFIED')
     && (candidate.observed_state == null || typeof candidate.observed_state === 'string')
+    && (candidate.recipient_resolved == null || typeof candidate.recipient_resolved === 'boolean')
     && validProof;
 }
 
@@ -220,11 +223,15 @@ export class PrivacyGuardContractService {
 
   async verifyRemediation(request: RemediationVerificationRequest): Promise<RemediationVerificationResult> {
     await this.executorSession.connect();
+    if (!request.action && request.expected_state !== 'REVOKED') {
+      throw new Error('Verification action is required for non-revocation states');
+    }
+    const closedRequest = request.action ? request : { ...request, action: 'revoke-credential' as const };
     const contractId = await this.canonicalContractId();
     const contractVersion = await this.currentVersion(contractId);
     const executorDid = this.executorSession.getExecutorDid();
     const captured = await this.capture(executorDid, contractId, 'verify-remediation', () => this.executorSession.getClient().executeAndDecode(buildDelegatedExecutionRequest(
-      this.tenantSession.getTenantDid(), contractId, contractVersion, 'verify-remediation', request,
+      this.tenantSession.getTenantDid(), contractId, contractVersion, 'verify-remediation', closedRequest,
     )));
     if (!isVerification(captured.result)) throw new Error('T3N contract returned an invalid remediation verification result');
     return annotate(captured.result, captured.activity);
