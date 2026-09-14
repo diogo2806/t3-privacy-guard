@@ -44,6 +44,10 @@ function formatCreatedAt(value: string): string {
   return Number.isNaN(date.getTime()) ? 'Time unavailable' : date.toLocaleString();
 }
 
+function attentionLabel(count: number): string {
+  return count === 1 ? '1 incident needs attention' : `${count} incidents need attention`;
+}
+
 export function IncidentWorkspaceQueue({
   workspace,
   selectedIncidentId,
@@ -66,7 +70,7 @@ export function IncidentWorkspaceQueue({
         titleId="incident-workspace-title"
         icon={<ListChecks aria-hidden="true" />}
         compact={false}
-        trailing={<StatusBadge tone={attentionCount > 0 ? 'high' : 'low'}>{attentionCount} need attention</StatusBadge>}
+        trailing={<StatusBadge tone={attentionCount > 0 ? 'high' : 'low'}>{attentionLabel(attentionCount)}</StatusBadge>}
       />
       <p className="card-copy">Select any active incident to resume its existing protected flow. Selecting a case never authorizes, executes, or verifies an action.</p>
 
