@@ -8,7 +8,6 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import br.com.t3privacyguard.domain.DecisionType;
-import br.com.t3privacyguard.domain.RemediationStatus;
 import br.com.t3privacyguard.domain.Severity;
 import br.com.t3privacyguard.persistence.ActionProposalEntity;
 import br.com.t3privacyguard.persistence.ActionProposalRepository;
@@ -134,6 +133,25 @@ class IncidentWorkspaceServiceTest {
         assertThat(workspace.attentionCount()).isEqualTo(4);
         assertThat(workspace.incidents()).allMatch(item -> item.requiresAttention());
         assertThat(workspace.incidents()).noneMatch(item -> "VERIFIED_COMPLETE".equals(item.stage()));
+    }
+
+    @Test
+    void keepsRedactConservativeWhenExecutabilityCannotBeProvedFromWorkspaceSummary() {
+        Instant now = Instant.parse("2026-09-14T13:00:00Z");
+        IncidentEntity incident = incident("i-1", "Minimized proposal", Severity.HIGH, now.minusSeconds(60));
+        ActionProposalEntity action = evaluatedAction("a-1", "i-1", "revoke-credential", now.minusSeconds(50));
+        PolicyDecisionEntity decision = decision("d-1", action.getId(), DecisionType.REDACT, now.minusSeconds(40));
+
+        when(incidents.findByExpiresAtAfterOrderByCreatedAtDesc(any(Instant.class))).thenReturn(List.of(incident));
+        when(actions.findByIncidentIdInOrderByCreatedAtAsc(any())).thenReturn(List.of(action));
+        when(decisions.findByActionProposalIdIn(any())).thenReturn(List.of(decision));
+        when(remediations.findByActionProposalIdIn(any())).thenReturn(List.of());
+
+        var item = service.getWorkspace().incidents().get(0);
+
+        assertThat(item.stage()).isEqualTo("POLICY_REVIEWED");
+        assertThat(item.nextRequiredAction()).isEqualTo("Review minimized policy result");
+        assertThat(item.requiresAttention()).isTrue();
     }
 
     @Test
