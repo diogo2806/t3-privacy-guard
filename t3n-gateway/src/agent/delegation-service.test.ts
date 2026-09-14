@@ -163,7 +163,8 @@ test('proposal and executor checks use independent principal clients and exact l
   const proposal = fakeSessions(activeGrant('did:t3n:proposal'), { authorised: true, principalDid: 'did:t3n:proposal' });
   const executor = fakeSessions({ grants: [{
     grantee: 'did:t3n:executor', contract_id: 'z:tenant:privacy-guard',
-    functions: ['execute-remediation', 'verify-remediation'], scopes: ['incident_id', 'credential_id', 'reason'],
+    functions: ['execute-remediation', 'verify-remediation'],
+    scopes: ['incident_id', 'credential_id', 'reason', 'verified_contacts.email.value'],
     allowed_hosts: ['security.example'],
   }] }, { authorised: true, principalDid: 'did:t3n:executor' });
 
@@ -176,8 +177,11 @@ test('proposal and executor checks use independent principal clients and exact l
     contract: 'z:tenant:privacy-guard', pii_did: 'did:t3n:tenant-test', functions: ['evaluate-action'], scopes: ['incident_id', 'credential_id', 'reason'],
   });
   assert.deepEqual(executor.checks[0], {
-    contract: 'z:tenant:privacy-guard', pii_did: 'did:t3n:tenant-test', functions: ['execute-remediation', 'verify-remediation'], scopes: ['incident_id', 'credential_id', 'reason'],
+    contract: 'z:tenant:privacy-guard', pii_did: 'did:t3n:tenant-test', functions: ['execute-remediation', 'verify-remediation'],
+    scopes: ['incident_id', 'credential_id', 'reason', 'verified_contacts.email.value'],
   });
+  assert.equal(PROPOSAL_DELEGATION_REQUIREMENTS.scopes.includes('verified_contacts.email.value'), false);
+  assert.equal(EXECUTOR_DELEGATION_REQUIREMENTS.scopes.includes('verified_contacts.email.value'), true);
 });
 
 test('constructor rejects wildcard requirements', () => {
