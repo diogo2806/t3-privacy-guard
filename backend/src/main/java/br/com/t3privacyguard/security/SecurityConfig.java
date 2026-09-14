@@ -3,10 +3,10 @@ package br.com.t3privacyguard.security;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -73,8 +73,13 @@ public class SecurityConfig {
             buildUser(executorUsername, executorPassword, passwordEncoder, "EXECUTOR_USERNAME", "EXECUTOR_PASSWORD", EXECUTOR),
             buildUser(auditorUsername, auditorPassword, passwordEncoder, "AUDITOR_USERNAME", "AUDITOR_PASSWORD", AUDITOR)
         );
-        Set<String> principals = Set.of(analystUsername.trim(), approverUsername.trim(), executorUsername.trim(), auditorUsername.trim());
-        if (principals.size() != users.size()) {
+        List<String> configuredPrincipals = List.of(
+            analystUsername.trim(),
+            approverUsername.trim(),
+            executorUsername.trim(),
+            auditorUsername.trim()
+        );
+        if (new HashSet<>(configuredPrincipals).size() != configuredPrincipals.size()) {
             throw new IllegalStateException("Enterprise separation of duties requires four distinct human principals");
         }
         return new InMemoryUserDetailsManager(users);
@@ -141,11 +146,6 @@ public class SecurityConfig {
                     "/api/incidents/*/actions/*/execute-remediation",
                     "/api/incidents/*/actions/*/verify-remediation"
                 ).hasRole(EXECUTOR)
-                .requestMatchers(HttpMethod.GET,
-                    "/api/incidents/*/history",
-                    "/api/incidents/*/actions/*/trace",
-                    "/api/incidents/*/audit-evidence"
-                ).hasRole(AUDITOR)
                 .anyRequest().hasAnyRole(ANALYST, APPROVER, EXECUTOR, AUDITOR))
             .formLogin(AbstractHttpConfigurer::disable)
             .httpBasic(AbstractHttpConfigurer::disable)
