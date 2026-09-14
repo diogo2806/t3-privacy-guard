@@ -1,5 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { IncidentWorkspace } from '../../services/privacyGuardApi';
 import { IncidentWorkspaceQueue } from './IncidentWorkspaceQueue';
@@ -41,8 +42,8 @@ const workspace: IncidentWorkspace = {
   ],
 };
 
-function renderQueue(overrides: Partial<React.ComponentProps<typeof IncidentWorkspaceQueue>> = {}) {
-  const props: React.ComponentProps<typeof IncidentWorkspaceQueue> = {
+function renderQueue(overrides: Partial<ComponentProps<typeof IncidentWorkspaceQueue>> = {}) {
+  const props: ComponentProps<typeof IncidentWorkspaceQueue> = {
     workspace,
     selectedIncidentId: 'inc-critical',
     loading: false,
