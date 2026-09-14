@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ConfigurationError, readGatewayConfig } from './env.js';
+import { ConfigurationError, readGatewayConfig, rejectDocumentationPlaceholder } from './env.js';
 
 const publicKeySpki = 'MCowBQYDK2VwAyEAW3EwSatHmT/ZSgrqu/G3ecXJrTviA5SjAoCwIfwau6A=';
 const baseEnv = {
@@ -158,6 +158,27 @@ test('rejects missing or invalid internal security configuration', () => {
   assert.throws(() => readGatewayConfig({ T3N_API_KEY: 'tenant-secret' }), ConfigurationError);
   assert.throws(() => readGatewayConfig({ ...baseEnv, GATEWAY_SERVICE_TOKEN: 'short' }), ConfigurationError);
   assert.throws(() => readGatewayConfig({ ...baseEnv, REMEDIATION_AUTH_PUBLIC_KEY_SPKI: 'not-an-ed25519-spki' }), ConfigurationError);
+});
+
+test('rejects documented gateway service token without echoing it', () => {
+  const placeholder = 'replace-with-at-least-32-random-characters';
+  assert.throws(
+    () => readGatewayConfig({ ...baseEnv, GATEWAY_SERVICE_TOKEN: placeholder }),
+    (error: unknown) => error instanceof ConfigurationError
+      && error.message === 'GATEWAY_SERVICE_TOKEN must be replaced with a runtime-specific value'
+      && !error.message.includes(placeholder),
+  );
+});
+
+test('rejects documented remediation API key before setup can use it', () => {
+  const placeholder = 'replace-with-synthetic-or-real-remediation-key';
+  assert.throws(
+    () => rejectDocumentationPlaceholder(placeholder, 'SECURITY_API_KEY'),
+    (error: unknown) => error instanceof ConfigurationError
+      && error.message === 'SECURITY_API_KEY must be replaced with a runtime-specific value'
+      && !error.message.includes(placeholder),
+  );
+  assert.doesNotThrow(() => rejectDocumentationPlaceholder('runtime-remediation-key-value', 'SECURITY_API_KEY'));
 });
 
 test('rejects unknown network', () => {
