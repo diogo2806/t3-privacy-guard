@@ -11,6 +11,11 @@ function policyTraceState(decision: PolicyDecisionType): string {
   return 'DENIED';
 }
 
+function validVerificationContract(body: RemediationVerificationRequest): boolean {
+  return ((body.action == null || body.action === 'revoke-credential') && body.expected_state === 'REVOKED')
+    || (body.action === 'notify-security' && body.expected_state === 'DELIVERED');
+}
+
 export function createContractRouter(
   service: PrivacyGuardContractService,
   verifier: RemediationAuthorizationVerifier,
@@ -83,7 +88,7 @@ export function createContractRouter(
     const requestId = request.body?.request_id;
     try {
       const body = request.body as RemediationVerificationRequest;
-      if (!body?.request_id || !body?.operation_id || body.expected_state !== 'REVOKED') {
+      if (!body?.request_id || !body?.operation_id || !validVerificationContract(body)) {
         logTraceStage(response, 'EXTERNAL_VERIFICATION', requestId, 'FAILED');
         response.status(400).json({ error: 'Verification request is invalid' });
         return;
