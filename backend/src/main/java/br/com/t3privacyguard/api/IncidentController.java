@@ -12,6 +12,7 @@ import br.com.t3privacyguard.api.ApiModels.ExecutionTraceResponse;
 import br.com.t3privacyguard.api.ApiModels.IncidentResponse;
 import br.com.t3privacyguard.api.ApiModels.RemediationAuthorizationResponse;
 import br.com.t3privacyguard.api.ApiModels.RemediationExecutionResponse;
+import br.com.t3privacyguard.security.HumanSeparationOfDutiesService;
 import br.com.t3privacyguard.service.AgentAnalysisService;
 import br.com.t3privacyguard.service.AuditEvidenceService;
 import br.com.t3privacyguard.service.IncidentService;
@@ -37,17 +38,20 @@ public class IncidentController {
     private final AgentAnalysisService agentAnalysis;
     private final RemediationQueryService remediationQuery;
     private final AuditEvidenceService auditEvidence;
+    private final HumanSeparationOfDutiesService separationOfDuties;
 
     public IncidentController(
         IncidentService service,
         AgentAnalysisService agentAnalysis,
         RemediationQueryService remediationQuery,
-        AuditEvidenceService auditEvidence
+        AuditEvidenceService auditEvidence,
+        HumanSeparationOfDutiesService separationOfDuties
     ) {
         this.service = service;
         this.agentAnalysis = agentAnalysis;
         this.remediationQuery = remediationQuery;
         this.auditEvidence = auditEvidence;
+        this.separationOfDuties = separationOfDuties;
     }
 
     @PostMapping
@@ -93,10 +97,24 @@ public class IncidentController {
     }
 
     @PostMapping("/{incidentId}/actions/{actionId}/execute-remediation")
-    public RemediationExecutionResponse executeRemediation(@PathVariable String incidentId, @PathVariable String actionId) { return service.executeRemediation(incidentId, actionId); }
+    public RemediationExecutionResponse executeRemediation(
+        @PathVariable String incidentId,
+        @PathVariable String actionId,
+        Authentication authentication
+    ) {
+        separationOfDuties.requireExecutorPrincipal(actionId, authentication);
+        return service.executeRemediation(incidentId, actionId);
+    }
 
     @PostMapping("/{incidentId}/actions/{actionId}/verify-remediation")
-    public RemediationExecutionResponse verifyRemediation(@PathVariable String incidentId, @PathVariable String actionId) { return service.verifyRemediation(incidentId, actionId); }
+    public RemediationExecutionResponse verifyRemediation(
+        @PathVariable String incidentId,
+        @PathVariable String actionId,
+        Authentication authentication
+    ) {
+        separationOfDuties.requireExecutorPrincipal(actionId, authentication);
+        return service.verifyRemediation(incidentId, actionId);
+    }
 
     @GetMapping("/{incidentId}/actions/{actionId}/remediation")
     public RemediationExecutionResponse remediation(@PathVariable String incidentId, @PathVariable String actionId) {
