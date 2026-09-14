@@ -3,6 +3,8 @@ package br.com.t3privacyguard.security;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -19,19 +21,41 @@ public class IncidentIntakeCredentialRegistry {
     private static final Pattern DISPLAY_NAME = Pattern.compile("[A-Za-z0-9][A-Za-z0-9 ._/-]{0,47}");
     private static final int MIN_TOKEN_LENGTH = 32;
     private static final int MAX_TOKEN_LENGTH = 512;
+    private static final long MAX_CREDENTIAL_FILE_BYTES = 64 * 1024L;
 
     private final boolean enabled;
-    private final List<Credential> credentials;
+    private final List<Credential> staticCredentials;
+    private final Path credentialsFile;
+    private final ObjectMapper mapper;
 
     public IncidentIntakeCredentialRegistry(
         @Value("${privacy-guard.incident-intake.enabled:false}") boolean enabled,
         @Value("${privacy-guard.incident-intake.integrations-json:[]}") String integrationsJson,
+        @Value("${privacy-guard.incident-intake.credentials-file:}") String credentialsFile,
         ObjectMapper mapper
     ) {
         this.enabled = enabled;
-        this.credentials = enabled ? parse(integrationsJson, mapper) : List.of();
-        if (enabled && credentials.isEmpty()) {
-            throw new IllegalStateException("Incident intake is enabled but no integration credentials are configured");
+        this.mapper = mapper;
+        this.credentialsFile = normalizeFile(credentialsFile);
+
+        String staticJson = integrationsJson == null || integrationsJson.isBlank() ? "[]" : integrationsJson.trim();
+        if (this.credentialsFile != null && !"[]".equals(staticJson)) {
+            throw new IllegalStateException("Configure incident intake credentials from JSON or a runtime file, not both");
+        }
+
+        if (!enabled) {
+            this.staticCredentials = List.of();
+            return;
+        }
+
+        if (this.credentialsFile != null) {
+            this.staticCredentials = List.of();
+            requireRuntimeFileCredentials();
+        } else {
+            this.staticCredentials = parse(staticJson, mapper);
+            if (staticCredentials.isEmpty()) {
+                throw new IllegalStateException("Incident intake is enabled but no integration credentials are configured");
+            }
         }
     }
 
@@ -43,8 +67,11 @@ public class IncidentIntakeCredentialRegistry {
         if (!enabled || bearerToken == null || bearerToken.length() < MIN_TOKEN_LENGTH || bearerToken.length() > MAX_TOKEN_LENGTH) {
             return Optional.empty();
         }
+        List<Credential> activeCredentials = credentialsFile == null ? staticCredentials : readRuntimeFileCredentials();
+        if (activeCredentials.isEmpty()) return Optional.empty();
+
         byte[] candidate = bearerToken.getBytes(StandardCharsets.UTF_8);
-        for (Credential credential : credentials) {
+        for (Credential credential : activeCredentials) {
             if (MessageDigest.isEqual(candidate, credential.tokenBytes())) {
                 return Optional.of(new IncidentIntakePrincipal(credential.id(), credential.displayName()));
             }
@@ -52,12 +79,35 @@ public class IncidentIntakeCredentialRegistry {
         return Optional.empty();
     }
 
+    private void requireRuntimeFileCredentials() {
+        List<Credential> loaded = readRuntimeFileCredentials();
+        if (loaded.isEmpty()) {
+            throw new IllegalStateException("Incident intake credential file must exist, be valid and contain at least one integration");
+        }
+    }
+
+    private List<Credential> readRuntimeFileCredentials() {
+        try {
+            if (!Files.isRegularFile(credentialsFile)) return List.of();
+            long size = Files.size(credentialsFile);
+            if (size <= 0 || size > MAX_CREDENTIAL_FILE_BYTES) return List.of();
+            return parse(Files.readString(credentialsFile, StandardCharsets.UTF_8), mapper);
+        } catch (Exception ignored) {
+            return List.of();
+        }
+    }
+
+    private static Path normalizeFile(String value) {
+        if (value == null || value.isBlank()) return null;
+        return Path.of(value.trim()).toAbsolutePath().normalize();
+    }
+
     private static List<Credential> parse(String raw, ObjectMapper mapper) {
         List<ConfiguredIntegration> configured;
         try {
             configured = mapper.readValue(raw == null || raw.isBlank() ? "[]" : raw, new TypeReference<List<ConfiguredIntegration>>() {});
         } catch (Exception ex) {
-            throw new IllegalStateException("INCIDENT_INTAKE_INTEGRATIONS_JSON is invalid", ex);
+            throw new IllegalStateException("Incident intake credentials JSON is invalid", ex);
         }
 
         Set<String> ids = new HashSet<>();
