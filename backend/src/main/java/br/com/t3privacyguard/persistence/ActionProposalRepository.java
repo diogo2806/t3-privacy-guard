@@ -1,6 +1,7 @@
 package br.com.t3privacyguard.persistence;
 
 import jakarta.persistence.LockModeType;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -11,6 +12,7 @@ import org.springframework.data.repository.query.Param;
 public interface ActionProposalRepository extends JpaRepository<ActionProposalEntity, String> {
     Optional<ActionProposalEntity> findByRequestId(String requestId);
     List<ActionProposalEntity> findByIncidentIdOrderByCreatedAtAsc(String incidentId);
+    long countByRemediationAuthorizedAtBetween(Instant from, Instant to);
     void deleteAllByIncidentId(String incidentId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

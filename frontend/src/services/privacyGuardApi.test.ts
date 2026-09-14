@@ -37,3 +37,27 @@ describe('privacyGuardApi.analyzeAgentInIncident', () => {
     expect(JSON.parse(String(request.body))).not.toHaveProperty('decision');
   });
 });
+
+describe('privacyGuardApi.businessImpact', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('reads the selected aggregate window without sending mutation data', async () => {
+    const impact = {
+      window: '24H', from: '2026-09-13T12:00:00Z', to: '2026-09-14T12:00:00Z', retentionLimited: false,
+      evaluatedActions: 4, deniedBeforeEgress: 1, minimizedDecisions: 1, redactedNormalFieldNames: 2, redactedPrivateRefs: 0,
+      humanAuthorizedRemediations: 2, verifiedCompleted: 1, unverified: 1, failed: 0, finalizedExecutions: 2,
+      blockedRatePct: 25, verifiedCompletionRatePct: 50, medianDecisionMs: 420, medianVerifiedOutcomeMs: 3100,
+    };
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(impact));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await privacyGuardApi.businessImpact('24h');
+
+    expect(result).toEqual(impact);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/business-impact?window=24h');
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(request.method).toBe('GET');
+    expect(request.body).toBeUndefined();
+  });
+});

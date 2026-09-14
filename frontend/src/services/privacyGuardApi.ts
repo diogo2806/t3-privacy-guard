@@ -10,6 +10,7 @@ export type RemediationState = 'EXECUTING' | 'PENDING_VERIFICATION' | 'COMPLETED
 export type AuditReconciliationStatus = 'LOCAL_ONLY' | 'T3N_ONLY' | 'MATCHED' | 'UNMATCHED';
 export type AuditIntegrityState = 'VERIFIED' | 'BROKEN' | 'KEY_MISMATCH' | 'LEGACY_UNVERIFIED' | 'PURGED' | 'NOT_AVAILABLE';
 export type HumanAuthority = 'ANALYST' | 'APPROVER' | 'EXECUTOR' | 'AUDITOR';
+export type BusinessImpactWindow = 'retained' | '24h' | '7d';
 
 export interface Incident { id: string; title: string; severity: Severity; summary: string; source: string; status: string; createdAt: string; expiresAt: string; retentionState: 'ACTIVE'; }
 export interface ActionProposal { id: string; incidentId: string; requestId: string; action: string; resource: string; purpose: string; host?: string | null; fields: string[]; normalPayload?: Record<string, string>; privateRefs: string[]; status: ProposalStatus; createdAt: string; remediationAuthorizedBy?: string | null; remediationAuthorizedAt?: string | null; }
@@ -38,6 +39,26 @@ export interface ExecutionTraceEvent { id: string; incidentId: string; actionId:
 export interface OperatorSession { authenticated: boolean; username?: string | null; authorities?: HumanAuthority[]; enterpriseSeparationOfDuties?: boolean; }
 export interface AgentAnalysis { provider: string; model: string; incident: Incident; action: ActionProposal; decision: PolicyDecision; }
 export interface RemediationExecution { incidentId: string; actionId: string; requestId: string; state: RemediationState; httpCode?: number | null; operationId?: string | null; verificationAttempts: number; failureCode?: string | null; startedAt: string; completedAt?: string | null; executionPrincipal?: string | null; }
+export interface BusinessImpact {
+  window: 'RETAINED' | '24H' | '7D';
+  from: string;
+  to: string;
+  retentionLimited: boolean;
+  evaluatedActions: number;
+  deniedBeforeEgress: number;
+  minimizedDecisions: number;
+  redactedNormalFieldNames: number;
+  redactedPrivateRefs: number;
+  humanAuthorizedRemediations: number;
+  verifiedCompleted: number;
+  unverified: number;
+  failed: number;
+  finalizedExecutions: number;
+  blockedRatePct?: number | null;
+  verifiedCompletionRatePct?: number | null;
+  medianDecisionMs?: number | null;
+  medianVerifiedOutcomeMs?: number | null;
+}
 export interface EnterpriseVerificationContract { action: string; expectedState: string; }
 export interface SystemStatus {
   gatewayReachable: boolean;
@@ -185,6 +206,7 @@ export const privacyGuardApi = {
   logout: async () => { await api<void>('/api/auth/logout', { method: 'POST' }); csrfState = null; operatorSessionState = null; },
   systemStatus: () => api<SystemStatus>('/api/system/status'),
   latestEvidence: () => api<EvidenceBundle>('/api/evidence/latest'),
+  businessImpact: (window: BusinessImpactWindow = 'retained') => api<BusinessImpact>(`/api/business-impact?window=${encodeURIComponent(window)}`),
   analyzeAgent: (prompt: string) => api<AgentAnalysis>('/api/agent/analyze', { method: 'POST', body: JSON.stringify({ prompt }) }),
   analyzeAgentInIncident: (incidentId: string, prompt: string) => api<AgentAnalysis>(`/api/incidents/${encodeURIComponent(incidentId)}/agent-proposals`, { method: 'POST', body: JSON.stringify({ prompt }) }),
   listIncidents: () => api<Incident[]>('/api/incidents'),

@@ -713,7 +713,7 @@ Before tenant, Proposal Agent or Protected Executor authentication, the gateway 
 
 When a floor already exists, authentication calls `fetchTrustedManifest(network, { minVersion })`. A lower manifest is rejected, the floor is never silently decreased, and malformed or unreadable persisted state fails closed instead of resetting rollback history. Tenant, Proposal Agent and Protected Executor sessions receive the same `TrustManifestFloorStore` instance in each runtime, so they cannot establish independent floors for the same network. Atomic temp-file + fsync + rename persistence allows the accepted floor to survive process/container restart when `/data` is persistent.
 
-Evidence uses precise wording: `Trust anchor VERIFIED` means the signed manifest established the T3N cluster trust boundary; `Rollback floor PERSISTED` means the version high-water mark was durably stored and reused across restarts. Neither claim is described as per-request hardware attestation.
+Evidence uses precise wording: `Trust anchor VERIFIED` means the signed manifest established the T3N cluster trust boundary used for authentication; `Rollback floor PERSISTED` means the version high-water mark was durably stored and reused across restarts. Neither claim is described as per-request hardware attestation.
 
 ## Authenticated human authorization provenance
 
@@ -767,3 +767,33 @@ OPERATOR_PASSWORD
 ```
 
 These human application credentials never replace `T3N_AGENT_API_KEY`, `T3N_EXECUTOR_API_KEY`, Member Delegation, `checkDelegation`, the one-time capability or the Protected Executor DID. They add a separate human governance boundary around the existing T3N trust path.
+
+## Measured control impact
+
+`GET /api/business-impact?window=retained|24h|7d` exposes a read-only, authenticated aggregate of operational outcomes that are already persisted by the application. `BusinessImpactService` is the single calculation source; React renders the returned values and does not independently recompute rates or medians. The full summary belongs to Protection flow, while Executive Demo projects only blocked, minimized, verified and median decision values.
+
+The observation window is always bounded by configured incident retention. If a requested 7-day window exceeds retained history, `from` is moved to the retention floor and `retentionLimited=true`. Purged data is not reconstructed or described as historical coverage. The response contains counts, timestamps and rates only; it does not return prompt text, usernames, trusted normal payload values or private profile values.
+
+The aggregate uses these exact semantics:
+
+```text
+blockedRatePct = DENY / evaluatedDecisions * 100
+
+finalizedExecutions = COMPLETED + UNVERIFIED + FAILED
+verifiedCompletionRatePct = COMPLETED / finalizedExecutions * 100
+
+per-decision latency = decision.evaluatedAt - action.createdAt
+medianDecisionMs = median(valid non-negative per-decision latencies)
+
+per-verified-outcome latency = remediation.completedAt - action.createdAt
+medianVerifiedOutcomeMs = median(valid non-negative COMPLETED latencies)
+
+redactedNormalFieldNames = sum(size(decision.redactedFields))
+redactedPrivateRefs = sum(size(decision.redactedPrivateRefs))
+```
+
+`EXECUTING` and `PENDING_VERIFICATION` never enter the finalized-execution denominator. When a denominator or valid latency sample does not exist, the API returns `null` and the UI says `NOT OBSERVED`; it does not display `0%` as evidence. For an even number of latency samples, the median is the arithmetic mean of the two center values rounded to the nearest integer millisecond.
+
+`DENY` is counted as blocked before protected egress because policy evaluation precedes human authorization and protected execution in this runtime. `REDACT` counts a minimization decision; it does not mean an incident was prevented. `COMPLETED` counts only the already-existing independently verified terminal state. Redacted field/ref totals count schema names/categories, not bytes, people or leaked values.
+
+The product deliberately does **not** convert these operational measurements into money saved, breach cost avoided, risk-reduction percentage, SLA compliance, regulatory compliance or ROI. Those inputs are not measured by this runtime, so **financial ROI remains NOT MEASURED**.
