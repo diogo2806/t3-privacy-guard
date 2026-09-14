@@ -1,7 +1,7 @@
 .executive-demo {
   display: grid;
   gap: .8rem;
-  border-color: rgba(34, 211, 238, .4);
+  border-color: var(--brand-border);
   background:
     radial-gradient(circle at 88% 0%, var(--brand-canvas-glow), transparent 24rem),
     var(--surface-2);
@@ -36,7 +36,7 @@
   padding: .8rem;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
-  background: rgba(6, 16, 28, .5);
+  background: var(--surface-deep-translucent);
 }
 .executive-demo-block > strong { display: block; margin-top: .35rem; font-size: 1rem; }
 .executive-demo-block > p { margin: .3rem 0 0; color: var(--text-secondary); font-size: .8rem; line-height: 1.4; }
