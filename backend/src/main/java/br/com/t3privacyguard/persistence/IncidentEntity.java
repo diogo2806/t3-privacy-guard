@@ -90,17 +90,24 @@ public class IncidentEntity {
     @PrePersist
     void validateRetentionMetadata() {
         if (expiresAt == null) throw new IllegalStateException("Incident retention metadata is required");
-        if (effectiveOriginType() == IncidentOriginType.EXTERNAL) {
-            if (integrationId == null || integrationId.isBlank() || externalEventId == null || externalEventId.isBlank()) {
-                throw new IllegalStateException("External incident provenance is required");
-            }
-        } else if (integrationId != null || externalEventId != null) {
-            throw new IllegalStateException("Application incident cannot carry external integration provenance");
-        }
+        validateProvenance();
     }
 
     public void assignExpiresAtIfMissing(Instant expiresAt) {
         if (this.expiresAt == null) this.expiresAt = expiresAt;
+    }
+
+    public void assignExternalProvenance(String integrationId, String externalEventId) {
+        if (integrationId == null || integrationId.isBlank() || externalEventId == null || externalEventId.isBlank()) {
+            throw new IllegalArgumentException("External incident provenance is required");
+        }
+        if (this.integrationId != null || this.externalEventId != null || effectiveOriginType() == IncidentOriginType.EXTERNAL) {
+            throw new IllegalStateException("Incident origin has already been assigned");
+        }
+        this.originType = IncidentOriginType.EXTERNAL;
+        this.integrationId = integrationId;
+        this.externalEventId = externalEventId;
+        validateProvenance();
     }
 
     public String getId() { return id; }
@@ -114,6 +121,16 @@ public class IncidentEntity {
     public IncidentOriginType getOriginType() { return effectiveOriginType(); }
     public String getIntegrationId() { return integrationId; }
     public String getExternalEventId() { return externalEventId; }
+
+    private void validateProvenance() {
+        if (effectiveOriginType() == IncidentOriginType.EXTERNAL) {
+            if (integrationId == null || integrationId.isBlank() || externalEventId == null || externalEventId.isBlank()) {
+                throw new IllegalStateException("External incident provenance is required");
+            }
+        } else if (integrationId != null || externalEventId != null) {
+            throw new IllegalStateException("Application incident cannot carry external integration provenance");
+        }
+    }
 
     private IncidentOriginType effectiveOriginType() {
         return originType == null ? IncidentOriginType.APPLICATION : originType;
