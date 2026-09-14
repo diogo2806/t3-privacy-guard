@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import br.com.t3privacyguard.domain.DecisionType;
@@ -85,6 +86,57 @@ class IncidentWorkspaceServiceTest {
     }
 
     @Test
+    void keepsExecutionAndFailureStatesTruthfulInsteadOfInferringCompletion() {
+        Instant now = Instant.parse("2026-09-14T13:00:00Z");
+        IncidentEntity authorized = incident("i-1", "Authorized", Severity.HIGH, now.minusSeconds(60));
+        IncidentEntity executing = incident("i-2", "Executing", Severity.HIGH, now.minusSeconds(120));
+        IncidentEntity unverified = incident("i-3", "Unverified", Severity.HIGH, now.minusSeconds(180));
+        IncidentEntity failed = incident("i-4", "Failed", Severity.CRITICAL, now.minusSeconds(240));
+
+        ActionProposalEntity authorizedAction = authorizedAction("a-1", "i-1", now.minusSeconds(50));
+        ActionProposalEntity executingAction = authorizedAction("a-2", "i-2", now.minusSeconds(110));
+        ActionProposalEntity unverifiedAction = authorizedAction("a-3", "i-3", now.minusSeconds(170));
+        ActionProposalEntity failedAction = authorizedAction("a-4", "i-4", now.minusSeconds(230));
+
+        RemediationExecutionEntity executingExecution = new RemediationExecutionEntity("r-2", executingAction.getId(), executingAction.getRequestId(), now.minusSeconds(100));
+        RemediationExecutionEntity unverifiedExecution = new RemediationExecutionEntity("r-3", unverifiedAction.getId(), unverifiedAction.getRequestId(), now.minusSeconds(160));
+        unverifiedExecution.markPendingVerification(202, "op-3", now.minusSeconds(150));
+        unverifiedExecution.markUnverified("READ_BACK_MISMATCH", now.minusSeconds(140));
+        RemediationExecutionEntity failedExecution = new RemediationExecutionEntity("r-4", failedAction.getId(), failedAction.getRequestId(), now.minusSeconds(220));
+        failedExecution.markFailed("EGRESS_FAILED", now.minusSeconds(210));
+
+        when(incidents.findByExpiresAtAfterOrderByCreatedAtDesc(any(Instant.class)))
+            .thenReturn(List.of(authorized, executing, unverified, failed));
+        when(actions.findByIncidentIdInOrderByCreatedAtAsc(any()))
+            .thenReturn(List.of(authorizedAction, executingAction, unverifiedAction, failedAction));
+        when(decisions.findByActionProposalIdIn(any())).thenReturn(List.of(
+            decision("d-1", authorizedAction.getId(), DecisionType.ALLOW, now.minusSeconds(45)),
+            decision("d-2", executingAction.getId(), DecisionType.ALLOW, now.minusSeconds(105)),
+            decision("d-3", unverifiedAction.getId(), DecisionType.ALLOW, now.minusSeconds(165)),
+            decision("d-4", failedAction.getId(), DecisionType.ALLOW, now.minusSeconds(225))
+        ));
+        when(remediations.findByActionProposalIdIn(any())).thenReturn(List.of(executingExecution, unverifiedExecution, failedExecution));
+
+        var workspace = service.getWorkspace();
+
+        assertThat(workspace.incidents()).extracting(item -> item.stage()).containsExactly(
+            "AUTHORIZED_EXECUTION_PENDING",
+            "EXECUTION_IN_PROGRESS",
+            "UNVERIFIED_REVIEW_REQUIRED",
+            "FAILED_REVIEW_REQUIRED"
+        );
+        assertThat(workspace.incidents()).extracting(item -> item.nextRequiredAction()).containsExactly(
+            "Execute protected remediation",
+            "Wait for execution reconciliation",
+            "Review and verify external state",
+            "Review failed execution"
+        );
+        assertThat(workspace.attentionCount()).isEqualTo(4);
+        assertThat(workspace.incidents()).allMatch(item -> item.requiresAttention());
+        assertThat(workspace.incidents()).noneMatch(item -> "VERIFIED_COMPLETE".equals(item.stage()));
+    }
+
+    @Test
     void returnsNeutralStateWhenPersistedStateCannotBeProved() {
         Instant now = Instant.parse("2026-09-14T13:00:00Z");
         IncidentEntity incident = incident("i-1", "Inconsistent", Severity.HIGH, now.minusSeconds(60));
@@ -125,6 +177,7 @@ class IncidentWorkspaceServiceTest {
 
         assertThat(workspace.attentionCount()).isZero();
         assertThat(workspace.incidents()).isEmpty();
+        verifyNoInteractions(actions, decisions, remediations);
     }
 
     private static IncidentEntity incident(String id, String title, Severity severity, Instant createdAt) {
