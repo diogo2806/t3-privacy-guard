@@ -11,6 +11,7 @@ export type AuditReconciliationStatus = 'LOCAL_ONLY' | 'T3N_ONLY' | 'MATCHED' | 
 export type AuditIntegrityState = 'VERIFIED' | 'BROKEN' | 'KEY_MISMATCH' | 'LEGACY_UNVERIFIED' | 'PURGED' | 'NOT_AVAILABLE';
 export type HumanAuthority = 'ANALYST' | 'APPROVER' | 'EXECUTOR' | 'AUDITOR';
 export type BusinessImpactWindow = 'retained' | '24h' | '7d';
+export type IncidentOriginType = 'APPLICATION' | 'EXTERNAL';
 export type IncidentWorkspaceStage =
   | 'NEEDS_ANALYSIS'
   | 'POLICY_EVALUATION_REQUIRED'
@@ -30,6 +31,8 @@ export interface IncidentWorkspaceItem {
   id: string;
   title: string;
   severity: Severity;
+  source: string;
+  originType: IncidentOriginType;
   incidentStatus: string;
   createdAt: string;
   latestActionId?: string | null;
