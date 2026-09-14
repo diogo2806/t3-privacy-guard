@@ -3,10 +3,12 @@ package br.com.t3privacyguard.api;
 import br.com.t3privacyguard.audit.AuditIntegrityState;
 import br.com.t3privacyguard.domain.AuditReconciliationStatus;
 import br.com.t3privacyguard.domain.DecisionType;
+import br.com.t3privacyguard.domain.IncidentOriginType;
 import br.com.t3privacyguard.domain.ProposalStatus;
 import br.com.t3privacyguard.domain.Severity;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import java.util.List;
@@ -22,12 +24,28 @@ public final class ApiModels {
         @NotBlank @Size(max = 120) String source
     ) {}
 
+    public record IncidentIntakeRequest(
+        @NotBlank
+        @Size(max = 128)
+        @Pattern(regexp = "[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
+        String externalEventId,
+        @NotBlank @Size(max = 160) String title,
+        @NotNull Severity severity,
+        @NotBlank @Size(max = 2000) String summary
+    ) {}
+
+    public record IncidentIntakeResponse(
+        IncidentResponse incident,
+        boolean replayed
+    ) {}
+
     public record IncidentResponse(
         String id,
         String title,
         Severity severity,
         String summary,
         String source,
+        IncidentOriginType originType,
         String status,
         Instant createdAt,
         Instant expiresAt,
@@ -126,23 +144,12 @@ public final class ApiModels {
         Long nextSequence,
         int limit
     ) {}
-    public record ExecutionTraceResponse(
-        String id,
-        String incidentId,
-        String actionId,
-        String traceId,
-        String requestId,
-        String stage,
-        String state,
-        String reasonCode,
-        Long durationMs,
-        Instant createdAt
-    ) {}
+
     public record RemediationAuthorizationResponse(
         String incidentId,
         String actionId,
         String requestId,
-        String state,
+        ProposalStatus state,
         String authorizedBy,
         Instant authorizedAt
     ) {}
@@ -156,24 +163,27 @@ public final class ApiModels {
         int verificationAttempts,
         String failureCode,
         Instant startedAt,
-        Instant completedAt,
-        String executionPrincipal
-    ) {
-        public RemediationExecutionResponse(
-            String incidentId,
-            String actionId,
-            String requestId,
-            String state,
-            Integer httpCode,
-            String operationId,
-            int verificationAttempts,
-            String failureCode,
-            Instant startedAt,
-            Instant completedAt
-        ) {
-            this(incidentId, actionId, requestId, state, httpCode, operationId, verificationAttempts, failureCode, startedAt, completedAt, null);
-        }
-    }
-    public record AnalyzeAgentRequest(@NotBlank @Size(max = 4000) String prompt) {}
-    public record AgentAnalysisResponse(String provider, String model, IncidentResponse incident, ActionResponse action, DecisionResponse decision) {}
+        Instant completedAt
+    ) {}
+    public record ExecutionTraceResponse(
+        String id,
+        String incidentId,
+        String actionId,
+        String traceId,
+        String requestId,
+        String stage,
+        String state,
+        String reasonCode,
+        Long durationMs,
+        Instant createdAt
+    ) {}
+
+    public record AgentAnalysisRequest(@NotBlank @Size(max = 4000) String prompt) {}
+    public record AgentAnalysisResponse(
+        String provider,
+        String model,
+        IncidentResponse incident,
+        ActionResponse action,
+        DecisionResponse decision
+    ) {}
 }
