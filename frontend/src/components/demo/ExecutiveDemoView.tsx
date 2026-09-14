@@ -233,23 +233,17 @@ export function ExecutiveDemoView({
 
         {proofAvailable ? (
           <dl className="executive-demo-proof-grid">
-            <div><dt>Source commit</dt><dd><code title={evidence.metadata.sourceCommitSha}>{evidence.metadata.sourceCommitSha.slice(0, 8)}…</code></dd></div>
-            <div><dt>Source tree</dt><dd className={evidence.metadata.sourceTreeClean ? 'executive-proof-ok' : 'executive-proof-danger'}>{evidence.metadata.sourceTreeClean ? 'CLEAN' : 'DIRTY'}</dd></div>
             <div><dt>Network</dt><dd>{evidence.metadata.network.toUpperCase()}</dd></div>
-            <div><dt>Contract ID</dt><dd><code title={evidence.metadata.contractId}>{shorten(evidence.metadata.contractId)}</code></dd></div>
-            <div><dt>Contract version</dt><dd>{evidence.metadata.contractVersion}</dd></div>
             <div><dt>Evidence</dt><dd>{evidence.totals.pass} PASS / {evidence.totals.fail} FAIL / {evidence.totals.notRun} NOT RUN</dd></div>
-            <div><dt>Proposal DID</dt><dd><code title={proposalDid ?? undefined}>{shorten(proposalDid)}</code></dd></div>
-            <div><dt>Executor DID</dt><dd><code title={executorDid ?? undefined}>{shorten(executorDid)}</code></dd></div>
+            <div><dt>Source</dt><dd className={evidence.metadata.sourceTreeClean ? 'executive-proof-ok' : 'executive-proof-danger'}>{evidence.metadata.sourceTreeClean ? 'CLEAN' : 'DIRTY'} · <code title={evidence.metadata.sourceCommitSha}>{evidence.metadata.sourceCommitSha.slice(0, 8)}…</code></dd></div>
+            <div><dt>Contract</dt><dd><span>{evidence.metadata.contractVersion}</span> · <code title={evidence.metadata.contractId}>{shorten(evidence.metadata.contractId)}</code></dd></div>
             <div><dt>Identity separation</dt><dd className={`executive-tone-text-${identities.tone}`}>{identities.label}</dd></div>
             <div><dt>Effective delegation</dt><dd className={`executive-tone-text-${delegation.tone}`}>{delegation.label}</dd></div>
-            <div><dt>Enterprise integration</dt><dd>{systemStatus?.enterpriseIntegrationState ?? 'UNKNOWN'}</dd></div>
-            <div><dt>Agent Card</dt><dd>{systemStatus?.agentRegistrationState === 'REGISTERED' ? 'REGISTERED' : systemStatus?.agentRegistrationState ?? 'NOT OBSERVED'}</dd></div>
           </dl>
         ) : (
           <p className="executive-demo-proof-empty">No PASS state, source commit or live-runtime claim is inferred until a valid evidence bundle is loaded.</p>
         )}
-        <p className="executive-demo-proof-note">PASS and FAIL are observed evidence outcomes. NOT RUN is not proof, and a clean source tree is not a security guarantee.</p>
+        <p className="executive-demo-proof-note">PASS and FAIL are observed evidence outcomes. NOT RUN is not proof, and a clean source tree is not a security guarantee. Full DIDs and integration details remain available in Technical evidence.</p>
       </section>
 
       <footer className="executive-demo-actions">
