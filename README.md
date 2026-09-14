@@ -117,7 +117,6 @@ protected HTTP body
   credential_id
   reason
 ```
-
 Private profile values remain structurally separate. For `notify-security`, `verified_email` is the only supported logical private reference. The raw `{{profile.verified_contacts.email.value}}` marker is created only inside Rust/WASM after policy, destination and one-time human-authorization checks; it is never copied into `normal_payload`, React, Spring, the model or normal gateway responses.
 
 The optional `LIVE-NORMAL-PAYLOAD-MINIMIZATION` testnet scenario uses synthetic sentinels and accepts PASS only when controlled read-back reports `must_egress_seen=true` and `must_not_egress_seen=false`. The raw sentinel strings are not persisted in the public evidence bundle. Until that scenario is actually run, its status remains `NOT_RUN` and is not live proof.
@@ -477,7 +476,6 @@ Business audit/evidence        NO
 T3N protected egress           YES, only while resolving the approved placeholder
 Allowed external service       YES, as the intended recipient of the protected egress
 ```
-
 This table does not make a blanket claim about arbitrary user-supplied free text: users must not paste private values into the prompt, and the pre-provider guard is intentionally partial.
 
 `PlaceholderDenied`, `PlaceholderUnknown` and `PlaceholderNoUserContext` fail closed. Upstream responses are reduced to bounded operation/status metadata before leaving the contract. The accepted `operation_id` syntax is limited to an opaque 1–128 byte ASCII alphanumeric/`-`/`_` identifier; an e-mail or other reflected value containing characters outside that grammar is discarded instead of crossing the protected boundary.
@@ -726,3 +724,46 @@ The local tamper-evident audit records the sanitized approving principal in the 
 Before protected execution, Spring refuses to issue a capability unless the persisted human provenance is present. The capability carries only `operatorPrincipalHash = SHA-256(UTF8(canonicalPrincipal))` plus the persisted `authorizedAt`, alongside the exact action, decision, policy version/hash, approved destination, trusted payload hash and Protected Executor DID. The gateway requires an exact hash/timestamp match and rejects missing, malformed, future or body-mismatched provenance before T3N execution.
 
 Legacy actions whose status says `REMEDIATION_AUTHORIZED` but predate `remediationAuthorizedBy/remediationAuthorizedAt` are never upgraded by inference. They are shown as `REAUTHORIZATION REQUIRED` and protected execution remains blocked until an authenticated operator explicitly authorizes again. Completed legacy remediations are not rebound retroactively to a new operator.
+
+## Human separation of duties
+
+Application identity is now split from the T3N identity model and, when enterprise SoD mode is enabled, from one universal human operator. Spring Security is the source of truth for four semantic application authorities:
+
+```text
+ANALYST   -> create incidents, run agent analysis, create/evaluate proposals
+APPROVER  -> authorize protected remediation
+EXECUTOR  -> start and verify protected remediation
+AUDITOR   -> read operational, audit and evidence state; no business mutation
+```
+
+Set `ENTERPRISE_SOD_ENABLED=true` only when `ANALYST_USERNAME/PASSWORD`, `APPROVER_USERNAME/PASSWORD`, `EXECUTOR_USERNAME/PASSWORD` and `AUDITOR_USERNAME/PASSWORD` are all configured with four distinct usernames. Missing credentials, documentation placeholders or duplicate principals fail application startup. This configuration is a local application-IAM boundary for the current deployment architecture; it is deliberately **not** described as an external corporate IdP/OIDC integration.
+
+When `ENTERPRISE_SOD_ENABLED=false`, the configured `OPERATOR_USERNAME/PASSWORD` receives all four semantic authorities so the existing local/demo flow remains usable. That compatibility mode is explicitly labelled `LOCAL / DEMO MODE` and is not evidence of enterprise segregation of duties.
+
+The API enforces the authority matrix before controller business logic. The frontend only uses the session's returned authorities to hide or explain unavailable actions; a manually crafted request with the wrong authority still receives `403` from Spring Security. The session contract never accepts a role or username from the request body as authorization evidence.
+
+Enterprise remediation also applies a per-action principal rule:
+
+```text
+principal that authorized remediation != principal that executes or verifies remediation
+```
+
+This comparison is by canonical authenticated principal, so assigning multiple roles to the same account does not bypass SoD. The execution claim persists `executionPrincipal` from the authenticated server-side `SecurityContext`; legacy execution rows without that field remain unproven rather than being retroactively classified as compliant. The remediation UI shows `Authorized by`, `Execution principal` and `Separation of duties` separately, and the local audit records the execution-start principal without treating it as a T3N DID or verified civil identity.
+
+Relevant application-IAM variables are:
+
+```text
+ENTERPRISE_SOD_ENABLED
+ANALYST_USERNAME
+ANALYST_PASSWORD
+APPROVER_USERNAME
+APPROVER_PASSWORD
+EXECUTOR_USERNAME
+EXECUTOR_PASSWORD
+AUDITOR_USERNAME
+AUDITOR_PASSWORD
+OPERATOR_USERNAME
+OPERATOR_PASSWORD
+```
+
+These human application credentials never replace `T3N_AGENT_API_KEY`, `T3N_EXECUTOR_API_KEY`, Member Delegation, `checkDelegation`, the one-time capability or the Protected Executor DID. They add a separate human governance boundary around the existing T3N trust path.
