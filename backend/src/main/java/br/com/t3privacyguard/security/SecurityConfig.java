@@ -4,10 +4,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
@@ -15,6 +18,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -24,6 +28,11 @@ import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 
 @Configuration
 public class SecurityConfig {
+    static final String ANALYST = "ANALYST";
+    static final String APPROVER = "APPROVER";
+    static final String EXECUTOR = "EXECUTOR";
+    static final String AUDITOR = "AUDITOR";
+
     @Bean
     PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
@@ -31,21 +40,63 @@ public class SecurityConfig {
 
     @Bean
     UserDetailsService operatorUserDetailsService(
-        @Value("${privacy-guard.operator.username}") String username,
-        @Value("${privacy-guard.operator.password}") String password,
+        @Value("${privacy-guard.iam.enterprise-sod-enabled:false}") boolean enterpriseSodEnabled,
+        @Value("${privacy-guard.operator.username:}") String operatorUsername,
+        @Value("${privacy-guard.operator.password:}") String operatorPassword,
+        @Value("${privacy-guard.iam.analyst.username:}") String analystUsername,
+        @Value("${privacy-guard.iam.analyst.password:}") String analystPassword,
+        @Value("${privacy-guard.iam.approver.username:}") String approverUsername,
+        @Value("${privacy-guard.iam.approver.password:}") String approverPassword,
+        @Value("${privacy-guard.iam.executor.username:}") String executorUsername,
+        @Value("${privacy-guard.iam.executor.password:}") String executorPassword,
+        @Value("${privacy-guard.iam.auditor.username:}") String auditorUsername,
+        @Value("${privacy-guard.iam.auditor.password:}") String auditorPassword,
         PasswordEncoder passwordEncoder
     ) {
-        if (username == null || username.isBlank() || password == null || password.isBlank()) {
-            throw new IllegalStateException("OPERATOR_USERNAME and OPERATOR_PASSWORD are required");
+        if (!enterpriseSodEnabled) {
+            return new InMemoryUserDetailsManager(buildUser(
+                operatorUsername,
+                operatorPassword,
+                passwordEncoder,
+                "OPERATOR_USERNAME",
+                "OPERATOR_PASSWORD",
+                ANALYST,
+                APPROVER,
+                EXECUTOR,
+                AUDITOR
+            ));
         }
-        RuntimeSecretPolicy.rejectDocumentationPlaceholder(username, "OPERATOR_USERNAME");
-        RuntimeSecretPolicy.rejectDocumentationPlaceholder(password, "OPERATOR_PASSWORD");
-        return new InMemoryUserDetailsManager(
-            User.withUsername(username)
-                .password(passwordEncoder.encode(password))
-                .roles("OPERATOR")
-                .build()
+
+        List<UserDetails> users = List.of(
+            buildUser(analystUsername, analystPassword, passwordEncoder, "ANALYST_USERNAME", "ANALYST_PASSWORD", ANALYST),
+            buildUser(approverUsername, approverPassword, passwordEncoder, "APPROVER_USERNAME", "APPROVER_PASSWORD", APPROVER),
+            buildUser(executorUsername, executorPassword, passwordEncoder, "EXECUTOR_USERNAME", "EXECUTOR_PASSWORD", EXECUTOR),
+            buildUser(auditorUsername, auditorPassword, passwordEncoder, "AUDITOR_USERNAME", "AUDITOR_PASSWORD", AUDITOR)
         );
+        Set<String> principals = Set.of(analystUsername.trim(), approverUsername.trim(), executorUsername.trim(), auditorUsername.trim());
+        if (principals.size() != users.size()) {
+            throw new IllegalStateException("Enterprise separation of duties requires four distinct human principals");
+        }
+        return new InMemoryUserDetailsManager(users);
+    }
+
+    private static UserDetails buildUser(
+        String username,
+        String password,
+        PasswordEncoder passwordEncoder,
+        String usernameProperty,
+        String passwordProperty,
+        String... roles
+    ) {
+        if (username == null || username.isBlank() || password == null || password.isBlank()) {
+            throw new IllegalStateException(usernameProperty + " and " + passwordProperty + " are required");
+        }
+        RuntimeSecretPolicy.rejectDocumentationPlaceholder(username, usernameProperty);
+        RuntimeSecretPolicy.rejectDocumentationPlaceholder(password, passwordProperty);
+        return User.withUsername(username.trim())
+            .password(passwordEncoder.encode(password))
+            .roles(roles)
+            .build();
     }
 
     @Bean
@@ -78,7 +129,24 @@ public class SecurityConfig {
                     "/actuator/health",
                     "/actuator/health/**"
                 ).permitAll()
-                .anyRequest().hasRole("OPERATOR"))
+                .requestMatchers(HttpMethod.POST,
+                    "/api/incidents",
+                    "/api/agent/analyze",
+                    "/api/incidents/*/agent-proposals",
+                    "/api/incidents/*/actions",
+                    "/api/incidents/*/actions/*/evaluate"
+                ).hasRole(ANALYST)
+                .requestMatchers(HttpMethod.POST, "/api/incidents/*/actions/*/authorize-remediation").hasRole(APPROVER)
+                .requestMatchers(HttpMethod.POST,
+                    "/api/incidents/*/actions/*/execute-remediation",
+                    "/api/incidents/*/actions/*/verify-remediation"
+                ).hasRole(EXECUTOR)
+                .requestMatchers(HttpMethod.GET,
+                    "/api/incidents/*/history",
+                    "/api/incidents/*/actions/*/trace",
+                    "/api/incidents/*/audit-evidence"
+                ).hasRole(AUDITOR)
+                .anyRequest().hasAnyRole(ANALYST, APPROVER, EXECUTOR, AUDITOR))
             .formLogin(AbstractHttpConfigurer::disable)
             .httpBasic(AbstractHttpConfigurer::disable)
             .logout(AbstractHttpConfigurer::disable)
@@ -98,7 +166,7 @@ public class SecurityConfig {
                     response,
                     HttpServletResponse.SC_FORBIDDEN,
                     "Action not allowed",
-                    "Your session is not allowed to perform this action."
+                    "Your session role is not allowed to perform this action."
                 )));
 
         return http.build();
