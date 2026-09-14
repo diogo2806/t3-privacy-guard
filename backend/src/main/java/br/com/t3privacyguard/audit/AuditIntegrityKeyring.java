@@ -1,5 +1,6 @@
 package br.com.t3privacyguard.audit;
 
+import br.com.t3privacyguard.security.RuntimeSecretPolicy;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -74,6 +75,7 @@ public final class AuditIntegrityKeyring {
 
     private static void validateSecret(String value, String name) {
         if (value == null || value.length() < 32) throw new IllegalStateException(name + " must contain at least 32 characters");
+        RuntimeSecretPolicy.rejectDocumentationPlaceholder(value, name);
         if (value.indexOf('\n') >= 0 || value.indexOf('\r') >= 0 || value.indexOf(',') >= 0) {
             throw new IllegalStateException(name + " must not contain line breaks or commas");
         }
