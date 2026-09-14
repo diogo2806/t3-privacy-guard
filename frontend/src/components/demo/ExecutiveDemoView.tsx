@@ -12,6 +12,7 @@ import {
 import type {
   ActionProposal,
   AgentAnalysis,
+  BusinessImpact,
   EvidenceBundle,
   PolicyDecision,
   RemediationExecution,
@@ -19,6 +20,7 @@ import type {
 } from '../../services/privacyGuardApi';
 import { PrivacyGuardMark } from '../brand/PrivacyGuardMark';
 import { formatObservedDuration } from '../business/BusinessOutcomeSummary';
+import { ControlImpactSummary } from '../business/ControlImpactSummary';
 import { ScreenManualDialog } from '../manual/ScreenManualDialog';
 import type { EnterpriseScenarioDefinition } from '../scenarios/scenarioDefinitions';
 import { Button } from '../ui/Button';
@@ -32,6 +34,9 @@ interface Props {
   selectedAction: ActionProposal | null;
   decision: PolicyDecision | null;
   remediationExecution: RemediationExecution | null;
+  businessImpact?: BusinessImpact | null;
+  businessImpactLoading?: boolean;
+  businessImpactError?: string | null;
   evidence: EvidenceBundle | null;
   evidenceLoading: boolean;
   evidenceError: string | null;
@@ -160,6 +165,9 @@ export function ExecutiveDemoView({
   selectedAction,
   decision,
   remediationExecution,
+  businessImpact = null,
+  businessImpactLoading = false,
+  businessImpactError = null,
   evidence,
   evidenceLoading,
   evidenceError,
@@ -207,6 +215,14 @@ export function ExecutiveDemoView({
           </dl>
         </section>
       </div>
+
+      <ControlImpactSummary
+        impact={businessImpact}
+        loading={businessImpactLoading}
+        error={businessImpactError}
+        window="retained"
+        compact
+      />
 
       <section className="executive-demo-trust" aria-labelledby="executive-trust-title">
         <div className="executive-demo-section-heading"><p className="eyebrow">Authority path</p><h2 id="executive-trust-title">Trust path</h2></div>
