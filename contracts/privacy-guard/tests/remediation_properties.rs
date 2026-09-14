@@ -13,22 +13,25 @@ proptest! {
     }
 
     #[test]
-    fn verification_expected_state_is_closed(
+    fn verification_expected_state_is_closed_per_action(
         request_id in "[a-zA-Z0-9_-]{1,64}",
         operation_id in "[a-zA-Z0-9_-]{1,64}",
+        action in prop_oneof![Just("revoke-credential"), Just("notify-security")],
         arbitrary_state in "[A-Z_]{1,32}",
     ) {
+        let expected_state = if action == "revoke-credential" { "REVOKED" } else { "DELIVERED" };
         let request = RemediationVerificationRequest {
             request_id,
             operation_id,
+            action: action.to_string(),
             expected_state: arbitrary_state.clone(),
         };
         let input = serde_json::to_vec(&request).unwrap();
         let error = verify_remediation(&input).unwrap_err();
-        if arbitrary_state == "REVOKED" {
+        if arbitrary_state == expected_state {
             prop_assert!(error.contains("only implemented on the wasm32 target"));
         } else {
-            prop_assert!(error.contains("expected_state is not supported"));
+            prop_assert!(error.contains("expected_state does not match"));
         }
     }
 
