@@ -4,7 +4,6 @@ import br.com.t3privacyguard.api.IncidentWorkspaceModels.IncidentWorkspaceItem;
 import br.com.t3privacyguard.api.IncidentWorkspaceModels.IncidentWorkspaceResponse;
 import br.com.t3privacyguard.domain.DecisionType;
 import br.com.t3privacyguard.domain.ProposalStatus;
-import br.com.t3privacyguard.domain.RemediationStatus;
 import br.com.t3privacyguard.persistence.ActionProposalEntity;
 import br.com.t3privacyguard.persistence.ActionProposalRepository;
 import br.com.t3privacyguard.persistence.IncidentEntity;
@@ -15,7 +14,6 @@ import br.com.t3privacyguard.persistence.RemediationExecutionEntity;
 import br.com.t3privacyguard.persistence.RemediationExecutionRepository;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -126,6 +124,9 @@ public class IncidentWorkspaceService {
         }
         if (decision.getDecision() == DecisionType.DENY) {
             return state("POLICY_BLOCKED", "Review blocked proposal", true);
+        }
+        if (decision.getDecision() == DecisionType.REDACT) {
+            return state("POLICY_REVIEWED", "Review minimized policy result", true);
         }
         if (PROTECTED_EXECUTION_ACTIONS.contains(action.getAction())) {
             return state("HUMAN_APPROVAL_REQUIRED", "Authorize remediation", true);
