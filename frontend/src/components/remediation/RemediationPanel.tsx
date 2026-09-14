@@ -52,6 +52,9 @@ export function RemediationPanel({ action, decision, execution, busy, onAuthoriz
   const canVerify = Boolean(hasVerifiedExecutor && execution && (execution.state === 'PENDING_VERIFICATION' || execution.state === 'UNVERIFIED') && execution.operationId);
   const destinationChanged = execution?.failureCode === 'EXECUTION_DESTINATION_CHANGED';
   const state = stateCopy(execution);
+  const proofState = execution ? 'ISSUED FOR EXECUTION' : hasBoundAuthorization && statusAuthorized ? 'ISSUED ON EXECUTE' : 'NOT ISSUED';
+  const t3nProofState = execution?.httpCode ? 'VERIFIED' : execution ? 'NOT CONFIRMED' : 'NOT RUN';
+  const executorBindingState = execution?.httpCode ? 'BOUND TO VERIFIED PROOF' : execution ? 'BOUND / NOT CONFIRMED' : 'CHECKED AT EXECUTION';
 
   return (
     <section className="card remediation-card" aria-labelledby="remediation-title">
@@ -73,19 +76,22 @@ export function RemediationPanel({ action, decision, execution, busy, onAuthoriz
       )}
 
       {hasVerifiedExecutor && action && decisionCanExecute && (
-        <div className="remediation-state-panel" role="region" aria-label="Approved remediation destination and authorization status">
+        <div className="remediation-state-panel" role="region" aria-label="Approved remediation destination and authorization proof status">
           <div><span>Policy decision</span><strong>{decision?.decision}</strong></div>
           <div><span>Approved destination</span><strong>{action.host || 'MISSING — BLOCKED'}</strong></div>
           <div><span>Human authorization</span><strong>{authorizationState}</strong></div>
           {hasBoundAuthorization && <div><span>Authorized by</span><strong>{action.remediationAuthorizedBy}</strong></div>}
           {hasBoundAuthorization && action.remediationAuthorizedAt && <div><span>Authorized at</span><strong>{authorizationTimestamp(action.remediationAuthorizedAt)}</strong></div>}
+          <div><span>One-time authorization proof</span><strong>{proofState}</strong></div>
+          <div><span>T3N execution proof check</span><strong>{t3nProofState}</strong></div>
+          <div><span>Protected Executor identity</span><strong>{executorBindingState}</strong></div>
         </div>
       )}
       {legacyAuthorizationNeedsRebind && <div className="feedback feedback-error remediation-status-message" role="alert"><CircleAlert aria-hidden="true" /><span>This authorization predates operator provenance binding. Re-authorize it with the current authenticated operator before protected execution.</span></div>}
       {hasVerifiedExecutor && action && decisionCanExecute && !action.host && <div className="feedback feedback-error remediation-status-message" role="alert"><CircleAlert aria-hidden="true" /><span>Execution is blocked because this action has no approved destination. Create and evaluate a new action before authorizing remediation.</span></div>}
       {canAuthorize && <button className="button button-primary" type="button" onClick={onAuthorize} disabled={busy}><ShieldCheck aria-hidden="true" />{legacyAuthorizationNeedsRebind ? 'Re-authorize credential revocation' : 'Authorize credential revocation'}</button>}
       {canExecute && <>
-        <div className="success-state"><ShieldCheck aria-hidden="true" /><span>Human authorization binds the authenticated operator, exact destination and trusted payload. T3N will serialize only the policy-allowed subset shown above.</span></div>
+        <div className="success-state"><ShieldCheck aria-hidden="true" /><span>Human authorization is bound to the authenticated operator, exact destination, trusted payload, policy and Protected Executor. Execution issues an Ed25519-signed one-time proof that is checked by the gateway and again inside T3N before protected egress.</span></div>
         <button className="button button-primary" type="button" onClick={onExecute} disabled={busy}><PlayCircle aria-hidden="true" />Execute protected credential revocation</button>
       </>}
 
@@ -98,7 +104,7 @@ export function RemediationPanel({ action, decision, execution, busy, onAuthoriz
         </div>
       )}
 
-      {hasVerifiedExecutor && execution?.state === 'PENDING_VERIFICATION' && <div className="inline-notice remediation-status-message"><Clock3 aria-hidden="true" /><span>The side effect was accepted, but completion still depends on independent verification.</span></div>}
+      {hasVerifiedExecutor && execution?.state === 'PENDING_VERIFICATION' && <div className="inline-notice remediation-status-message"><Clock3 aria-hidden="true" /><span>The one-time proof passed the protected T3N execution boundary and the side effect was accepted, but completion still depends on independent verification.</span></div>}
       {hasVerifiedExecutor && execution?.state === 'UNVERIFIED' && <div className="inline-notice remediation-status-message"><CircleAlert aria-hidden="true" /><span>The outcome is ambiguous or the external state was not confirmed. The system will not send the side effect again automatically.</span></div>}
       {hasVerifiedExecutor && destinationChanged && <div className="feedback feedback-error remediation-status-message" role="alert"><CircleAlert aria-hidden="true" /><span>Destination changed. The protected configuration no longer matches the destination that was approved. Create a new action, evaluate the intended destination, and authorize it before executing again.</span></div>}
       {hasVerifiedExecutor && execution?.state === 'FAILED' && !destinationChanged && <div className="feedback feedback-error remediation-status-message"><CircleAlert aria-hidden="true" /><span>Execution failed before a verified completion state. Review the audit trail before any new action.</span></div>}

@@ -12,6 +12,7 @@ wit_bindgen::generate!({
     generate_all,
 });
 
+pub mod authorization;
 pub mod policy;
 pub mod remediation;
 

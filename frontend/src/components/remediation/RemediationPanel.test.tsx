@@ -54,19 +54,23 @@ function renderPanel(
 }
 
 describe('RemediationPanel', () => {
-  it('shows the exact approved destination, human provenance and trusted protected payload before execution', () => {
+  it('shows the exact destination, human provenance, proof boundary and trusted payload before execution', () => {
     renderPanel(null);
     expect(screen.getByText('Approved destination')).toBeInTheDocument();
     expect(screen.getByText('postman-echo.com')).toBeInTheDocument();
     expect(screen.getByText('Authorized by')).toBeInTheDocument();
     expect(screen.getByText('ops-reviewer')).toBeInTheDocument();
     expect(screen.getByText('Authorized at')).toBeInTheDocument();
+    expect(screen.getByText('One-time authorization proof')).toBeInTheDocument();
+    expect(screen.getByText('ISSUED ON EXECUTE')).toBeInTheDocument();
+    expect(screen.getByText('T3N execution proof check')).toBeInTheDocument();
+    expect(screen.getByText('NOT RUN')).toBeInTheDocument();
     expect(screen.getByText('Requested fields')).toBeInTheDocument();
     expect(screen.getByText('Allowed for egress')).toBeInTheDocument();
     expect(screen.getByText('Trusted synthetic values')).toBeInTheDocument();
     expect(screen.getByText('Protected egress payload')).toBeInTheDocument();
     expect(screen.getAllByText('reason=suspected compromise').length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText(/binds the authenticated operator, exact destination and trusted payload/i)).toBeInTheDocument();
+    expect(screen.getByText(/Ed25519-signed one-time proof/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Execute protected credential revocation' })).toBeInTheDocument();
   });
 
@@ -137,6 +141,13 @@ describe('RemediationPanel', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/authorize it before executing again/i);
   });
 
+  it('marks the T3N proof boundary verified only after protected execution returns an HTTP result', () => {
+    renderPanel(execution('PENDING_VERIFICATION'));
+    const proofRegion = screen.getByRole('region', { name: 'Approved remediation destination and authorization proof status' });
+    expect(within(proofRegion).getByText('VERIFIED')).toBeInTheDocument();
+    expect(within(proofRegion).getByText('BOUND TO VERIFIED PROOF')).toBeInTheDocument();
+  });
+
   it('does not call accepted execution completed while verification is pending', () => {
     renderPanel(execution('PENDING_VERIFICATION'));
     expect(screen.getByText('PENDING')).toBeInTheDocument();
@@ -155,7 +166,7 @@ describe('RemediationPanel', () => {
 
   it('labels completed only after verified read-back', () => {
     renderPanel(execution('COMPLETED', { completedAt: '2026-09-12T18:00:03Z' }));
-    expect(screen.getByText('VERIFIED')).toBeInTheDocument();
+    expect(screen.getAllByText('VERIFIED').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('COMPLETED')).toBeInTheDocument();
     expect(screen.getByText(/Independent read-back verified the expected external state/i)).toBeInTheDocument();
   });
