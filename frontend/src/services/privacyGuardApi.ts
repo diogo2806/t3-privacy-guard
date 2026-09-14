@@ -35,7 +35,7 @@ export interface AuditProvenance { localAvailable: boolean; t3nAvailable: boolea
 export interface AuditIntegrity { state: AuditIntegrityState; eventsChecked: number; head?: string | null; version?: string | null; detail: string; }
 export interface AuditEvidence { localEvents: LocalAuditEvidence[]; t3nEvents: T3nActivityEvidence[]; provenance: AuditProvenance; integrity: AuditIntegrity; nextSequence?: number | null; limit: number; }
 export interface ExecutionTraceEvent { id: string; incidentId: string; actionId: string; traceId: string; requestId: string; stage: string; state: string; reasonCode?: string | null; durationMs?: number | null; createdAt: string; }
-export interface OperatorSession { authenticated: boolean; username?: string | null; authorities: HumanAuthority[]; enterpriseSeparationOfDuties: boolean; }
+export interface OperatorSession { authenticated: boolean; username?: string | null; authorities?: HumanAuthority[]; enterpriseSeparationOfDuties?: boolean; }
 export interface AgentAnalysis { provider: string; model: string; incident: Incident; action: ActionProposal; decision: PolicyDecision; }
 export interface RemediationExecution { incidentId: string; actionId: string; requestId: string; state: RemediationState; httpCode?: number | null; operationId?: string | null; verificationAttempts: number; failureCode?: string | null; startedAt: string; completedAt?: string | null; executionPrincipal?: string | null; }
 export interface EnterpriseVerificationContract { action: string; expectedState: string; }
