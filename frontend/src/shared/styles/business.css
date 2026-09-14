@@ -33,12 +33,15 @@
 .control-impact-coverage, .control-impact-note, .control-impact-state { margin: 0; color: var(--text-tertiary); font-size: var(--font-size-xs); line-height: 1.55; }
 .control-impact-coverage strong { color: var(--text-secondary); }
 .control-impact-state { padding: var(--space-3); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--surface-1); }
-.control-impact-compact { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border-subtle); border-radius: var(--radius); background: var(--surface-1); }
-.control-impact-compact-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
-.control-impact-compact-heading h2 { margin: 0; font-size: var(--font-size-sm); }
-.control-impact-compact-heading > span { color: var(--text-tertiary); font-size: var(--font-size-xs); font-weight: var(--font-weight-strong); letter-spacing: .05em; }
-.control-impact-compact-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-2); }
-.control-impact-compact-metrics strong { min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); color: var(--text-primary); font-size: var(--font-size-lg); }
-.control-impact-compact-metrics span { color: var(--text-tertiary); font-size: var(--font-size-xs); font-weight: var(--font-weight-strong); text-transform: uppercase; letter-spacing: .04em; }
-@media (max-width: 1080px) { .business-outcome-sections { grid-template-columns: 1fr; } .control-impact-primary-grid, .control-impact-compact-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 720px) { .business-context-grid, .scenario-business-context, .control-impact-detail-grid, .control-impact-primary-grid, .control-impact-compact-metrics { grid-template-columns: 1fr; } .control-impact-card .card-heading, .control-impact-compact-heading { align-items: stretch; flex-direction: column; } .control-impact-window { justify-content: flex-start; margin-left: 0; } .control-impact-detail-grid dl > div { grid-template-columns: 1fr; } .control-impact-detail-grid dd { justify-content: flex-start; text-align: left; } }
+.control-impact-compact { display: grid; grid-template-columns: minmax(180px, .8fr) minmax(0, 3fr); align-items: center; gap: .35rem .8rem; padding: .5rem .7rem; border: 1px solid var(--border-subtle); border-radius: var(--radius); background: var(--surface-1); }
+.control-impact-compact-heading { display: flex; align-items: center; justify-content: space-between; gap: .5rem; min-width: 0; }
+.control-impact-compact-heading .eyebrow { margin: 0; }
+.control-impact-compact-heading h2 { margin: .1rem 0 0; font-size: .78rem; line-height: 1.15; }
+.control-impact-compact-heading > span { color: var(--text-tertiary); font-size: .65rem; font-weight: var(--font-weight-strong); letter-spacing: .04em; white-space: nowrap; }
+.control-impact-compact-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .45rem; }
+.control-impact-compact-metrics strong { min-width: 0; display: flex; align-items: baseline; gap: .3rem; color: var(--text-primary); font-size: .95rem; line-height: 1.1; white-space: nowrap; }
+.control-impact-compact-metrics span { overflow: hidden; color: var(--text-tertiary); font-size: .65rem; font-weight: var(--font-weight-strong); text-transform: uppercase; letter-spacing: .03em; text-overflow: ellipsis; }
+.control-impact-compact .control-impact-note { grid-column: 1 / -1; font-size: .68rem; line-height: 1.2; }
+.control-impact-compact .control-impact-state { grid-column: 2; padding: 0; border: 0; background: transparent; font-size: .75rem; }
+@media (max-width: 1080px) { .business-outcome-sections { grid-template-columns: 1fr; } .control-impact-primary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .control-impact-compact { grid-template-columns: 1fr; } .control-impact-compact-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); } .control-impact-compact .control-impact-state { grid-column: 1; } }
+@media (max-width: 720px) { .business-context-grid, .scenario-business-context, .control-impact-detail-grid, .control-impact-primary-grid, .control-impact-compact-metrics { grid-template-columns: 1fr; } .control-impact-card .card-heading, .control-impact-compact-heading { align-items: stretch; flex-direction: column; } .control-impact-window { justify-content: flex-start; margin-left: 0; } .control-impact-detail-grid dl > div { grid-template-columns: 1fr; } .control-impact-detail-grid dd { justify-content: flex-start; text-align: left; } .control-impact-compact-metrics strong { white-space: normal; } }
