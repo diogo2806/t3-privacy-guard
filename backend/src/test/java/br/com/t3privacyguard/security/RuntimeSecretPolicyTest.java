@@ -5,17 +5,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import br.com.t3privacyguard.audit.AuditIntegrityKeyring;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.core.userdetails.UserDetailsService;
 
 class RuntimeSecretPolicyTest {
     @Test
     void rejectsDocumentedOperatorUsernameBeforeCreatingPrincipal() {
         SecurityConfig config = new SecurityConfig();
 
-        assertThatThrownBy(() -> config.operatorUserDetailsService(
-            "replace-with-operator-username",
-            "runtime-operator-password",
-            config.passwordEncoder()
-        ))
+        assertThatThrownBy(() -> localUsers(config, "replace-with-operator-username", "runtime-operator-password"))
             .isInstanceOf(IllegalStateException.class)
             .hasMessage("OPERATOR_USERNAME must be replaced with a runtime-specific value");
     }
@@ -24,25 +21,42 @@ class RuntimeSecretPolicyTest {
     void rejectsDocumentedOperatorPasswordBeforeCreatingPrincipal() {
         SecurityConfig config = new SecurityConfig();
 
-        assertThatThrownBy(() -> config.operatorUserDetailsService(
-            "runtime-operator",
-            "replace-with-strong-operator-password",
-            config.passwordEncoder()
-        ))
+        assertThatThrownBy(() -> localUsers(config, "runtime-operator", "replace-with-strong-operator-password"))
             .isInstanceOf(IllegalStateException.class)
             .hasMessage("OPERATOR_PASSWORD must be replaced with a runtime-specific value");
     }
 
     @Test
-    void acceptsRuntimeSpecificOperatorCredentials() {
+    void acceptsRuntimeSpecificOperatorCredentialsWithAllLocalSemanticAuthorities() {
         SecurityConfig config = new SecurityConfig();
-        var users = config.operatorUserDetailsService(
-            "runtime-operator",
-            "runtime-operator-password",
-            config.passwordEncoder()
-        );
+        var users = localUsers(config, "runtime-operator", "runtime-operator-password");
+        var user = users.loadUserByUsername("runtime-operator");
 
-        assertThat(users.loadUserByUsername("runtime-operator").getUsername()).isEqualTo("runtime-operator");
+        assertThat(user.getUsername()).isEqualTo("runtime-operator");
+        assertThat(user.getAuthorities()).extracting("authority")
+            .containsExactlyInAnyOrder("ROLE_ANALYST", "ROLE_APPROVER", "ROLE_EXECUTOR", "ROLE_AUDITOR");
+    }
+
+    @Test
+    void enterpriseModeRequiresDistinctHumanPrincipals() {
+        SecurityConfig config = new SecurityConfig();
+
+        assertThatThrownBy(() -> config.operatorUserDetailsService(
+            true,
+            "",
+            "",
+            "shared-human",
+            "analyst-password",
+            "shared-human",
+            "approver-password",
+            "executor-01",
+            "executor-password",
+            "auditor-01",
+            "auditor-password",
+            config.passwordEncoder()
+        ))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessage("Enterprise separation of duties requires four distinct human principals");
     }
 
     @Test
@@ -71,5 +85,22 @@ class RuntimeSecretPolicyTest {
         );
 
         assertThat(keyring.currentKeyId()).isEqualTo("primary");
+    }
+
+    private static UserDetailsService localUsers(SecurityConfig config, String username, String password) {
+        return config.operatorUserDetailsService(
+            false,
+            username,
+            password,
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            config.passwordEncoder()
+        );
     }
 }
