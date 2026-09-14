@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { ChevronRight, ListChecks, RefreshCw } from 'lucide-react';
 import type { IncidentWorkspace, IncidentWorkspaceItem, IncidentWorkspaceStage } from '../../services/privacyGuardApi';
 import { Button } from '../ui/Button';
@@ -16,6 +17,8 @@ interface IncidentWorkspaceQueueProps {
   onRetry: () => void;
   onRetrySelected: () => void;
 }
+
+type SourceFilter = 'ALL' | 'EXTERNAL' | 'DEMO';
 
 const STAGE_LABELS: Record<IncidentWorkspaceStage, string> = {
   NEEDS_ANALYSIS: 'Needs analysis',
@@ -48,6 +51,16 @@ function attentionLabel(count: number): string {
   return count === 1 ? '1 incident needs attention' : `${count} incidents need attention`;
 }
 
+function originLabel(item: IncidentWorkspaceItem): string {
+  return item.originType === 'EXTERNAL' ? 'External' : 'Demo / app';
+}
+
+function matchesSourceFilter(item: IncidentWorkspaceItem, filter: SourceFilter): boolean {
+  if (filter === 'ALL') return true;
+  if (filter === 'EXTERNAL') return item.originType === 'EXTERNAL';
+  return item.originType !== 'EXTERNAL';
+}
+
 export function IncidentWorkspaceQueue({
   workspace,
   selectedIncidentId,
@@ -59,7 +72,9 @@ export function IncidentWorkspaceQueue({
   onRetry,
   onRetrySelected,
 }: IncidentWorkspaceQueueProps) {
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('ALL');
   const incidents = workspace?.incidents ?? [];
+  const visibleIncidents = incidents.filter((item) => matchesSourceFilter(item, sourceFilter));
   const attentionCount = workspace?.attentionCount ?? 0;
 
   return (
@@ -73,6 +88,12 @@ export function IncidentWorkspaceQueue({
         trailing={<StatusBadge tone={attentionCount > 0 ? 'high' : 'low'}>{attentionLabel(attentionCount)}</StatusBadge>}
       />
       <p className="card-copy">Select any active incident to resume its existing protected flow. Selecting a case never authorizes, executes, or verifies an action.</p>
+      <p className="card-copy" role="group" aria-label="Source filter">
+        <strong>Source filter:</strong>{' '}
+        <Button variant={sourceFilter === 'ALL' ? 'primary' : 'ghost'} aria-pressed={sourceFilter === 'ALL'} onClick={() => setSourceFilter('ALL')}>All</Button>{' '}
+        <Button variant={sourceFilter === 'EXTERNAL' ? 'primary' : 'ghost'} aria-pressed={sourceFilter === 'EXTERNAL'} onClick={() => setSourceFilter('EXTERNAL')}>External</Button>{' '}
+        <Button variant={sourceFilter === 'DEMO' ? 'primary' : 'ghost'} aria-pressed={sourceFilter === 'DEMO'} onClick={() => setSourceFilter('DEMO')}>Demo</Button>
+      </p>
 
       {loading && <p className="incident-workspace-status" role="status">Loading active incidents…</p>}
 
@@ -93,9 +114,16 @@ export function IncidentWorkspaceQueue({
         </div>
       )}
 
-      {!loading && !error && incidents.length > 0 && (
+      {!loading && !error && incidents.length > 0 && visibleIncidents.length === 0 && (
+        <div className="incident-workspace-empty">
+          <strong>No incidents match this source filter.</strong>
+          <p>Choose another source filter to review the remaining active incidents.</p>
+        </div>
+      )}
+
+      {!loading && !error && visibleIncidents.length > 0 && (
         <ul className="incident-workspace-list" aria-label="Active incidents">
-          {incidents.map((item) => {
+          {visibleIncidents.map((item) => {
             const selected = selectedIncidentId === item.id;
             return (
               <li key={item.id}>
@@ -103,17 +131,18 @@ export function IncidentWorkspaceQueue({
                   type="button"
                   className={`incident-workspace-row${selected ? ' incident-workspace-row-selected' : ''}`}
                   aria-current={selected ? 'true' : undefined}
-                  aria-label={`Open ${item.title}. ${STAGE_LABELS[item.stage]}. Next action: ${item.nextRequiredAction}.`}
+                  aria-label={`Open ${item.title}. ${originLabel(item)}. Source: ${item.source}. ${STAGE_LABELS[item.stage]}. Next action: ${item.nextRequiredAction}.`}
                   onClick={() => onSelect(item)}
                 >
                   <StatusBadge tone={item.severity.toLowerCase() as StatusBadgeTone}>{item.severity}</StatusBadge>
                   <span className="incident-workspace-main">
                     <strong>{item.title}</strong>
-                    <small>{item.nextRequiredAction}</small>
+                    <small>{originLabel(item)} · Source: {item.source}</small>
+                    <small>Next action: {item.nextRequiredAction}</small>
                   </span>
                   <span className="incident-workspace-state">
                     <StatusBadge tone={stageTone(item.stage)}>{STAGE_LABELS[item.stage]}</StatusBadge>
-                    <time dateTime={item.createdAt}>{formatCreatedAt(item.createdAt)}</time>
+                    <time dateTime={item.createdAt}>Received {formatCreatedAt(item.createdAt)}</time>
                   </span>
                   <ChevronRight aria-hidden="true" />
                 </button>
