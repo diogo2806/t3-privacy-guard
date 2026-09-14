@@ -47,6 +47,7 @@ async function captureExecutiveViewport(page: import('@playwright/test').Page, f
   expect(box).not.toBeNull();
   expect(box!.width).toBeLessThanOrEqual(1440);
   expect(box!.height).toBeLessThanOrEqual(900);
+  await expect(page.getByTestId('executive-brand-mark')).toBeInViewport();
   await expect(page.getByRole('heading', { name: 'AI can propose. Policy decides. Humans authorize. T3N executes.' })).toBeInViewport();
   await expect(page.getByRole('heading', { name: 'Business risk' })).toBeInViewport();
   await expect(page.getByRole('heading', { name: 'Observed outcome' })).toBeInViewport();

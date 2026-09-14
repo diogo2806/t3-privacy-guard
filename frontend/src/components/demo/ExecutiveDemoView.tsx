@@ -17,6 +17,7 @@ import type {
   RemediationExecution,
   SystemStatus,
 } from '../../services/privacyGuardApi';
+import { PrivacyGuardMark } from '../brand/PrivacyGuardMark';
 import { formatObservedDuration } from '../business/BusinessOutcomeSummary';
 import { ScreenManualDialog } from '../manual/ScreenManualDialog';
 import type { EnterpriseScenarioDefinition } from '../scenarios/scenarioDefinitions';
@@ -180,7 +181,10 @@ export function ExecutiveDemoView({
     <Surface className="executive-demo" elevated aria-labelledby="executive-demo-title" data-testid="executive-demo-view">
       <header className="executive-demo-header">
         <div>
-          <p className="eyebrow">T3 Privacy Guard · Executive demo</p>
+          <div className="executive-demo-product-lockup">
+            <PrivacyGuardMark className="executive-demo-brand-mark" testId="executive-brand-mark" />
+            <p className="eyebrow">T3 Privacy Guard · Executive demo</p>
+          </div>
           <h1 id="executive-demo-title">AI can propose. Policy decides. Humans authorize. T3N executes.</h1>
           <p className="executive-demo-subheadline">Keep model recommendations useful without making the model the authority over identity, private data or privileged side effects.</p>
         </div>
