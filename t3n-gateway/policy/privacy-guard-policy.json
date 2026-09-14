@@ -1,5 +1,5 @@
 {
-  "version": "2026-09-12.1",
+  "version": "2026-09-13.1",
   "actions": {
     "create-incident": {
       "purpose": "incident-recording",
@@ -23,7 +23,7 @@
       "allowed_hosts": ["postman-echo.com", "security-api.internal"],
       "allowed_private_refs": ["verified_email"],
       "requires_host": true,
-      "requires_human_authorization": false
+      "requires_human_authorization": true
     },
     "revoke-credential": {
       "purpose": "incident-remediation",
