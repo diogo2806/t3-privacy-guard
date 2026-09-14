@@ -43,7 +43,7 @@
 .executive-demo-block-title { display: flex; align-items: center; gap: .45rem; }
 .executive-demo-block-title svg { width: 18px; height: 18px; color: var(--brand); }
 .executive-demo-block-title h2 { margin: 0; font-size: .8rem; letter-spacing: .05em; text-transform: uppercase; }
-.executive-demo-outcome { color: var(--text-primary); font-size: clamp(1.25rem, 2vw, 1.5rem) !important; line-height: 1.15; }
+.executive-demo-block > strong.executive-demo-outcome { color: var(--text-primary); font-size: clamp(1.25rem, 2vw, 1.5rem); line-height: 1.15; }
 .executive-demo-inline-facts { display: flex; flex-wrap: wrap; gap: .8rem 1.2rem; margin: .55rem 0 0; }
 .executive-demo-inline-facts > div { min-width: 0; }
 .executive-demo-inline-facts dt,
