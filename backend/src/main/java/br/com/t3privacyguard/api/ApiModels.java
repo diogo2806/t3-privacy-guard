@@ -144,12 +144,23 @@ public final class ApiModels {
         Long nextSequence,
         int limit
     ) {}
-
+    public record ExecutionTraceResponse(
+        String id,
+        String incidentId,
+        String actionId,
+        String traceId,
+        String requestId,
+        String stage,
+        String state,
+        String reasonCode,
+        Long durationMs,
+        Instant createdAt
+    ) {}
     public record RemediationAuthorizationResponse(
         String incidentId,
         String actionId,
         String requestId,
-        ProposalStatus state,
+        String state,
         String authorizedBy,
         Instant authorizedAt
     ) {}
@@ -163,27 +174,24 @@ public final class ApiModels {
         int verificationAttempts,
         String failureCode,
         Instant startedAt,
-        Instant completedAt
-    ) {}
-    public record ExecutionTraceResponse(
-        String id,
-        String incidentId,
-        String actionId,
-        String traceId,
-        String requestId,
-        String stage,
-        String state,
-        String reasonCode,
-        Long durationMs,
-        Instant createdAt
-    ) {}
-
-    public record AgentAnalysisRequest(@NotBlank @Size(max = 4000) String prompt) {}
-    public record AgentAnalysisResponse(
-        String provider,
-        String model,
-        IncidentResponse incident,
-        ActionResponse action,
-        DecisionResponse decision
-    ) {}
+        Instant completedAt,
+        String executionPrincipal
+    ) {
+        public RemediationExecutionResponse(
+            String incidentId,
+            String actionId,
+            String requestId,
+            String state,
+            Integer httpCode,
+            String operationId,
+            int verificationAttempts,
+            String failureCode,
+            Instant startedAt,
+            Instant completedAt
+        ) {
+            this(incidentId, actionId, requestId, state, httpCode, operationId, verificationAttempts, failureCode, startedAt, completedAt, null);
+        }
+    }
+    public record AnalyzeAgentRequest(@NotBlank @Size(max = 4000) String prompt) {}
+    public record AgentAnalysisResponse(String provider, String model, IncidentResponse incident, ActionResponse action, DecisionResponse decision) {}
 }
