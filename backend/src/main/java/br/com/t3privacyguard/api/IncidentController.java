@@ -102,7 +102,7 @@ public class IncidentController {
         @PathVariable String actionId,
         Authentication authentication
     ) {
-        separationOfDuties.requireExecutorPrincipal(actionId, authentication);
+        separationOfDuties.requireExecutorPrincipal(incidentId, actionId, authentication);
         return service.executeRemediation(incidentId, actionId);
     }
 
@@ -112,7 +112,7 @@ public class IncidentController {
         @PathVariable String actionId,
         Authentication authentication
     ) {
-        separationOfDuties.requireExecutorPrincipal(actionId, authentication);
+        separationOfDuties.requireExecutorPrincipal(incidentId, actionId, authentication);
         return service.verifyRemediation(incidentId, actionId);
     }
 
