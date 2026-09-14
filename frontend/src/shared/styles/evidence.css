@@ -8,7 +8,7 @@
 .evidence-empty > svg { color: var(--brand); width: 34px; height: 34px; }
 .evidence-empty h2, .evidence-empty p { margin: 0; }
 .evidence-empty p { color: var(--text-secondary); }
-.evidence-summary { border-color: rgba(34, 211, 238, .35); }
+.evidence-summary { border-color: var(--brand-border); }
 .evidence-summary-totals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; margin: 1rem 0; }
 .evidence-summary-metric { display: grid; gap: .2rem; min-width: 0; padding: .85rem; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--surface-1); }
 .evidence-summary-metric strong { font-size: clamp(1.15rem, 3vw, 1.55rem); overflow-wrap: anywhere; }

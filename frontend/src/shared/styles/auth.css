@@ -1,9 +1,9 @@
 .auth-panel,
 .operator-session-bar {
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  background: rgba(13, 26, 44, .92);
-  box-shadow: var(--shadow);
+  background: var(--surface-translucent);
+  box-shadow: var(--shadow-raised);
   margin-bottom: 1rem;
   padding: 1rem;
 }
@@ -20,7 +20,7 @@
 }
 
 .auth-help {
-  color: var(--muted);
+  color: var(--text-tertiary);
   margin: 0;
   max-width: 62ch;
 }
@@ -31,7 +31,7 @@
 }
 
 .auth-form label {
-  color: var(--muted);
+  color: var(--text-tertiary);
   display: grid;
   font-size: .875rem;
   font-weight: 700;
@@ -39,17 +39,17 @@
 }
 
 .auth-form input {
-  background: var(--surface-soft);
+  background: var(--surface-1);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
-  color: var(--text);
+  color: var(--text-primary);
   font: inherit;
   min-height: 44px;
   padding: 0 .75rem;
 }
 
 .auth-form input:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -77,7 +77,7 @@
 }
 
 .operator-session-identity span {
-  color: var(--muted);
+  color: var(--text-tertiary);
   font-size: .72rem;
   font-weight: 700;
   letter-spacing: .08em;

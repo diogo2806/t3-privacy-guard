@@ -3,6 +3,14 @@ import { describe, expect, it } from 'vitest';
 
 const tokensCss = readFileSync(new URL('./tokens.css', import.meta.url), 'utf8');
 const dashboardCss = readFileSync(new URL('./dashboard.css', import.meta.url), 'utf8');
+const semanticStyleFiles = [
+  'auth.css',
+  'buttons.css',
+  'dashboard.css',
+  'evidence.css',
+  'presentation.css',
+  'trust.css',
+] as const;
 
 function tokenHex(name: string): string {
   const match = tokensCss.match(new RegExp(`--${name}:\\s*(#[0-9a-fA-F]{6})`));
@@ -37,5 +45,13 @@ describe('critical visual accessibility tokens', () => {
   it('does not reintroduce the legacy low-contrast audit color', () => {
     expect(dashboardCss.toLowerCase()).not.toContain('#60758f');
     expect(dashboardCss).toContain('.audit-list time, .audit-list small { display: block; color: var(--text-tertiary);');
+  });
+
+  it('keeps semantic component styles free from ad hoc color literals', () => {
+    for (const file of semanticStyleFiles) {
+      const css = readFileSync(new URL(`./${file}`, import.meta.url), 'utf8');
+      expect(css, `${file} rgba literal`).not.toMatch(/rgba?\(/i);
+      expect(css, `${file} hex literal`).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+    }
   });
 });

@@ -6,7 +6,7 @@
 .button:disabled, .icon-button:disabled { cursor: not-allowed; opacity: .5; }
 .button-primary { background: var(--brand-strong); color: var(--text-inverse); }
 .button-secondary { background: var(--surface-2); border-color: var(--border-strong); }
-.button-danger { background: var(--danger); color: #25070d; }
+.button-danger { background: var(--danger); color: var(--text-on-danger); }
 .button-ghost { background: transparent; border-color: var(--border-subtle); color: var(--text-secondary); }
 .icon-button { display: grid; width: 40px; height: 40px; place-items: center; background: var(--interactive-surface); border-color: var(--border-default); }
 @media (prefers-reduced-motion: reduce) {
