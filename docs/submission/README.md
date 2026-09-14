@@ -317,7 +317,7 @@ AUTHENTICATED
   session/key identity proved
 
 REGISTERED
-  public Proposal Agent Card resolved for the same DID
+  public Proposal Agent Card resolved for same DID
 
 MEMBER GRANT ACTIVE
   Tenant-side grant record exists and its validity window is active
@@ -942,3 +942,30 @@ AUDITOR   -> review the resulting history/evidence without mutation controls
 The original single-login quick path applies only to local/demo mode. In enterprise mode, authorizing and then trying to execute with the same principal must fail closed even if that account somehow has both application roles.
 
 Required enterprise application-IAM variables are `ENTERPRISE_SOD_ENABLED`, `ANALYST_USERNAME`, `ANALYST_PASSWORD`, `APPROVER_USERNAME`, `APPROVER_PASSWORD`, `EXECUTOR_USERNAME`, `EXECUTOR_PASSWORD`, `AUDITOR_USERNAME` and `AUDITOR_PASSWORD`. These credentials do not replace T3N delegation, DIDs, the Protected Executor credential, policy provenance or the signed one-time execution capability.
+
+## Measured control impact reading contract
+
+The authenticated `GET /api/business-impact` endpoint converts persisted runtime outcomes into aggregate operational evidence without introducing a second policy, authorization, remediation or evidence engine. It exposes only counts, timing values and state totals; it does not return prompts, payload values, private values or operator usernames.
+
+Supported observation windows are `retained`, `24h` and `7d`. The effective interval is always constrained by configured retention, and the response returns `from`, `to` and `retentionLimited` so a short retained history is never presented as complete historical coverage.
+
+The aggregate formulas are intentionally explicit:
+
+```text
+blockedRatePct = DENY / evaluated decisions * 100
+
+finalizedExecutions = COMPLETED + UNVERIFIED + FAILED
+verifiedCompletionRatePct = COMPLETED / finalizedExecutions * 100
+
+decisionLatency = decision.evaluatedAt - action.createdAt
+verifiedOutcomeLatency = remediation.completedAt - action.createdAt
+                         only for COMPLETED
+```
+
+When a denominator does not exist, the API returns `null` and the UI renders `NOT OBSERVED`; it never converts absence of evidence into `0%`. Median latency ignores impossible negative durations instead of reporting them. `PENDING_VERIFICATION` and `EXECUTING` do not enter the finalized-success denominator. `UNVERIFIED` and `FAILED` remain explicit non-success states.
+
+Minimization metrics count `REDACT` decisions and the persisted names of redacted normal fields/private references. They do not count bytes, people, records saved or incidents prevented. Corrupt persisted minimization metadata fails instead of producing an invented count.
+
+The full **Measured control impact** component belongs to Protection flow and supports the observation-window selector. Executive Demo receives only the compact summary needed for fast product comprehension: blocked, minimized, verified and median decision time. Both surfaces reuse the same server-calculated data; React does not maintain a competing aggregate formula.
+
+Financial ROI is deliberately outside the runtime claim boundary. The product does not infer money saved, breach cost avoided, risk-reduction percentage, SLA compliance or compliance guarantees from these operational measurements. Those outcomes require customer-specific inputs that are not persisted by this challenge implementation.
