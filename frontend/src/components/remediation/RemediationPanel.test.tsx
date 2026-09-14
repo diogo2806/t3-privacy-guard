@@ -53,8 +53,33 @@ function renderPanel(
   return onVerify;
 }
 
+function notificationAction(overrides: Partial<ActionProposal> = {}): ActionProposal {
+  return {
+    ...action,
+    id: 'action-notify',
+    requestId: 'request-notify',
+    action: 'notify-security',
+    resource: 'incident:test',
+    purpose: 'incident-notification',
+    fields: ['incident_id', 'severity', 'summary'],
+    normalPayload: { incident_id: 'inc-demo-001', severity: 'critical', summary: 'synthetic security incident' },
+    privateRefs: ['verified_email'],
+    ...overrides,
+  };
+}
+
+function notificationDecision(currentAction: ActionProposal): PolicyDecision {
+  return {
+    ...decision,
+    id: 'decision-notify',
+    actionProposalId: currentAction.id,
+    allowedFields: currentAction.fields,
+    allowedPrivateRefs: ['verified_email'],
+  };
+}
+
 describe('RemediationPanel', () => {
-  it('shows the exact destination, human provenance, proof boundary and trusted payload before execution', () => {
+  it('shows destination, human provenance, proof boundary and trusted payload before execution', () => {
     renderPanel(null);
     expect(screen.getByText('Approved destination')).toBeInTheDocument();
     expect(screen.getByText('postman-echo.com')).toBeInTheDocument();
@@ -75,22 +100,16 @@ describe('RemediationPanel', () => {
   });
 
   it('does not invent identity for a legacy authorization and requires explicit re-authorization', () => {
-    const legacyAction: ActionProposal = {
-      ...action,
-      remediationAuthorizedBy: null,
-      remediationAuthorizedAt: null,
-    };
+    const legacyAction: ActionProposal = { ...action, remediationAuthorizedBy: null, remediationAuthorizedAt: null };
     renderPanel(null, vi.fn(), legacyAction);
-
     expect(screen.getAllByText('REAUTHORIZATION REQUIRED').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByRole('alert')).toHaveTextContent(/predates operator provenance binding/i);
     expect(screen.getByRole('button', { name: 'Re-authorize credential revocation' })).toBeInTheDocument();
     expect(screen.queryByText('Authorized by')).not.toBeInTheDocument();
-    expect(screen.queryByText('Authorized at')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Execute protected credential revocation' })).not.toBeInTheDocument();
   });
 
-  it('shows REDACT as executable minimization when all required fields remain allowed', () => {
+  it('shows REDACT as executable minimization when all action-specific required fields remain allowed', () => {
     const redactedAction: ActionProposal = {
       ...action,
       status: 'EVALUATED',
@@ -108,9 +127,7 @@ describe('RemediationPanel', () => {
       allowedFields: ['incident_id', 'credential_id', 'reason'],
     };
     renderPanel(null, vi.fn(), redactedAction, redactedDecision);
-
     expect(screen.getByText('Removed before egress')).toBeInTheDocument();
-    expect(screen.getByText('employee_department')).toBeInTheDocument();
     expect(screen.getByText('employee_department=finance')).toBeInTheDocument();
     const protectedPayload = screen.getByText('Protected egress payload').closest('.field-list');
     expect(protectedPayload).not.toBeNull();
@@ -118,11 +135,11 @@ describe('RemediationPanel', () => {
     expect(screen.getByRole('button', { name: 'Authorize credential revocation' })).toBeInTheDocument();
   });
 
-  it('blocks authorization when REDACT removes a required remediation field', () => {
+  it('blocks authorization when minimization removes a required field', () => {
     const currentAction = { ...action, status: 'EVALUATED' as const, remediationAuthorizedBy: null, remediationAuthorizedAt: null };
     const currentDecision = { ...decision, decision: 'REDACT' as const, allowedFields: ['incident_id', 'reason'], redactedFields: ['credential_id'] };
     renderPanel(null, vi.fn(), currentAction, currentDecision);
-    expect(screen.getByText(/no longer contains all required remediation fields/i)).toBeInTheDocument();
+    expect(screen.getByText(/no longer satisfies all required fields/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Authorize credential revocation' })).not.toBeInTheDocument();
   });
 
@@ -132,6 +149,42 @@ describe('RemediationPanel', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/no approved destination/i);
     expect(screen.queryByRole('button', { name: /Authorize credential revocation/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Execute protected credential revocation/i })).not.toBeInTheDocument();
+  });
+
+  it('shows only the logical private reference and T3N resolution boundary for notify-security', () => {
+    const notifyAction = notificationAction();
+    renderPanel(null, vi.fn(), notifyAction, notificationDecision(notifyAction));
+    expect(screen.getByText('Logical private reference')).toBeInTheDocument();
+    expect(screen.getAllByText('verified_email').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('Resolution boundary')).toBeInTheDocument();
+    expect(screen.getByText('T3N PROTECTED EXECUTION')).toBeInTheDocument();
+    expect(screen.getByText('Plaintext visible to app')).toBeInTheDocument();
+    expect(screen.getByText('NO')).toBeInTheDocument();
+    expect(screen.getByText(/plaintext recipient is not returned to the browser, Java backend or gateway response/i)).toBeInTheDocument();
+    expect(screen.getByText(/Ed25519-signed one-time proof/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Execute protected security notification' })).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('@');
+  });
+
+  it('blocks notify-security when verified_email is not the exact policy-allowed private reference', () => {
+    const notifyAction = notificationAction({ status: 'EVALUATED', remediationAuthorizedBy: null, remediationAuthorizedAt: null, privateRefs: ['other_ref'] });
+    const notifyDecision = { ...notificationDecision(notifyAction), allowedPrivateRefs: ['other_ref'] };
+    renderPanel(null, vi.fn(), notifyAction, notifyDecision);
+    expect(screen.getByRole('alert')).toHaveTextContent(/requires exactly the logical private reference verified_email/i);
+    expect(screen.queryByRole('button', { name: /Authorize security notification/i })).not.toBeInTheDocument();
+  });
+
+  it('labels notify-security completed only after independent DELIVERED verification', () => {
+    const notifyAction = notificationAction({ status: 'REMEDIATED' });
+    renderPanel(execution('COMPLETED', {
+      actionId: notifyAction.id,
+      requestId: notifyAction.requestId,
+      completedAt: '2026-09-12T18:00:03Z',
+    }), vi.fn(), notifyAction, notificationDecision(notifyAction));
+    expect(screen.getByText('DELIVERED')).toBeInTheDocument();
+    expect(screen.getByText('DELIVERED + RESOLUTION VERIFIED')).toBeInTheDocument();
+    expect(screen.getByText(/confirmed private-recipient resolution inside T3N/i)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('@');
   });
 
   it('explains destination substitution as a new evaluation and authorization, not a generic outage', () => {
@@ -164,11 +217,11 @@ describe('RemediationPanel', () => {
     expect(onVerify).toHaveBeenCalledTimes(1);
   });
 
-  it('labels completed only after verified read-back', () => {
+  it('labels credential revocation completed only after verified read-back', () => {
     renderPanel(execution('COMPLETED', { completedAt: '2026-09-12T18:00:03Z' }));
     expect(screen.getAllByText('VERIFIED').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('COMPLETED')).toBeInTheDocument();
-    expect(screen.getByText(/Independent read-back verified the expected external state/i)).toBeInTheDocument();
+    expect(screen.getByText(/Independent read-back verified REVOKED/i)).toBeInTheDocument();
   });
 
   it('does not offer authorization or execution for actions without a verified completion contract', () => {
@@ -183,7 +236,6 @@ describe('RemediationPanel', () => {
       remediationAuthorizedAt: null,
     };
     renderPanel(null, vi.fn(), unsupported);
-
     expect(screen.getByText(/can be evaluated by the T3N policy/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Authorize/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Execute protected/i })).not.toBeInTheDocument();

@@ -69,7 +69,7 @@ The submission capture keeps the existing full-page technical screenshots and ad
 
 The Protection flow translates the same observed runtime state into a judge-first **Business Outcome** summary before the technical panels. Scenario metadata supplies only presentation context such as **Business risk**, **Protected asset**, **Business outcome** and **Success definition**. Policy decisions, requested field/private-reference counts, authorization state, approved destination, remediation state, verification attempts and final state come from the existing incident/action/decision/remediation APIs.
 
-The summary never fills future state or estimates a result. Before an observation it says `Not yet observed`; before an independently verified completion it says `Not verified yet`. `DENY` means the observed proposal was blocked before protected egress. `REDACT` means a smaller scope is required. `ALLOW` is permission to continue, not human authorization or execution. `PENDING_VERIFICATION`, `UNVERIFIED` and `FAILED` are never displayed as successful remediation. `REVOKED — VERIFIED` appears only from a `COMPLETED` remediation that follows independent read-back.
+The summary never fills future state or estimates a result. Before an observation it says `Not yet observed`; before an independently verified completion it says `Not verified yet`. `DENY` means the observed proposal was blocked before protected egress. `REDACT` means a smaller scope is required. `ALLOW` is permission to continue, not human authorization or execution. `PENDING_VERIFICATION`, `UNVERIFIED` and `FAILED` are never displayed as successful remediation. `REVOKED — VERIFIED` is shown only after verified credential-revocation read-back; `DELIVERED — VERIFIED` is shown only after `notify-security` read-back confirms both `DELIVERED` and `recipient_resolved=true`.
 
 The only displayed time metrics are calculated from timestamps already emitted by the system:
 
@@ -95,7 +95,7 @@ Before execution, the human capability binds the trusted map through `normalPayl
 
 Changing any key or value after authorization becomes `CAPABILITY_BODY_MISMATCH` before T3N execution.
 
-Inside `execute-remediation`, Rust re-reads the exact approved policy version/hash, validates the trusted map, evaluates the requested field names, then constructs the external body from the exact intersection `normal_payload ∩ allowed_fields`. For credential revocation, `incident_id`, `credential_id` and `reason` must remain present and allowed. The minimized field set is evaluated again and must become `ALLOW` before `hwp::call`. A requested extra field such as `employee_department` can therefore produce `REDACT` while the protected executor sends only the executable minimum.
+Inside `execute-remediation`, Rust re-reads the exact approved policy version/hash, validates the trusted map, evaluates the requested field names, then constructs the external body from the exact intersection `normal_payload ∩ allowed_fields`. Credential revocation requires `incident_id`, `credential_id` and `reason`; security notification requires `incident_id`, `severity` and `summary` plus exactly the logical private reference `verified_email`. The minimized field set is evaluated again and must become `ALLOW` before `hwp::call`. A requested extra non-secret field can therefore produce `REDACT` while the protected executor sends only the action-specific executable minimum.
 
 ```text
 trusted persisted values
@@ -118,7 +118,7 @@ protected HTTP body
   reason
 ```
 
-Private profile values remain structurally separate. `verified_email` is still a logical private reference that can become a T3N profile placeholder only inside protected execution; it is never copied into the normal payload.
+Private profile values remain structurally separate. For `notify-security`, `verified_email` is the only supported logical private reference. The raw `{{profile.verified_contacts.email.value}}` marker is created only inside Rust/WASM after policy, destination and one-time human-authorization checks; it is never copied into `normal_payload`, React, Spring, the model or normal gateway responses.
 
 The optional `LIVE-NORMAL-PAYLOAD-MINIMIZATION` testnet scenario uses synthetic sentinels and accepts PASS only when controlled read-back reports `must_egress_seen=true` and `must_not_egress_seen=false`. The raw sentinel strings are not persisted in the public evidence bundle. Until that scenario is actually run, its status remains `NOT_RUN` and is not live proof.
 
@@ -132,7 +132,7 @@ For T3N authorization, the system also separates what is configured from what th
 
 For private profile data, the application carries logical references such as `verified_email`, not the private value. The Rust/WASM contract maps a closed reference to the supported T3N profile marker only inside the protected execution boundary. React, Spring Boot, the model and normal gateway responses do not receive the resolved plaintext.
 
-For side effects, an HTTP success response is not treated as business completion. The application records `COMPLETED` only after a separate read-back observes the expected closed external state.
+For side effects, an HTTP success response is not treated as business completion. The application records `COMPLETED` only after a separate read-back observes the action-specific closed external state. Notification completion additionally requires the external verifier to report `recipient_resolved=true` without returning the recipient value.
 
 ## Where it applies
 
@@ -214,7 +214,7 @@ Independent external read-back
    +--> ambiguous/mismatch      -> UNVERIFIED
 ```
 
-This is why `ALLOW` is not the same thing as execution, an observed grant is not the same thing as effective authorization, a policy-allowed destination is not automatically the human-approved destination, a `REDACT` field-name decision is not by itself proof of value-level filtering, and HTTP `2xx` is not the same thing as completion.
+For `revoke-credential`, the expected state is `REVOKED`. For `notify-security`, it is `DELIVERED` plus `recipient_resolved=true`. This is why `ALLOW` is not the same thing as execution, an observed grant is not the same thing as effective authorization, a policy-allowed destination is not automatically the human-approved destination, a `REDACT` field-name decision is not by itself proof of value-level filtering, and HTTP `2xx` is not the same thing as completion.
 
 ## What the demo proves
 
@@ -222,15 +222,15 @@ T3 Privacy Guard assumes the AI agent can be manipulated. The dashboard sends an
 
 The Proposal Agent uses its own authenticated T3N credential/DID and is restricted to `evaluate-action`. Before evaluation is considered ready, the gateway requires both an active Proposal Member grant and a principal-side `checkDelegation` result with `authorised=true` for the exact contract, tenant DID and minimum scopes. The tenant session is never used as a substitute for that delegated-principal check.
 
-For executable credential revocation, Spring persists trusted synthetic normal values independently from the model-selected field names. A legitimate policy result may be `ALLOW`, or `REDACT` when an unnecessary non-secret field was requested. `REDACT` can continue only if all required revocation fields survive, and the T3N contract re-evaluates the resulting minimum set as `ALLOW` before HTTP.
+For executable credential revocation, Spring persists trusted synthetic normal values independently from the model-selected field names. A legitimate policy result may be `ALLOW`, or `REDACT` when an unnecessary non-secret field was requested. `REDACT` can continue only if all required revocation fields survive, and the T3N contract re-evaluates the resulting minimum set as `ALLOW` before HTTP. The same protected executor now has a separate closed `notify-security` branch requiring `incident-notification`, the three notification normal fields and exactly `private_refs=["verified_email"]`.
 
-An authenticated operator must explicitly authorize remediation. Immediately before execution the Spring backend signs a short-lived, one-time capability bound to the exact persisted action, decision, canonical approved hostname, requested fields, `normalPayloadHash`, logical private-data references, exact policy version/hash and authenticated Protected Executor DID. The Executor uses a separate T3N credential/DID and its own least-privilege Member grant for `execute-remediation` + `verify-remediation`. Protected remediation is considered ready only when the Executor's principal-side `checkDelegation` also returns `authorised=true` for the exact restrictions. The gateway validates service authentication, signature, expiry, body equality including `approved_host` and the normal-payload hash, and replay state before T3N execution.
+An authenticated operator must explicitly authorize remediation. Immediately before execution the Spring backend signs a short-lived, one-time capability bound to the exact persisted action, decision, canonical approved hostname, requested fields, `normalPayloadHash`, logical private-data references, exact policy version/hash and authenticated Protected Executor DID. The Executor uses a separate T3N credential/DID and its own least-privilege Member grant for `execute-remediation` + `verify-remediation`. Its fixed delegation scope includes the revocation minimum plus `verified_contacts.email.value`, while the Proposal Agent remains evaluation-only. Protected remediation is considered ready only when the Executor's principal-side `checkDelegation` returns `authorised=true` for the exact restrictions. The gateway validates service authentication, signature, expiry, body equality including `approved_host` and the normal-payload hash, and replay state before T3N execution.
 
 The full action URL remains only in the private T3N KV. Inside `execute-remediation`, Rust extracts the current hostname and requires exact canonical equality with the hostname approved by the operator **before policy re-evaluation and before HTTP egress**. A different destination returns `EXECUTION_DESTINATION_CHANGED`; even if both A and B are allowed by policy, approval for A cannot be reused for B. The contract then re-checks current policy provenance and builds the outbound normal payload only from trusted persisted values whose keys survive the policy.
 
-Private profile values are structural to T3N. The agent, React, Spring Boot and gateway APIs carry only logical references such as `verified_email`; the Rust/WASM contract maps that closed reference to the supported T3N marker `{{profile.verified_contacts.email.value}}`, and T3N resolves the plaintext only during protected egress. The resolved value is never returned to the application.
+Private profile values are structural to T3N. The agent, React, Spring Boot and gateway APIs carry only the logical `verified_email` reference. Only Rust/WASM maps that closed reference to `{{profile.verified_contacts.email.value}}`, and T3N resolves the plaintext during protected egress. The resolved value is never returned to the application. Upstream execution responses are reduced to bounded operation metadata, and `operation_id` must itself be a safe opaque ASCII identifier so reflected e-mail/plaintext cannot be smuggled back as metadata.
 
-A successful external HTTP response is **not** treated as completion. The backend first acquires a durable execution claim, the contract propagates the stable `requestId` as an idempotency key, accepted egress becomes `PENDING_VERIFICATION`, and a separate `verify-remediation` read-back must observe the closed expected state before Spring records `COMPLETED`. Ambiguous outcomes are `UNVERIFIED` and are never automatically re-executed.
+A successful external HTTP response is **not** treated as completion. The backend first acquires a durable execution claim, the contract propagates the stable `requestId` as an idempotency key, accepted egress becomes `PENDING_VERIFICATION`, and a separate `verify-remediation` read-back must observe the closed expected state before Spring records `COMPLETED`. `notify-security` additionally requires `recipient_resolved=true`. Ambiguous outcomes are `UNVERIFIED` and are never automatically re-executed.
 
 ## Architecture
 
@@ -268,6 +268,8 @@ Node / TypeScript T3N Gateway
         current policy re-check
               |
         trusted payload ∩ allowed_fields -> re-evaluate minimum
+              |
+        notify-security only: Rust creates verified_email profile marker
               |
         protected execution in T3N
               |
@@ -413,9 +415,9 @@ The current Rust policy contains four concrete security actions:
 | `revoke-credential` | `incident-remediation` | `incident_id`, `credential_id`, `reason` | none |
 | `isolate-account` | `incident-remediation` | `incident_id`, `account_id`, `reason` | none |
 | `create-incident` | `incident-recording` | `incident_id`, `severity`, `summary`, `source` | none |
-| `notify-security` | `incident-notification` | `incident_id`, `severity`, `summary` | `verified_email` allowed |
+| `notify-security` | `incident-notification` | `incident_id`, `severity`, `summary` | exactly `verified_email` for protected execution |
 
-Extra non-secret fields are minimized with `REDACT`. For the current protected `revoke-credential` executor, a REDACT decision may continue only when all required fields survive and the minimized set re-evaluates to `ALLOW`; removed keys are not serialized. Forbidden secret fields are denied. Unsupported actions, purposes, hosts or private references fail closed.
+Extra non-secret fields are minimized with `REDACT`. For protected `revoke-credential` and `notify-security`, a REDACT decision may continue only when the action-specific required normal fields survive and the minimized set re-evaluates to `ALLOW`; removed keys are not serialized. `notify-security` additionally requires `verified_email` to remain policy-allowed. Forbidden secret fields are denied. Unsupported actions, purposes, hosts or private references fail closed.
 
 ## Versioned operational policy in private T3N KV
 
@@ -443,12 +445,12 @@ The Protection demo exposes those four policy actions as business-readable, synt
 
 | Scenario | Proposed action | What the demo proves |
 |---|---|---|
-| Credential compromised | `revoke-credential` | Prompt-injection denial plus a separate minimum-scope revocation path with value-level minimization, human authorization, destination binding, protected execution and independent read-back. |
+| Credential compromised | `revoke-credential` | Prompt-injection denial plus a separate minimum-scope revocation path with value-level minimization, human authorization, destination binding, protected execution and independent `REVOKED` read-back. |
 | Account takeover | `isolate-account` | The model can propose isolation with synthetic identifiers while T3N independently evaluates action, fields, purpose and destination. |
 | Record security incident | `create-incident` | Incident recording can be evaluated without outbound egress; adding an unexpected destination remains subject to T3N policy. |
-| Notify security contact | `notify-security` | The model requests only logical `verified_email`; no plaintext email or raw `{{profile.*}}` placeholder belongs in browser/model input. |
+| Notify security contact | `notify-security` | Logical `verified_email` only in app layers, Rust-only profile-marker creation, human-authorized protected egress and independent `DELIVERED + recipient_resolved=true` read-back. |
 
-The current complete execution/read-back contract verifies the closed external state `REVOKED`, so the dashboard exposes protected execution controls only for an actual `revoke-credential` proposal. `isolate-account`, `create-incident` and `notify-security` remain genuine policy-evaluation scenarios; the UI does not claim a verified executor for them.
+Protected execution/read-back is implemented for `revoke-credential` and `notify-security`. `isolate-account` and `create-incident` remain genuine policy-evaluation scenarios without a protected side-effect executor. The UI exposes execution controls only when the selected action satisfies the closed contract for one of those implemented executors.
 
 Switching scenarios clears the previous scenario result in the browser before a new analysis. This prevents a prior decision or execution state from being visually attributed to a different preset.
 
@@ -478,7 +480,7 @@ Allowed external service       YES, as the intended recipient of the protected e
 
 This table does not make a blanket claim about arbitrary user-supplied free text: users must not paste private values into the prompt, and the pre-provider guard is intentionally partial.
 
-`PlaceholderDenied`, `PlaceholderUnknown` and `PlaceholderNoUserContext` fail closed. Upstream responses are reduced to operation/status metadata before leaving the contract, so an echoed private value is not returned to the application.
+`PlaceholderDenied`, `PlaceholderUnknown` and `PlaceholderNoUserContext` fail closed. Upstream responses are reduced to bounded operation/status metadata before leaving the contract. The accepted `operation_id` syntax is limited to an opaque 1–128 byte ASCII alphanumeric/`-`/`_` identifier; an e-mail or other reflected value containing characters outside that grammar is discarded instead of crossing the protected boundary.
 
 ## Distributed remediation boundary
 
@@ -493,6 +495,7 @@ EXECUTING
         |
         | destination equality + current policy re-check
         | trusted normal payload ∩ allowed_fields
+        | notify-security: verified_email marker created only in Rust/WASM
         | external request with requestId as stable Idempotency-Key
         v
 PENDING_VERIFICATION
@@ -510,12 +513,13 @@ Rules:
 - a fresh concurrent caller observes the existing `EXECUTING` claim instead of sending a second request;
 - the canonical hostname approved by the human is signed into the execution capability and must equal the hostname currently resolved from private `security_api_url` before any HTTP call;
 - the capability also binds the exact persisted normal payload by `normalPayloadHash`; key/value mutation fails before T3N execution;
-- Rust rejects forbidden secret keys, trusted keys that were not requested, missing required revocation fields and a minimized set that does not re-evaluate to `ALLOW`;
+- Rust rejects forbidden secret keys, trusted keys that were not requested, missing action-specific required fields and a minimized set that does not re-evaluate to `ALLOW`;
+- `notify-security` additionally requires purpose `incident-notification`, exactly `private_refs=["verified_email"]` and policy allowance for that reference;
 - `EXECUTION_DESTINATION_CHANGED` is a fail-closed blocked execution, requires a new action/evaluation/authorization and is not retried automatically;
 - an execution acknowledgement or any HTTP 2xx is only acceptance, never completion;
-- `COMPLETED` requires read-back matching the same `operation_id` and the closed expected state `REVOKED`;
-- a timeout after send, missing operation id, mismatched request id, unavailable verification or contradictory read-back becomes `UNVERIFIED`;
-- `UNVERIFIED` may be re-verified when an operation id exists, but is never automatically re-executed;
+- `COMPLETED` requires read-back matching the same safe opaque `operation_id` and the action-specific closed state: `REVOKED` for credential revocation, `DELIVERED` plus `recipient_resolved=true` for security notification;
+- a timeout after send, missing/unsafe operation id, mismatched request id, unavailable verification or contradictory read-back becomes `UNVERIFIED`;
+- `UNVERIFIED` may be re-verified when a valid operation id exists, but is never automatically re-executed;
 - persisted remediation state can be read after reload/restart without causing egress or a verification attempt;
 - the project does **not** claim exactly-once/at-most-once behavior from an external provider merely because an idempotency key is supplied. Provider support is required for that guarantee.
 
@@ -583,11 +587,13 @@ SECURITY_VERIFICATION_URL
 EVIDENCE_RUN_DESTINATION_BINDING
 EVIDENCE_DESTINATION_B_URL
 EVIDENCE_RUN_PAYLOAD_MINIMIZATION
+EVIDENCE_RUN_PROFILE_PLACEHOLDER
+EVIDENCE_NOTIFICATION_AUTHORIZATION_PROOF
 ```
 
 `T3N_CONTRACT_VERSION` is `0.4.0` for the versioned-policy contract. `T3N_POLICY_FILE` points to the local source document used by the explicit policy provisioning script; the active runtime policy is loaded from private T3N KV.
 
-`T3N_AGENT_API_KEY` authenticates the Proposal Agent and must not be granted protected remediation functions. `T3N_EXECUTOR_API_KEY` authenticates the separate Protected Executor and must receive only the execution/verification functions and hosts it needs.
+`T3N_AGENT_API_KEY` authenticates the Proposal Agent and must not be granted protected remediation functions. `T3N_EXECUTOR_API_KEY` authenticates the separate Protected Executor and must receive only the execution/verification functions and hosts/scopes it needs. The Executor's fixed effective check includes `verified_contacts.email.value` for the protected notification branch; the Proposal Agent remains limited to `evaluate-action`.
 
 `AUDIT_INTEGRITY_KEY` authenticates the local audit chain and must contain at least 32 characters. `AUDIT_INTEGRITY_KEY_ID` selects the active version; `AUDIT_INTEGRITY_PREVIOUS_KEYS` retains explicit `keyId=secret` historical material during planned rotation. `AUDIT_INTEGRITY_ALLOW_LEGACY_BOOTSTRAP=false` is the normal safe setting so pre-HMAC rows remain honestly unverified.
 
@@ -596,6 +602,8 @@ EVIDENCE_RUN_PAYLOAD_MINIMIZATION
 `EVIDENCE_RUN_DESTINATION_BINDING=true` enables the controlled A→B mutation scenario only on T3N testnet. `EVIDENCE_DESTINATION_B_URL` must point to a synthetic second destination. The runner temporarily changes the private action URL, requires the contract to return `EXECUTION_DESTINATION_CHANGED` before `hwp::call`, and restores the original URL in `finally`. This mutation is explicitly forbidden outside testnet.
 
 `EVIDENCE_RUN_PAYLOAD_MINIMIZATION=true` enables the controlled synthetic value-level minimization proof on T3N testnet. It must remain disabled unless the action/read-back endpoints can report only the two documented boolean observations without reflecting raw sentinel values.
+
+`EVIDENCE_RUN_PROFILE_PLACEHOLDER=true` enables the opt-in `LIVE-PROFILE-PLACEHOLDER-RESOLUTION` testnet proof. It requires a compatible synthetic T3N profile/user context, controlled notification/read-back endpoints and `EVIDENCE_NOTIFICATION_AUTHORIZATION_PROOF`, a real v2 one-time proof produced by the authenticated human-authorization flow for the exact synthetic request. The proof is never written to public evidence. Without a real successful run, this scenario remains `NOT_RUN`.
 
 Business APIs require the Spring Security operator session and CSRF protection. The browser never receives T3N keys, AI provider keys, internal service token, remediation capability, remediation credential, audit-integrity key or resolved profile PII.
 
@@ -632,7 +640,7 @@ execute-remediation
 verify-remediation
 ```
 
-`evaluate-action` returns the exact policy version/hash used by the TEE. `execute-remediation` requires the approved version/hash, exact canonical approved hostname and trusted normal payload, resolves the private `security_api_url`, rejects host substitution before HTTP, validates/minimizes normal values against `allowed_fields`, re-evaluates the executable subset and only then performs protected egress. It can return only the acceptance metadata needed for reconciliation. `verify-remediation` accepts a closed expected state and independently checks external operation/state data; its optional payload-minimization proof exposes only the two bounded booleans used by controlled evidence. A capability is rejected when its signed incident/action/decision/request/action/resource/purpose/approvedHost/fields/normalPayloadHash/privateRefs/policyVersion/policyHash/Executor DID differ from the body/runtime identity, when expired or when its nonce was already consumed.
+`evaluate-action` returns the exact policy version/hash used by the TEE. `execute-remediation` requires the approved version/hash, exact canonical approved hostname and trusted normal payload, resolves the private `security_api_url`, rejects host substitution before HTTP, validates/minimizes normal values against `allowed_fields`, re-evaluates the executable subset and only then performs protected egress. For `notify-security`, only Rust adds the verified-email profile marker after the closed private-reference checks. Execution can return only bounded acceptance metadata needed for reconciliation; `operation_id` is accepted only under the safe opaque identifier grammar. `verify-remediation` has action-specific closed contracts: `revoke-credential -> REVOKED`, `notify-security -> DELIVERED` with `recipient_resolved=true`. Its optional payload-minimization proof exposes only the two bounded booleans used by controlled evidence. A capability is rejected when its signed incident/action/decision/request/action/resource/purpose/approvedHost/fields/normalPayloadHash/privateRefs/policyVersion/policyHash/Executor DID differ from the body/runtime identity, when expired or when its nonce was already consumed.
 
 ## Evidence
 
@@ -664,7 +672,7 @@ The optional `LIVE-DESTINATION-BINDING` testnet scenario approves host A, indepe
 
 The optional `LIVE-NORMAL-PAYLOAD-MINIMIZATION` testnet scenario requires controlled external proof that a synthetic allowed value arrived while a synthetic redacted value did not. Only `must_egress_seen` and `must_not_egress_seen` may be persisted as public proof. A `NOT_RUN` result remains explicitly non-evidence.
 
-Profile-placeholder resolution must remain `NOT_RUN` in public evidence until a compatible T3N testnet profile/user context actually executes it. Local Rust/Java/gateway/frontend tests prove the closed-reference architecture but are not mislabeled as live profile-resolution evidence.
+`LIVE-PROFILE-PLACEHOLDER-RESOLUTION` is also opt-in and remains `NOT_RUN` until actually executed on T3N testnet with a compatible synthetic verified-email profile/user context and a v2 human-authorization proof bound to the exact notification request. The dedicated runner sends only the logical `verified_email` reference through application layers, executes `notify-security`, and accepts PASS only after independent read-back returns `VERIFIED`, `DELIVERED` and `recipient_resolved=true`. It persists only decision/execution/verification states and the boolean resolution assertion, explicitly rejects raw `{{profile.*}}` markers from the bundle and leak-scans configured secrets plus the authorization proof. Local Rust/Java/gateway/frontend tests remain local architectural proof and do not upgrade this live scenario.
 
 The submission capture harness rejects AI/T3N/operator/service/capability/audit-integrity secrets in generated metadata and captures a remediation success only after the UI shows independently verified `COMPLETED`. Local audit integrity is rendered as a separate application signal from T3N Activity Log reconciliation and is not upgraded into live T3N proof.
 

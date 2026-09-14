@@ -24,7 +24,7 @@ export const PROPOSAL_DELEGATION_REQUIREMENTS: DelegationCheckRequirements = Obj
 
 export const EXECUTOR_DELEGATION_REQUIREMENTS: DelegationCheckRequirements = Object.freeze({
   functions: Object.freeze(['execute-remediation', 'verify-remediation']),
-  scopes: Object.freeze(['incident_id', 'credential_id', 'reason']),
+  scopes: Object.freeze(['incident_id', 'credential_id', 'reason', 'verified_contacts.email.value']),
 });
 
 export type DelegationState = 'ACTIVE' | 'SCHEDULED' | 'REVOKED' | 'NOT_GRANTED' | 'UNKNOWN';

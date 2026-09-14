@@ -58,6 +58,7 @@ class IncidentServiceTest {
     void clear() {
         remediations.deleteAll(); audits.deleteAll(); decisions.deleteAll(); actions.deleteAll(); incidents.deleteAll();
         reset(gateway, remediationGateway);
+        when(remediationGateway.requireExecutorDid()).thenReturn("did:t3n:protected-executor-test");
     }
 
     @Test void rejectsDuplicateRequestIdAsReplay() {
@@ -95,15 +96,8 @@ class IncidentServiceTest {
 
     @Test void persistsOnlyLogicalPrivateReferenceAndPropagatesPolicyResult() {
         var incident = createIncident("Private data");
-        var action = service.addAction(incident.id(), new CreateActionRequest(
-            "private-1", "notify-security", "incident:test", "incident-notification", "postman-echo.com",
-            List.of("incident_id", "severity", "summary"), List.of("verified_email")
-        ));
-        when(gateway.evaluate(any())).thenReturn(new GatewayDecision(
-            "private-1", DecisionType.ALLOW, "POLICY_ALLOW", "Allowed",
-            List.of("incident_id", "severity", "summary"), List.of(), List.of("verified_email"), List.of(),
-            POLICY_VERSION, POLICY_HASH, true
-        ));
+        var action = service.addAction(incident.id(), notifyAction("private-1"));
+        when(gateway.evaluate(any())).thenReturn(notifyDecision("private-1"));
         var decision = service.evaluate(incident.id(), action.id());
         assertThat(service.listActions(incident.id()).get(0).privateRefs()).containsExactly("verified_email");
         assertThat(decision.allowedPrivateRefs()).containsExactly("verified_email");
@@ -182,8 +176,7 @@ class IncidentServiceTest {
     @Test void policyOnlyActionsRemainEvaluableButCannotEnterProtectedExecution() {
         List<CreateActionRequest> unsupported = List.of(
             new CreateActionRequest("req-isolate", "isolate-account", "account:demo", "incident-remediation", "postman-echo.com", List.of("incident_id", "account_id", "reason"), List.of()),
-            new CreateActionRequest("req-record", "create-incident", "incident:demo", "incident-recording", null, List.of("incident_id", "severity", "summary", "source"), List.of()),
-            new CreateActionRequest("req-notify", "notify-security", "incident:demo", "incident-notification", "postman-echo.com", List.of("incident_id", "severity", "summary"), List.of("verified_email"))
+            new CreateActionRequest("req-record", "create-incident", "incident:demo", "incident-recording", null, List.of("incident_id", "severity", "summary", "source"), List.of())
         );
 
         for (CreateActionRequest input : unsupported) {
@@ -204,6 +197,63 @@ class IncidentServiceTest {
         assertThat(remediations.count()).isZero();
         verify(remediationGateway, times(0)).execute(any(), anyString());
         verify(remediationGateway, times(0)).verify(anyString(), anyString());
+        verify(remediationGateway, times(0)).verifyDelivery(anyString(), anyString());
+    }
+
+    @Test void notifySecurityUsesLogicalPrivateReferenceAndRequiresVerifiedDelivery() {
+        var incident = createIncident("Private notification");
+        var action = service.addAction(incident.id(), notifyAction("req-notify"));
+        when(gateway.evaluate(any())).thenReturn(notifyDecision("req-notify"));
+        service.evaluate(incident.id(), action.id());
+        service.authorizeRemediation(incident.id(), action.id(), OPERATOR);
+        when(remediationGateway.execute(any(), anyString())).thenReturn(remediation("req-notify", 202, "op-notify"));
+        when(remediationGateway.verifyDelivery("req-notify", "op-notify"))
+            .thenReturn(new VerificationResult("req-notify", "VERIFIED", "DELIVERED", true));
+
+        var result = service.executeRemediation(incident.id(), action.id());
+
+        assertThat(result.state()).isEqualTo("COMPLETED");
+        ArgumentCaptor<RemediationRequest> request = ArgumentCaptor.forClass(RemediationRequest.class);
+        verify(remediationGateway).execute(request.capture(), anyString());
+        assertThat(request.getValue().action()).isEqualTo("notify-security");
+        assertThat(request.getValue().purpose()).isEqualTo("incident-notification");
+        assertThat(request.getValue().privateRefs()).containsExactly("verified_email");
+        assertThat(request.getValue().operatorPrincipalHash()).isEqualTo(RemediationAuthorizationSigner.operatorPrincipalHash(OPERATOR));
+        assertThat(request.getValue().authorizationRecordedAt()).isPositive();
+        verify(remediationGateway, times(1)).verifyDelivery("req-notify", "op-notify");
+        verify(remediationGateway, times(0)).verify(anyString(), anyString());
+    }
+
+    @Test void notifySecurityWithoutConfirmedPrivateResolutionRemainsUnverified() {
+        var incident = createIncident("Private notification unresolved");
+        var action = service.addAction(incident.id(), notifyAction("req-notify-unresolved"));
+        when(gateway.evaluate(any())).thenReturn(notifyDecision("req-notify-unresolved"));
+        service.evaluate(incident.id(), action.id());
+        service.authorizeRemediation(incident.id(), action.id(), OPERATOR);
+        when(remediationGateway.execute(any(), anyString())).thenReturn(remediation("req-notify-unresolved", 202, "op-notify-unresolved"));
+        when(remediationGateway.verifyDelivery("req-notify-unresolved", "op-notify-unresolved"))
+            .thenReturn(new VerificationResult("req-notify-unresolved", "VERIFIED", "DELIVERED", false));
+
+        var result = service.executeRemediation(incident.id(), action.id());
+
+        assertThat(result.state()).isEqualTo("UNVERIFIED");
+        assertThat(result.failureCode()).isEqualTo("EXTERNAL_STATE_NOT_VERIFIED");
+    }
+
+    @Test void notifySecurityMissingAllowedPrivateReferenceCannotAuthorize() {
+        var incident = createIncident("Private reference removed");
+        var action = service.addAction(incident.id(), notifyAction("req-notify-private-deny"));
+        when(gateway.evaluate(any())).thenReturn(new GatewayDecision(
+            "req-notify-private-deny", DecisionType.ALLOW, "POLICY_ALLOW", "Allowed",
+            List.of("incident_id", "severity", "summary"), List.of(), List.of(), List.of("verified_email"),
+            POLICY_VERSION, POLICY_HASH, true
+        ));
+        service.evaluate(incident.id(), action.id());
+
+        assertThatThrownBy(() -> service.authorizeRemediation(incident.id(), action.id(), OPERATOR))
+            .isInstanceOf(PolicyDeniedException.class)
+            .hasMessageContaining("verified_email");
+        verify(remediationGateway, times(0)).execute(any(), anyString());
     }
 
     @Test void executionCarriesApprovedDestinationAndHumanAuthorizationBinding() {
@@ -357,9 +407,22 @@ class IncidentServiceTest {
         return new CreateActionRequest(requestId, "revoke-credential", "credential:test", "incident-remediation", "postman-echo.com", List.of("incident_id", "credential_id", "reason"), List.of());
     }
 
+    private CreateActionRequest notifyAction(String requestId) {
+        return new CreateActionRequest(requestId, "notify-security", "incident:test", "incident-notification", "postman-echo.com",
+            List.of("incident_id", "severity", "summary"), List.of("verified_email"));
+    }
+
     private GatewayDecision decision(String requestId, DecisionType type, String code, List<String> allowed, List<String> redacted) {
         return new GatewayDecision(
             requestId, type, code, type == DecisionType.ALLOW ? "Allowed" : "Denied", allowed, redacted, List.of(), List.of(),
+            POLICY_VERSION, POLICY_HASH, true
+        );
+    }
+
+    private GatewayDecision notifyDecision(String requestId) {
+        return new GatewayDecision(
+            requestId, DecisionType.ALLOW, "POLICY_ALLOW", "Allowed",
+            List.of("incident_id", "severity", "summary"), List.of(), List.of("verified_email"), List.of(),
             POLICY_VERSION, POLICY_HASH, true
         );
     }

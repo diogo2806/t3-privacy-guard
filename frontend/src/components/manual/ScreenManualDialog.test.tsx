@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { ScreenManualDialog } from './ScreenManualDialog';
 
 describe('ScreenManualDialog', () => {
-  it('traps focus and explains executive demo, effective authorization, human proof, business outcome, A2A, privacy and provenance', async () => {
+  it('traps focus and explains executive demo, human proof, private notification, business outcome, A2A, privacy and provenance', async () => {
     const user = userEvent.setup();
     render(<div><button type="button">Outside action</button><ScreenManualDialog /></div>);
 
@@ -43,6 +43,11 @@ describe('ScreenManualDialog', () => {
     expect(dialog).toHaveTextContent(/Gateway proof check.*fail-fast.*não substitui T3N/i);
     expect(dialog).toHaveTextContent(/Antes de ler.*security_api_url.*security_api_key.*WASM verifica assinatura.*nonce/i);
     expect(dialog).toHaveTextContent(/não afirma que T3N verificou identidade civil do humano/i);
+    expect(dialog).toHaveTextContent(/notify-security.*incident_id.*severity.*summary.*verified_email/i);
+    expect(dialog).toHaveTextContent(/navegador.*modelo.*backend Java.*gateway.*referência lógica.*verified_email/i);
+    expect(dialog).toHaveTextContent(/marker de profile.*exclusivamente dentro do contrato Rust\/WASM/i);
+    expect(dialog).toHaveTextContent(/plaintext resolvido.*protected egress.*serviço externo autorizado.*não é retornado/i);
+    expect(dialog).toHaveTextContent(/DELIVERED.*recipient_resolved=true/i);
     expect(screen.getByText('Integridade do audit local e T3N Activity Log')).toBeInTheDocument();
     expect(dialog).toHaveTextContent(/HMAC-SHA256/i);
     expect(dialog).toHaveTextContent(/tamper-evident/i);
@@ -51,6 +56,7 @@ describe('ScreenManualDialog', () => {
     expect(dialog).toHaveTextContent(/evaluate-action.*Proposal Agent.*execute-remediation.*verify-remediation.*Protected Executor/i);
     expect(screen.getByText('Proof & evidence')).toBeInTheDocument();
     expect(dialog).toHaveTextContent(/Source tree/i);
+    expect(dialog).toHaveTextContent(/LIVE-PROFILE-PLACEHOLDER-RESOLUTION.*NOT RUN.*T3N testnet/i);
     expect(dialog).toHaveTextContent(/prova assinada.*nonce.*chave privada.*não secreta/i);
     expect(dialog).toHaveTextContent(/COMPLETED/i);
     expect(closeButton).toHaveFocus();
