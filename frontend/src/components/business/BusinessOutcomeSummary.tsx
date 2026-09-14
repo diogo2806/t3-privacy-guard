@@ -5,7 +5,7 @@ import { SectionHeader } from '../ui/SectionHeader';
 import { Surface } from '../ui/Surface';
 
 interface Props {
-  scenario: EnterpriseScenarioDefinition;
+  scenario: EnterpriseScenarioDefinition | null;
   incident: Incident | null;
   selectedAction: ActionProposal | null;
   decision: PolicyDecision | null;
@@ -174,12 +174,16 @@ export function BusinessOutcomeSummary({ scenario, incident, selectedAction, dec
       />
       <p className="business-outcome-current" role="status">{outcomeText}</p>
 
-      <dl className="business-context-grid">
-        <div><dt>Business risk</dt><dd>{scenario.businessRisk}</dd></div>
-        <div><dt>Protected asset</dt><dd>{scenario.protectedAsset}</dd></div>
-        <div><dt>Target business outcome</dt><dd>{scenario.businessOutcome}</dd></div>
-        <div><dt>Success definition</dt><dd>{scenario.successDefinition}</dd></div>
-      </dl>
+      {scenario ? (
+        <dl className="business-context-grid">
+          <div><dt>Business risk</dt><dd>{scenario.businessRisk}</dd></div>
+          <div><dt>Protected asset</dt><dd>{scenario.protectedAsset}</dd></div>
+          <div><dt>Target business outcome</dt><dd>{scenario.businessOutcome}</dd></div>
+          <div><dt>Success definition</dt><dd>{scenario.successDefinition}</dd></div>
+        </dl>
+      ) : (
+        <p className="business-outcome-note">This persisted incident was resumed from the operational workspace. Demo scenario metadata is intentionally not inferred; the runtime facts below belong to the selected incident.</p>
+      )}
 
       <div className="business-outcome-sections">
         <section className="business-outcome-section" aria-labelledby="threat-observed-title">
