@@ -31,9 +31,18 @@ export class ConfigurationError extends Error {
   }
 }
 
+const DOCUMENTATION_PLACEHOLDER_PREFIX = 'replace-with-';
+
+export function rejectDocumentationPlaceholder(value: string, name: string): void {
+  if (value.trim().startsWith(DOCUMENTATION_PLACEHOLDER_PREFIX)) {
+    throw new ConfigurationError(`${name} must be replaced with a runtime-specific value`);
+  }
+}
+
 function requiredSecret(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name]?.trim();
   if (!value || value.length < 32) throw new ConfigurationError(`${name} is required and must contain at least 32 characters`);
+  rejectDocumentationPlaceholder(value, name);
   return value;
 }
 
