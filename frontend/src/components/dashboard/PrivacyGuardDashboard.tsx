@@ -5,6 +5,8 @@ import {
   type ActionProposal,
   type AgentAnalysis,
   type AuditEvent,
+  type BusinessImpact,
+  type BusinessImpactWindow,
   type EvidenceBundle,
   type ExecutionTraceEvent,
   type Incident,
@@ -20,6 +22,7 @@ import { OperatorSessionGate } from '../auth/OperatorSessionGate';
 import { AuditTrail } from '../audit/AuditTrail';
 import { ExecutionTrace } from '../audit/ExecutionTrace';
 import { BusinessOutcomeSummary } from '../business/BusinessOutcomeSummary';
+import { ControlImpactSummary } from '../business/ControlImpactSummary';
 import { ExecutiveDemoView } from '../demo/ExecutiveDemoView';
 import { EvidenceCenter } from '../evidence/EvidenceCenter';
 import { IncidentSummary } from '../incidents/IncidentSummary';
@@ -94,6 +97,10 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
   const [remediationExecution, setRemediationExecution] = useState<RemediationExecution | null>(null);
   const [executionTrace, setExecutionTrace] = useState<ExecutionTraceEvent[]>([]);
   const [history, setHistory] = useState<AuditEvent[]>([]);
+  const [businessImpact, setBusinessImpact] = useState<BusinessImpact | null>(null);
+  const [businessImpactWindow, setBusinessImpactWindow] = useState<BusinessImpactWindow>('retained');
+  const [businessImpactLoading, setBusinessImpactLoading] = useState(false);
+  const [businessImpactError, setBusinessImpactError] = useState<string | null>(null);
   const [evidence, setEvidence] = useState<EvidenceBundle | null>(null);
   const [evidenceLoading, setEvidenceLoading] = useState(false);
   const [evidenceError, setEvidenceError] = useState<string | null>(null);
@@ -115,6 +122,16 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
     catch (cause) { setSystemStatus(null); handleError(cause, 'Unable to load system status.'); }
     finally { setStatusLoading(false); }
   }, [handleError]);
+
+  const refreshBusinessImpact = useCallback(async () => {
+    setBusinessImpactLoading(true); setBusinessImpactError(null);
+    try { setBusinessImpact(await privacyGuardApi.businessImpact(businessImpactWindow)); }
+    catch (cause) {
+      setBusinessImpact(null);
+      if (cause instanceof PrivacyGuardApiError && cause.status === 401) onSessionExpired();
+      else setBusinessImpactError(cause instanceof Error ? cause.message : 'Measured control impact could not be loaded safely.');
+    } finally { setBusinessImpactLoading(false); }
+  }, [businessImpactWindow, onSessionExpired]);
 
   const refreshEvidence = useCallback(async () => {
     setEvidenceLoading(true); setEvidenceError(null);
@@ -165,6 +182,8 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
     }).catch((cause) => handleError(cause, 'Unable to load incidents.'));
   }, [handleError, refreshIncident, refreshSystem]);
 
+  useEffect(() => { void refreshBusinessImpact(); }, [refreshBusinessImpact]);
+
   useEffect(() => {
     const evidenceView = view === 'presentation' || view === 'evidence';
     if (evidenceView && !evidence && !evidenceLoading && !evidenceError) void refreshEvidence();
@@ -178,7 +197,7 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
   const analyzeAgentPrompt = (currentPrompt: string) => run(async () => {
     const result = await privacyGuardApi.analyzeAgent(currentPrompt);
     setAgentAnalysis(result); setRemediationExecution(null); setIncident(result.incident); setSelectedAction(result.action); setDecision(result.decision);
-    await refreshIncident(result.incident, result.action.id);
+    await Promise.all([refreshIncident(result.incident, result.action.id), refreshBusinessImpact()]);
     if (result.decision.decision === 'DENY') setNotice('The independent T3N policy blocked the agent proposal before protected egress.');
     else if (result.decision.decision === 'REDACT') setNotice('T3N requires data minimization before the proposal can continue.');
     else setNotice('T3N policy allowed the proposal to continue. ALLOW is not authorization or execution.');
@@ -207,7 +226,7 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
     setIncident(result.incident);
     setSelectedAction(result.action);
     setDecision(result.decision);
-    await refreshIncident(result.incident, result.action.id);
+    await Promise.all([refreshIncident(result.incident, result.action.id), refreshBusinessImpact()]);
 
     if (result.decision.decision === 'DENY') {
       setNotice('The agent produced a new remediation proposal, but T3N denied it. No fallback action was created.');
@@ -224,12 +243,13 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
     if (!incident || !selectedAction) return;
     const result = await privacyGuardApi.evaluate(incident.id, selectedAction.id);
     setDecision(result);
-    await refreshIncident(incident, selectedAction.id);
+    await Promise.all([refreshIncident(incident, selectedAction.id), refreshBusinessImpact()]);
   });
 
   const authorize = () => run(async () => {
     if (!incident || !selectedAction) return;
-    await privacyGuardApi.authorizeRemediation(incident.id, selectedAction.id); await refreshIncident(incident, selectedAction.id);
+    await privacyGuardApi.authorizeRemediation(incident.id, selectedAction.id);
+    await Promise.all([refreshIncident(incident, selectedAction.id), refreshBusinessImpact()]);
     setNotice('Human authorization recorded. Protected execution still requires the bound executor and one-time proof.');
   });
 
@@ -244,13 +264,17 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
   const execute = () => run(async () => {
     if (!incident || !selectedAction) return;
     const result = await privacyGuardApi.executeRemediation(incident.id, selectedAction.id);
-    setRemediationExecution(result); await refreshIncident(incident, selectedAction.id); setNotice(executionNotice(result));
+    setRemediationExecution(result);
+    await Promise.all([refreshIncident(incident, selectedAction.id), refreshBusinessImpact()]);
+    setNotice(executionNotice(result));
   });
 
   const verifyExternalState = () => run(async () => {
     if (!incident || !selectedAction) return;
     const result = await privacyGuardApi.verifyRemediation(incident.id, selectedAction.id);
-    setRemediationExecution(result); await refreshIncident(incident, selectedAction.id); setNotice(executionNotice(result));
+    setRemediationExecution(result);
+    await Promise.all([refreshIncident(incident, selectedAction.id), refreshBusinessImpact()]);
+    setNotice(executionNotice(result));
   });
 
   const selectAction = (action: ActionProposal) => {
@@ -291,6 +315,13 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
             remediationExecution={remediationExecution}
             agentAnalysis={agentAnalysis}
           />
+          <ControlImpactSummary
+            impact={businessImpact}
+            loading={businessImpactLoading}
+            error={businessImpactError}
+            window={businessImpactWindow}
+            onWindowChange={setBusinessImpactWindow}
+          />
           <main className="dashboard-grid">
             <div className="dashboard-main">
               <EnterpriseScenarioCatalog selectedId={selectedScenarioId} busy={busy} onSelect={selectScenario} />
@@ -317,6 +348,9 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
           selectedAction={selectedAction}
           decision={decision}
           remediationExecution={remediationExecution}
+          businessImpact={businessImpact}
+          businessImpactLoading={businessImpactLoading}
+          businessImpactError={businessImpactError}
           evidence={evidence}
           evidenceLoading={evidenceLoading}
           evidenceError={evidenceError}
