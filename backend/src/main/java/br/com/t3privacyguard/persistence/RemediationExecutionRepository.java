@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface RemediationExecutionRepository extends JpaRepository<RemediationExecutionEntity,String>{
     Optional<RemediationExecutionEntity> findByActionProposalId(String actionProposalId);
+    List<RemediationExecutionEntity> findByActionProposalIdIn(List<String> actionProposalIds);
     List<RemediationExecutionEntity> findByLastAttemptAtBetweenOrderByLastAttemptAtAsc(Instant from, Instant to);
     void deleteAllByActionProposalIdIn(List<String> actionProposalIds);
 }
