@@ -5,12 +5,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { OperatorSessionGate } from './OperatorSessionGate';
 
 describe('OperatorSessionGate', () => {
-  it('keeps T3N credentials out of the operator login copy and clears the password after submit', async () => {
+  it('keeps T3N credentials out of the human authority login copy and clears the password after submit', async () => {
     const user = userEvent.setup();
     const onLogin = vi.fn(async () => undefined);
     render(
       <OperatorSessionGate
-        session={{ authenticated: false }}
+        session={{ authenticated: false, authorities: [], enterpriseSeparationOfDuties: false }}
         loading={false}
         busy={false}
         error={null}
@@ -30,10 +30,10 @@ describe('OperatorSessionGate', () => {
     expect(screen.getByText(/T3N tenant and agent credentials are never used/i)).toBeInTheDocument();
   });
 
-  it('shows a signed-in operator and exposes sign out', () => {
+  it('shows the signed-in principal, effective authorities and enterprise SoD state', () => {
     render(
       <OperatorSessionGate
-        session={{ authenticated: true, username: 'operator' }}
+        session={{ authenticated: true, username: 'approver-01', authorities: ['APPROVER'], enterpriseSeparationOfDuties: true }}
         loading={false}
         busy={false}
         error={null}
@@ -42,14 +42,16 @@ describe('OperatorSessionGate', () => {
       />,
     );
 
-    expect(screen.getByText('operator')).toBeInTheDocument();
+    expect(screen.getByText('approver-01')).toBeInTheDocument();
+    expect(screen.getByText('APPROVER')).toBeInTheDocument();
+    expect(screen.getByText('ENTERPRISE SOD ACTIVE')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
   });
 
   it('announces the backend cooldown and disables only sign-in submission', () => {
     render(
       <OperatorSessionGate
-        session={{ authenticated: false }}
+        session={{ authenticated: false, authorities: [], enterpriseSeparationOfDuties: false }}
         loading={false}
         busy={false}
         error={null}

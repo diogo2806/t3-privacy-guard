@@ -39,11 +39,17 @@ export function OperatorSessionGate({ session, loading, busy, error, retryAfterS
   }
 
   if (session?.authenticated) {
+    const authorities = session.authorities ?? [];
     return (
       <section className="operator-session-bar" aria-label="Operator session">
         <div className="operator-session-identity">
           <UserRoundCheck aria-hidden="true" />
-          <div><span>Operator session</span><strong>{session.username ?? 'authenticated'}</strong></div>
+          <div>
+            <span>Operator session</span>
+            <strong>{session.username ?? 'authenticated'}</strong>
+            <span>{authorities.length > 0 ? authorities.join(' · ') : 'NO HUMAN AUTHORITY REPORTED'}</span>
+            <span>{session.enterpriseSeparationOfDuties ? 'ENTERPRISE SOD ACTIVE' : 'LOCAL / DEMO IAM'}</span>
+          </div>
         </div>
         <button type="button" className="button button-ghost" onClick={() => void onLogout()} disabled={busy}>
           <LogOut aria-hidden="true" />Sign out
@@ -57,8 +63,8 @@ export function OperatorSessionGate({ session, loading, busy, error, retryAfterS
     <section className="auth-panel" aria-labelledby="operator-login-title">
       <div>
         <p className="eyebrow">Application access</p>
-        <h2 id="operator-login-title">Operator sign in</h2>
-        <p className="auth-help">Use the application operator credentials. T3N tenant and agent credentials are never used for this login.</p>
+        <h2 id="operator-login-title">Human authority sign in</h2>
+        <p className="auth-help">Use the application credentials assigned to your human authority. T3N tenant and agent credentials are never used for this login.</p>
       </div>
       <form className="auth-form" onSubmit={(event) => void submit(event)}>
         <label>Username<input name="username" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required disabled={busy} /></label>

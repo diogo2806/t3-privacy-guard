@@ -44,7 +44,7 @@ class AuditEvidenceExpiryIntegrationTest {
         assertThat(incidents.findById(incidentId)).isPresent();
 
         mvc.perform(get("/api/incidents/{incidentId}/audit-evidence", incidentId)
-                .with(user("test-operator").roles("OPERATOR")))
+                .with(user("test-auditor").roles("AUDITOR")))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.detail").value("Incident not found"));
 

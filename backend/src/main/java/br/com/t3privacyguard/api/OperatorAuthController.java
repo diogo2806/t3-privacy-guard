@@ -1,10 +1,12 @@
 package br.com.t3privacyguard.api;
 
+import br.com.t3privacyguard.security.HumanSeparationOfDutiesService;
 import br.com.t3privacyguard.security.OperatorLoginAttemptGuard;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -28,12 +30,18 @@ import org.springframework.web.bind.annotation.RestController;
 public class OperatorAuthController {
     private final AuthenticationManager authenticationManager;
     private final OperatorLoginAttemptGuard loginAttemptGuard;
+    private final HumanSeparationOfDutiesService separationOfDuties;
     private final SecurityContextRepository securityContextRepository = new HttpSessionSecurityContextRepository();
     private final SecurityContextLogoutHandler logoutHandler = new SecurityContextLogoutHandler();
 
-    public OperatorAuthController(AuthenticationManager authenticationManager, OperatorLoginAttemptGuard loginAttemptGuard) {
+    public OperatorAuthController(
+        AuthenticationManager authenticationManager,
+        OperatorLoginAttemptGuard loginAttemptGuard,
+        HumanSeparationOfDutiesService separationOfDuties
+    ) {
         this.authenticationManager = authenticationManager;
         this.loginAttemptGuard = loginAttemptGuard;
+        this.separationOfDuties = separationOfDuties;
     }
 
     @PostMapping("/login")
@@ -63,15 +71,12 @@ public class OperatorAuthController {
         SecurityContextHolder.setContext(context);
         securityContextRepository.saveContext(context, request, response);
 
-        return new SessionResponse(true, authentication.getName());
+        return sessionResponse(authentication);
     }
 
     @GetMapping("/session")
     public SessionResponse session(Authentication authentication) {
-        boolean authenticated = authentication != null
-            && authentication.isAuthenticated()
-            && !"anonymousUser".equals(authentication.getName());
-        return new SessionResponse(authenticated, authenticated ? authentication.getName() : null);
+        return sessionResponse(authentication);
     }
 
     @GetMapping("/csrf")
@@ -89,7 +94,21 @@ public class OperatorAuthController {
         logoutHandler.logout(request, response, authentication);
     }
 
+    private SessionResponse sessionResponse(Authentication authentication) {
+        boolean authenticated = authentication != null
+            && authentication.isAuthenticated()
+            && !"anonymousUser".equals(authentication.getName());
+        if (!authenticated) return new SessionResponse(false, null, List.of(), separationOfDuties.enterpriseSodEnabled());
+        List<String> authorities = authentication.getAuthorities().stream()
+            .map(authority -> authority.getAuthority())
+            .filter(authority -> authority.startsWith("ROLE_"))
+            .map(authority -> authority.substring("ROLE_".length()))
+            .sorted()
+            .toList();
+        return new SessionResponse(true, authentication.getName(), authorities, separationOfDuties.enterpriseSodEnabled());
+    }
+
     public record LoginRequest(@NotBlank String username, @NotBlank String password) {}
-    public record SessionResponse(boolean authenticated, String username) {}
+    public record SessionResponse(boolean authenticated, String username, List<String> authorities, boolean enterpriseSeparationOfDuties) {}
     public record CsrfResponse(String token, String headerName) {}
 }

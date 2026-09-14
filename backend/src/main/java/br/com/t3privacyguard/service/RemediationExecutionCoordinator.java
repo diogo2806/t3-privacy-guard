@@ -1,6 +1,8 @@
 package br.com.t3privacyguard.service;
 
+import br.com.t3privacyguard.audit.AuditIntegrityService;
 import br.com.t3privacyguard.domain.RemediationStatus;
+import br.com.t3privacyguard.persistence.ActionProposalEntity;
 import br.com.t3privacyguard.persistence.ActionProposalRepository;
 import br.com.t3privacyguard.persistence.RemediationExecutionEntity;
 import br.com.t3privacyguard.persistence.RemediationExecutionRepository;
@@ -8,6 +10,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,22 +23,36 @@ public class RemediationExecutionCoordinator {
 
     private final ActionProposalRepository actions;
     private final RemediationExecutionRepository executions;
+    private final AuditIntegrityService auditIntegrity;
 
-    public RemediationExecutionCoordinator(ActionProposalRepository actions, RemediationExecutionRepository executions) {
+    public RemediationExecutionCoordinator(
+        ActionProposalRepository actions,
+        RemediationExecutionRepository executions,
+        AuditIntegrityService auditIntegrity
+    ) {
         this.actions = actions;
         this.executions = executions;
+        this.auditIntegrity = auditIntegrity;
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public ClaimResult claim(String actionId, String requestId) {
-        actions.findByIdForExecutionClaim(actionId)
+        ActionProposalEntity action = actions.findByIdForExecutionClaim(actionId)
             .orElseThrow(() -> new IncidentNotFoundException("Action proposal not found"));
         Optional<RemediationExecutionEntity> existing = executions.findByActionProposalId(actionId);
         if (existing.isPresent()) return new ClaimResult(false, existing.get());
 
+        String executionPrincipal = currentAuthenticatedPrincipal();
         RemediationExecutionEntity created = executions.saveAndFlush(new RemediationExecutionEntity(
-            UUID.randomUUID().toString(), actionId, requestId, Instant.now()
+            UUID.randomUUID().toString(), actionId, requestId, Instant.now(), executionPrincipal
         ));
+        if (executionPrincipal != null) {
+            auditIntegrity.append(
+                action.getIncidentId(),
+                "REMEDIATION_EXECUTION_STARTED",
+                "EXECUTOR principal " + executionPrincipal + " started protected execution for request " + requestId
+            );
+        }
         return new ClaimResult(true, created);
     }
 
@@ -91,6 +110,16 @@ public class RemediationExecutionCoordinator {
     private String safeCode(String value) {
         String normalized = value == null ? "UNKNOWN" : value.replaceAll("[^A-Z0-9_-]", "_").toUpperCase();
         return normalized.substring(0, Math.min(normalized.length(), 120));
+    }
+
+    private static String currentAuthenticatedPrincipal() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated() || authentication instanceof AnonymousAuthenticationToken) return null;
+        try {
+            return ActionProposalEntity.canonicalizeAuthenticatedPrincipal(authentication.getName());
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
     }
 
     public record ClaimResult(boolean acquired, RemediationExecutionEntity execution) {

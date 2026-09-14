@@ -1,5 +1,5 @@
 import { CheckCircle2, CircleAlert, Clock3, LockKeyhole, PlayCircle, RefreshCw, ShieldCheck } from 'lucide-react';
-import type { ActionProposal, PolicyDecision, RemediationExecution } from '../../services/privacyGuardApi';
+import { privacyGuardApi, type ActionProposal, type PolicyDecision, type RemediationExecution } from '../../services/privacyGuardApi';
 
 interface Props {
   action: ActionProposal | null;
@@ -52,6 +52,18 @@ function authorizationTimestamp(value: string): string {
 }
 
 export function RemediationPanel({ action, decision, execution, busy, onAuthorize, onExecute, onVerify }: Props) {
+  const session = privacyGuardApi.currentSession();
+  const authorities = session?.authorities ?? [];
+  const roleBoundaryKnown = Boolean(session?.authenticated && authorities.length > 0);
+  const hasApproverAuthority = !roleBoundaryKnown || authorities.includes('APPROVER');
+  const hasExecutorAuthority = !roleBoundaryKnown || authorities.includes('EXECUTOR');
+  const samePrincipalAsApprover = Boolean(
+    session?.enterpriseSeparationOfDuties
+      && session.username
+      && action?.remediationAuthorizedBy
+      && session.username === action.remediationAuthorizedBy,
+  );
+
   const isCredentialRevocation = action?.action === 'revoke-credential';
   const isPrivateNotification = action?.action === 'notify-security';
   const hasVerifiedExecutor = isCredentialRevocation || isPrivateNotification;
@@ -69,11 +81,14 @@ export function RemediationPanel({ action, decision, execution, busy, onAuthoriz
   const hasBoundAuthorization = Boolean(action?.remediationAuthorizedBy && action?.remediationAuthorizedAt);
   const legacyAuthorizationNeedsRebind = action?.status === 'REMEDIATION_AUTHORIZED' && !hasBoundAuthorization;
   const authorizationState = statusAuthorized ? (hasBoundAuthorization ? 'AUTHORIZED' : 'REAUTHORIZATION REQUIRED') : 'NOT AUTHORIZED';
-  const canAuthorize = Boolean(hasVerifiedExecutor && hasApprovedDestination && action && decisionCanExecute
+  const baseCanAuthorize = Boolean(hasVerifiedExecutor && hasApprovedDestination && action && decisionCanExecute
     && (action.status === 'EVALUATED' || legacyAuthorizationNeedsRebind));
-  const canExecute = Boolean(hasVerifiedExecutor && hasApprovedDestination && action && decisionCanExecute
+  const baseCanExecute = Boolean(hasVerifiedExecutor && hasApprovedDestination && action && decisionCanExecute
     && action.status === 'REMEDIATION_AUTHORIZED' && hasBoundAuthorization && !execution);
-  const canVerify = Boolean(hasVerifiedExecutor && execution && (execution.state === 'PENDING_VERIFICATION' || execution.state === 'UNVERIFIED') && execution.operationId);
+  const baseCanVerify = Boolean(hasVerifiedExecutor && execution && (execution.state === 'PENDING_VERIFICATION' || execution.state === 'UNVERIFIED') && execution.operationId);
+  const canAuthorize = baseCanAuthorize && hasApproverAuthority;
+  const canExecute = baseCanExecute && hasExecutorAuthority && !samePrincipalAsApprover;
+  const canVerify = baseCanVerify && hasExecutorAuthority && !samePrincipalAsApprover;
   const destinationChanged = execution?.failureCode === 'EXECUTION_DESTINATION_CHANGED';
   const state = stateCopy(execution);
   const proofState = execution ? 'ISSUED FOR EXECUTION' : hasBoundAuthorization && statusAuthorized ? 'ISSUED ON EXECUTE' : 'NOT ISSUED';
@@ -82,6 +97,9 @@ export function RemediationPanel({ action, decision, execution, busy, onAuthoriz
   const actionLabel = isPrivateNotification ? 'security notification' : 'credential revocation';
   const expectedState = isPrivateNotification ? 'DELIVERED' : 'REVOKED';
   const requestedPrivateReference = isPrivateNotification ? action?.privateRefs.join(', ') || 'MISSING — BLOCKED' : 'NONE';
+  const separationState = execution?.executionPrincipal && action?.remediationAuthorizedBy
+    ? execution.executionPrincipal === action.remediationAuthorizedBy ? 'NOT COMPLIANT' : 'CONFIRMED'
+    : session?.enterpriseSeparationOfDuties ? 'NOT YET PROVEN' : 'LOCAL / DEMO MODE';
 
   return (
     <section className="card remediation-card" aria-labelledby="remediation-title">
@@ -91,6 +109,9 @@ export function RemediationPanel({ action, decision, execution, busy, onAuthoriz
       {action && !hasVerifiedExecutor && <p className="inline-notice">This action can be evaluated by the T3N policy, but this demo does not claim a protected executor or independent completion verifier for it. Protected execution is implemented only for credential revocation and private security notification.</p>}
       {hasVerifiedExecutor && decision?.decision === 'DENY' && <p className="inline-notice">A DENY decision cannot enter protected remediation.</p>}
       {hasVerifiedExecutor && decision && decision.decision !== 'DENY' && !decisionCanExecute && <p className="inline-notice">Execution is blocked because the policy-minimized result no longer satisfies all required fields or the action-specific private-reference contract.</p>}
+      {roleBoundaryKnown && baseCanAuthorize && !hasApproverAuthority && <p className="inline-notice">You can review this decision, but your human authority cannot approve remediation. An APPROVER must authorize it.</p>}
+      {roleBoundaryKnown && (baseCanExecute || baseCanVerify) && !hasExecutorAuthority && <p className="inline-notice">You can review this remediation, but your human authority cannot execute or verify it. An EXECUTOR must perform this step.</p>}
+      {samePrincipalAsApprover && (baseCanExecute || baseCanVerify) && <div className="feedback feedback-error remediation-status-message" role="alert"><CircleAlert aria-hidden="true" /><span>Enterprise separation of duties blocks this account because the same principal authorized the remediation. Sign in with a different EXECUTOR principal.</span></div>}
 
       {action && decision && (
         <div role="region" aria-label="T3N payload minimization">
@@ -110,6 +131,8 @@ export function RemediationPanel({ action, decision, execution, busy, onAuthoriz
           <div><span>Human authorization</span><strong>{authorizationState}</strong></div>
           {hasBoundAuthorization && <div><span>Authorized by</span><strong>{action.remediationAuthorizedBy}</strong></div>}
           {hasBoundAuthorization && action.remediationAuthorizedAt && <div><span>Authorized at</span><strong>{authorizationTimestamp(action.remediationAuthorizedAt)}</strong></div>}
+          {execution?.executionPrincipal && <div><span>Execution principal</span><strong>{execution.executionPrincipal}</strong></div>}
+          <div><span>Separation of duties</span><strong>{separationState}</strong></div>
           <div><span>One-time authorization proof</span><strong>{proofState}</strong></div>
           <div><span>T3N execution proof check</span><strong>{t3nProofState}</strong></div>
           <div><span>Protected Executor identity</span><strong>{executorBindingState}</strong></div>
@@ -126,7 +149,7 @@ export function RemediationPanel({ action, decision, execution, busy, onAuthoriz
       {isPrivateNotification && action && decision && decision.decision !== 'DENY' && !hasRequiredPrivateReference && <div className="feedback feedback-error remediation-status-message" role="alert"><CircleAlert aria-hidden="true" /><span>Execution is blocked because security notification requires exactly the logical private reference verified_email to remain policy-allowed. Plaintext recipients and placeholder literals are not accepted.</span></div>}
       {canAuthorize && <button className="button button-primary" type="button" onClick={onAuthorize} disabled={busy}><ShieldCheck aria-hidden="true" />{legacyAuthorizationNeedsRebind ? `Re-authorize ${actionLabel}` : `Authorize ${actionLabel}`}</button>}
       {canExecute && <>
-        <div className="success-state"><ShieldCheck aria-hidden="true" /><span>Human authorization is bound to the authenticated operator, exact destination, trusted payload, private-reference set, policy and Protected Executor. Execution issues an Ed25519-signed one-time proof that is checked by the gateway and again inside T3N before protected egress.</span></div>
+        <div className="success-state"><ShieldCheck aria-hidden="true" /><span>Human authorization is bound to the authenticated approver, exact destination, trusted payload, private-reference set, policy and Protected Executor. Enterprise mode additionally requires a different EXECUTOR principal before protected egress.</span></div>
         <button className="button button-primary" type="button" onClick={onExecute} disabled={busy}><PlayCircle aria-hidden="true" />Execute protected {actionLabel}</button>
       </>}
 

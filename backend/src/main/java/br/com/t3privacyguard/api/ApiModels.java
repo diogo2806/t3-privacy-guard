@@ -156,8 +156,24 @@ public final class ApiModels {
         int verificationAttempts,
         String failureCode,
         Instant startedAt,
-        Instant completedAt
-    ) {}
+        Instant completedAt,
+        String executionPrincipal
+    ) {
+        public RemediationExecutionResponse(
+            String incidentId,
+            String actionId,
+            String requestId,
+            String state,
+            Integer httpCode,
+            String operationId,
+            int verificationAttempts,
+            String failureCode,
+            Instant startedAt,
+            Instant completedAt
+        ) {
+            this(incidentId, actionId, requestId, state, httpCode, operationId, verificationAttempts, failureCode, startedAt, completedAt, null);
+        }
+    }
     public record AnalyzeAgentRequest(@NotBlank @Size(max = 4000) String prompt) {}
     public record AgentAnalysisResponse(String provider, String model, IncidentResponse incident, ActionResponse action, DecisionResponse decision) {}
 }

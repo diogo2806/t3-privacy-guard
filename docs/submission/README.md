@@ -900,3 +900,45 @@ The capability does not forward the username. Instead it binds `operatorPrincipa
 This provenance is deliberately local/private. Username, e-mail and operator hash are not Agent Card fields, are not emitted into public evidence and are not claimed as T3N Activity Log identity. Legacy `REMEDIATION_AUTHORIZED` rows without persisted principal/timestamp remain blocked and visible as `REAUTHORIZATION REQUIRED`; no identity is inferred retroactively. Completed legacy remediation cannot be rebound to a later operator.
 
 For the judge, a human-authorization screenshot is valid only when the UI shows the persisted `Authorized by` and `Authorized at` values for the current action. `REAUTHORIZATION REQUIRED` is a blocked state, not evidence that the old authorization has been attributed to the current operator.
+
+## Enterprise human separation of duties
+
+The human application boundary is separate from the Tenant/Proposal Agent/Protected Executor T3N identities. Spring Security now exposes four semantic authorities and enforces them server-side before business mutations:
+
+```text
+ANALYST   -> create incidents, analyze, propose and evaluate
+APPROVER  -> authorize remediation
+EXECUTOR  -> execute and verify protected remediation
+AUDITOR   -> read operational/audit/evidence state only
+```
+
+`ENTERPRISE_SOD_ENABLED=true` requires all four role-specific username/password pairs and four distinct usernames. Missing values, documentation placeholders or duplicated principals fail startup. The current deployment uses configured local application principals; this is **not** presented as an external corporate IdP/OIDC integration.
+
+When enterprise SoD is disabled, the existing `OPERATOR_USERNAME/PASSWORD` receives all four semantic authorities so the local challenge/demo path remains backward compatible. The session explicitly reports `enterpriseSeparationOfDuties=false`, and the UI labels the resulting control state `LOCAL / DEMO MODE`; it must not be used as evidence of enterprise human segregation.
+
+The browser receives only the effective authority names for presentation. It may hide or explain unavailable actions, but Spring Security remains the authorization source of truth and returns `403` before business mutation for an insufficient authority. `AUDITOR` has no business mutation path. Read-only incident, decision, remediation, audit, trace and evidence state remains visible to authenticated human authorities so an APPROVER or EXECUTOR can review the context required for its own step without receiving another mutation authority.
+
+Enterprise remediation adds a second server-side invariant after the role check:
+
+```text
+canonical principal that authorized the action
+!=
+canonical principal that executes or verifies the action
+```
+
+The comparison is by authenticated principal, so a single account with multiple roles cannot bypass separation of duties. The execution claim persists `executionPrincipal` from the authenticated Spring `SecurityContext`; that value never comes from an HTTP request body. Existing execution rows without an executor principal remain legacy/unproven rather than being relabelled compliant. Retries preserve the original persisted execution provenance.
+
+The remediation UI therefore treats these as different facts: `Authorized by`, `Execution principal` and `Separation of duties`. `CONFIRMED` requires two persisted non-equal principals. `NOT YET PROVEN` is used before an enterprise execution exists; a legacy row without provenance is not upgraded by inference. Human application principals are not called DIDs and are not represented as civil identity verification.
+
+For an enterprise-mode judge/demo walkthrough, the human portion of the flow changes sessions deliberately:
+
+```text
+ANALYST   -> create/analyze/evaluate
+APPROVER  -> review the persisted decision and authorize
+EXECUTOR  -> sign in as a different principal, execute and verify
+AUDITOR   -> review the resulting history/evidence without mutation controls
+```
+
+The original single-login quick path applies only to local/demo mode. In enterprise mode, authorizing and then trying to execute with the same principal must fail closed even if that account somehow has both application roles.
+
+Required enterprise application-IAM variables are `ENTERPRISE_SOD_ENABLED`, `ANALYST_USERNAME`, `ANALYST_PASSWORD`, `APPROVER_USERNAME`, `APPROVER_PASSWORD`, `EXECUTOR_USERNAME`, `EXECUTOR_PASSWORD`, `AUDITOR_USERNAME` and `AUDITOR_PASSWORD`. These credentials do not replace T3N delegation, DIDs, the Protected Executor credential, policy provenance or the signed one-time execution capability.

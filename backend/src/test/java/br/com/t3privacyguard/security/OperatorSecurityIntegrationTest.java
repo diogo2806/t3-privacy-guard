@@ -1,8 +1,10 @@
 package br.com.t3privacyguard.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -34,11 +36,13 @@ class OperatorSecurityIntegrationTest {
     void sessionEndpointDoesNotPretendAnonymousUserIsAuthenticated() throws Exception {
         mvc.perform(get("/api/auth/session"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.authenticated").value(false));
+            .andExpect(jsonPath("$.authenticated").value(false))
+            .andExpect(jsonPath("$.authorities").isArray())
+            .andExpect(jsonPath("$.enterpriseSeparationOfDuties").value(false));
     }
 
     @Test
-    void validLoginCreatesSessionAndAllowsReadOnlyBusinessRequest() throws Exception {
+    void validLocalLoginExposesSemanticAuthoritiesWithoutClaimingEnterpriseSod() throws Exception {
         var result = mvc.perform(post("/api/auth/login")
                 .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
@@ -46,6 +50,8 @@ class OperatorSecurityIntegrationTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.authenticated").value(true))
             .andExpect(jsonPath("$.username").value("test-operator"))
+            .andExpect(jsonPath("$.authorities", containsInAnyOrder("ANALYST", "APPROVER", "EXECUTOR", "AUDITOR")))
+            .andExpect(jsonPath("$.enterpriseSeparationOfDuties").value(false))
             .andReturn();
 
         MockHttpSession session = (MockHttpSession) result.getRequest().getSession(false);
@@ -53,6 +59,48 @@ class OperatorSecurityIntegrationTest {
 
         mvc.perform(get("/api/incidents").session(session))
             .andExpect(status().isOk());
+    }
+
+    @Test
+    void analystCannotAuthorizeRemediation() throws Exception {
+        mvc.perform(post("/api/incidents/i/actions/a/authorize-remediation")
+                .with(user("analyst-01").roles("ANALYST"))
+                .with(csrf()))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.detail").value("Your session role is not allowed to perform this action."));
+    }
+
+    @Test
+    void approverCannotExecuteRemediation() throws Exception {
+        mvc.perform(post("/api/incidents/i/actions/a/execute-remediation")
+                .with(user("approver-01").roles("APPROVER"))
+                .with(csrf()))
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void executorCannotAuthorizeRemediation() throws Exception {
+        mvc.perform(post("/api/incidents/i/actions/a/authorize-remediation")
+                .with(user("executor-01").roles("EXECUTOR"))
+                .with(csrf()))
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void auditorIsReadOnlyForBusinessMutations() throws Exception {
+        mvc.perform(post("/api/incidents")
+                .with(user("auditor-01").roles("AUDITOR"))
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"title\":\"Test\",\"severity\":\"HIGH\",\"summary\":\"Test\",\"source\":\"security-test\"}"))
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void auditorCanReachReadOnlyAuditEndpoint() throws Exception {
+        mvc.perform(get("/api/incidents/missing/history")
+                .with(user("auditor-01").roles("AUDITOR")))
+            .andExpect(status().isNotFound());
     }
 
     @Test
