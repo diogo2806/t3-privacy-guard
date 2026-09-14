@@ -37,7 +37,8 @@ public class RemediationQueryService {
             execution.getVerificationAttempts(),
             execution.getFailureCode(),
             execution.getStartedAt(),
-            execution.getCompletedAt()
+            execution.getCompletedAt(),
+            execution.getExecutionPrincipal()
         );
     }
 }
