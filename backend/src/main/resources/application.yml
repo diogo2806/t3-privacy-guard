@@ -61,6 +61,7 @@ privacy-guard:
   incident-intake:
     enabled: ${INCIDENT_INTAKE_ENABLED:false}
     integrations-json: '${INCIDENT_INTAKE_INTEGRATIONS_JSON:[]}'
+    credentials-file: ${INCIDENT_INTAKE_CREDENTIALS_FILE:}
   incident-retention:
     days: ${INCIDENT_RETENTION_DAYS:7}
     purge-initial-delay-ms: ${INCIDENT_PURGE_INITIAL_DELAY_MS:60000}
