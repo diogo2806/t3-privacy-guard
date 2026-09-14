@@ -44,6 +44,20 @@ privacy-guard:
     username: ${OPERATOR_USERNAME:}
     password: ${OPERATOR_PASSWORD:}
     cookie-secure: ${SESSION_COOKIE_SECURE:false}
+  iam:
+    enterprise-sod-enabled: ${ENTERPRISE_SOD_ENABLED:false}
+    analyst:
+      username: ${ANALYST_USERNAME:}
+      password: ${ANALYST_PASSWORD:}
+    approver:
+      username: ${APPROVER_USERNAME:}
+      password: ${APPROVER_PASSWORD:}
+    executor:
+      username: ${EXECUTOR_USERNAME:}
+      password: ${EXECUTOR_PASSWORD:}
+    auditor:
+      username: ${AUDITOR_USERNAME:}
+      password: ${AUDITOR_PASSWORD:}
   incident-retention:
     days: ${INCIDENT_RETENTION_DAYS:7}
     purge-initial-delay-ms: ${INCIDENT_PURGE_INITIAL_DELAY_MS:60000}
