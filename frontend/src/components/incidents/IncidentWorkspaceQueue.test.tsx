@@ -63,12 +63,17 @@ describe('IncidentWorkspaceQueue', () => {
   it('shows all active incidents and keeps terminal truth distinct from attention', () => {
     renderQueue();
 
-    expect(screen.getByText('2 need attention')).toBeInTheDocument();
+    expect(screen.getByText('2 incidents need attention')).toBeInTheDocument();
     expect(screen.getByText('Credential compromise')).toBeInTheDocument();
     expect(screen.getByText('Needs human approval')).toBeInTheDocument();
     expect(screen.getByText('Verified notification')).toBeInTheDocument();
     expect(screen.getByText('Verified complete')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Open Credential compromise/i })).toHaveAttribute('aria-current', 'true');
+  });
+
+  it('uses singular attention copy when exactly one incident requires action', () => {
+    renderQueue({ workspace: { ...workspace, attentionCount: 1 } });
+    expect(screen.getByText('1 incident needs attention')).toBeInTheDocument();
   });
 
   it('selects a case without embedding mutation controls in the queue', () => {
