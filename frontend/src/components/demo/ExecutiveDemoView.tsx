@@ -27,7 +27,7 @@ import { Button } from '../ui/Button';
 import { Surface } from '../ui/Surface';
 
 interface Props {
-  scenario: EnterpriseScenarioDefinition;
+  scenario: EnterpriseScenarioDefinition | null;
   systemStatus: SystemStatus | null;
   statusLoading: boolean;
   agentAnalysis: AgentAnalysis | null;
@@ -202,9 +202,19 @@ export function ExecutiveDemoView({
       <div className="executive-demo-outcome-grid">
         <section className="executive-demo-block" aria-labelledby="executive-risk-title">
           <div className="executive-demo-block-title"><CircleAlert aria-hidden="true" /><h2 id="executive-risk-title">Business risk</h2></div>
-          <strong>{scenario.title}</strong>
-          <p>{scenario.businessRisk}</p>
-          <dl className="executive-demo-inline-facts"><div><dt>Protected asset</dt><dd>{scenario.protectedAsset}</dd></div></dl>
+          {scenario ? (
+            <>
+              <strong>{scenario.title}</strong>
+              <p>{scenario.businessRisk}</p>
+              <dl className="executive-demo-inline-facts"><div><dt>Protected asset</dt><dd>{scenario.protectedAsset}</dd></div></dl>
+            </>
+          ) : (
+            <>
+              <strong>Persisted incident</strong>
+              <p>Resumed from the operational workspace. Demo scenario metadata is intentionally not inferred for this incident.</p>
+              <dl className="executive-demo-inline-facts"><div><dt>Protected asset</dt><dd>{action?.resource ?? 'NOT OBSERVED'}</dd></div></dl>
+            </>
+          )}
         </section>
         <section className="executive-demo-block" aria-labelledby="executive-outcome-title">
           <div className="executive-demo-block-title"><BadgeCheck aria-hidden="true" /><h2 id="executive-outcome-title">Observed outcome</h2></div>
