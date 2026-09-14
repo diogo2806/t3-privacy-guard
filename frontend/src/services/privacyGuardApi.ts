@@ -11,8 +11,37 @@ export type AuditReconciliationStatus = 'LOCAL_ONLY' | 'T3N_ONLY' | 'MATCHED' | 
 export type AuditIntegrityState = 'VERIFIED' | 'BROKEN' | 'KEY_MISMATCH' | 'LEGACY_UNVERIFIED' | 'PURGED' | 'NOT_AVAILABLE';
 export type HumanAuthority = 'ANALYST' | 'APPROVER' | 'EXECUTOR' | 'AUDITOR';
 export type BusinessImpactWindow = 'retained' | '24h' | '7d';
+export type IncidentWorkspaceStage =
+  | 'NEEDS_ANALYSIS'
+  | 'POLICY_EVALUATION_REQUIRED'
+  | 'POLICY_BLOCKED'
+  | 'HUMAN_APPROVAL_REQUIRED'
+  | 'POLICY_REVIEWED'
+  | 'AUTHORIZED_EXECUTION_PENDING'
+  | 'EXECUTION_IN_PROGRESS'
+  | 'VERIFICATION_PENDING'
+  | 'VERIFIED_COMPLETE'
+  | 'UNVERIFIED_REVIEW_REQUIRED'
+  | 'FAILED_REVIEW_REQUIRED'
+  | 'STATE_UNAVAILABLE';
 
 export interface Incident { id: string; title: string; severity: Severity; summary: string; source: string; status: string; createdAt: string; expiresAt: string; retentionState: 'ACTIVE'; }
+export interface IncidentWorkspaceItem {
+  id: string;
+  title: string;
+  severity: Severity;
+  incidentStatus: string;
+  createdAt: string;
+  latestActionId?: string | null;
+  latestAction?: string | null;
+  latestActionStatus?: ProposalStatus | null;
+  policyDecision?: DecisionType | null;
+  remediationState?: RemediationState | null;
+  stage: IncidentWorkspaceStage;
+  nextRequiredAction: string;
+  requiresAttention: boolean;
+}
+export interface IncidentWorkspace { generatedAt: string; attentionCount: number; incidents: IncidentWorkspaceItem[]; }
 export interface ActionProposal { id: string; incidentId: string; requestId: string; action: string; resource: string; purpose: string; host?: string | null; fields: string[]; normalPayload?: Record<string, string>; privateRefs: string[]; status: ProposalStatus; createdAt: string; remediationAuthorizedBy?: string | null; remediationAuthorizedAt?: string | null; }
 export interface PolicyDecision {
   id: string;
@@ -207,6 +236,7 @@ export const privacyGuardApi = {
   systemStatus: () => api<SystemStatus>('/api/system/status'),
   latestEvidence: () => api<EvidenceBundle>('/api/evidence/latest'),
   businessImpact: (window: BusinessImpactWindow = 'retained') => api<BusinessImpact>(`/api/business-impact?window=${encodeURIComponent(window)}`),
+  incidentWorkspace: () => api<IncidentWorkspace>('/api/incident-workspace'),
   analyzeAgent: (prompt: string) => api<AgentAnalysis>('/api/agent/analyze', { method: 'POST', body: JSON.stringify({ prompt }) }),
   analyzeAgentInIncident: (incidentId: string, prompt: string) => api<AgentAnalysis>(`/api/incidents/${encodeURIComponent(incidentId)}/agent-proposals`, { method: 'POST', body: JSON.stringify({ prompt }) }),
   listIncidents: () => api<Incident[]>('/api/incidents'),

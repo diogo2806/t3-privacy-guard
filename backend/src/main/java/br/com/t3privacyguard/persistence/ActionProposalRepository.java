@@ -12,6 +12,7 @@ import org.springframework.data.repository.query.Param;
 public interface ActionProposalRepository extends JpaRepository<ActionProposalEntity, String> {
     Optional<ActionProposalEntity> findByRequestId(String requestId);
     List<ActionProposalEntity> findByIncidentIdOrderByCreatedAtAsc(String incidentId);
+    List<ActionProposalEntity> findByIncidentIdInOrderByCreatedAtAsc(List<String> incidentIds);
     long countByRemediationAuthorizedAtBetween(Instant from, Instant to);
     void deleteAllByIncidentId(String incidentId);
 

@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface PolicyDecisionRepository extends JpaRepository<PolicyDecisionEntity, String> {
     Optional<PolicyDecisionEntity> findByActionProposalId(String actionProposalId);
+    List<PolicyDecisionEntity> findByActionProposalIdIn(List<String> actionProposalIds);
     List<PolicyDecisionEntity> findByEvaluatedAtBetweenOrderByEvaluatedAtAsc(Instant from, Instant to);
     void deleteAllByActionProposalIdIn(List<String> actionProposalIds);
 }

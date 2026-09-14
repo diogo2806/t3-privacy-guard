@@ -83,6 +83,36 @@ Durations below one second are shown as integer milliseconds, durations from one
 
 Business Outcome intentionally keeps **Requested field names**, **Policy-allowed field names** and **Policy-redacted field names** as schema-level counts. Value-level minimization is proved separately in the protected-remediation panel and evidence path, where trusted synthetic values are bound, filtered and serialized. Human-principal identity/timestamp is likewise not invented when it is absent from the API. The exact `Approved destination` is shown as human-approved only after the persisted action state proves authorization.
 
+## Operational incident workspace
+
+Protection flow includes an authenticated **Incident workspace** that turns the retained incident set into an operational queue instead of treating only the newest case as usable. `GET /api/incident-workspace` returns every incident still inside the server-side retention window together with a server-derived summary of the latest proposal, policy decision, remediation state, operational stage and next required action. The service performs batch reads for proposals, decisions and remediations so the browser does not build the queue through one request per incident.
+
+The workspace is navigation, not a second workflow engine. Selecting a row loads that incident's existing proposals, decision, remediation, execution trace and audit history. Selection never authorizes, executes or verifies anything. The mutation buttons remain only in their existing responsible components and continue to be protected by the backend authority matrix.
+
+Operational stage truth is conservative:
+
+```text
+no proposal                     -> NEEDS_ANALYSIS
+proposal PENDING                -> POLICY_EVALUATION_REQUIRED
+DENY                            -> POLICY_BLOCKED
+protected ALLOW/REDACT          -> HUMAN_APPROVAL_REQUIRED
+REMEDIATION_AUTHORIZED          -> AUTHORIZED_EXECUTION_PENDING
+EXECUTING                       -> EXECUTION_IN_PROGRESS
+PENDING_VERIFICATION            -> VERIFICATION_PENDING
+COMPLETED                       -> VERIFIED_COMPLETE
+UNVERIFIED                      -> UNVERIFIED_REVIEW_REQUIRED
+FAILED                          -> FAILED_REVIEW_REQUIRED
+unprovable/inconsistent state   -> STATE_UNAVAILABLE
+```
+
+Only persisted `COMPLETED` is presented as verified completion. `ALLOW` is not authorization, `REMEDIATION_AUTHORIZED` is not execution, and `PENDING_VERIFICATION` is not success. A stale incident that expires between queue retrieval and opening is removed after a 404 instead of being kept by browser cache.
+
+Rapid incident switching is guarded by a selection generation token. Responses belonging to an older selection are discarded, and the previous incident's decision, remediation, trace and audit state are cleared before the newly selected detail is loaded. This prevents a slow request from making data from incident A appear under incident B.
+
+Demo scenario metadata remains intentionally separate from persisted incident identity. When an incident is resumed from the operational workspace and no persisted scenario binding exists, Business Outcome and Executive Demo do not infer the currently selected demo scenario from title or position. They show the selected incident's runtime facts and explicitly state that demo-only business metadata is unavailable rather than attributing another scenario's risk/asset/outcome to the case.
+
+The queue's empty state is actionable (`No active incidents. Run a scenario or wait for a new incident to start a protected decision flow.`), list/detail failures expose retry actions, and the Screen Manual documents selection, states, permissions, retention, fast-switch behavior and the demo-versus-persisted context boundary. Queue styling remains in `frontend/src/shared/styles` and the component lives under `frontend/src/components/incidents`.
+
 ## Value-level normal payload minimization
 
 The model may select normal **field names**, but it never supplies the values used by protected execution. Spring materializes supported synthetic values from a closed server-owned table, rejects secret/unknown keys from becoming trusted values, and persists the exact `normalPayload` with the action. `normal_payload`/`normalPayload` are rejected on the model/A2A proposal surface.
