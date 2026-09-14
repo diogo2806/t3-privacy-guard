@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ConfigurationError, readGatewayConfig } from './env.js';
 
+const publicKeySpki = 'MCowBQYDK2VwAyEAW3EwSatHmT/ZSgrqu/G3ecXJrTviA5SjAoCwIfwau6A=';
 const baseEnv = {
   T3N_API_KEY: 'tenant-secret',
   GATEWAY_SERVICE_TOKEN: 'gateway-service-token-1234567890123456',
-  REMEDIATION_CAPABILITY_KEY: 'remediation-capability-key-123456789012',
+  REMEDIATION_AUTH_PUBLIC_KEY_SPKI: publicKeySpki,
 };
 
 function aiEnv(url: string) {
@@ -21,23 +22,35 @@ function aiEnv(url: string) {
 test('rejects missing tenant API key', () => {
   assert.throws(() => readGatewayConfig({
     GATEWAY_SERVICE_TOKEN: baseEnv.GATEWAY_SERVICE_TOKEN,
-    REMEDIATION_CAPABILITY_KEY: baseEnv.REMEDIATION_CAPABILITY_KEY,
+    REMEDIATION_AUTH_PUBLIC_KEY_SPKI: publicKeySpki,
   }), ConfigurationError);
 });
 
-test('defaults to testnet, disabled AI, no public A2A, persistent trust floor and current contract version', () => {
+test('defaults to testnet, disabled AI, versioned remediation key, no public A2A, persistent trust floor and current contract version', () => {
   const config = readGatewayConfig(baseEnv);
   assert.equal(config.network, 'testnet');
   assert.equal(config.port, 3001);
   assert.equal(config.agentApiKey, null);
   assert.equal(config.executorApiKey, null);
   assert.equal(config.contractVersion, '0.4.0');
+  assert.equal(config.remediationAuthorizationPublicKeySpki, publicKeySpki);
+  assert.equal(config.remediationAuthorizationKeyId, 'primary');
   assert.equal(config.remediationReplayStorePath, '/data/remediation-capability-nonces.json');
   assert.equal(config.trustManifestFloorStorePath, '/data/t3n-trust-floor.json');
   assert.equal(config.aiProvider, 'disabled');
   assert.equal(config.aiApiKey, null);
   assert.equal(config.aiModel, null);
   assert.equal(config.a2aPublicUrl, null);
+});
+
+test('accepts an explicit safe remediation authorization key id', () => {
+  assert.equal(readGatewayConfig({ ...baseEnv, REMEDIATION_AUTH_KEY_ID: 'rotation-2026-09' }).remediationAuthorizationKeyId, 'rotation-2026-09');
+});
+
+test('rejects unsafe remediation authorization key ids', () => {
+  for (const keyId of ['', '../../bad', 'contains space', 'x'.repeat(33)]) {
+    assert.throws(() => readGatewayConfig({ ...baseEnv, REMEDIATION_AUTH_KEY_ID: keyId }), ConfigurationError);
+  }
 });
 
 test('accepts distinct tenant proposal-agent and executor credentials', () => {
@@ -141,10 +154,10 @@ test('rejects reuse of proposal-agent key as executor key', () => {
   );
 });
 
-test('rejects missing or weak internal security secrets', () => {
+test('rejects missing or invalid internal security configuration', () => {
   assert.throws(() => readGatewayConfig({ T3N_API_KEY: 'tenant-secret' }), ConfigurationError);
   assert.throws(() => readGatewayConfig({ ...baseEnv, GATEWAY_SERVICE_TOKEN: 'short' }), ConfigurationError);
-  assert.throws(() => readGatewayConfig({ ...baseEnv, REMEDIATION_CAPABILITY_KEY: 'short' }), ConfigurationError);
+  assert.throws(() => readGatewayConfig({ ...baseEnv, REMEDIATION_AUTH_PUBLIC_KEY_SPKI: 'not-an-ed25519-spki' }), ConfigurationError);
 });
 
 test('rejects unknown network', () => {
