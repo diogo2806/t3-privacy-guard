@@ -20,7 +20,7 @@ import { OperatorSessionGate } from '../auth/OperatorSessionGate';
 import { AuditTrail } from '../audit/AuditTrail';
 import { ExecutionTrace } from '../audit/ExecutionTrace';
 import { BusinessOutcomeSummary } from '../business/BusinessOutcomeSummary';
-import { DashboardTabs, type DashboardView } from './DashboardTabs';
+import { ExecutiveDemoView } from '../demo/ExecutiveDemoView';
 import { EvidenceCenter } from '../evidence/EvidenceCenter';
 import { IncidentSummary } from '../incidents/IncidentSummary';
 import { AppHeader } from '../layout/AppHeader';
@@ -32,6 +32,7 @@ import { EmptyState } from '../states/EmptyState';
 import { SystemStatusBar } from '../status/SystemStatusBar';
 import { NextRequiredAction } from '../trust/NextRequiredAction';
 import { TrustFlowSummary } from '../trust/TrustFlowSummary';
+import { DashboardTabs, type DashboardView } from './DashboardTabs';
 
 export function PrivacyGuardDashboard() {
   const [session, setSession] = useState<OperatorSession | null>(null);
@@ -164,7 +165,10 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
     }).catch((cause) => handleError(cause, 'Unable to load incidents.'));
   }, [handleError, refreshIncident, refreshSystem]);
 
-  useEffect(() => { if (view === 'evidence' && !evidence && !evidenceLoading) void refreshEvidence(); }, [view, evidence, evidenceLoading, refreshEvidence]);
+  useEffect(() => {
+    const evidenceView = view === 'presentation' || view === 'evidence';
+    if (evidenceView && !evidence && !evidenceLoading && !evidenceError) void refreshEvidence();
+  }, [view, evidence, evidenceLoading, evidenceError, refreshEvidence]);
 
   const run = async (operation: () => Promise<void>) => {
     setBusy(true); setError(null); setNotice(null);
@@ -259,28 +263,26 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
 
   return (
     <>
-      <TrustFlowSummary
-        agentAnalysis={agentAnalysis}
-        decision={decision}
-        selectedAction={selectedAction}
-        remediationExecution={remediationExecution}
-        systemStatus={systemStatus}
-        statusLoading={statusLoading}
-        busy={busy}
-        onRetryEvaluation={() => void retryEvaluation()}
-      />
-      <details className="readiness-disclosure">
-        <summary>System readiness details</summary>
-        <SystemStatusBar status={systemStatus} loading={statusLoading} onRefresh={() => void refreshSystem()} />
-      </details>
       <DashboardTabs active={view} onChange={setView} />
       {error && <div className="feedback feedback-error" role="alert">{error}</div>}
       {notice && <div className="feedback feedback-success" role="status">{notice}</div>}
 
-      {view === 'evidence' ? (
-        <EvidenceCenter evidence={evidence} loading={evidenceLoading} error={evidenceError} onRefresh={() => void refreshEvidence()} />
-      ) : (
+      {view === 'demo' && (
         <>
+          <TrustFlowSummary
+            agentAnalysis={agentAnalysis}
+            decision={decision}
+            selectedAction={selectedAction}
+            remediationExecution={remediationExecution}
+            systemStatus={systemStatus}
+            statusLoading={statusLoading}
+            busy={busy}
+            onRetryEvaluation={() => void retryEvaluation()}
+          />
+          <details className="readiness-disclosure">
+            <summary>System readiness details</summary>
+            <SystemStatusBar status={systemStatus} loading={statusLoading} onRefresh={() => void refreshSystem()} />
+          </details>
           <BusinessOutcomeSummary
             scenario={selectedScenario}
             incident={incident}
@@ -304,6 +306,26 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
             <aside className="dashboard-side" aria-label="Live activity"><ExecutionTrace events={executionTrace} action={selectedAction} /><AuditTrail events={history} /></aside>
           </main>
         </>
+      )}
+
+      {view === 'presentation' && (
+        <ExecutiveDemoView
+          scenario={selectedScenario}
+          systemStatus={systemStatus}
+          statusLoading={statusLoading}
+          agentAnalysis={agentAnalysis}
+          selectedAction={selectedAction}
+          decision={decision}
+          remediationExecution={remediationExecution}
+          evidence={evidence}
+          evidenceLoading={evidenceLoading}
+          evidenceError={evidenceError}
+          onOpenEvidence={() => setView('evidence')}
+        />
+      )}
+
+      {view === 'evidence' && (
+        <EvidenceCenter evidence={evidence} loading={evidenceLoading} error={evidenceError} onRefresh={() => void refreshEvidence()} />
       )}
     </>
   );

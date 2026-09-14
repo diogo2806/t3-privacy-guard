@@ -33,6 +33,28 @@ async function screenshot(page: import('@playwright/test').Page, filename: strin
   return filename;
 }
 
+async function viewportScreenshot(page: import('@playwright/test').Page, filename: string): Promise<string> {
+  const path = resolve(outputRoot, filename);
+  await page.screenshot({ path, fullPage: false });
+  return filename;
+}
+
+async function captureExecutiveViewport(page: import('@playwright/test').Page, filename: string): Promise<string> {
+  const executive = page.getByTestId('executive-demo-view');
+  await expect(executive).toBeVisible();
+  await executive.scrollIntoViewIfNeeded();
+  const box = await executive.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.width).toBeLessThanOrEqual(1440);
+  expect(box!.height).toBeLessThanOrEqual(900);
+  await expect(page.getByRole('heading', { name: 'AI can propose. Policy decides. Humans authorize. T3N executes.' })).toBeInViewport();
+  await expect(page.getByRole('heading', { name: 'Business risk' })).toBeInViewport();
+  await expect(page.getByRole('heading', { name: 'Observed outcome' })).toBeInViewport();
+  await expect(page.getByRole('heading', { name: 'Trust path' })).toBeInViewport();
+  await expect(page.getByRole('heading', { name: 'Proof at a glance' })).toBeInViewport();
+  return viewportScreenshot(page, filename);
+}
+
 async function captureValue(page: import('@playwright/test').Page, testId: string): Promise<string> {
   const value = page.getByTestId(testId);
   await expect(value).toHaveCount(1);
@@ -47,8 +69,18 @@ async function expandEvidenceProvenance(page: import('@playwright/test').Page): 
   }
 }
 
+async function openExecutiveDemo(page: import('@playwright/test').Page): Promise<void> {
+  await page.getByRole('button', { name: 'Executive demo', exact: true }).click();
+  await expect(page.getByTestId('executive-demo-view')).toBeVisible();
+}
+
+async function openProtectionFlow(page: import('@playwright/test').Page): Promise<void> {
+  await page.getByRole('button', { name: 'Protection flow', exact: true }).click();
+}
+
 test('capture submission material only from live testnet evidence', async ({ page }) => {
   await mkdir(outputRoot, { recursive: true });
+  await page.setViewportSize({ width: 1440, height: 900 });
   await authenticateWithoutRenderingPassword(page);
   await page.goto('/');
   await expect(page.getByText('Operator session', { exact: true })).toBeVisible();
@@ -97,14 +129,30 @@ test('capture submission material only from live testnet evidence', async ({ pag
   const liveAiRow = page.getByTestId('evidence-scenario-LIVE-AI-MINIMUM-REMEDIATION');
   await expect(liveAiRow).toContainText('PASS');
 
-  await page.getByRole('button', { name: 'Protection flow', exact: true }).click();
+  await openProtectionFlow(page);
   await page.getByRole('button', { name: /Credential compromised/i }).click();
+
+  await openExecutiveDemo(page);
+  await expect(page.getByTestId('executive-observed-outcome')).toContainText('NOT YET OBSERVED');
+  await expect(page.getByTestId('executive-proof')).toContainText('PASS');
+  files.push(await captureExecutiveViewport(page, '01-executive-risk.png'));
+
+  await openProtectionFlow(page);
   await page.getByRole('button', { name: 'Analyze with agent', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'DENY', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Latest agent proposal' })).toBeVisible();
   await expect(page.getByText('attacker.example', { exact: true })).toBeVisible();
   files.push(await screenshot(page, '02-real-ai-attack-deny.png'));
 
+  await openExecutiveDemo(page);
+  await expect(page.getByTestId('executive-observed-outcome')).toContainText('BLOCKED BEFORE PROTECTED EGRESS');
+  await expect(page.getByTestId('executive-step-t3n-policy')).toContainText('DENY');
+  await expect(page.getByTestId('executive-step-executor')).toContainText('NOT EXECUTED');
+  await expect(page.getByTestId('executive-step-verify')).toContainText('WAITING');
+  await expect(page.getByTestId('executive-observed-outcome')).not.toContainText('VERIFIED EXTERNAL STATE');
+  files.push(await captureExecutiveViewport(page, '02-executive-deny.png'));
+
+  await openProtectionFlow(page);
   await page.getByRole('button', { name: 'Ask agent for minimum proposal', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Latest agent proposal' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'ALLOW', exact: true })).toBeVisible();
@@ -115,8 +163,16 @@ test('capture submission material only from live testnet evidence', async ({ pag
   await expect(page.getByRole('button', { name: 'Execute protected credential revocation', exact: true })).toBeVisible();
   files.push(await screenshot(page, '05-human-authorization.png'));
 
+  await openExecutiveDemo(page);
+  await expect(page.getByTestId('executive-observed-outcome')).toContainText('AUTHORIZED / NOT EXECUTED');
+  await expect(page.getByTestId('executive-step-human')).toContainText('AUTHORIZED');
+  await expect(page.getByTestId('executive-step-executor')).toContainText('NOT STARTED');
+  await expect(page.getByTestId('executive-step-verify')).toContainText('NOT VERIFIED YET');
+  files.push(await captureExecutiveViewport(page, '03-executive-human-authorization.png'));
+
   let remediationVerified = false;
   if (allowRemediation) {
+    await openProtectionFlow(page);
     await page.getByRole('button', { name: 'Execute protected credential revocation', exact: true }).click();
     const verifyButton = page.getByRole('button', { name: 'Verify external state', exact: true });
     if (await verifyButton.isVisible()) await verifyButton.click();
@@ -126,9 +182,26 @@ test('capture submission material only from live testnet evidence', async ({ pag
     await expect(remediationStatus).toContainText('COMPLETED');
     remediationVerified = true;
     files.push(await screenshot(page, '06-remediation-verified.png'));
+
+    await openExecutiveDemo(page);
+    await expect(page.getByTestId('executive-observed-outcome')).toContainText('VERIFIED EXTERNAL STATE: REVOKED');
+    await expect(page.getByTestId('executive-step-verify')).toContainText('VERIFIED');
+    files.push(await captureExecutiveViewport(page, '04-executive-verified-outcome.png'));
+  } else {
+    await expect(page.getByTestId('executive-observed-outcome')).toContainText('AUTHORIZED / NOT EXECUTED');
+    await expect(page.getByTestId('executive-step-verify')).toContainText('NOT VERIFIED YET');
+    files.push(await captureExecutiveViewport(page, '04-executive-not-verified-yet.png'));
   }
 
-  await page.getByRole('button', { name: 'Evidence', exact: true }).click();
+  await expect(page.getByTestId('executive-proof')).toContainText(sourceCommit.slice(0, 8));
+  await expect(page.getByTestId('executive-proof')).toContainText(contractVersion);
+  await expect(page.getByTestId('executive-proof')).toContainText('0 FAIL');
+  await expect(page.getByTestId('executive-proof')).toContainText('SEPARATE');
+  await expect(page.getByTestId('executive-proof')).toContainText('CONFIRMED');
+  files.push(await captureExecutiveViewport(page, '05-executive-proof.png'));
+
+  await page.getByRole('button', { name: 'Open technical evidence', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Execution proof at a glance' })).toBeVisible();
   await expect(page.getByTestId('evidence-fail-total')).toContainText('0');
   files.push(await screenshot(page, '07-evidence-center.png'));
 
@@ -151,6 +224,7 @@ test('capture submission material only from live testnet evidence', async ({ pag
     proposalAgentDid,
     protectedExecutorDid,
     remediationVerified,
+    viewport: { width: 1440, height: 900 },
     screenshots: files,
     video: videoName,
   };

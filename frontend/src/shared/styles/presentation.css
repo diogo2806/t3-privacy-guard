@@ -1,0 +1,118 @@
+.executive-demo {
+  display: grid;
+  gap: .8rem;
+  border-color: rgba(34, 211, 238, .4);
+  background:
+    radial-gradient(circle at 88% 0%, var(--brand-canvas-glow), transparent 24rem),
+    var(--surface-2);
+}
+.executive-demo-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: start;
+  padding-bottom: .75rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.executive-demo-header h1 { max-width: 980px; margin: 0; font-size: clamp(1.35rem, 2.25vw, 2rem); line-height: 1.12; }
+.executive-demo-subheadline { max-width: 980px; margin: .45rem 0 0; color: var(--text-secondary); font-size: .9rem; line-height: 1.45; }
+.executive-demo-readiness {
+  align-self: start;
+  padding: .5rem .7rem;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-pill);
+  font-size: .7rem;
+  font-weight: var(--font-weight-display);
+  letter-spacing: .06em;
+  white-space: nowrap;
+}
+.executive-demo-outcome-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem; }
+.executive-demo-block {
+  min-width: 0;
+  padding: .8rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: rgba(6, 16, 28, .5);
+}
+.executive-demo-block > strong { display: block; margin-top: .35rem; font-size: 1rem; }
+.executive-demo-block > p { margin: .3rem 0 0; color: var(--text-secondary); font-size: .8rem; line-height: 1.4; }
+.executive-demo-block-title { display: flex; align-items: center; gap: .45rem; }
+.executive-demo-block-title svg { width: 18px; height: 18px; color: var(--brand); }
+.executive-demo-block-title h2 { margin: 0; font-size: .8rem; letter-spacing: .05em; text-transform: uppercase; }
+.executive-demo-outcome { color: var(--text-primary); }
+.executive-demo-inline-facts { display: flex; flex-wrap: wrap; gap: .8rem 1.2rem; margin: .55rem 0 0; }
+.executive-demo-inline-facts > div { min-width: 0; }
+.executive-demo-inline-facts dt,
+.executive-demo-proof-grid dt { color: var(--text-tertiary); font-size: .65rem; font-weight: var(--font-weight-strong); letter-spacing: .05em; text-transform: uppercase; }
+.executive-demo-inline-facts dd,
+.executive-demo-proof-grid dd { margin: .15rem 0 0; overflow-wrap: anywhere; }
+.executive-demo-inline-facts dd { font-size: .78rem; }
+.executive-demo-trust,
+.executive-demo-proof {
+  padding: .75rem .8rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+}
+.executive-demo-section-heading { display: flex; align-items: baseline; gap: .55rem; }
+.executive-demo-section-heading h2,
+.executive-demo-section-heading p { margin: 0; }
+.executive-demo-section-heading h2 { font-size: .92rem; }
+.executive-demo-trust-steps {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: .45rem;
+  margin: .55rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.executive-demo-step {
+  position: relative;
+  min-width: 0;
+  padding: .62rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.executive-demo-step-heading { display: flex; align-items: center; gap: .35rem; color: var(--text-secondary); font-size: .68rem; font-weight: var(--font-weight-strong); text-transform: uppercase; }
+.executive-demo-step-heading svg { width: 16px; height: 16px; flex: 0 0 auto; }
+.executive-demo-step > strong { display: block; margin-top: .28rem; font-size: .78rem; }
+.executive-demo-step > small { display: -webkit-box; margin-top: .28rem; overflow: hidden; color: var(--text-tertiary); font-size: .67rem; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.executive-demo-arrow { position: absolute; z-index: 2; top: 50%; right: -.42rem; width: 14px; height: 14px; padding: 2px; border-radius: var(--radius-pill); color: var(--text-tertiary); background: var(--surface-1); transform: translateY(-50%); }
+.executive-demo-proof-heading { display: flex; align-items: center; justify-content: space-between; gap: .8rem; }
+.executive-demo-proof-state { color: var(--warning); font-size: .72rem; font-weight: var(--font-weight-strong); }
+.executive-demo-proof-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .45rem; margin: .55rem 0 0; }
+.executive-demo-proof-grid > div { min-width: 0; padding: .5rem; border-top: 1px solid var(--border-subtle); }
+.executive-demo-proof-grid dd { font-size: .72rem; font-weight: var(--font-weight-medium); }
+.executive-demo-proof-grid code { color: var(--text-primary); font-size: .68rem; }
+.executive-demo-proof-empty { margin: .55rem 0 0; color: var(--text-secondary); font-size: .78rem; }
+.executive-demo-proof-note { margin: .45rem 0 0; color: var(--text-tertiary); font-size: .68rem; line-height: 1.35; }
+.executive-demo-actions { display: flex; justify-content: flex-end; gap: .55rem; align-items: center; }
+.executive-demo-actions .manual-trigger { margin: 0; }
+.executive-tone-pending { color: var(--text-secondary); }
+.executive-tone-info { color: var(--info); }
+.executive-tone-success { color: var(--success); }
+.executive-tone-warning { color: var(--warning); }
+.executive-tone-danger { color: var(--danger); }
+.executive-tone-text-pending { color: var(--text-secondary); }
+.executive-tone-text-info { color: var(--info); }
+.executive-tone-text-success,
+.executive-proof-ok { color: var(--success); }
+.executive-tone-text-warning { color: var(--warning); }
+.executive-tone-text-danger,
+.executive-proof-danger { color: var(--danger); }
+@media (max-width: 1050px) {
+  .executive-demo-proof-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .executive-demo-trust-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .executive-demo-arrow { display: none; }
+}
+@media (max-width: 720px) {
+  .executive-demo-header,
+  .executive-demo-outcome-grid,
+  .executive-demo-trust-steps,
+  .executive-demo-proof-grid { grid-template-columns: 1fr; }
+  .executive-demo-readiness { justify-self: start; }
+  .executive-demo-proof-heading,
+  .executive-demo-actions { align-items: stretch; flex-direction: column; }
+  .executive-demo-actions .button { width: 100%; justify-content: center; }
+}

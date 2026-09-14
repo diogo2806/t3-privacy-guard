@@ -32,6 +32,56 @@ The project reports only verifiable state: `NOT_RUN` never becomes `PASS`, simul
 
 Each live evidence bundle records the full public Git commit SHA and whether the source tree was `CLEAN` or `DIRTY` when evidence generation began. Submission evidence fails closed on a dirty tree by default. The source revision provides reproducibility and public-code traceability; the WASM SHA-256 and policy hash remain the identities of the executed artifacts. None of these fields is described as an independent code audit or hardware attestation.
 
+## Executive Demo presentation contract
+
+`Executive demo` is a presentation-only projection of the same `SystemStatus`, selected scenario, `AgentAnalysis`, `ActionProposal`, `PolicyDecision`, `RemediationExecution` and `EvidenceBundle` already owned by the dashboard. It does not create a second incident, decision, authorization, execution, verification or evidence pipeline. The only action in the view is navigation to the technical Evidence area; the Manual da Tela remains available through the standard `BookOpen` dialog. All state-changing controls stay in `Protection flow`.
+
+Expected 1440×900 composition:
+
+```text
++--------------------------------------------------------------------------------+
+| AI can propose. Policy decides. Humans authorize. T3N executes.   [READINESS]  |
++--------------------------------------+-----------------------------------------+
+| Business risk                        | Observed outcome                        |
+| selected scenario + protected asset  | decision + measured decision time       |
++--------------------------------------+-----------------------------------------+
+| AI proposal -> T3N policy -> Human -> Executor -> Verify                       |
++--------------------------------------------------------------------------------+
+| Proof at a glance: commit/tree/network/contract/PASS-FAIL-NOT RUN/DIDs/...     |
++--------------------------------------------------------------------------------+
+| [Open technical evidence]                                      [Manual da Tela]|
++--------------------------------------------------------------------------------+
+```
+
+The view follows the same conservative claim contract as the runtime:
+
+```text
+No analysis                     -> NOT YET OBSERVED
+DENY                            -> BLOCKED BEFORE PROTECTED EGRESS
+REDACT                          -> MINIMIZATION REQUIRED
+ALLOW without human approval    -> HUMAN AUTHORIZATION REQUIRED
+REMEDIATION_AUTHORIZED only     -> AUTHORIZED / NOT EXECUTED + NOT VERIFIED YET
+PENDING_VERIFICATION            -> ACCEPTED / NOT VERIFIED
+UNVERIFIED                      -> COMPLETION NOT CLAIMED
+FAILED                          -> NO VERIFIED OUTCOME
+COMPLETED after read-back       -> VERIFIED EXTERNAL STATE
+```
+
+The `Proof at a glance` card only renders live provenance when the loaded bundle identifies `T3N_TESTNET`, contains a full public 40-character commit SHA and non-empty network/contract metadata. `T3N LIVE / READY` additionally requires `protectedRemediationReady` and zero evidence failures. `NOT_RUN` remains explicit and is never promoted to proof. Proposal and Executor DID separation, effective delegation and Agent Card registration are separate facts. When live evidence is absent or returns 404, the Executive Demo shows `Live evidence not loaded/generated`, does not retry indefinitely and does not invent PASS, LIVE, source commit or verified completion.
+
+Submission capture keeps the existing full-page technical screenshots and adds viewport-scoped 1440×900 executive frames without mocked success:
+
+```text
+01-executive-risk.png
+02-executive-deny.png
+03-executive-human-authorization.png
+04-executive-verified-outcome.png       # only after real independent read-back
+04-executive-not-verified-yet.png       # honest alternative when remediation is not run
+05-executive-proof.png
+```
+
+The same capture still requires T3N testnet evidence, zero FAIL, a CLEAN source tree, three distinct DIDs, live AI minimum-remediation PASS and the existing secret-leak detector before it writes metadata. The executive frames do not replace the Evidence Center or its full technical captures.
+
 ## Business Outcome reading contract
 
 The Protection flow places a **Business Outcome** summary before the detailed scenario/prompt/proposal panels so a judge can understand the enterprise result without reading implementation metadata first. This is a presentation layer over the existing runtime state, not a second source of authority or a second remediation state machine.
@@ -66,6 +116,7 @@ Business Outcome intentionally continues to label **Requested field names**, **P
 
 The judge should use the surfaces for different questions:
 
+- **Executive Demo**: can risk, authority path, observed outcome and compact proof be understood in one viewport without triggering side effects?
 - **Business Outcome**: what risk, control and observed result does the current flow demonstrate?
 - **Trust Flow**: which authority owns AI proposal, policy decision, human authorization, protected execution and verification?
 - **Remediation minimization panel**: which trusted synthetic normal values are eligible for protected egress after T3N minimization?
@@ -133,7 +184,7 @@ This means `REDACT` is not merely a schema label in the protected credential-rev
 
 The UI uses four distinct terms: **Requested fields**, **Allowed for egress**, **Removed before egress** and **Protected egress payload**. Synthetic normal values may be shown because they are demonstration data; private/secret values must not be rendered.
 
-Local regressions prove the closed server value source, cross-runtime hash vector, body-mismatch rejection, model/A2A rejection of privileged payload fields, Rust value-level intersection and textual accessibility of allowed/removed state. Optional live scenario `LIVE-NORMAL-PAYLOAD-MINIMIZATION` remains `NOT_RUN` until a controlled T3N testnet action/read-back endpoint executes it. It uses synthetic sentinels and accepts PASS only when read-back reports `must_egress_seen=true` and `must_not_egress_seen=false`; the sentinel strings themselves are not persisted in public evidence.
+Local regressions prove the closed server value source, cross-runtime hash vector, body-mismatch rejection, model/A2A rejection of privileged payload fields, Rust value-level intersection and textual accessibility of allowed/removed state. Optional live scenario `LIVE-NORMAL-PAYLOAD-MINIMIZATION` remains `NOT_RUN` until a controlled T3N testnet action/read-back endpoint executes it. It uses synthetic sentinels and accepts PASS only when read-back reports `must_egress_seen=true` and `must_not_egress_seen=false`. The sentinel strings themselves are not persisted in public evidence.
 
 ## Why this is more than PII detection
 
@@ -293,29 +344,32 @@ Only bounded Member-grant fields and the exact checked function/scope labels are
 
 ```text
 1. Sign in as application operator.
-2. Read the product thesis and Trust Flow, then read Business Outcome before inspecting low-level metadata.
-3. In Business Outcome confirm the selected scenario's Business risk, Protected asset and Success definition; runtime facts must remain Not yet observed until analysis occurs.
-4. Confirm the top readiness badge reports the current T3N control-plane state.
-5. Expand System readiness details and confirm Tenant, Proposal Agent and Protected Executor are authenticated as separate principals.
-6. Distinguish Proposal/Executor Member grant from Effective T3N access; Proposal evaluation is ready only with Proposal effective ACTIVE, and protected remediation is operational only when Executor effective access is also ACTIVE.
-7. In Protection flow, choose Credential compromised and inspect the synthetic attack prompt.
-8. Click Analyze with agent and inspect the real model proposal.
-9. Read Business Outcome again: Threat observed must show actual action/resource/destination/counts; T3N control outcome must show the observed decision/reason and measured policy-decision time.
-10. Observe independent T3N TEE DENY, attacker.example and exact policy version/hash; no protected execution is available.
-11. Use Prepare safe path. This prepares/evaluates a minimum-scope revoke-credential proposal; it does not authorize or execute it.
-12. Observe T3N ALLOW/REDACT. Business Outcome continues to report field-name counts; use the remediation panel to compare Requested fields, Allowed for egress, Removed before egress, Trusted synthetic values and Protected egress payload.
-13. Before authorization, confirm Business Outcome says Human authorization = REQUIRED and Approved destination = Not authorized yet; the remediation panel may show the candidate/policy-evaluated destination separately.
-14. Click Authorize credential revocation only after ALLOW or executable REDACT for that displayed destination; changing the protected destination requires a new action/evaluation/authorization.
-15. Confirm Business Outcome now reports AUTHORIZED and exact Approved destination, without inventing author identity/timestamp absent from the API.
-16. When the environment supports synthetic egress/read-back, click Execute protected credential revocation and use Verify external state if verification remains pending.
-17. While state is PENDING_VERIFICATION, confirm Business Outcome says accepted/verification pending and Final state = NOT VERIFIED.
-18. Accept a successful business outcome only when Remediation execution and verification show Verification = VERIFIED and Final state = COMPLETED; Business Outcome may then show REVOKED — VERIFIED and measured time to verified outcome.
-19. Inspect Local audit integrity separately from T3N provenance; use a local trail as proof only when its HMAC state is VERIFIED.
-20. Open Evidence. Read Evidence summary first, then Observed outcomes, then expand Technical provenance.
-21. Confirm 0 FAIL, T3N_TESTNET, full Source commit, Source tree CLEAN, separate Tenant/Proposal Agent/Protected Executor DIDs, Contract version/id, WASM SHA-256, policy provenance and honest NOT RUN boundaries.
-22. If `LIVE-DESTINATION-BINDING` ran, accept PASS only when A and B were both policy-allowed yet the contract reported BLOCKED_BEFORE_HTTP for B after A was approved.
-23. If `LIVE-NORMAL-PAYLOAD-MINIMIZATION` ran, accept PASS only when read-back reports must_egress_seen=true and must_not_egress_seen=false without exposing either sentinel value.
-24. Optionally inspect Account takeover, Record security incident and Notify security contact; preset selection grants no authority and verified_email remains a logical reference rather than plaintext.
+2. Open Executive demo first when presenting: confirm risk, observed outcome, Trust path and Proof at a glance fit the 1440x900 view and no state-changing action is present.
+3. Before analysis, confirm the Executive demo says NOT YET OBSERVED; absent evidence must say Live evidence not loaded/generated rather than LIVE/PASS.
+4. Switch to Protection flow. Read the product thesis and Trust Flow, then read Business Outcome before inspecting low-level metadata.
+5. In Business Outcome confirm the selected scenario's Business risk, Protected asset and Success definition; runtime facts must remain Not yet observed until analysis occurs.
+6. Confirm the top readiness badge reports the current T3N control-plane state.
+7. Expand System readiness details and confirm Tenant, Proposal Agent and Protected Executor are authenticated as separate principals.
+8. Distinguish Proposal/Executor Member grant from Effective T3N access; Proposal evaluation is ready only with Proposal effective ACTIVE, and protected remediation is operational only when Executor effective access is also ACTIVE.
+9. In Protection flow, choose Credential compromised and inspect the synthetic attack prompt.
+10. Click Analyze with agent and inspect the real model proposal.
+11. Read Business Outcome again: Threat observed must show actual action/resource/destination/counts; T3N control outcome must show the observed decision/reason and measured policy-decision time.
+12. Observe independent T3N TEE DENY, attacker.example and exact policy version/hash; no protected execution is available.
+13. Return to Executive demo and confirm DENY becomes BLOCKED BEFORE PROTECTED EGRESS while Executor remains NOT EXECUTED and Verify remains waiting.
+14. Use Prepare safe path. This prepares/evaluates a minimum-scope revoke-credential proposal; it does not authorize or execute it.
+15. Observe T3N ALLOW/REDACT. Business Outcome continues to report field-name counts; use the remediation panel to compare Requested fields, Allowed for egress, Removed before egress, Trusted synthetic values and Protected egress payload.
+16. Before authorization, confirm Business Outcome says Human authorization = REQUIRED and Approved destination = Not authorized yet; the remediation panel may show the candidate/policy-evaluated destination separately.
+17. Click Authorize credential revocation only after ALLOW or executable REDACT for that displayed destination; changing the protected destination requires a new action/evaluation/authorization.
+18. Return to Executive demo and confirm AUTHORIZED / NOT EXECUTED plus NOT VERIFIED YET; authorization alone must not create a verified outcome.
+19. When the environment supports synthetic egress/read-back, return to Protection flow, click Execute protected credential revocation and use Verify external state if verification remains pending.
+20. While state is PENDING_VERIFICATION, confirm Business Outcome says accepted/verification pending and Final state = NOT VERIFIED.
+21. Accept a successful business outcome only when Remediation execution and verification show Verification = VERIFIED and Final state = COMPLETED; Executive demo may then show VERIFIED EXTERNAL STATE and Business Outcome may show REVOKED — VERIFIED.
+22. Inspect Local audit integrity separately from T3N provenance; use a local trail as proof only when its HMAC state is VERIFIED.
+23. Open Evidence. Read Evidence summary first, then Observed outcomes, then expand Technical provenance.
+24. Confirm 0 FAIL, T3N_TESTNET, full Source commit, Source tree CLEAN, separate Tenant/Proposal Agent/Protected Executor DIDs, Contract version/id, WASM SHA-256, policy provenance and honest NOT RUN boundaries.
+25. If `LIVE-DESTINATION-BINDING` ran, accept PASS only when A and B were both policy-allowed yet the contract reported BLOCKED_BEFORE_HTTP for B after A was approved.
+26. If `LIVE-NORMAL-PAYLOAD-MINIMIZATION` ran, accept PASS only when read-back reports must_egress_seen=true and must_not_egress_seen=false without exposing either sentinel value.
+27. Optionally inspect Account takeover, Record security incident and Notify security contact; preset selection grants no authority and verified_email remains a logical reference rather than plaintext.
 ```
 
 ## Architecture and trust boundaries
@@ -393,6 +447,7 @@ Trust model:
 - **T3N protected egress is the normal-payload minimization, profile-resolution and remediation boundary.** Responses are minimized before returning to application layers.
 - **HTTP acceptance is not truth.** Completion is derived from an independent closed read-back, not from the original response code.
 - **Business Outcome is explanatory UI, not authority.** It derives observed facts from existing runtime state and never fabricates future state, ROI or a second decision path.
+- **Executive Demo is explanatory UI, not authority.** It projects the same runtime state into a one-viewport narrative and has no protected operation controls.
 
 ## Authority matrix
 
@@ -419,6 +474,7 @@ Trust model:
 | Did the side effect complete? | Independent read-back + Spring state machine |
 | Is the retained local business-audit history internally authentic? | Backend HMAC chain + authenticated per-incident chain head |
 | What business result should the judge read? | Business Outcome projection of the above observed state; no independent authority |
+| What compact presentation should the judge read? | Executive Demo projection of the same observed state/evidence; no independent authority |
 
 ## Security claims matrix
 
@@ -438,6 +494,9 @@ Trust model:
 | Business Outcome exposes static business context plus only observed runtime facts, never invented completion/ROI | PROVED LOCAL | `BusinessOutcomeSummary.tsx`, `BusinessOutcomeSummary.test.tsx`, Manual da Tela |
 | Business Outcome policy timing uses `evaluatedAt - action.createdAt` and verified-outcome timing uses `completedAt - action.createdAt` only after COMPLETED | PROVED LOCAL | `BusinessOutcomeSummary.tsx`, `BusinessOutcomeSummary.test.tsx` |
 | Business Outcome keeps DENY/REDACT/ALLOW/authorization/PENDING_VERIFICATION/COMPLETED semantically distinct | PROVED LOCAL | `BusinessOutcomeSummary.test.tsx` |
+| Executive Demo projects the existing dashboard runtime state without exposing Analyze/Authorize/Execute/Verify controls | PROVED LOCAL | `ExecutiveDemoView.tsx`, `ExecutiveDemoView.test.tsx`, `DashboardTabs.test.tsx` |
+| Executive Demo keeps DENY/REDACT/ALLOW/authorization/PENDING_VERIFICATION/UNVERIFIED/FAILED/COMPLETED semantically distinct | PROVED LOCAL | `ExecutiveDemoView.test.tsx` |
+| Executive Demo shows T3N LIVE / READY only with protected-remediation readiness, valid T3N testnet evidence and zero FAIL | PROVED LOCAL | `ExecutiveDemoView.tsx`, `ExecutiveDemoView.test.tsx` |
 | Tenant DID derives from authenticated T3N session | PROVED LOCAL | gateway session code/tests |
 | Proposal Agent and Protected Executor use separate authenticated credentials/DIDs | PROVED LOCAL | session separation + status tests |
 | Member-grant validity windows fail closed | PROVED LOCAL | `delegation-service.test.ts` |
@@ -738,7 +797,7 @@ Anything less is not successful completion proof.
 
 `Evidence` area is ordered for judging: `Evidence summary` -> `Observed outcomes` -> `Technical provenance`. Summary surfaces PASS/FAIL/NOT RUN and execution context before low-level hashes. Technical provenance keeps source/build, trust/network, identities/discoverability and contract/policy metadata available through disclosures without weakening claim boundary.
 
-Playwright submission capture does not read evidence by visual position or `.evidence-metadata > div` order. It uses stable semantic hooks for fields that are part of capture contract and accessible roles/names for user actions. Before screenshots or `capture-metadata.json`, it requires final UI states and records separate `tenantDid`, `proposalAgentDid`, `protectedExecutorDid`, plus full source commit, `CLEAN` source tree, contract id/version and WASM SHA-256. All three DIDs must be distinct and leak detector remains mandatory.
+Playwright submission capture does not read evidence by visual position or `.evidence-metadata > div` order. It uses stable semantic hooks for fields that are part of capture contract and accessible roles/names for user actions. Before screenshots or `capture-metadata.json`, it requires final UI states and records separate `tenantDid`, `proposalAgentDid`, `protectedExecutorDid`, plus full source commit, `CLEAN` source tree, contract id/version and WASM SHA-256. All three DIDs must be distinct and leak detector remains mandatory. Executive screenshots are viewport-scoped at exactly 1440×900 and assert the headline, Business risk, Observed outcome, Trust path and Proof at a glance are actually in that viewport before each frame is written.
 
 Local controls:
 
@@ -758,48 +817,54 @@ When preparing egress evidence, configure `SECURITY_API_URL` and separate `SECUR
 
 ## Screenshot shot list
 
-1. Product header + judge-first Trust Flow + current T3N readiness badge.
-2. **Business Outcome** immediately below top controls, showing Business risk, Protected asset, Success definition and only observed runtime state; initial/future values remain Not yet observed / Not verified yet.
-3. Expanded **System readiness details** showing separate Tenant, Proposal Agent and Protected Executor identities.
-4. Separate Proposal/Executor **Member grant** and **Effective T3N access** states; capture `Operational` only when protected remediation is ready, and show `Evaluation ready · execution blocked` when only Proposal is effectively authorized.
-5. **Protection flow** with Credential compromised selected and statement that presets are not permissions.
-6. Attack prompt + provider/model provenance + model proposal after **Analyze with agent** + `DENY` + policy version/hash, with Business Outcome showing same observed threat/control in business language.
-7. `REDACT` data-minimization evidence showing Requested fields, Allowed for egress, Removed before egress, Trusted synthetic values and Protected egress payload. Business Outcome field counts remain explicitly schema-level.
-8. Notify security contact selected, showing logical `verified_email` and no plaintext address/raw placeholder.
-9. **Prepare safe path** result showing legitimate minimum credential-revocation proposal + `ALLOW` or executable `REDACT` + policy provenance.
-10. Business Outcome before authorization showing Human authorization = REQUIRED and Approved destination = Not authorized yet.
-11. **Approved destination** visible after authorization without revealing private full URL; Business Outcome and protected-remediation panel agree.
-12. **Authorize credential revocation** shown separately from **Execute protected credential revocation**, bound to same version/hash, payload hash, exact destination and Protected Executor.
-13. Execution/verification panel showing Authorization, Execution, Verification and Final state; use **Verify external state** for read-back-only retry when available.
-14. While pending, Business Outcome remains `NOT VERIFIED`; after independent verification it may show `REVOKED — VERIFIED` plus measured time to verified outcome.
-15. If captured, `Destination changed` shows new-action/re-evaluate/re-authorize guidance rather than generic outage.
-16. Local audit integrity shown separately from T3N Activity Log provenance; capture `VERIFIED` only when HMAC verification actually succeeded.
-17. Verified remediation screenshot only after `Verification = VERIFIED` and `Final state = COMPLETED`.
-18. **Evidence** with `Evidence summary`, `Observed outcomes`, then expanded `Technical provenance`; include full Source commit, Source tree state, separate Proposal Agent/Protected Executor DIDs, T3N_TESTNET, contract/WASM/policy provenance and optional scenarios honestly PASS/FAIL/NOT RUN.
+1. **Executive Demo / initial risk** at 1440×900 showing the thesis, Business risk, `NOT YET OBSERVED`, Trust path and real Proof at a glance when live evidence exists (`01-executive-risk.png`).
+2. **Executive Demo / DENY** at 1440×900 showing `BLOCKED BEFORE PROTECTED EGRESS`, T3N policy DENY, Executor `NOT EXECUTED` and Verify waiting (`02-executive-deny.png`).
+3. **Executive Demo / human authorization** at 1440×900 showing `AUTHORIZED / NOT EXECUTED`, Human `AUTHORIZED`, Executor `NOT STARTED` and Verify `NOT VERIFIED YET` (`03-executive-human-authorization.png`).
+4. **Executive Demo / outcome** at 1440×900: use `04-executive-verified-outcome.png` only after independent VERIFIED/COMPLETED read-back; otherwise capture `04-executive-not-verified-yet.png` and keep the missing verification explicit.
+5. **Executive Demo / proof** at 1440×900 showing commit prefix, network, contract version, zero FAIL, explicit NOT RUN count, separate Proposal/Executor identities, effective delegation and Agent Card state (`05-executive-proof.png`).
+6. Product header + judge-first Trust Flow + current T3N readiness badge in the operational Protection flow.
+7. **Business Outcome** immediately below top controls, showing Business risk, Protected asset, Success definition and only observed runtime state; initial/future values remain Not yet observed / Not verified yet.
+8. Expanded **System readiness details** showing separate Tenant, Proposal Agent and Protected Executor identities.
+9. Separate Proposal/Executor **Member grant** and **Effective T3N access** states; capture `Operational` only when protected remediation is ready, and show `Evaluation ready · execution blocked` when only Proposal is effectively authorized.
+10. **Protection flow** with Credential compromised selected and statement that presets are not permissions.
+11. Attack prompt + provider/model provenance + model proposal after **Analyze with agent** + `DENY` + policy version/hash, with Business Outcome showing same observed threat/control in business language.
+12. `REDACT` data-minimization evidence showing Requested fields, Allowed for egress, Removed before egress, Trusted synthetic values and Protected egress payload. Business Outcome field counts remain explicitly schema-level.
+13. Notify security contact selected, showing logical `verified_email` and no plaintext address/raw placeholder.
+14. **Prepare safe path** result showing legitimate minimum credential-revocation proposal + `ALLOW` or executable `REDACT` + policy provenance.
+15. Business Outcome before authorization showing Human authorization = REQUIRED and Approved destination = Not authorized yet.
+16. **Approved destination** visible after authorization without revealing private full URL; Business Outcome and protected-remediation panel agree.
+17. **Authorize credential revocation** shown separately from **Execute protected credential revocation**, bound to same version/hash, payload hash, exact destination and Protected Executor.
+18. Execution/verification panel showing Authorization, Execution, Verification and Final state; use **Verify external state** for read-back-only retry when available.
+19. While pending, Business Outcome remains `NOT VERIFIED`; after independent verification it may show `REVOKED — VERIFIED` plus measured time to verified outcome.
+20. If captured, `Destination changed` shows new-action/re-evaluate/re-authorize guidance rather than generic outage.
+21. Local audit integrity shown separately from T3N Activity Log provenance; capture `VERIFIED` only when HMAC verification actually succeeded.
+22. Verified remediation screenshot only after `Verification = VERIFIED` and `Final state = COMPLETED`.
+23. **Evidence** with `Evidence summary`, `Observed outcomes`, then expanded `Technical provenance`; include full Source commit, Source tree state, separate Proposal Agent/Protected Executor DIDs, T3N_TESTNET, contract/WASM/policy provenance and optional scenarios honestly PASS/FAIL/NOT RUN.
 
 Never capture passwords, cookies, T3N keys, provider key, service/capability keys, audit-integrity key, remediation secret, resolved profile PII, `.env` or raw logs.
 
 ## Demo video storyboard
 
 ```text
-0–10s    Product thesis + Trust Flow: AI proposes; it does not own authority
-10–25s   Business Outcome: risk, protected asset, success definition, no invented future result
-25–40s   Expand System readiness details; show three authenticated T3N identities
-40–55s   Show Agent Card vs Member grant vs Effective T3N access
-55–80s   Credential compromised -> Analyze -> malicious proposal -> Business Outcome threat observed
-80–100s  Independent T3N TEE DENY + policy provenance; no protected egress
-100–120s Switch scenarios; show isolation, record incident and logical verified_email context
-120–140s Prepare safe path -> ALLOW/REDACT + value-level normal-payload minimization + policy provenance
-140–150s Business Outcome shows authorization required; then exact Approved destination after authorization
-150–165s Show normalPayloadHash/destination binding; Execute -> minimized payload -> PENDING_VERIFICATION; Business Outcome stays unverified
-165–175s Verify external state -> VERIFIED/COMPLETED when available; show measured outcome time
-175–180s Evidence summary -> outcomes -> technical provenance + exact NOT_RUN boundaries
+0–12s    Executive Demo initial: thesis + Business risk + NOT YET OBSERVED + proof
+12–30s   Protection flow: System readiness details + separate identities/delegation
+30–52s   Credential compromised -> Analyze -> malicious proposal -> T3N DENY
+52–64s   Executive Demo DENY: blocked before egress; executor/verify not advanced
+64–92s   Prepare safe path -> ALLOW/REDACT + minimization + policy provenance
+92–108s  Human authorization -> Executive Demo AUTHORIZED / NOT EXECUTED / NOT VERIFIED YET
+108–135s If enabled: Execute -> PENDING_VERIFICATION -> independent Verify -> COMPLETED
+135–150s Executive Demo verified outcome only when read-back actually succeeded
+150–168s Executive Demo Proof at a glance: source/network/contract/zero FAIL/DID separation
+168–180s Open technical Evidence: summary -> outcomes -> provenance + honest NOT RUN
 ```
 
 ## UX and claim wording rules
 
 Submission leads with user/business meaning, then exposes technical proof. Technical labels remain precise.
 
+- **Executive Demo**: read-only one-viewport projection of existing runtime/evidence state; never a second authorization, execution or evidence engine;
+- **T3N LIVE / READY** in Executive Demo: protected-remediation readiness plus a valid T3N testnet evidence bundle with zero FAIL; not hardware attestation or proof that NOT RUN scenarios executed;
+- **Live evidence not loaded/generated**: no valid evidence bundle is currently available to this view; do not infer source commit, PASS or LIVE state;
 - **enterprise scenario**: synthetic demonstration context and prompt preset, never a permission or policy decision;
 - **Business risk / Protected asset / Business outcome / Success definition**: static scenario presentation metadata, never evidence that a result occurred;
 - **Business Outcome**: read-only projection of observed runtime state for enterprise comprehension; not a second policy, authorization or execution engine;
