@@ -24,10 +24,13 @@ public class HumanSeparationOfDutiesService {
     }
 
     @Transactional(readOnly = true)
-    public String requireExecutorPrincipal(String actionId, Authentication authentication) {
+    public String requireExecutorPrincipal(String incidentId, String actionId, Authentication authentication) {
         String principal = requireAuthenticatedPrincipal(authentication);
         ActionProposalEntity action = actions.findById(actionId)
             .orElseThrow(() -> new IncidentNotFoundException("Action proposal not found"));
+        if (!action.getIncidentId().equals(incidentId)) {
+            throw new IncidentNotFoundException("Action proposal not found for incident");
+        }
         if (enterpriseSodEnabled && principal.equals(action.getRemediationAuthorizedBy())) {
             throw new PolicyDeniedException("Separation of duties requires a different principal to execute or verify a remediation than the principal who authorized it");
         }
