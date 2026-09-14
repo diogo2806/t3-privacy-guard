@@ -15,5 +15,30 @@
 .scenario-business-context > div { min-width: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--surface-1); }
 .scenario-business-context dt { color: var(--text-tertiary); font-size: var(--font-size-xs); font-weight: var(--font-weight-strong); text-transform: uppercase; letter-spacing: .05em; }
 .scenario-business-context dd { margin: var(--space-1) 0 0; color: var(--text-secondary); font-size: var(--font-size-sm); line-height: 1.45; }
-@media (max-width: 1080px) { .business-outcome-sections { grid-template-columns: 1fr; } }
-@media (max-width: 720px) { .business-context-grid, .scenario-business-context { grid-template-columns: 1fr; } }
+.control-impact-card { display: grid; gap: var(--space-4); }
+.control-impact-card .card-heading { margin-bottom: 0; justify-content: space-between; }
+.control-impact-window { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-1); margin-left: auto; }
+.control-impact-window-button { min-height: 36px; padding-inline: var(--space-3); font-size: var(--font-size-xs); }
+.control-impact-primary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-2); }
+.control-impact-primary-grid > div { min-width: 0; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: var(--space-1) var(--space-2); padding: var(--space-3); border: 1px solid var(--border-subtle); border-radius: var(--radius); background: var(--surface-1); }
+.control-impact-primary-grid svg { grid-row: 1 / span 2; width: 20px; height: 20px; color: var(--brand); }
+.control-impact-primary-grid span { color: var(--text-tertiary); font-size: var(--font-size-xs); font-weight: var(--font-weight-strong); text-transform: uppercase; letter-spacing: .05em; }
+.control-impact-primary-grid strong { color: var(--text-primary); font-size: var(--font-size-xl); line-height: 1.1; }
+.control-impact-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+.control-impact-detail-grid dl { display: grid; gap: var(--space-2); margin: 0; }
+.control-impact-detail-grid dl > div { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--surface-1); }
+.control-impact-detail-grid dt { color: var(--text-tertiary); font-size: var(--font-size-xs); font-weight: var(--font-weight-strong); }
+.control-impact-detail-grid dd { display: inline-flex; align-items: center; justify-content: flex-end; gap: var(--space-1); margin: 0; color: var(--text-secondary); font-size: var(--font-size-sm); font-weight: var(--font-weight-strong); text-align: right; }
+.control-impact-detail-grid dd svg { width: 15px; height: 15px; color: var(--brand); }
+.control-impact-coverage, .control-impact-note, .control-impact-state { margin: 0; color: var(--text-tertiary); font-size: var(--font-size-xs); line-height: 1.55; }
+.control-impact-coverage strong { color: var(--text-secondary); }
+.control-impact-state { padding: var(--space-3); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--surface-1); }
+.control-impact-compact { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border-subtle); border-radius: var(--radius); background: var(--surface-1); }
+.control-impact-compact-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
+.control-impact-compact-heading h2 { margin: 0; font-size: var(--font-size-sm); }
+.control-impact-compact-heading > span { color: var(--text-tertiary); font-size: var(--font-size-xs); font-weight: var(--font-weight-strong); letter-spacing: .05em; }
+.control-impact-compact-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-2); }
+.control-impact-compact-metrics strong { min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); color: var(--text-primary); font-size: var(--font-size-lg); }
+.control-impact-compact-metrics span { color: var(--text-tertiary); font-size: var(--font-size-xs); font-weight: var(--font-weight-strong); text-transform: uppercase; letter-spacing: .04em; }
+@media (max-width: 1080px) { .business-outcome-sections { grid-template-columns: 1fr; } .control-impact-primary-grid, .control-impact-compact-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 720px) { .business-context-grid, .scenario-business-context, .control-impact-detail-grid, .control-impact-primary-grid, .control-impact-compact-metrics { grid-template-columns: 1fr; } .control-impact-card .card-heading, .control-impact-compact-heading { align-items: stretch; flex-direction: column; } .control-impact-window { justify-content: flex-start; margin-left: 0; } .control-impact-detail-grid dl > div { grid-template-columns: 1fr; } .control-impact-detail-grid dd { justify-content: flex-start; text-align: left; } }
