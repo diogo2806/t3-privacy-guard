@@ -38,6 +38,8 @@ public class SecurityConfig {
         if (username == null || username.isBlank() || password == null || password.isBlank()) {
             throw new IllegalStateException("OPERATOR_USERNAME and OPERATOR_PASSWORD are required");
         }
+        RuntimeSecretPolicy.rejectDocumentationPlaceholder(username, "OPERATOR_USERNAME");
+        RuntimeSecretPolicy.rejectDocumentationPlaceholder(password, "OPERATOR_PASSWORD");
         return new InMemoryUserDetailsManager(
             User.withUsername(username)
                 .password(passwordEncoder.encode(password))
