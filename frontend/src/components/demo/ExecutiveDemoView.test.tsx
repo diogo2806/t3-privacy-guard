@@ -101,6 +101,12 @@ function renderExecutive(overrides: Partial<ExecutiveDemoProps> = {}) {
   return { ...render(<ExecutiveDemoView {...props} />), props };
 }
 
+function expectProofFact(label: string, value: string) {
+  const fact = screen.getByText(label).closest('div');
+  expect(fact).not.toBeNull();
+  expect(fact).toHaveTextContent(value);
+}
+
 describe('ExecutiveDemoView', () => {
   it('leads with enterprise value before explaining the authority mechanism', () => {
     renderExecutive();
@@ -180,9 +186,18 @@ describe('ExecutiveDemoView', () => {
     expect(screen.getByTestId('executive-proof')).toHaveTextContent('0.4.0');
     expect(screen.getByTestId('executive-proof')).toHaveTextContent('SEPARATE');
     expect(screen.getByTestId('executive-proof')).toHaveTextContent('CONFIRMED');
-    expect(screen.getByTestId('executive-proof')).toHaveTextContent('READY');
-    expect(screen.getByTestId('executive-proof')).toHaveTextContent('REGISTERED');
+    expectProofFact('Enterprise integration', 'READY');
+    expectProofFact('Agent registration', 'REGISTERED');
+    expect(screen.getByTestId('executive-proof')).toHaveTextContent(/Agent registration.*not authorization/i);
     expect(screen.getByTestId('executive-proof')).toHaveTextContent(/NOT RUN is not proof/i);
+  });
+
+  it('shows NOT OBSERVED for runtime proof facts when SystemStatus is unavailable', () => {
+    renderExecutive({ evidence, systemStatus: null });
+
+    expect(screen.getByTestId('executive-readiness')).toHaveTextContent('INCOMPLETE');
+    expectProofFact('Enterprise integration', 'NOT OBSERVED');
+    expectProofFact('Agent registration', 'NOT OBSERVED');
   });
 
   it('does not label runtime ready when the evidence bundle contains a failure', () => {
@@ -199,7 +214,8 @@ describe('ExecutiveDemoView', () => {
     });
 
     expect(screen.getByTestId('executive-readiness')).toHaveTextContent('INCOMPLETE');
-    expect(screen.getByTestId('executive-proof')).toHaveTextContent('INCOMPLETE');
+    expectProofFact('Enterprise integration', 'INCOMPLETE');
+    expectProofFact('Agent registration', 'REGISTERED');
   });
 
   it('navigates only to technical evidence and keeps the Screen Manual accessible', async () => {
