@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { FileClock, Network, RefreshCw } from 'lucide-react';
-import { privacyGuardApi, type AuditEvent, type AuditEvidence, type AuditReconciliationStatus } from '../../services/privacyGuardApi';
+import { privacyGuardApi, type AuditEvent, type AuditEvidence, type AuditReconciliationStatus, type LocalAuditEvidence } from '../../services/privacyGuardApi';
 import { AuditIntegrityStatus } from './AuditIntegrityStatus';
 
 function statusLabel(status: AuditReconciliationStatus, t3nAvailable: boolean) {
@@ -19,6 +19,10 @@ function statusClass(status: AuditReconciliationStatus, t3nAvailable: boolean) {
 function eventTypeLabel(type: string): string {
   if (type === 'REMEDIATION_AUTHORIZED') return 'HUMAN AUTHORIZATION';
   return type.replaceAll('_', ' ');
+}
+
+function isLocalAuditEvidence(event: AuditEvent): event is LocalAuditEvidence {
+  return 'status' in event;
 }
 
 export function AuditTrail({ events }: { events: AuditEvent[] }) {
@@ -72,7 +76,7 @@ export function AuditTrail({ events }: { events: AuditEvent[] }) {
         {(evidence?.localEvents ?? events).length === 0 ? <p className="empty-copy">No business audit events yet.</p> : (
           <ol className="audit-list">
             {(evidence?.localEvents ?? events).map((event) => {
-              const reconciled = 'status' in event ? event : null;
+              const reconciled = isLocalAuditEvidence(event) ? event : null;
               return <li key={event.id}>
                 <span className="audit-dot" />
                 <div className="audit-event-body">
