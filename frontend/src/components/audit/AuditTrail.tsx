@@ -106,7 +106,7 @@ export function AuditTrail({ events }: { events: AuditEvent[] }) {
                 <small>Hash <code>{event.hash}</code></small>
                 <time>{new Date(event.timestamp).toLocaleString()}</time>
               </div>
-            )}
+            </li>)}
           </ol>
         )}
         {evidence?.provenance.t3nAvailable && !evidence.provenance.t3nComplete && <p className="audit-window-note">The configured limit of {evidence.limit} events was reached. This view is intentionally bounded; unmatched items are not proof of absence.</p>}
