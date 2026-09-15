@@ -19,11 +19,14 @@ describe('ScreenManualDialog', () => {
     expect(dialog).toHaveAttribute('aria-modal', 'true');
     expect(screen.getByRole('heading', { name: 'Executive Demo' })).toBeInTheDocument();
     expect(dialog).toHaveTextContent(/projeção do mesmo estado runtime.*não cria incidente.*autorização.*execução.*evidence paralela/i);
+    expect(dialog).toHaveTextContent(/problema empresarial.*resultado observado.*impacto operacional medido.*mecanismo de autoridade.*prova técnica/i);
+    expect(dialog).toHaveTextContent(/AI can propose\. Policy decides\. Humans authorize\. T3N executes\..*Trust path/i);
     expect(dialog).toHaveTextContent(/BLOCKED BEFORE PROTECTED EGRESS.*MINIMIZATION REQUIRED.*HUMAN AUTHORIZATION REQUIRED/i);
     expect(dialog).toHaveTextContent(/AUTHORIZED \/ NOT EXECUTED.*ACCEPTED \/ NOT VERIFIED/i);
     expect(dialog).toHaveTextContent(/Proof at a glance.*não substitui.*Evidence Center/i);
     expect(dialog).toHaveTextContent(/T3N LIVE \/ READY.*protected remediation ready.*evidence válida/i);
     expect(dialog).toHaveTextContent(/não possui botões de Analyze, Authorize, Execute ou Verify/i);
+    expect(dialog).toHaveTextContent(/não converte métricas operacionais em dinheiro economizado.*breach evitado.*compliance garantido.*redução de risco/i);
     expect(screen.getByRole('heading', { name: 'Business Outcome' })).toBeInTheDocument();
     expect(dialog).toHaveTextContent(/Time to policy decision.*evaluatedAt.*action.createdAt/i);
     expect(dialog).toHaveTextContent(/Time to verified outcome.*completedAt.*COMPLETED/i);
