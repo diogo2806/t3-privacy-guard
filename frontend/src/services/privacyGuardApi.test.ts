@@ -10,6 +10,23 @@ function jsonResponse(body: unknown, status = 200): Response {
   } as Response;
 }
 
+describe('privacyGuardApi same-origin transport', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('keeps browser API calls relative so nginx can route them to the configured backend', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({ authenticated: false }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await privacyGuardApi.session();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/auth/session');
+    expect(String(fetchMock.mock.calls[0]?.[0])).not.toContain('api-privacy.iforce.com.br');
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(request.credentials).toBe('same-origin');
+  });
+});
+
 describe('privacyGuardApi.analyzeAgentInIncident', () => {
   afterEach(() => vi.unstubAllGlobals());
 
