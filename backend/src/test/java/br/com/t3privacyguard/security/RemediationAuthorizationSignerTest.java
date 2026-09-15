@@ -16,6 +16,8 @@ import org.junit.jupiter.api.Test;
 
 class RemediationAuthorizationSignerTest {
     private static final String PRIVATE_KEY_PKCS8 = "MC4CAQAwBQYDK2VwBCIEIAv4OIfbF/R/i9uL6wgRalq2gperSKNx+Ig9BuS9L4qS";
+    private static final String PRIVATE_KEY_PEM = "-----BEGIN PRIVATE KEY-----\n" + PRIVATE_KEY_PKCS8 + "\n-----END PRIVATE KEY-----";
+    private static final String PRIVATE_KEY_PEM_BASE64 = Base64.getEncoder().encodeToString(PRIVATE_KEY_PEM.getBytes(StandardCharsets.US_ASCII));
     private static final String PUBLIC_KEY_SPKI = "MCowBQYDK2VwAyEAW3EwSatHmT/ZSgrqu/G3ecXJrTviA5SjAoCwIfwau6A=";
     private static final String KEY_ID = "primary";
     private static final String POLICY_VERSION = "2026-09-12.1";
@@ -66,6 +68,24 @@ class RemediationAuthorizationSignerTest {
         verifier.initVerify(publicKey);
         verifier.update((parts[0] + "." + parts[1]).getBytes(StandardCharsets.US_ASCII));
         assertThat(verifier.verify(Base64.getUrlDecoder().decode(parts[2]))).isTrue();
+    }
+
+    @Test
+    void acceptsPkcs8PemAndBase64WrappedPkcs8Pem() {
+        new RemediationAuthorizationSigner(mapper, PRIVATE_KEY_PEM, KEY_ID, 60, () -> EXECUTOR_DID);
+        new RemediationAuthorizationSigner(mapper, PRIVATE_KEY_PEM_BASE64, KEY_ID, 60, () -> EXECUTOR_DID);
+    }
+
+    @Test
+    void rejectsPkcs8PemWithTrailingData() {
+        assertThatThrownBy(() -> new RemediationAuthorizationSigner(
+            mapper,
+            PRIVATE_KEY_PEM + "\nunexpected",
+            KEY_ID,
+            60,
+            () -> EXECUTOR_DID
+        )).isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("base64 PKCS#8 Ed25519 private key");
     }
 
     @Test
