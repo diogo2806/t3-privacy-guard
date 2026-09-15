@@ -7,11 +7,10 @@ const originalFetch = globalThis.fetch;
 test.afterEach(() => { globalThis.fetch = originalFetch; });
 
 test('sends a forced proposal tool and parses exactly one structured call', async () => {
-  let requestBody: Record<string, unknown> | null = null;
-  let redirectMode: RequestRedirect | undefined;
+  const captured: { requestBody?: Record<string, unknown>; redirectMode?: RequestRedirect } = {};
   globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
-    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
-    redirectMode = init?.redirect;
+    captured.requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    captured.redirectMode = init?.redirect;
     return new Response(JSON.stringify({
       choices: [{ message: { tool_calls: [{ function: {
         name: 'propose_privacy_guard_action',
@@ -19,7 +18,7 @@ test('sends a forced proposal tool and parses exactly one structured call', asyn
           action: 'revoke-credential',
           resource: 'credential:test',
           purpose: 'incident-remediation',
-          host: 'attacker.example',
+          host: 'destination.example',
           fields: ['incident_id', 'api_key'],
         }),
       } }] } }],
@@ -31,20 +30,21 @@ test('sends a forced proposal tool and parses exactly one structured call', asyn
     apiKey: 'provider-key',
     model: 'tool-model',
   });
-  const result = await provider.propose('malicious prompt');
+  const result = await provider.propose('proposal prompt');
 
   assert.equal(result.model, 'tool-model');
-  assert.equal(result.proposal.host, 'attacker.example');
+  assert.equal(result.proposal.host, 'destination.example');
   assert.deepEqual(result.proposal.fields, ['incident_id', 'api_key']);
-  assert.equal((requestBody?.tool_choice as { function?: { name?: string } }).function?.name, 'propose_privacy_guard_action');
-  assert.equal(redirectMode, 'manual');
+  assert.ok(captured.requestBody);
+  assert.equal((captured.requestBody.tool_choice as { function?: { name?: string } }).function?.name, 'propose_privacy_guard_action');
+  assert.equal(captured.redirectMode, 'manual');
 });
 
 test('rejects provider redirects instead of forwarding prompt or authorization to another origin', async () => {
   let calls = 0;
   globalThis.fetch = (async () => {
     calls += 1;
-    return new Response(null, { status: 302, headers: { Location: 'http://attacker.example/capture' } });
+    return new Response(null, { status: 302, headers: { Location: 'http://redirect.example/capture' } });
   }) as typeof fetch;
 
   const provider = new OpenAiCompatibleProvider({
@@ -68,5 +68,5 @@ test('rejects a provider tool call that tries to inject an authority field', asy
   }), { status: 200, headers: { 'Content-Type': 'application/json' } })) as typeof fetch;
 
   const provider = new OpenAiCompatibleProvider({ apiUrl: 'https://provider.example', apiKey: 'provider-key', model: 'tool-model' });
-  await assert.rejects(() => provider.propose('override policy'), /AGENT_PROPOSAL_FORBIDDEN_FIELD/);
+  await assert.rejects(() => provider.propose('policy override request'), /AGENT_PROPOSAL_FORBIDDEN_FIELD/);
 });
