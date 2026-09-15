@@ -47,4 +47,4 @@ npm run agent:card:verify
 
 `agent:card:publish` é uma operação mutável na T3N e pode consumir créditos. `agent:card:verify` é a verificação read-only do registro publicado.
 
-Depois do provisionamento, reinicie o serviço se `T3N_CONTRACT_NUMERIC_ID` tiver sido adicionado ou alterado no ambiente do deployment.
+Depois do provisionamento, reinicie o serviço se `T3N_CONTRACT_NUMERIC_ID` tiver sido adicionado ou alterado no ambiente do deployment. Em seguida, valide o endpoint de status/readiness do gateway e as delegações observadas pela aplicação para confirmar que contrato, policy, Proposal Agent, Protected Executor e Agent onboarding passaram a refletir os recursos reais da T3N.
