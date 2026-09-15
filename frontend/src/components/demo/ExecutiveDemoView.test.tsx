@@ -69,17 +69,31 @@ const systemStatus = {
 const evidence = {
   metadata: {
     source: 'T3N_TESTNET',
+    generatedAt: '2026-09-13T20:02:00.000Z',
     sourceCommitSha: '0fe48b8aab7917788eb30b81d45e6a11821e48c2',
     sourceTreeClean: true,
     network: 'testnet',
-    contractId: 'privacy-guard-contract-testnet-123456789',
-    contractVersion: '0.4.0',
+    sdkVersion: 'test-sdk',
+    tenantDid: 'did:t3n:testnet:tenant-123456789',
     agentDid: 'did:t3n:testnet:proposal-agent-123456789',
     executorDid: 'did:t3n:testnet:protected-executor-987654321',
+    agentRegistrationState: 'REGISTERED',
+    agentCardUri: 'https://example.test/.well-known/agent-card.json',
+    agentCardSha256: 'agent-card-sha256',
+    agentCardVerifiedAt: '2026-09-13T20:01:30.000Z',
+    agentCardServices: ['evaluate-action'],
+    contractId: 'privacy-guard-contract-testnet-123456789',
+    contractVersion: '0.4.0',
+    wasmSha256: 'wasm-sha256',
+    policyVersion: 'policy-v1',
+    policyHash: 'policy-sha256',
+    trustAnchorVerified: true,
+    trustManifestFloorPersisted: true,
+    trustManifestVersion: 1,
   },
   scenarios: [],
   totals: { pass: 12, fail: 0, notRun: 1 },
-} as EvidenceBundle;
+} satisfies EvidenceBundle;
 
 type ExecutiveDemoProps = ComponentProps<typeof ExecutiveDemoView>;
 
@@ -201,7 +215,7 @@ describe('ExecutiveDemoView', () => {
   });
 
   it('does not label runtime ready when the evidence bundle contains a failure', () => {
-    renderExecutive({ evidence: { ...evidence, totals: { pass: 11, fail: 1, notRun: 1 } } as EvidenceBundle });
+    renderExecutive({ evidence: { ...evidence, totals: { pass: 11, fail: 1, notRun: 1 } } });
 
     expect(screen.getByTestId('executive-readiness')).toHaveTextContent('INCOMPLETE');
     expect(screen.getByTestId('executive-proof')).toHaveTextContent('11 PASS / 1 FAIL / 1 NOT RUN');
