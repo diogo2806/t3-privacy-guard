@@ -102,6 +102,22 @@ function renderExecutive(overrides: Partial<ExecutiveDemoProps> = {}) {
 }
 
 describe('ExecutiveDemoView', () => {
+  it('leads with enterprise value before explaining the authority mechanism', () => {
+    renderExecutive();
+
+    const surface = screen.getByTestId('executive-demo-view');
+    const valueHeadline = 'Use AI agents in sensitive workflows without giving the model security authority.';
+    const mechanism = 'AI can propose. Policy decides. Humans authorize. T3N executes.';
+    expect(screen.getByRole('heading', { level: 1, name: valueHeadline })).toBeInTheDocument();
+    expect(screen.getByText(/Keep private data, policy decisions and critical actions outside the model/i)).toBeInTheDocument();
+    expect(screen.getByText(mechanism)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Business risk' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Observed outcome' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Observed runtime outcomes' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Trust path' })).toBeInTheDocument();
+    expect((surface.textContent ?? '').indexOf(valueHeadline)).toBeLessThan((surface.textContent ?? '').indexOf(mechanism));
+  });
+
   it('starts without inventing an outcome or live evidence claim', () => {
     renderExecutive();
 
