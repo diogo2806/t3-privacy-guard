@@ -86,7 +86,7 @@ export class TrustManifestFloorStore {
         const directoryHandle = await open(directory, 'r');
         try { await directoryHandle.sync(); } finally { await directoryHandle.close(); }
       } catch (error) {
-        if (!(isNodeError(error) && ['EINVAL', 'ENOTSUP', 'EISDIR'].includes(error.code))) throw error;
+        if (!(isNodeError(error) && typeof error.code === 'string' && ['EINVAL', 'ENOTSUP', 'EISDIR'].includes(error.code))) throw error;
       }
     } catch (error) {
       if (file) await file.close().catch(() => undefined);
