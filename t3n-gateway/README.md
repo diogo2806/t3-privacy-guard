@@ -22,13 +22,31 @@ AGENT_CARD_OUTPUT=/data/agent-card.json
 
 `/data` continua sendo o volume persistente e o processo continua executando como usuário `node`, não-root. Nenhum segredo é incorporado à imagem.
 
+## Configuração-base do runtime
+
+Todos os comandos administrativos carregam `readGatewayConfig()`. Portanto, eles devem ser executados no mesmo container com a configuração-base válida usada pelo serviço, incluindo pelo menos as variáveis exigidas pelo gateway, como:
+
+```text
+T3N_API_KEY
+T3N_NETWORK
+T3N_CONTRACT_TAIL
+T3N_CONTRACT_VERSION
+GATEWAY_SERVICE_TOKEN
+REMEDIATION_AUTH_PUBLIC_KEY_SPKI
+REMEDIATION_AUTH_KEY_ID
+REMEDIATION_REPLAY_STORE_PATH
+T3N_TRUST_FLOOR_STORE_PATH
+```
+
+Os valores opcionais podem continuar usando os defaults já definidos pelo runtime. Credenciais reais devem existir somente no secret store/ambiente do serviço. Os requisitos abaixo são adicionais ou específicos de cada etapa e não substituem essa configuração-base.
+
 ## Ordem de provisionamento
 
 Execute os comandos no shell do container publicado, com diretório de trabalho `/app`.
 
 ### 1. Registrar o contrato
 
-Pré-requisitos mínimos:
+Confirme na configuração-base:
 
 ```text
 T3N_API_KEY
@@ -53,7 +71,7 @@ Nunca invente ou antecipe esse valor. Reinicie/reimplante o serviço com o valor
 
 ### 2. Publicar a policy operacional
 
-Pré-requisitos adicionais:
+Requisito adicional:
 
 ```text
 T3N_CONTRACT_NUMERIC_ID
@@ -69,16 +87,16 @@ A policy padrão vem de `/app/policy/privacy-guard-policy.json`. O script grava 
 
 ### 3. Configurar remediation protegida
 
-Pré-requisitos adicionais:
+Requisitos adicionais:
 
 ```text
 T3N_CONTRACT_NUMERIC_ID
 SECURITY_API_KEY
 SECURITY_API_URL
 SECURITY_VERIFICATION_URL
-REMEDIATION_AUTH_PUBLIC_KEY_SPKI
-REMEDIATION_AUTH_KEY_ID
 ```
+
+`REMEDIATION_AUTH_PUBLIC_KEY_SPKI` e `REMEDIATION_AUTH_KEY_ID` já fazem parte da configuração-base do gateway e também são usados nesta etapa.
 
 Execute:
 
@@ -89,6 +107,12 @@ npm run contract:setup-remediation
 O script cria/atualiza somente os mapas privados necessários ao contrato, incluindo a chave da integração protegida, URLs HTTPS, chave pública de autorização e o mapa de nonces. Valores sensíveis não são impressos no resultado.
 
 ### 4. Publicar e verificar o Agent Card
+
+Requisito adicional:
+
+```text
+T3N_AGENT_API_KEY
+```
 
 `T3N_AGENT_API_KEY` é a credencial exclusiva do Proposal Agent e deve ser diferente de `T3N_API_KEY` e `T3N_EXECUTOR_API_KEY`. O Proposal Agent permanece limitado a `evaluate-action`.
 
