@@ -1,8 +1,8 @@
 # T3 Privacy Guard
 
-**Enterprise trust runtime for AI agents on the Terminal 3 Network.**
+**Use AI agents in sensitive workflows without handing security authority to the model.**
 
-T3 Privacy Guard is designed for a simple enterprise assumption: **the AI model can be useful and still be untrusted**. The model may analyze an incident and propose an action, but it is not allowed to become the authority that decides policy, selects trusted identities, retrieves private profile values directly, or declares a critical side effect completed.
+T3 Privacy Guard keeps private data, policy decisions, business authorization, protected execution and verified completion outside the model while preserving useful AI recommendations. The product is designed for a simple enterprise assumption: **the AI model can be useful and still be untrusted**. The model may analyze an incident and propose an action, but it is not allowed to become the authority that decides policy, selects trusted identities, retrieves private profile values directly, or declares a critical side effect completed.
 
 The product separates those responsibilities across independent controls:
 
@@ -37,7 +37,7 @@ Independent external read-back
 VERIFIED -> COMPLETED
 ```
 
-The central product thesis is:
+The mechanism behind that product value is:
 
 > **AI can propose. Policy decides. Humans authorize. T3N executes. Independent evidence proves the outcome.**
 
@@ -49,21 +49,27 @@ The central product thesis is:
 
 The dashboard has three deliberately separate presentation levels. **Protection flow** is the operational surface where analysis, human authorization, execution and read-back happen. **Executive demo** is a read-only projection of that same runtime state for a judge or enterprise stakeholder. **Evidence** remains the detailed proof surface. The Executive demo does not own a second incident, policy decision, authorization, remediation state machine or evidence source and exposes no Analyze, Authorize, Execute or Verify action.
 
-At 1440×900 the Executive demo keeps the decision narrative in one viewport:
+At 1440×900 the Executive demo uses a value-first reading order: business problem and observable result come before the authority mechanism, while the same conservative runtime facts remain visible.
 
 ```text
+Use AI agents in sensitive workflows without giving the model security authority
+                                  [READINESS]
+
 Business risk                 Observed outcome
         \                         /
-         AI proposal -> T3N policy -> Human -> Executor -> Verify
-                              |
-                     Proof at a glance
+         Measured control impact
+                    |
+          How the control works
+AI proposal -> T3N policy -> Human -> Executor -> Verify
+                    |
+           Proof at a glance
 ```
 
-Its claim semantics are conservative. Before analysis the result is `NOT YET OBSERVED`. `DENY` becomes `BLOCKED BEFORE PROTECTED EGRESS`; `REDACT` becomes `MINIMIZATION REQUIRED`; `ALLOW` without a human approval becomes `HUMAN AUTHORIZATION REQUIRED`; approval without a side effect becomes `AUTHORIZED / NOT EXECUTED` and verification remains `NOT VERIFIED YET`; `PENDING_VERIFICATION`, `UNVERIFIED` and `FAILED` never become successful outcomes. Only `COMPLETED` after independent read-back may become `VERIFIED EXTERNAL STATE`.
+The technical thesis `AI can propose. Policy decides. Humans authorize. T3N executes.` remains visible inside the Trust path as the explanation of **how** the control works rather than as the first thing a stakeholder must decode. Its claim semantics remain conservative. Before analysis the result is `NOT YET OBSERVED`. `DENY` becomes `BLOCKED BEFORE PROTECTED EGRESS`; `REDACT` becomes `MINIMIZATION REQUIRED`; `ALLOW` without a human approval becomes `HUMAN AUTHORIZATION REQUIRED`; approval without a side effect becomes `AUTHORIZED / NOT EXECUTED` and verification remains `NOT VERIFIED YET`; `PENDING_VERIFICATION`, `UNVERIFIED` and `FAILED` never become successful outcomes. Only `COMPLETED` after independent read-back may become `VERIFIED EXTERNAL STATE`.
 
 `Proof at a glance` is populated only from an actual `T3N_TESTNET` EvidenceBundle with a full 40-character source commit and observed network/contract metadata. `T3N LIVE / READY` additionally requires protected-remediation readiness and zero evidence failures. `NOT_RUN` stays visible and never counts as proof. Source-tree state, Proposal/Executor DID separation, effective delegation and Agent Card registration are shown as distinct facts rather than being collapsed into a generic “verified” badge. If evidence is absent, the view says `Live evidence not loaded/generated` instead of inventing PASS, LIVE or source provenance.
 
-The submission capture keeps the existing full-page technical screenshots and adds 1440×900 viewport frames for the executive story: initial risk, observed DENY, human authorization without execution, verified outcome when a real read-back exists (or an explicit not-verified frame when it does not), and compact proof. The capture continues to require real testnet evidence, zero FAIL, distinct DIDs and the existing secret-leak detector.
+The submission capture keeps the existing full-page technical screenshots and adds 1440×900 viewport frames for the value-first executive story: value headline, business risk, observed outcome, measured control impact, authority mechanism, initial risk, observed DENY, human authorization without execution, verified outcome when a real read-back exists (or an explicit not-verified frame when it does not), and compact proof. The capture continues to require real testnet evidence, zero FAIL, distinct DIDs and the existing secret-leak detector.
 
 ## Business outcome in 60 seconds
 
@@ -623,7 +629,7 @@ EVIDENCE_NOTIFICATION_AUTHORIZATION_PROOF
 
 `T3N_AGENT_API_KEY` authenticates the Proposal Agent and must not be granted protected remediation functions. `T3N_EXECUTOR_API_KEY` authenticates the separate Protected Executor and must receive only the execution/verification functions and hosts/scopes it needs. The Executor's fixed effective check includes `verified_contacts.email.value` for the protected notification branch; the Proposal Agent remains limited to `evaluate-action`.
 
-`AUDIT_INTEGRITY_KEY` authenticates the local audit chain and must contain at least 32 characters. `AUDIT_INTEGRITY_KEY_ID` selects the active version; `AUDIT_INTEGRITY_PREVIOUS_KEYS` retains explicit `keyId=secret` historical material during planned rotation. `AUDIT_INTEGRITY_ALLOW_LEGACY_BOOTSTRAP=false` is the normal safe setting so pre-HMAC rows remain honestly unverified.
+`AUDIT_INTEGRITY_KEY` authenticates the local audit chain and must contain at least 32 characters. `AUDIT_INTEGRITY_KEY_ID` selects the active version; `AUDIT_INTEGRITY_PREVIOUS_KEYS` retains explicit `keyId=secret` historical material during planned rotation. Normal runtime keeps `AUDIT_INTEGRITY_ALLOW_LEGACY_BOOTSTRAP=false`, so pre-HMAC rows remain honestly unverified.
 
 `SECURITY_API_URL` is the protected action endpoint. Its full URL remains private; only the hostname persisted in the proposal is human-approved and capability-bound. `SECURITY_VERIFICATION_URL` is the independent read-back endpoint and may use a different host because it verifies the result rather than receiving the authorized side effect. Both URLs are seeded into the T3N private map by the setup script; neither URL becomes a browser/backend credential.
 

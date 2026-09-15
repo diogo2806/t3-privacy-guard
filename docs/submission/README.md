@@ -2,9 +2,9 @@
 
 ## Product position
 
-**T3 Privacy Guard is an enterprise trust runtime for AI agents.** Its purpose is not to make the model itself trustworthy. Its purpose is to keep policy, identity, private-data resolution, business authorization and completion proof outside the model even when the model is manipulated.
+**Use AI agents in sensitive workflows without handing security authority to the model.** T3 Privacy Guard keeps policy, identity, private-data resolution, business authorization and completion proof outside the model even when the model is manipulated. The model remains useful as a proposal engine without becoming the authority for sensitive data or privileged side effects.
 
-The product thesis is intentionally simple:
+The mechanism behind that product value is intentionally simple:
 
 > **AI can propose. Policy decides. Humans authorize. T3N executes. Independent evidence proves the outcome.**
 
@@ -36,16 +36,24 @@ Each live evidence bundle records the full public Git commit SHA and whether the
 
 `Executive demo` is a presentation-only projection of the same `SystemStatus`, selected scenario, `AgentAnalysis`, `ActionProposal`, `PolicyDecision`, `RemediationExecution` and `EvidenceBundle` already owned by the dashboard. It does not create a second incident, decision, authorization, execution, verification or evidence pipeline. The only action in the view is navigation to the technical Evidence area; the Manual da Tela remains available through the standard `BookOpen` dialog. All state-changing controls stay in `Protection flow`.
 
+The presentation order is intentionally **problem → observed result → measured impact → authority mechanism → proof**. The first headline states the business value before exposing architecture. The technical thesis remains visible in Trust path as the concise explanation of how the control works.
+
 Expected 1440×900 composition:
 
 ```text
 +--------------------------------------------------------------------------------+
-| AI can propose. Policy decides. Humans authorize. T3N executes.   [READINESS]  |
+| Use AI agents in sensitive workflows without giving the model security         |
+| authority.                                                       [READINESS]    |
+| Keep private data, policy decisions and critical actions outside the model.     |
 +--------------------------------------+-----------------------------------------+
 | Business risk                        | Observed outcome                        |
 | selected scenario + protected asset  | decision + measured decision time       |
 +--------------------------------------+-----------------------------------------+
-| AI proposal -> T3N policy -> Human -> Executor -> Verify                       |
+| Measured control impact: blocked / minimized / verified / median decision       |
++--------------------------------------------------------------------------------+
+| HOW THE CONTROL WORKS · TRUST PATH                                               |
+| AI can propose. Policy decides. Humans authorize. T3N executes.                  |
+| AI proposal -> T3N policy -> Human -> Executor -> Verify                         |
 +--------------------------------------------------------------------------------+
 | Proof at a glance: commit/tree/network/contract/PASS-FAIL-NOT RUN/DIDs/...     |
 +--------------------------------------------------------------------------------+
@@ -69,7 +77,7 @@ COMPLETED after read-back       -> VERIFIED EXTERNAL STATE
 
 The `Proof at a glance` card only renders live provenance when the loaded bundle identifies `T3N_TESTNET`, contains a full public 40-character commit SHA and non-empty network/contract metadata. `T3N LIVE / READY` additionally requires `protectedRemediationReady` and zero evidence failures. `NOT_RUN` remains explicit and is never promoted to proof. Proposal and Executor DID separation, effective delegation and Agent Card registration are separate facts. When live evidence is absent or returns 404, the Executive Demo shows `Live evidence not loaded/generated`, does not retry indefinitely and does not invent PASS, LIVE, source commit or verified completion.
 
-Submission capture keeps the existing full-page technical screenshots and adds viewport-scoped 1440×900 executive frames without mocked success:
+Submission capture keeps the existing full-page technical screenshots and adds viewport-scoped 1440×900 executive frames without mocked success. Every executive capture asserts that the value headline, Business risk, Observed outcome, compact Measured control impact, technical mechanism inside Trust path and Proof at a glance are all visible in the same viewport before writing the image:
 
 ```text
 01-executive-risk.png
@@ -118,7 +126,7 @@ Business Outcome intentionally continues to label **Requested field names**, **P
 
 The judge should use the surfaces for different questions:
 
-- **Executive Demo**: can risk, authority path, observed outcome and compact proof be understood in one viewport without triggering side effects?
+- **Executive Demo**: can the business problem, observed result, measured impact, authority path and compact proof be understood in one viewport without triggering side effects?
 - **Business Outcome**: what risk, control and observed result does the current flow demonstrate?
 - **Trust Flow**: which authority owns AI proposal, policy decision, human authorization, protected execution and verification?
 - **Remediation minimization panel**: which trusted synthetic normal values and logical private references are eligible for protected egress after T3N minimization?
@@ -348,7 +356,7 @@ Only bounded Member-grant fields and the exact checked function/scope labels are
 
 ```text
 1. Sign in as application operator.
-2. Open Executive demo first; confirm risk, observed outcome, Trust path and Proof at a glance fit the 1440x900 view and no state-changing action is present.
+2. Open Executive demo first; read the value headline, Business risk, Observed outcome and compact Measured control impact before the mechanism. Then confirm the technical thesis appears inside Trust path and Proof at a glance remains in the same 1440x900 view with no state-changing action.
 3. Before analysis, confirm the Executive demo says NOT YET OBSERVED; absent evidence must say Live evidence not loaded/generated rather than LIVE/PASS.
 4. Switch to Protection flow. Read the product thesis and Trust Flow, then read Business Outcome before inspecting low-level metadata.
 5. Expand System readiness details and confirm Tenant, Proposal Agent and Protected Executor are authenticated as separate principals.
@@ -785,7 +793,7 @@ Anything less is not successful completion proof.
 
 `Evidence` area is ordered for judging: `Evidence summary` -> `Observed outcomes` -> `Technical provenance`. Summary surfaces PASS/FAIL/NOT RUN and execution context before low-level hashes. Technical provenance keeps source/build, trust/network, identities/discoverability and contract/policy metadata available through disclosures without weakening claim boundary.
 
-Playwright submission capture does not read evidence by visual position or `.evidence-metadata > div` order. It uses stable semantic hooks for fields that are part of capture contract and accessible roles/names for user actions. Before screenshots or `capture-metadata.json`, it requires final UI states and records separate `tenantDid`, `proposalAgentDid`, `protectedExecutorDid`, plus full source commit, `CLEAN` source tree, contract id/version and WASM SHA-256. All three DIDs must be distinct and leak detector remains mandatory. Executive screenshots are viewport-scoped at exactly 1440×900 and assert the headline, Business risk, Observed outcome, Trust path and Proof at a glance are actually in that viewport before each frame is written.
+Playwright submission capture does not read evidence by visual position or `.evidence-metadata > div` order. It uses stable semantic hooks for fields that are part of capture contract and accessible roles/names for user actions. Before screenshots or `capture-metadata.json`, it requires final UI states and records separate `tenantDid`, `proposalAgentDid`, `protectedExecutorDid`, plus full source commit, `CLEAN` source tree, contract id/version and WASM SHA-256. All three DIDs must be distinct and leak detector remains mandatory. Executive screenshots are viewport-scoped at exactly 1440×900 and assert the value headline, Business risk, Observed outcome, compact Measured control impact, technical thesis in Trust path and Proof at a glance are actually in that viewport before each frame is written.
 
 Local controls:
 
@@ -813,7 +821,7 @@ When preparing egress evidence, configure `SECURITY_API_URL` and separate `SECUR
 
 ## Screenshot shot list
 
-1. **Executive Demo / initial risk** at 1440×900 showing the thesis, Business risk, `NOT YET OBSERVED`, Trust path and real Proof at a glance when live evidence exists.
+1. **Executive Demo / initial risk** at 1440×900 showing the value headline, Business risk, `NOT YET OBSERVED`, compact Measured control impact, the technical thesis inside Trust path and real Proof at a glance when live evidence exists.
 2. **Executive Demo / DENY** showing `BLOCKED BEFORE PROTECTED EGRESS` and no executor/verification advancement.
 3. **Executive Demo / human authorization** showing `AUTHORIZED / NOT EXECUTED` and `NOT VERIFIED YET`.
 4. **Executive Demo / outcome** only after real independent read-back; otherwise capture the explicit not-verified state.
@@ -834,7 +842,7 @@ Never capture passwords, cookies, T3N keys, provider key, service/capability key
 ## Demo video storyboard
 
 ```text
-0–12s    Executive Demo initial: thesis + Business risk + NOT YET OBSERVED + proof
+0–12s    Executive Demo initial: value proposition + Business risk + NOT YET OBSERVED + Measured control impact + proof
 12–30s   Protection flow: System readiness details + separate identities/delegation
 30–52s   Credential compromised -> Analyze -> malicious proposal -> T3N DENY
 52–64s   Executive Demo DENY: blocked before egress; executor/verify not advanced
@@ -850,6 +858,8 @@ Never capture passwords, cookies, T3N keys, provider key, service/capability key
 
 Submission leads with user/business meaning, then exposes technical proof. Technical labels remain precise.
 
+- **Executive value headline**: states that AI agents can participate in sensitive workflows without giving the model security authority; it does not claim that all risk is eliminated, all workflows are implemented or compliance is guaranteed;
+- **Executive mechanism thesis**: `AI can propose. Policy decides. Humans authorize. T3N executes.` belongs in Trust path as the explanation of how the control works after the business problem/result are clear;
 - **Executive Demo**: read-only one-viewport projection of existing runtime/evidence state; never a second authorization, execution or evidence engine;
 - **T3N LIVE / READY**: protected-remediation readiness plus valid T3N testnet evidence with zero FAIL; not hardware attestation or proof that NOT RUN scenarios executed;
 - **Live evidence not loaded/generated**: no valid evidence bundle is currently available; do not infer source commit, PASS or LIVE state;

@@ -195,8 +195,8 @@ export function ExecutiveDemoView({
             <PrivacyGuardMark className="executive-demo-brand-mark" testId="executive-brand-mark" />
             <p className="eyebrow">T3 Privacy Guard · Executive demo</p>
           </div>
-          <h1 id="executive-demo-title">AI can propose. Policy decides. Humans authorize. T3N executes.</h1>
-          <p className="executive-demo-subheadline">Keep model recommendations useful without making the model the authority over identity, private data or privileged side effects.</p>
+          <h1 id="executive-demo-title">Use AI agents in sensitive workflows without giving the model security authority.</h1>
+          <p className="executive-demo-subheadline">Keep private data, policy decisions and critical actions outside the model while preserving useful AI recommendations. Unsafe proposals can be blocked or minimized, protected remediation requires human authorization, and completion is claimed only after independent verification.</p>
         </div>
         <span className={`executive-demo-readiness executive-tone-${currentReadiness.tone}`} data-testid="executive-readiness">{currentReadiness.label}</span>
       </header>
@@ -237,7 +237,11 @@ export function ExecutiveDemoView({
       />
 
       <section className="executive-demo-trust" aria-labelledby="executive-trust-title">
-        <div className="executive-demo-section-heading"><p className="eyebrow">Authority path</p><h2 id="executive-trust-title">Trust path</h2></div>
+        <div className="executive-demo-section-heading">
+          <p className="eyebrow">How the control works</p>
+          <h2 id="executive-trust-title">Trust path</h2>
+          <p className="executive-demo-mechanism">AI can propose. Policy decides. Humans authorize. T3N executes.</p>
+        </div>
         <ol className="executive-demo-trust-steps">
           {steps.map((step, index) => {
             const Icon = step.icon;
