@@ -6,19 +6,23 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
 import java.security.Signature;
 import java.security.spec.X509EncodedKeySpec;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class RemediationAuthorizationSignerTest {
-    private static final String PRIVATE_KEY_PKCS8 = "MC4CAQAwBQYDK2VwBCIEIAv4OIfbF/R/i9uL6wgRalq2gperSKNx+Ig9BuS9L4qS";
+    private static final KeyPair TEST_KEY_PAIR = generateKeyPair();
+    private static final String PRIVATE_KEY_PKCS8 = Base64.getEncoder().encodeToString(TEST_KEY_PAIR.getPrivate().getEncoded());
     private static final String PRIVATE_KEY_PEM = "-----BEGIN PRIVATE KEY-----\n" + PRIVATE_KEY_PKCS8 + "\n-----END PRIVATE KEY-----";
     private static final String PRIVATE_KEY_PEM_BASE64 = Base64.getEncoder().encodeToString(PRIVATE_KEY_PEM.getBytes(StandardCharsets.US_ASCII));
-    private static final String PUBLIC_KEY_SPKI = "MCowBQYDK2VwAyEAW3EwSatHmT/ZSgrqu/G3ecXJrTviA5SjAoCwIfwau6A=";
+    private static final String PUBLIC_KEY_SPKI = Base64.getEncoder().encodeToString(TEST_KEY_PAIR.getPublic().getEncoded());
     private static final String KEY_ID = "primary";
     private static final String POLICY_VERSION = "2026-09-12.1";
     private static final String POLICY_HASH = "a".repeat(64);
@@ -71,9 +75,38 @@ class RemediationAuthorizationSignerTest {
     }
 
     @Test
-    void acceptsPkcs8PemAndBase64WrappedPkcs8Pem() {
+    void acceptsPkcs8PemBase64WrappedPemAndMatchingBinaryKeyBundle() {
         new RemediationAuthorizationSigner(mapper, PRIVATE_KEY_PEM, KEY_ID, 60, () -> EXECUTOR_DID);
         new RemediationAuthorizationSigner(mapper, PRIVATE_KEY_PEM_BASE64, KEY_ID, 60, () -> EXECUTOR_DID);
+        new RemediationAuthorizationSigner(mapper, binaryKeyBundle(PRIVATE_KEY_PKCS8, PUBLIC_KEY_SPKI), KEY_ID, 60, () -> EXECUTOR_DID);
+    }
+
+    @Test
+    void rejectsBinaryKeyBundleWithMismatchedPublicKey() {
+        String otherPublicKey = Base64.getEncoder().encodeToString(generateKeyPair().getPublic().getEncoded());
+
+        assertThatThrownBy(() -> new RemediationAuthorizationSigner(
+            mapper,
+            binaryKeyBundle(PRIVATE_KEY_PKCS8, otherPublicKey),
+            KEY_ID,
+            60,
+            () -> EXECUTOR_DID
+        )).isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("does not match the private key");
+    }
+
+    @Test
+    void rejectsPkcs8DerWithArbitraryTrailingBinaryData() {
+        byte[] privateKey = Base64.getDecoder().decode(PRIVATE_KEY_PKCS8);
+        byte[] invalid = Arrays.copyOf(privateKey, privateKey.length + 3);
+        invalid[privateKey.length] = 0x01;
+        invalid[privateKey.length + 1] = 0x02;
+        invalid[privateKey.length + 2] = 0x03;
+        String encoded = Base64.getEncoder().encodeToString(invalid);
+
+        assertThatThrownBy(() -> new RemediationAuthorizationSigner(mapper, encoded, KEY_ID, 60, () -> EXECUTOR_DID))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("base64 PKCS#8 Ed25519 private key");
     }
 
     @Test
@@ -125,5 +158,21 @@ class RemediationAuthorizationSignerTest {
             .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> RemediationAuthorizationSigner.canonicalizeHost("-invalid.example"))
             .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    private static KeyPair generateKeyPair() {
+        try {
+            return KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        } catch (Exception ex) {
+            throw new IllegalStateException("Unable to generate Ed25519 test key pair", ex);
+        }
+    }
+
+    private static String binaryKeyBundle(String privateKeyPkcs8, String publicKeySpki) {
+        byte[] privateKey = Base64.getDecoder().decode(privateKeyPkcs8);
+        byte[] publicKey = Base64.getDecoder().decode(publicKeySpki);
+        byte[] bundle = Arrays.copyOf(privateKey, privateKey.length + publicKey.length);
+        System.arraycopy(publicKey, 0, bundle, privateKey.length, publicKey.length);
+        return Base64.getEncoder().encodeToString(bundle);
     }
 }
