@@ -62,7 +62,7 @@
 .executive-demo-section-heading h2,
 .executive-demo-section-heading p { margin: 0; }
 .executive-demo-section-heading h2 { font-size: .92rem; }
-.executive-demo-mechanism { margin-left: auto !important; color: var(--text-secondary); font-size: .78rem; font-weight: var(--font-weight-strong); }
+.executive-demo-section-heading p.executive-demo-mechanism { margin-left: auto; color: var(--text-secondary); font-size: .78rem; font-weight: var(--font-weight-strong); }
 .executive-demo-trust-steps {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -110,7 +110,7 @@
   .executive-demo-proof-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .executive-demo-trust-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .executive-demo-arrow { display: none; }
-  .executive-demo-mechanism { width: 100%; margin-left: 0 !important; }
+  .executive-demo-section-heading p.executive-demo-mechanism { width: 100%; margin-left: 0; }
 }
 @media (max-width: 720px) {
   .executive-demo-header,
