@@ -1,15 +1,9 @@
-import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { writeFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { createOrgDataClientFromSession, getNodeUrl } from '@terminal3/t3n-sdk';
 import { AgentCardRegistry, buildAgentCardForSession, serializeAgentCard } from '../agent/agent-card.js';
 import { AgentSession } from '../agent/agent-session.js';
 import { readGatewayConfig } from '../config/env.js';
 import { TrustManifestFloorStore } from '../security/trust-manifest-floor-store.js';
 
-const scriptDir = dirname(fileURLToPath(import.meta.url));
-const gatewayRoot = resolve(scriptDir, '../..');
 const config = readGatewayConfig();
 if (!config.agentApiKey) throw new Error('T3N_AGENT_API_KEY is required to publish the public Agent Card');
 
@@ -17,21 +11,12 @@ const trustFloorStore = new TrustManifestFloorStore(config.trustManifestFloorSto
 const agentSession = new AgentSession(config, trustFloorStore);
 await agentSession.connect();
 const agentDid = agentSession.getAgentDid();
-const cardPath = resolve(process.env.AGENT_CARD_OUTPUT ?? resolve(gatewayRoot, 'agent-card.json'));
-await writeFile(cardPath, serializeAgentCard(buildAgentCardForSession(agentSession, config.a2aPublicUrl)), { encoding: 'utf8', mode: 0o600 });
-
-const binaryName = process.platform === 'win32' ? 't3n.cmd' : 't3n';
-const cliPath = resolve(gatewayRoot, 'node_modules', '.bin', binaryName);
-if (!existsSync(cliPath)) throw new Error('Local T3N CLI is unavailable. Run npm install in t3n-gateway first.');
+const card = serializeAgentCard(buildAgentCardForSession(agentSession, config.a2aPublicUrl));
+const orgData = createOrgDataClientFromSession(agentSession.getClient(), getNodeUrl());
 
 console.info(`Publishing public Agent Card for ${agentDid} on ${config.network}. This is a mutable T3N operation and may consume credits.`);
-const publish = spawnSync(cliPath, ['agent', 'host-card', '--file', cardPath, '--env', config.network], {
-  cwd: gatewayRoot,
-  env: { ...process.env, T3N_API_KEY: config.agentApiKey, T3N_ENV: config.network },
-  stdio: 'inherit',
-  shell: process.platform === 'win32',
-});
-if (publish.error || publish.status !== 0) throw new Error('T3N Agent Card publication failed');
+await orgData.agentCardSet({ ownerDid: agentDid, agentDid, card });
+await orgData.agentCardPublish({ ownerDid: agentDid, agentDid });
 
 const registry = new AgentCardRegistry(agentSession, undefined, undefined, config.a2aPublicUrl);
 let registration = await registry.verify();
