@@ -32,6 +32,8 @@ export class ConfigurationError extends Error {
 }
 
 const DOCUMENTATION_PLACEHOLDER_PREFIX = 'replace-with-';
+const PUBLIC_KEY_PEM_BEGIN = '-----BEGIN PUBLIC KEY-----';
+const PUBLIC_KEY_PEM_END = '-----END PUBLIC KEY-----';
 
 export function rejectDocumentationPlaceholder(value: string, name: string): void {
   if (value.trim().startsWith(DOCUMENTATION_PLACEHOLDER_PREFIX)) {
@@ -53,17 +55,46 @@ function requiredKeyId(env: NodeJS.ProcessEnv, name: string, fallback: string): 
   return value;
 }
 
+function decodeBase64Strict(value: string): Buffer {
+  const compact = value.replace(/\s+/g, '');
+  if (!compact || !/^[A-Za-z0-9+/]*={0,2}$/.test(compact) || compact.length % 4 !== 0) {
+    throw new Error('invalid base64');
+  }
+  const decoded = Buffer.from(compact, 'base64');
+  if (!decoded.length || decoded.toString('base64') !== compact) throw new Error('invalid base64');
+  return decoded;
+}
+
+function decodePublicKeyPem(value: string): Buffer {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith(PUBLIC_KEY_PEM_BEGIN)) throw new Error('invalid public key PEM');
+  const endIndex = trimmed.indexOf(PUBLIC_KEY_PEM_END, PUBLIC_KEY_PEM_BEGIN.length);
+  if (endIndex < 0) throw new Error('invalid public key PEM');
+  if (trimmed.slice(endIndex + PUBLIC_KEY_PEM_END.length).trim()) throw new Error('invalid public key PEM');
+  const body = trimmed.slice(PUBLIC_KEY_PEM_BEGIN.length, endIndex);
+  return decodeBase64Strict(body);
+}
+
+function decodeEd25519PublicKey(value: string): Buffer {
+  const trimmed = value.trim();
+  if (trimmed.startsWith(PUBLIC_KEY_PEM_BEGIN)) return decodePublicKeyPem(trimmed);
+
+  const decoded = decodeBase64Strict(trimmed);
+  const decodedText = decoded.toString('ascii').trim();
+  if (decodedText.startsWith(PUBLIC_KEY_PEM_BEGIN)) return decodePublicKeyPem(decodedText);
+  return decoded;
+}
+
 function requiredEd25519PublicKey(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name]?.trim();
   if (!value) throw new ConfigurationError(`${name} is required`);
   try {
-    const der = Buffer.from(value, 'base64');
-    if (!der.length || der.toString('base64') !== value.replace(/\s+/g, '')) throw new Error('invalid base64');
+    const der = decodeEd25519PublicKey(value);
     const key = createPublicKey({ key: der, format: 'der', type: 'spki' });
     if (key.asymmetricKeyType !== 'ed25519') throw new Error('wrong key type');
-    return value;
+    return der.toString('base64');
   } catch {
-    throw new ConfigurationError(`${name} must be a base64 SPKI Ed25519 public key`);
+    throw new ConfigurationError(`${name} must be an Ed25519 SPKI public key encoded as DER base64, PEM, or base64-wrapped PEM`);
   }
 }
 
