@@ -28,6 +28,8 @@ import org.springframework.stereotype.Component;
 public class RemediationAuthorizationSigner {
     private static final String TOKEN_VERSION = "v2";
     private static final Pattern KEY_ID = Pattern.compile("[A-Za-z0-9._-]{1,32}");
+    private static final String PRIVATE_KEY_PEM_BEGIN = "-----BEGIN PRIVATE KEY-----";
+    private static final String PRIVATE_KEY_PEM_END = "-----END PRIVATE KEY-----";
 
     private final ObjectMapper mapper;
     private final PrivateKey privateKey;
@@ -144,7 +146,7 @@ public class RemediationAuthorizationSigner {
             throw new IllegalStateException("REMEDIATION_AUTH_PRIVATE_KEY_PKCS8 is required");
         }
         try {
-            byte[] der = Base64.getDecoder().decode(encoded.trim());
+            byte[] der = decodePkcs8PrivateKey(encoded);
             PrivateKey key = KeyFactory.getInstance("Ed25519").generatePrivate(new PKCS8EncodedKeySpec(der));
             if (!"EdDSA".equalsIgnoreCase(key.getAlgorithm()) && !"Ed25519".equalsIgnoreCase(key.getAlgorithm())) {
                 throw new IllegalStateException("REMEDIATION_AUTH_PRIVATE_KEY_PKCS8 must contain an Ed25519 private key");
@@ -153,8 +155,49 @@ public class RemediationAuthorizationSigner {
         } catch (IllegalStateException ex) {
             throw ex;
         } catch (Exception ex) {
-            throw new IllegalStateException("REMEDIATION_AUTH_PRIVATE_KEY_PKCS8 must be a base64 PKCS#8 Ed25519 private key", ex);
+            throw new IllegalStateException(
+                "REMEDIATION_AUTH_PRIVATE_KEY_PKCS8 must be a base64 PKCS#8 Ed25519 private key, PKCS#8 PEM, or base64-wrapped PKCS#8 PEM",
+                ex
+            );
         }
+    }
+
+    private static byte[] decodePkcs8PrivateKey(String encoded) {
+        String value = encoded.trim();
+        if (value.startsWith(PRIVATE_KEY_PEM_BEGIN)) {
+            return decodePem(value);
+        }
+
+        byte[] decoded = decodeBase64(value);
+        String decodedText = new String(decoded, StandardCharsets.US_ASCII).trim();
+        if (decodedText.startsWith(PRIVATE_KEY_PEM_BEGIN)) {
+            return decodePem(decodedText);
+        }
+        return decoded;
+    }
+
+    private static byte[] decodePem(String pem) {
+        String value = pem.trim();
+        if (!value.startsWith(PRIVATE_KEY_PEM_BEGIN)) {
+            throw new IllegalArgumentException("PKCS#8 PEM must start with BEGIN PRIVATE KEY");
+        }
+        int endIndex = value.indexOf(PRIVATE_KEY_PEM_END, PRIVATE_KEY_PEM_BEGIN.length());
+        if (endIndex < 0) {
+            throw new IllegalArgumentException("PKCS#8 PEM must end with END PRIVATE KEY");
+        }
+        if (!value.substring(endIndex + PRIVATE_KEY_PEM_END.length()).trim().isEmpty()) {
+            throw new IllegalArgumentException("PKCS#8 PEM must not contain trailing data");
+        }
+        String body = value.substring(PRIVATE_KEY_PEM_BEGIN.length(), endIndex);
+        return decodeBase64(body);
+    }
+
+    private static byte[] decodeBase64(String value) {
+        String compact = value.replaceAll("\\s+", "");
+        if (compact.isEmpty()) {
+            throw new IllegalArgumentException("PKCS#8 key payload is empty");
+        }
+        return Base64.getDecoder().decode(compact);
     }
 
     private static void requireBoundValue(String value, String name) {
