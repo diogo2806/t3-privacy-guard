@@ -17,7 +17,7 @@ const tenant = new TenantClient({
 });
 await tenant.tenant.me();
 
-const wasmPath = resolve(process.env.T3N_CONTRACT_WASM_PATH ?? '../contracts/privacy-guard/target/wasm32-wasip2/release/privacy_guard_contract.wasm');
+const wasmPath = resolve(process.env.T3N_CONTRACT_WASM_PATH ?? 'contracts/privacy_guard_contract.wasm');
 const wasm = await readFile(wasmPath);
 const result = await tenant.contracts.register({
   tail: config.contractTail,
