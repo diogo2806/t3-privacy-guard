@@ -184,6 +184,8 @@ export function ExecutiveDemoView({
   const executorDid = proofAvailable ? evidence.metadata.executorDid : systemStatus?.executorDid;
   const delegation = delegationLabel(systemStatus);
   const identities = identitiesLabel(proposalDid, executorDid);
+  const enterpriseIntegrationState = systemStatus?.enterpriseIntegrationState ?? 'NOT OBSERVED';
+  const agentRegistrationState = systemStatus?.agentRegistrationState ?? 'NOT OBSERVED';
 
   return (
     <Surface className="executive-demo" elevated aria-labelledby="executive-demo-title" data-testid="executive-demo-view">
@@ -269,11 +271,13 @@ export function ExecutiveDemoView({
             <div><dt>Contract</dt><dd><span>{evidence.metadata.contractVersion}</span> · <code title={evidence.metadata.contractId}>{shorten(evidence.metadata.contractId)}</code></dd></div>
             <div><dt>Identity separation</dt><dd className={`executive-tone-text-${identities.tone}`}>{identities.label}</dd></div>
             <div><dt>Effective delegation</dt><dd className={`executive-tone-text-${delegation.tone}`}>{delegation.label}</dd></div>
+            <div><dt>Enterprise integration</dt><dd>{enterpriseIntegrationState}</dd></div>
+            <div><dt>Agent registration</dt><dd>{agentRegistrationState}</dd></div>
           </dl>
         ) : (
           <p className="executive-demo-proof-empty">No PASS state, source commit or live-runtime claim is inferred until a valid evidence bundle is loaded.</p>
         )}
-        <p className="executive-demo-proof-note">PASS and FAIL are observed evidence outcomes. NOT RUN is not proof, and a clean source tree is not a security guarantee. Full DIDs and integration details remain available in Technical evidence.</p>
+        <p className="executive-demo-proof-note">PASS and FAIL are observed evidence outcomes. NOT RUN is not proof, and a clean source tree is not a security guarantee. Agent registration reports the observed public Agent Card state, not authorization. Enterprise integration READY does not prove external service success. Full DIDs and integration details remain available in Technical evidence.</p>
       </section>
 
       <footer className="executive-demo-actions">
