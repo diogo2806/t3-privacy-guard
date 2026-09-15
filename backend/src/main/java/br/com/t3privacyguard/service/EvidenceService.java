@@ -101,7 +101,7 @@ public class EvidenceService {
             }
             return new EvidenceResponse(metadata, scenarios, new Totals(pass, fail, notRun));
         } catch (IOException | RuntimeException ex) {
-            if (ex instanceof EvidenceNotFoundException) throw ex;
+            if (ex instanceof EvidenceNotFoundException notFound) throw notFound;
             throw new IllegalStateException("Live evidence is present but invalid or inconsistent", ex);
         }
     }
