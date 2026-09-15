@@ -26,7 +26,14 @@ COPY --from=gateway-build /app/dist ./dist
 COPY t3n-gateway/policy ./policy
 RUN mkdir -p /app/runtime /data
 COPY --from=contract-build /contract/target/wasm32-wasip2/release/privacy_guard_contract.wasm /app/runtime/privacy_guard_contract.wasm
-RUN chown -R node:node /data
+RUN test -f /app/dist/scripts/register-contract.js \
+    && test -f /app/dist/scripts/setup-policy.js \
+    && test -f /app/dist/scripts/setup-remediation-secrets.js \
+    && test -f /app/dist/scripts/agent-card-verify.js \
+    && test -f /app/dist/scripts/agent-card-publish.js \
+    && test -f /app/policy/privacy-guard-policy.json \
+    && test -s /app/runtime/privacy_guard_contract.wasm \
+    && chown -R node:node /data
 VOLUME ["/data"]
 USER node
 EXPOSE 3001
