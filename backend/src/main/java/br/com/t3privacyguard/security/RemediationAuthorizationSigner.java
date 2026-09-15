@@ -8,10 +8,13 @@ import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
 import java.security.MessageDigest;
 import java.security.PrivateKey;
+import java.security.PublicKey;
 import java.security.Signature;
 import java.security.spec.PKCS8EncodedKeySpec;
+import java.security.spec.X509EncodedKeySpec;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
@@ -30,6 +33,7 @@ public class RemediationAuthorizationSigner {
     private static final Pattern KEY_ID = Pattern.compile("[A-Za-z0-9._-]{1,32}");
     private static final String PRIVATE_KEY_PEM_BEGIN = "-----BEGIN PRIVATE KEY-----";
     private static final String PRIVATE_KEY_PEM_END = "-----END PRIVATE KEY-----";
+    private static final byte[] KEY_PAIR_CHALLENGE = "t3-privacy-guard-remediation-key-pair".getBytes(StandardCharsets.US_ASCII);
 
     private final ObjectMapper mapper;
     private final PrivateKey privateKey;
@@ -146,34 +150,117 @@ public class RemediationAuthorizationSigner {
             throw new IllegalStateException("REMEDIATION_AUTH_PRIVATE_KEY_PKCS8 is required");
         }
         try {
-            byte[] der = decodePkcs8PrivateKey(encoded);
-            PrivateKey key = KeyFactory.getInstance("Ed25519").generatePrivate(new PKCS8EncodedKeySpec(der));
+            DecodedPrivateKey decoded = decodePkcs8PrivateKey(encoded);
+            PrivateKey key = KeyFactory.getInstance("Ed25519").generatePrivate(new PKCS8EncodedKeySpec(decoded.pkcs8Der()));
             if (!"EdDSA".equalsIgnoreCase(key.getAlgorithm()) && !"Ed25519".equalsIgnoreCase(key.getAlgorithm())) {
                 throw new IllegalStateException("REMEDIATION_AUTH_PRIVATE_KEY_PKCS8 must contain an Ed25519 private key");
             }
+            validateBundledPublicKey(key, decoded.publicKeySpkiDer());
             return key;
         } catch (IllegalStateException ex) {
             throw ex;
         } catch (Exception ex) {
             throw new IllegalStateException(
-                "REMEDIATION_AUTH_PRIVATE_KEY_PKCS8 must be a base64 PKCS#8 Ed25519 private key, PKCS#8 PEM, or base64-wrapped PKCS#8 PEM",
+                "REMEDIATION_AUTH_PRIVATE_KEY_PKCS8 must be a base64 PKCS#8 Ed25519 private key, PKCS#8 PEM, base64-wrapped PKCS#8 PEM, or a PKCS#8 + matching SPKI DER bundle",
                 ex
             );
         }
     }
 
-    private static byte[] decodePkcs8PrivateKey(String encoded) {
+    private static DecodedPrivateKey decodePkcs8PrivateKey(String encoded) {
         String value = encoded.trim();
         if (value.startsWith(PRIVATE_KEY_PEM_BEGIN)) {
-            return decodePem(value);
+            return new DecodedPrivateKey(decodePem(value), null);
         }
 
         byte[] decoded = decodeBase64(value);
         String decodedText = new String(decoded, StandardCharsets.US_ASCII).trim();
         if (decodedText.startsWith(PRIVATE_KEY_PEM_BEGIN)) {
-            return decodePem(decodedText);
+            return new DecodedPrivateKey(decodePem(decodedText), null);
         }
-        return decoded;
+        return splitBinaryKeyBundle(decoded);
+    }
+
+    private static DecodedPrivateKey splitBinaryKeyBundle(byte[] decoded) {
+        int privateKeyLength = derSequenceLength(decoded, "PKCS#8 private key");
+        byte[] privateKeyDer = Arrays.copyOf(decoded, privateKeyLength);
+        if (privateKeyLength == decoded.length) {
+            return new DecodedPrivateKey(privateKeyDer, null);
+        }
+
+        byte[] trailing = trimAsciiWhitespace(Arrays.copyOfRange(decoded, privateKeyLength, decoded.length));
+        if (trailing.length == 0) {
+            return new DecodedPrivateKey(privateKeyDer, null);
+        }
+
+        int publicKeyLength = derSequenceLength(trailing, "SPKI public key");
+        if (publicKeyLength != trailing.length) {
+            throw new IllegalArgumentException("PKCS#8 key bundle must not contain data after the SPKI public key");
+        }
+        return new DecodedPrivateKey(privateKeyDer, trailing);
+    }
+
+    private static int derSequenceLength(byte[] der, String label) {
+        if (der.length < 2 || (der[0] & 0xff) != 0x30) {
+            throw new IllegalArgumentException(label + " must be a DER SEQUENCE");
+        }
+        int firstLengthByte = der[1] & 0xff;
+        if ((firstLengthByte & 0x80) == 0) {
+            int totalLength = 2 + firstLengthByte;
+            if (totalLength > der.length) throw new IllegalArgumentException(label + " DER length exceeds payload");
+            return totalLength;
+        }
+
+        int lengthByteCount = firstLengthByte & 0x7f;
+        if (lengthByteCount == 0 || lengthByteCount > 4 || der.length < 2 + lengthByteCount) {
+            throw new IllegalArgumentException(label + " has an invalid DER length");
+        }
+        long contentLength = 0;
+        for (int index = 0; index < lengthByteCount; index++) {
+            contentLength = (contentLength << 8) | (der[2 + index] & 0xff);
+        }
+        long totalLength = 2L + lengthByteCount + contentLength;
+        if (totalLength > der.length || totalLength > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException(label + " DER length exceeds payload");
+        }
+        return (int) totalLength;
+    }
+
+    private static byte[] trimAsciiWhitespace(byte[] value) {
+        int start = 0;
+        int end = value.length;
+        while (start < end && isAsciiWhitespace(value[start])) start++;
+        while (end > start && isAsciiWhitespace(value[end - 1])) end--;
+        return Arrays.copyOfRange(value, start, end);
+    }
+
+    private static boolean isAsciiWhitespace(byte value) {
+        return value == ' ' || value == '\t' || value == '\n' || value == '\r';
+    }
+
+    private static void validateBundledPublicKey(PrivateKey privateKey, byte[] publicKeySpkiDer) {
+        if (publicKeySpkiDer == null) return;
+        try {
+            PublicKey publicKey = KeyFactory.getInstance("Ed25519").generatePublic(new X509EncodedKeySpec(publicKeySpkiDer));
+            if (!"EdDSA".equalsIgnoreCase(publicKey.getAlgorithm()) && !"Ed25519".equalsIgnoreCase(publicKey.getAlgorithm())) {
+                throw new IllegalStateException("Bundled remediation authorization public key must be Ed25519");
+            }
+            Signature signer = Signature.getInstance("Ed25519");
+            signer.initSign(privateKey);
+            signer.update(KEY_PAIR_CHALLENGE);
+            byte[] signature = signer.sign();
+
+            Signature verifier = Signature.getInstance("Ed25519");
+            verifier.initVerify(publicKey);
+            verifier.update(KEY_PAIR_CHALLENGE);
+            if (!verifier.verify(signature)) {
+                throw new IllegalStateException("Bundled remediation authorization public key does not match the private key");
+            }
+        } catch (IllegalStateException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new IllegalStateException("Bundled remediation authorization public key must be a matching Ed25519 SPKI key", ex);
+        }
     }
 
     private static byte[] decodePem(String pem) {
@@ -213,6 +300,8 @@ public class RemediationAuthorizationSigner {
             throw new IllegalStateException("Unable to hash remediation metadata", ex);
         }
     }
+
+    private record DecodedPrivateKey(byte[] pkcs8Der, byte[] publicKeySpkiDer) {}
 
     public record Claims(
         String keyId,
