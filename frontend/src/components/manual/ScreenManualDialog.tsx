@@ -62,7 +62,7 @@ export function ScreenManualDialog() {
       document.removeEventListener('focusin', onFocusIn);
       document.removeEventListener('keydown', onKeyDown);
       appRoot?.removeAttribute('inert');
-      if (previousAriaHidden === null) appRoot?.removeAttribute('aria-hidden');
+      if (previousAriaHidden === null || previousAriaHidden === undefined) appRoot?.removeAttribute('aria-hidden');
       else appRoot?.setAttribute('aria-hidden', previousAriaHidden);
     };
   }, [open]);
