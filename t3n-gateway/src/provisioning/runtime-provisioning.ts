@@ -17,6 +17,7 @@ import {
   type DelegationService,
 } from '../agent/delegation-service.js';
 import type { ExecutorSession } from '../agent/executor-session.js';
+import { compareContractVersions } from '../config/contract-version.js';
 import type { GatewayConfig } from '../config/env.js';
 import type { PrivacyGuardContractService } from '../contract/privacy-guard-contract.js';
 import type { T3nSession } from '../t3n/session.js';
@@ -61,6 +62,17 @@ interface ContractResolution {
 export interface AdminProvisioningStep {
   readonly scriptName: 'setup-policy.js' | 'setup-remediation-secrets.js';
   readonly env: NodeJS.ProcessEnv;
+}
+
+export type ContractVersionAction = 'REGISTER' | 'REUSE';
+
+export function contractVersionAction(resolvedVersion: string | null, packagedVersion: string): ContractVersionAction {
+  if (resolvedVersion === null) return 'REGISTER';
+  const comparison = compareContractVersions(resolvedVersion, packagedVersion);
+  if (comparison > 0) {
+    throw new Error(`Resolved T3N contract version ${resolvedVersion} is newer than packaged ${packagedVersion}`);
+  }
+  return comparison < 0 ? 'REGISTER' : 'REUSE';
 }
 
 function booleanOverride(raw: string | undefined): boolean | null {
@@ -217,11 +229,12 @@ async function resolveOrRegisterContract(
     identity = null;
   }
 
-  if (identity) {
-    if (identity.contractId !== canonicalContractId) throw new Error('Resolved T3N contract id is not canonical for the authenticated Tenant');
-    if (identity.contractVersion !== config.contractVersion) {
-      throw new Error(`Resolved T3N contract version ${identity.contractVersion} does not match configured ${config.contractVersion}`);
-    }
+  if (identity && identity.contractId !== canonicalContractId) {
+    throw new Error('Resolved T3N contract id is not canonical for the authenticated Tenant');
+  }
+
+  const versionAction = contractVersionAction(identity?.contractVersion ?? null, config.contractVersion);
+  if (identity && versionAction === 'REUSE') {
     const state = await readProvisioningState(statePath);
     const persistedNumericId = state && provisioningStateMatches(state, {
       tenantDid,
