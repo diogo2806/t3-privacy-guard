@@ -42,14 +42,14 @@ test('rejects tenant credentials that are not exact secp256k1 private keys witho
   }
 });
 
-test('defaults to testnet, disabled AI, versioned remediation key, no public A2A, no organization DID, persistent trust floor and current contract version', () => {
+test('defaults to testnet, disabled AI, versioned remediation key, no public A2A, no organization DID, persistent trust floor and packaged contract version', () => {
   const config = readGatewayConfig(baseEnv);
   assert.equal(config.network, 'testnet');
   assert.equal(config.port, 3001);
   assert.equal(config.agentApiKey, null);
   assert.equal(config.executorApiKey, null);
   assert.equal(config.orgDid, null);
-  assert.equal(config.contractVersion, '0.4.0');
+  assert.equal(config.contractVersion, '0.4.1');
   assert.equal(config.remediationAuthorizationPublicKeySpki, publicKeySpki);
   assert.equal(config.remediationAuthorizationKeyId, 'primary');
   assert.equal(config.remediationReplayStorePath, '/data/remediation-capability-nonces.json');
@@ -58,6 +58,17 @@ test('defaults to testnet, disabled AI, versioned remediation key, no public A2A
   assert.equal(config.aiApiKey, null);
   assert.equal(config.aiModel, null);
   assert.equal(config.a2aPublicUrl, null);
+});
+
+test('normalizes the legacy 0.4.0 deployment setting to packaged contract 0.4.1', () => {
+  assert.equal(readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '0.4.0' }).contractVersion, '0.4.1');
+  assert.equal(readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '0.4.1' }).contractVersion, '0.4.1');
+});
+
+test('rejects contract versions that do not match the packaged artifact or supported legacy migration', () => {
+  assert.throws(() => readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '0.4.2' }), ConfigurationError);
+  assert.throws(() => readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '0.5.0' }), ConfigurationError);
+  assert.throws(() => readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: 'invalid' }), ConfigurationError);
 });
 
 test('accepts and validates a canonical organization DID', () => {
