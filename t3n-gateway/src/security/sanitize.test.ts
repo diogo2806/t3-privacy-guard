@@ -17,6 +17,13 @@ test('redacts organization-owned T3N agent credentials without requiring an expl
   assert.match(output, /\[REDACTED_T3N_API_KEY\]/);
 });
 
+test('redacts malformed t3n_key-shaped tokens as a defensive fallback', () => {
+  const malformed = 't3n_key_bad-with.secret_fragment';
+  const output = sanitizeText(`failed with ${malformed}`);
+  assert.equal(output.includes(malformed), false);
+  assert.equal(output.includes('secret_fragment'), false);
+});
+
 test('classifies authentication failures without exposing secret', () => {
   const result = sanitizeError(new Error(`Unauthorized ${syntheticKey}`), [syntheticKey]);
   assert.equal(result.category, 'AUTHENTICATION');
