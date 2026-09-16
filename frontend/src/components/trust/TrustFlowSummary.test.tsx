@@ -60,6 +60,22 @@ const READY_STATUS: SystemStatus = {
   message: 'Ready',
 };
 
+const INCOMPLETE_EXTERNAL_STATUS: SystemStatus = {
+  ...READY_STATUS,
+  enterpriseIntegrationState: 'INCOMPLETE',
+  enterpriseIntegrationReady: false,
+  enterpriseExecutionConfigured: false,
+  enterpriseVerificationConfigured: false,
+  enterpriseCredentialConfigured: false,
+  enterpriseExecutionHost: null,
+  enterpriseVerificationHost: null,
+  enterprisePolicyAllowsExecutionHost: false,
+  enterprisePolicyAllowsVerificationHost: false,
+  enterpriseExecutorDelegationAllowsExecutionHost: false,
+  enterpriseExecutorDelegationAllowsVerificationHost: false,
+  executorAllowedHosts: [],
+};
+
 const ACTION: ActionProposal = {
   id: 'action-1', incidentId: 'incident-1', requestId: 'request-1', action: 'revoke-credential', resource: 'credential:1',
   purpose: 'incident-remediation', host: 'example.com', fields: ['incident_id', 'credential_id', 'reason'], privateRefs: [],
@@ -133,6 +149,29 @@ describe('TrustFlowSummary', () => {
     expect(screen.getByText('Evaluation ready · execution blocked')).toBeInTheDocument();
     expect(screen.getByText(/T3N denied Protected Executor access/i)).toBeInTheDocument();
     expect(container.querySelector('.trust-readiness-ready')).not.toBeInTheDocument();
+  });
+
+  it('separates ready T3N authorization from absent external integration', () => {
+    const { container } = render(<TrustFlowSummary agentAnalysis={null} decision={null} selectedAction={null} remediationExecution={null} systemStatus={INCOMPLETE_EXTERNAL_STATUS} statusLoading={false} />);
+    expect(screen.getByText('T3N authorization ready · external execution not configured')).toBeInTheDocument();
+    expect(screen.getByText(/T3N Proposal and Protected Executor authorization are ready/i)).toBeInTheDocument();
+    expect(screen.getByText(/External execution remains blocked/i)).toBeInTheDocument();
+    expect(container.querySelector('.trust-readiness-ready')).not.toBeInTheDocument();
+  });
+
+  it('keeps Execute blocked after human authorization when external integration is incomplete', () => {
+    render(<TrustFlowSummary
+      agentAnalysis={null}
+      decision={decision('ALLOW')}
+      selectedAction={{ ...ACTION, status: 'REMEDIATION_AUTHORIZED' }}
+      remediationExecution={null}
+      systemStatus={INCOMPLETE_EXTERNAL_STATUS}
+      statusLoading={false}
+    />);
+    expect(screen.getByText('AUTHORIZED')).toBeInTheDocument();
+    expect(screen.getByText('BLOCKED')).toBeInTheDocument();
+    expect(screen.queryByText('READY')).not.toBeInTheDocument();
+    expect(screen.getByText(/external execution integration is not configured or not ready/i)).toBeInTheDocument();
   });
 
   it('keeps scheduled Proposal Member grant pending and not ready', () => {

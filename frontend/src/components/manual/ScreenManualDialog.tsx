@@ -124,7 +124,7 @@ export function ScreenManualDialog() {
           </section>
           <section>
             <h3>Readiness</h3>
-            <p><strong>Proposal evaluation</strong> requires resolved Tenant, Proposal, and contract, an ACTIVE Member grant, and confirmed effective access. <strong>Protected remediation</strong> additionally requires an authenticated Executor, ACTIVE grant, and confirmed effective access. Enterprise integration READY is separate and does not prove health, reachability, or external-service success.</p>
+            <p><strong>Proposal evaluation</strong> requires resolved Tenant, Proposal, and contract, an ACTIVE Member grant, and confirmed effective access. <strong>Protected remediation authorization</strong> additionally requires an authenticated Executor, ACTIVE grant, and confirmed effective access. This T3N authorization is independent from the optional external execution integration: when no execution endpoint, verification endpoint, or external credential is configured, the Executor grant may still be ACTIVE and Confirmed while <strong>Enterprise integration</strong> remains <strong>INCOMPLETE</strong> and Execute stays blocked. Missing external integration is not reported as a T3N denial. Enterprise integration READY is separate and does not prove health, reachability, or external-service success.</p>
           </section>
           <section>
             <h3>Agent Card and public A2A</h3>

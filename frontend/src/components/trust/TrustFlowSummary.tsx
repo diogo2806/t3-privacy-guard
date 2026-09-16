@@ -24,7 +24,18 @@ interface TrustStep { label: string; state: string; detail: string; tone: StepTo
 
 function readinessState(status: SystemStatus | null, loading: boolean): { className: string; label: string } {
   if (loading) return { className: 'trust-readiness-pending', label: 'Checking T3N' };
-  if (status?.protectedRemediationReady) return { className: 'trust-readiness-ready', label: 'T3N controls ready' };
+  if (status?.protectedRemediationReady && status.enterpriseIntegrationReady) {
+    return { className: 'trust-readiness-ready', label: 'T3N + external execution ready' };
+  }
+  if (status?.protectedRemediationReady) {
+    if (status.enterpriseIntegrationState === 'INCOMPLETE') {
+      return { className: 'trust-readiness-pending', label: 'T3N authorization ready · external execution not configured' };
+    }
+    if (status.enterpriseIntegrationState === 'MISMATCH') {
+      return { className: 'trust-readiness-pending', label: 'T3N authorization ready · external integration mismatch' };
+    }
+    return { className: 'trust-readiness-pending', label: 'T3N authorization ready · external execution unconfirmed' };
+  }
   if (status?.evaluationReady) return { className: 'trust-readiness-pending', label: 'Evaluation ready · execution blocked' };
   if (status?.delegationMemberState === 'SCHEDULED' || status?.executorDelegationMemberState === 'SCHEDULED') return { className: 'trust-readiness-pending', label: 'Member grant scheduled' };
   if (status?.delegationEffectiveState === 'DENIED' || status?.executorDelegationEffectiveState === 'DENIED') return { className: 'trust-readiness-unavailable', label: 'Effective access denied' };
@@ -36,16 +47,39 @@ function isHumanAuthorized(action: ActionProposal | null): boolean {
   return action?.status === 'REMEDIATION_AUTHORIZED' || action?.status === 'REMEDIATED';
 }
 
-function trustSteps(agentAnalysis: AgentAnalysis | null, decision: PolicyDecision | null, selectedAction: ActionProposal | null, execution: RemediationExecution | null): TrustStep[] {
+function blockedExecutionDetail(
+  decision: PolicyDecision | null,
+  authorized: boolean,
+  status: SystemStatus | null,
+): string {
+  if (decision?.decision === 'ALLOW' && authorized) {
+    if (status?.protectedRemediationReady && !status.enterpriseIntegrationReady) {
+      return 'T3N authorization is ready, but the external execution integration is not configured or not ready.';
+    }
+    if (!status?.protectedRemediationReady) {
+      return 'Human authorization is recorded, but Protected Executor T3N access is not ready.';
+    }
+  }
+  return 'No protected side effect is available yet.';
+}
+
+function trustSteps(
+  agentAnalysis: AgentAnalysis | null,
+  decision: PolicyDecision | null,
+  selectedAction: ActionProposal | null,
+  execution: RemediationExecution | null,
+  status: SystemStatus | null,
+): TrustStep[] {
   const proposalReceived = Boolean(agentAnalysis || selectedAction);
   const authorized = isHumanAuthorized(selectedAction);
   const policyTone: StepTone = !decision ? 'pending' : decision.decision === 'ALLOW' ? 'success' : decision.decision === 'REDACT' ? 'warning' : 'danger';
   const humanState = decision?.decision === 'ALLOW' ? authorized ? 'AUTHORIZED' : 'REQUIRED' : 'NOT NEEDED YET';
   const humanTone: StepTone = humanState === 'AUTHORIZED' ? 'success' : humanState === 'REQUIRED' ? 'warning' : 'pending';
+  const externalExecutionReady = Boolean(status?.protectedRemediationReady && status.enterpriseIntegrationReady);
 
   let executionState = 'BLOCKED';
   let executionTone: StepTone = 'pending';
-  if (decision?.decision === 'ALLOW' && authorized) executionState = 'READY';
+  if (decision?.decision === 'ALLOW' && authorized && externalExecutionReady) executionState = 'READY';
   if (execution?.state === 'EXECUTING') { executionState = 'EXECUTING'; executionTone = 'info'; }
   if (execution?.state === 'PENDING_VERIFICATION') { executionState = 'ACCEPTED'; executionTone = 'warning'; }
   if (execution?.state === 'COMPLETED') { executionState = 'ACCEPTED'; executionTone = 'success'; }
@@ -62,9 +96,20 @@ function trustSteps(agentAnalysis: AgentAnalysis | null, decision: PolicyDecisio
     { label: 'AI', state: proposalReceived ? 'RECEIVED' : 'WAITING', detail: proposalReceived ? 'A structured action proposal exists. The Proposal Agent can request policy evaluation but cannot execute protected actions.' : 'Waiting for an agent proposal.', tone: proposalReceived ? 'info' : 'pending', icon: BrainCircuit },
     { label: 'Policy', state: decision?.decision ?? (selectedAction?.status === 'PENDING' ? 'PENDING' : 'WAITING'), detail: !decision ? 'T3N policy has not produced a decision yet.' : decision.decision === 'ALLOW' ? 'Policy allows the proposal to continue; it does not execute automatically.' : decision.decision === 'REDACT' ? 'The proposal must be minimized before it may continue.' : 'Policy blocked the proposal before protected egress.', tone: policyTone, icon: ShieldCheck },
     { label: 'Human', state: humanState, detail: humanState === 'AUTHORIZED' ? 'Authorization is recorded and bound to the current Protected Executor DID.' : humanState === 'REQUIRED' ? 'A human must authorize before the Protected Executor may be invoked.' : 'Human authorization applies only after an ALLOW decision.', tone: humanTone, icon: UserCheck },
-    { label: 'Execute', state: executionState, detail: executionState === 'BLOCKED' ? 'No protected side effect is available yet.' : executionState === 'READY' ? 'The authorized request may invoke the separate Protected Executor.' : executionState === 'EXECUTING' ? 'The Protected Executor durably claimed execution and it is in progress.' : executionState === 'ACCEPTED' ? 'The external action was accepted; acceptance is not completion.' : executionState === 'UNVERIFIED' ? 'The external outcome is ambiguous and is not reported as completed.' : 'Execution failed without verified completion.', tone: executionTone, icon: ServerCog },
+    { label: 'Execute', state: executionState, detail: executionState === 'BLOCKED' ? blockedExecutionDetail(decision, authorized, status) : executionState === 'READY' ? 'The authorized request may invoke the separate Protected Executor and configured external integration.' : executionState === 'EXECUTING' ? 'The Protected Executor durably claimed execution and it is in progress.' : executionState === 'ACCEPTED' ? 'The external action was accepted; acceptance is not completion.' : executionState === 'UNVERIFIED' ? 'The external outcome is ambiguous and is not reported as completed.' : 'Execution failed without verified completion.', tone: executionTone, icon: ServerCog },
     { label: 'Verify', state: verificationState, detail: verificationState === 'VERIFIED' ? 'Independent read-back confirmed the expected external state.' : verificationState === 'PENDING' ? 'Completion is waiting for independent read-back.' : verificationState === 'UNVERIFIED' ? 'Independent verification did not prove completion.' : 'No verified completion is claimed yet.', tone: verificationTone, icon: BadgeCheck },
   ];
+}
+
+function externalIntegrationMessage(status: SystemStatus): string | null {
+  if (!status.protectedRemediationReady || status.enterpriseIntegrationReady) return null;
+  if (status.enterpriseIntegrationState === 'INCOMPLETE') {
+    return 'T3N Proposal and Protected Executor authorization are ready. External execution remains blocked until an enterprise execution and verification integration is configured.';
+  }
+  if (status.enterpriseIntegrationState === 'MISMATCH') {
+    return 'T3N authorization is ready, but the configured external integration does not match policy or delegation. Execution remains blocked.';
+  }
+  return 'T3N authorization is ready, but external execution readiness could not be confirmed. Execution remains blocked.';
 }
 
 function resultMessage(decision: PolicyDecision | null, selectedAction: ActionProposal | null, execution: RemediationExecution | null, statusLoading: boolean, proposalReceived: boolean, status: SystemStatus | null): string {
@@ -76,11 +121,14 @@ function resultMessage(decision: PolicyDecision | null, selectedAction: ActionPr
     return 'Policy evaluation is ready, but Protected Executor access is not confirmed. Execution remains blocked.';
   }
   if (!statusLoading && !status?.evaluationReady) return 'T3N controls are unavailable or incomplete. A Member grant alone is never treated as authorization.';
-  if (!proposalReceived) return 'Analyze a synthetic scenario. The AI can propose, but it cannot authorize or execute.';
+
+  const integrationMessage = !statusLoading && status ? externalIntegrationMessage(status) : null;
+  if (!proposalReceived) return integrationMessage ?? 'Analyze a synthetic scenario. The AI can propose, but it cannot authorize or execute.';
   if (!decision) return selectedAction?.status === 'PENDING' ? 'The proposal is waiting for T3N policy evaluation.' : 'A proposal exists, but T3N policy has not produced a decision yet.';
   if (decision.decision === 'DENY') return 'Proposal blocked before protected egress. No execution is claimed.';
   if (decision.decision === 'REDACT') return 'Data minimization is required before the action may continue.';
   if (!isHumanAuthorized(selectedAction)) return 'Human authorization is the next required action before protected execution.';
+  if (integrationMessage) return integrationMessage;
   if (!execution) return 'Authorization is recorded. Protected execution has not started.';
   if (execution.state === 'EXECUTING') return 'Protected execution is in progress. Completion is not claimed.';
   if (execution.state === 'PENDING_VERIFICATION') return 'External execution was accepted. Independent verification is the next required action.';
@@ -90,7 +138,7 @@ function resultMessage(decision: PolicyDecision | null, selectedAction: ActionPr
 }
 
 export function TrustFlowSummary({ agentAnalysis, decision, selectedAction, remediationExecution, systemStatus, statusLoading, busy = false, onRetryEvaluation }: Props) {
-  const steps = trustSteps(agentAnalysis, decision, selectedAction, remediationExecution);
+  const steps = trustSteps(agentAnalysis, decision, selectedAction, remediationExecution, systemStatus);
   const proposalReceived = Boolean(agentAnalysis || selectedAction);
   const readiness = readinessState(systemStatus, statusLoading);
 

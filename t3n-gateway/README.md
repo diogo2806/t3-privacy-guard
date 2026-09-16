@@ -96,7 +96,10 @@ configurar private remediation maps somente com SECURITY_* reais e válidos
 aplicar delegação mínima do Proposal Agent
       |
       v
-aplicar delegação mínima do Executor somente com endpoints reais
+aplicar delegação mínima do Protected Executor
+      |
+      +--> sem integração externa: allowed_hosts=[]
+      +--> com integração real: hosts HTTPS canônicos configurados
       |
       v
 verificar e, quando permitido, reparar/publicar Agent Card
@@ -106,7 +109,9 @@ O arquivo `T3N_RUNTIME_PROVISIONING_STATE_PATH` contém somente `tenantDid`, con
 
 `T3N_CONTRACT_NUMERIC_ID` continua aceito como override explícito para contratos já existentes. Para contratos registrados pela própria reconciliação, o numeric id retornado pela T3N é persistido automaticamente em `/data`, eliminando a necessidade de copiar esse identificador manualmente entre redeploys.
 
-A configuração protegida de remediation só é reconciliada quando `SECURITY_API_KEY`, `SECURITY_API_URL` e `SECURITY_VERIFICATION_URL` representam valores reais. Hosts `.invalid`, `example.invalid`, `postman-echo.com`, HTTP e placeholders de documentação não são promovidos a readiness operacional. Os hosts reais também precisam estar permitidos pela policy selecionada em `T3N_POLICY_FILE`; a reconciliação não altera silenciosamente a policy versionada para acomodar um destino novo.
+A delegação T3N mínima do Protected Executor é reconciliada quando `T3N_EXECUTOR_API_KEY` está configurada, independentemente de existir integração externa. Sem `SECURITY_API_URL` e `SECURITY_VERIFICATION_URL` reais, a delegação mantém `allowed_hosts=[]`; isso permite verificar separadamente a identidade, o Member grant e o effective access do principal sem inventar destino de egress. Essa autorização de control plane não torna a execução externa operacional.
+
+A configuração protegida de remediation só é reconciliada quando `SECURITY_API_KEY`, `SECURITY_API_URL` e `SECURITY_VERIFICATION_URL` representam valores reais. As três variáveis são opcionais para autenticação/delegação T3N e obrigatórias somente quando existe uma integração externa real de execução + read-back. Quando ausentes, o readiness de Enterprise integration permanece `INCOMPLETE` e o fluxo Execute continua bloqueado. Hosts `.invalid`, `example.invalid`, `postman-echo.com`, HTTP e placeholders de documentação nunca entram em `allowed_hosts`. Os hosts reais também precisam estar permitidos pela policy selecionada em `T3N_POLICY_FILE`; a reconciliação não altera silenciosamente a policy versionada para acomodar um destino novo.
 
 Se `A2A_PUBLIC_URL` estiver configurada e o card público estiver divergente, a reconciliação pode republicar o Agent Card somente quando `T3N_ORG_DID` e `T3N_AGENT_API_KEY` estiverem presentes. O DID publicado continua vindo exclusivamente da autenticação do Proposal Agent.
 
@@ -214,7 +219,9 @@ npm run contract:setup-policy
 
 A policy padrão vem de `/app/policy/privacy-guard-policy.json`. O script grava a versão/hash na KV privada e só conclui após read-back compatível. `T3N_POLICY_FILE` pode ser sobrescrita explicitamente apenas quando houver um arquivo de policy válido montado no container.
 
-### 3. Configurar remediation protegida
+### 3. Configurar remediation protegida (somente quando houver integração externa)
+
+Esta etapa não é necessária para autenticar ou conceder o Member grant T3N mínimo ao Protected Executor. Execute-a somente quando existir um serviço externo real de execução e um endpoint independente de read-back.
 
 Requisitos adicionais:
 
@@ -233,7 +240,7 @@ Execute:
 npm run contract:setup-remediation
 ```
 
-O script cria/atualiza somente os mapas privados necessários ao contrato, incluindo a chave da integração protegida, URLs HTTPS, chave pública de autorização e o mapa de nonces. Valores sensíveis não são impressos no resultado.
+O script cria/atualiza somente os mapas privados necessários ao contrato, incluindo a chave da integração protegida, URLs HTTPS, chave pública de autorização e o mapa de nonces. Valores sensíveis não são impressos no resultado. Sem essa integração, nenhum endpoint ou credential é inventado: Enterprise integration permanece `INCOMPLETE` e a execução externa continua bloqueada.
 
 ### 4. Provisionar organização, Proposal Agent e Protected Executor
 
@@ -308,7 +315,7 @@ T3N_AGENT_API_KEY    -> Proposal Agent: evaluate-action
 T3N_EXECUTOR_API_KEY -> Protected Executor: execute-remediation + verify-remediation
 ```
 
-O `T3N_EXECUTOR_API_KEY` não é usado para registrar o contrato ou publicar a policy, mas é obrigatório para readiness de remediation protegida. As delegações Member e as verificações efetivas continuam sendo validadas separadamente em runtime; para um principal `t3n_key_*`, a verificação efetiva usa `discoverCheckDelegation` no keyed transport.
+O `T3N_EXECUTOR_API_KEY` não é usado para registrar o contrato ou publicar a policy, mas é obrigatório para o readiness de autorização T3N do Protected Executor. As delegações Member e as verificações efetivas continuam sendo validadas separadamente em runtime; para um principal `t3n_key_*`, a verificação efetiva usa `discoverCheckDelegation` no keyed transport. `SECURITY_*` é um eixo separado: sua ausência não é T3N denial, mas mantém a integração externa `INCOMPLETE` e impede egress real.
 
 A sequência operacional completa é:
 
@@ -321,8 +328,7 @@ persist T3N_CONTRACT_NUMERIC_ID
       v
 setup policy + read-back
       |
-      v
-setup remediation private maps
+      +--> optional: setup remediation private maps only for a real external integration
       |
       v
 provision organization + Proposal Agent + Protected Executor
@@ -331,10 +337,13 @@ provision organization + Proposal Agent + Protected Executor
 persist T3N_ORG_DID and agent credentials
       |
       v
+reconcile Proposal + Executor Member grants
+      |
+      v
 publish + verify Agent Card
       |
       v
-validate readiness + effective delegations
+validate T3N readiness + separate Enterprise integration readiness
 ```
 
 ## Remote MCP integration
@@ -407,7 +416,8 @@ Os comandos administrativos e o runtime falham fechados quando os artefatos, cre
 - falhas de autenticação/rede do keyed transport não expõem a API key no status ou na mensagem propagada;
 - falhas de `agentCardSet`/`agentCardPublish` são sanitizadas contra as credenciais Tenant/Admin e Proposal Agent antes de serem propagadas;
 - URLs de remediation devem ser HTTPS;
-- placeholders e hosts de demonstração não recebem delegação operacional automática;
+- placeholders e hosts de demonstração nunca entram em `allowed_hosts`; na ausência de integração externa, o grant mínimo do Executor usa lista de hosts vazia e a execução permanece bloqueada;
+- ausência de `SECURITY_API_KEY`, `SECURITY_API_URL` e `SECURITY_VERIFICATION_URL` não é classificada como T3N denial; Enterprise integration fica `INCOMPLETE` e nenhum egress é realizado;
 - chaves privadas, API keys e segredos de integração devem existir somente nas variáveis/secret store do ambiente de execução;
 - nenhum segredo deve ser copiado para a imagem, commitado no repositório ou incluído em logs/evidence.
 

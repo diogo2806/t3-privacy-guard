@@ -196,15 +196,22 @@ export class EnterpriseIntegrationReadinessService {
     await tenant.tenant.me();
     const executeControl = tenant.executeControl.bind(tenant) as (name: string, input: Record<string, string>) => Promise<unknown>;
     const readEntry = async (mapName: string, key: string): Promise<string | null> => extractValue(await executeControl('map-entry-get', { map_name: mapName, key }));
+    const readOptionalEntry = async (mapName: string, key: string): Promise<string | null> => {
+      try {
+        return await readEntry(mapName, key);
+      } catch {
+        return null;
+      }
+    };
     const secretsMapName = tenant.canonicalName('secrets');
     const policyMapName = tenant.canonicalName('privacy-guard-policy');
-    const [executionUrl, verificationUrl, credential, policyRaw] = await Promise.all([
-      readEntry(secretsMapName, 'security_api_url'),
-      readEntry(secretsMapName, 'security_verification_url'),
-      readEntry(secretsMapName, 'security_api_key'),
-      readEntry(policyMapName, 'current'),
-    ]);
+    const policyRaw = await readEntry(policyMapName, 'current');
     if (!policyRaw) throw new Error('Active operational policy is unavailable');
+    const [executionUrl, verificationUrl, credential] = await Promise.all([
+      readOptionalEntry(secretsMapName, 'security_api_url'),
+      readOptionalEntry(secretsMapName, 'security_verification_url'),
+      readOptionalEntry(secretsMapName, 'security_api_key'),
+    ]);
     const policy = canonicalizeOperationalPolicy(JSON.parse(policyRaw) as unknown).document;
     return {
       executionUrl: executionUrl?.trim() || null,
