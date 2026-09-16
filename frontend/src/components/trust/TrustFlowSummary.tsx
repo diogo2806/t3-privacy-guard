@@ -120,16 +120,15 @@ function resultMessage(decision: PolicyDecision | null, selectedAction: ActionPr
     if (status.executorDelegationEffectiveState === 'DENIED') return 'Policy evaluation is ready, but T3N denied Protected Executor access. Execution remains blocked.';
     return 'Policy evaluation is ready, but Protected Executor access is not confirmed. Execution remains blocked.';
   }
-  if (!statusLoading && status) {
-    const integrationMessage = externalIntegrationMessage(status);
-    if (integrationMessage) return integrationMessage;
-  }
   if (!statusLoading && !status?.evaluationReady) return 'T3N controls are unavailable or incomplete. A Member grant alone is never treated as authorization.';
-  if (!proposalReceived) return 'Analyze a synthetic scenario. The AI can propose, but it cannot authorize or execute.';
+
+  const integrationMessage = !statusLoading && status ? externalIntegrationMessage(status) : null;
+  if (!proposalReceived) return integrationMessage ?? 'Analyze a synthetic scenario. The AI can propose, but it cannot authorize or execute.';
   if (!decision) return selectedAction?.status === 'PENDING' ? 'The proposal is waiting for T3N policy evaluation.' : 'A proposal exists, but T3N policy has not produced a decision yet.';
   if (decision.decision === 'DENY') return 'Proposal blocked before protected egress. No execution is claimed.';
   if (decision.decision === 'REDACT') return 'Data minimization is required before the action may continue.';
   if (!isHumanAuthorized(selectedAction)) return 'Human authorization is the next required action before protected execution.';
+  if (integrationMessage) return integrationMessage;
   if (!execution) return 'Authorization is recorded. Protected execution has not started.';
   if (execution.state === 'EXECUTING') return 'Protected execution is in progress. Completion is not claimed.';
   if (execution.state === 'PENDING_VERIFICATION') return 'External execution was accepted. Independent verification is the next required action.';
