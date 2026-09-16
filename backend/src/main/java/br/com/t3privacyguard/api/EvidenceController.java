@@ -1,7 +1,7 @@
 package br.com.t3privacyguard.api;
 
-import br.com.t3privacyguard.service.EvidenceNotFoundException;
 import br.com.t3privacyguard.service.EvidenceService;
+import br.com.t3privacyguard.service.EvidenceService.EvidenceAvailability;
 import br.com.t3privacyguard.service.EvidenceService.EvidenceResponse;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -19,10 +19,10 @@ public class EvidenceController {
 
     @GetMapping("/latest")
     public ResponseEntity<EvidenceResponse> latest() {
-        try {
-            return ResponseEntity.ok(service.latest());
-        } catch (EvidenceNotFoundException ex) {
+        EvidenceAvailability state = service.latestState();
+        if (!state.available()) {
             return ResponseEntity.noContent().build();
         }
+        return ResponseEntity.ok(state.evidence());
     }
 }

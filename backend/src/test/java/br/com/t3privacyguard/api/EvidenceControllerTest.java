@@ -4,8 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import br.com.t3privacyguard.service.EvidenceNotFoundException;
 import br.com.t3privacyguard.service.EvidenceService;
+import br.com.t3privacyguard.service.EvidenceService.EvidenceAvailability;
 import br.com.t3privacyguard.service.EvidenceService.EvidenceResponse;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -15,7 +15,7 @@ class EvidenceControllerTest {
     @Test
     void returnsNoContentWhenLiveEvidenceHasNotBeenGenerated() {
         EvidenceService service = mock(EvidenceService.class);
-        when(service.latest()).thenThrow(new EvidenceNotFoundException("No live T3N evidence has been generated yet."));
+        when(service.latestState()).thenReturn(new EvidenceAvailability(false, null));
 
         ResponseEntity<EvidenceResponse> response = new EvidenceController(service).latest();
 
