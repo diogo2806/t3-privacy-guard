@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   buildAdminProvisioningPlan,
   configuredEnterpriseHosts,
+  contractVersionAction,
   executorDelegationGrantRequest,
   provisioningStateMatches,
   runtimeProvisioningEnabled,
@@ -24,6 +25,19 @@ test('runtime provisioning explicit override is honored', () => {
   );
 });
 
+test('contract version migration registers absent or older versions and reuses the packaged version', () => {
+  assert.equal(contractVersionAction(null, '0.4.1'), 'REGISTER');
+  assert.equal(contractVersionAction('0.4.0', '0.4.1'), 'REGISTER');
+  assert.equal(contractVersionAction('0.4.1', '0.4.1'), 'REUSE');
+});
+
+test('contract version migration fails closed when T3N is newer than the packaged artifact', () => {
+  assert.throws(
+    () => contractVersionAction('0.4.2', '0.4.1'),
+    /newer than packaged/,
+  );
+});
+
 test('enterprise hosts use only real HTTPS endpoints and are deduplicated', () => {
   assert.deepEqual(configuredEnterpriseHosts({
     SECURITY_API_URL: 'https://security.example.com/private/remediate?tenant=demo',
@@ -42,9 +56,9 @@ test('enterprise hosts use only real HTTPS endpoints and are deduplicated', () =
 });
 
 test('executor grant keeps T3N least privilege even when enterprise integration is absent', () => {
-  assert.deepEqual(executorDelegationGrantRequest('z:tenant:privacy-guard', '0.4.0', {}), {
+  assert.deepEqual(executorDelegationGrantRequest('z:tenant:privacy-guard', '0.4.1', {}), {
     contractId: 'z:tenant:privacy-guard',
-    versionReq: '0.4.0',
+    versionReq: '0.4.1',
     functions: ['execute-remediation', 'verify-remediation'],
     scopes: ['incident_id', 'credential_id', 'reason', 'verified_contacts.email.value'],
     allowedHosts: [],
@@ -52,7 +66,7 @@ test('executor grant keeps T3N least privilege even when enterprise integration 
 });
 
 test('executor grant adds only canonical real HTTPS enterprise hosts when configured', () => {
-  assert.deepEqual(executorDelegationGrantRequest('z:tenant:privacy-guard', '0.4.0', {
+  assert.deepEqual(executorDelegationGrantRequest('z:tenant:privacy-guard', '0.4.1', {
     SECURITY_API_URL: 'https://security.example.com/private/remediate',
     SECURITY_VERIFICATION_URL: 'https://verify.example.com/private/read-back',
   }).allowedHosts, ['security.example.com', 'verify.example.com']);
@@ -99,7 +113,7 @@ test('persisted numeric id is reusable only for the same tenant contract and ver
   const state: RuntimeProvisioningState = {
     tenantDid: 'did:t3n:tenant123',
     contractId: 'z:tenant123:privacy-guard',
-    contractVersion: '0.4.0',
+    contractVersion: '0.4.1',
     numericContractId: 42,
     updatedAt: '2026-09-16T15:00:00.000Z',
   };
@@ -107,12 +121,12 @@ test('persisted numeric id is reusable only for the same tenant contract and ver
   assert.equal(provisioningStateMatches(state, {
     tenantDid: 'did:t3n:tenant123',
     contractId: 'z:tenant123:privacy-guard',
-    contractVersion: '0.4.0',
+    contractVersion: '0.4.1',
   }), true);
   assert.equal(provisioningStateMatches(state, {
     tenantDid: 'did:t3n:other',
     contractId: 'z:tenant123:privacy-guard',
-    contractVersion: '0.4.0',
+    contractVersion: '0.4.1',
   }), false);
   assert.equal(provisioningStateMatches(state, {
     tenantDid: 'did:t3n:tenant123',
