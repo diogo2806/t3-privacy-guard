@@ -32,6 +32,7 @@ A imagem define caminhos estáveis para os artefatos administrativos:
 T3N_CONTRACT_WASM_PATH=/app/runtime/privacy_guard_contract.wasm
 T3N_POLICY_FILE=/app/policy/privacy-guard-policy.json
 AGENT_CARD_OUTPUT=/data/agent-card.json
+T3N_RUNTIME_PROVISIONING_STATE_PATH=/data/t3n-runtime-provisioning.json
 ```
 
 `/data` continua sendo o volume persistente e o processo continua executando como usuário `node`, não-root. Nenhum segredo é incorporado à imagem.
@@ -58,6 +59,52 @@ T3N_TRUST_FLOOR_STORE_PATH
 
 Os valores opcionais podem continuar usando os defaults já definidos pelo runtime. Credenciais reais devem existir somente no secret store/ambiente do serviço. Os requisitos abaixo são adicionais ou específicos de cada etapa e não substituem essa configuração-base.
 
+## Reconciliação automática no container publicado
+
+Quando `NODE_ENV=production` e `T3N_NETWORK=testnet`, o gateway habilita por padrão uma reconciliação idempotente de runtime. Ela pode ser desabilitada explicitamente com:
+
+```text
+T3N_RUNTIME_PROVISIONING=false
+```
+
+Em `T3N_NETWORK=production`, mutações automáticas permanecem desabilitadas por padrão. Habilitá-las exige `T3N_RUNTIME_PROVISIONING=true` de forma explícita.
+
+A reconciliação usa os mesmos contratos de segurança dos comandos administrativos e executa somente o necessário para aproximar o runtime do estado configurado:
+
+```text
+autenticar Tenant + Proposal Agent + Protected Executor
+      |
+      v
+resolver contrato canônico
+      |
+      +--> ausente: registrar WASM e persistir numericContractId em /data
+      |
+      v
+publicar/confirmar policy quando numericContractId estiver disponível
+      |
+      v
+configurar private remediation maps somente com SECURITY_* reais e válidos
+      |
+      v
+aplicar delegação mínima do Proposal Agent
+      |
+      v
+aplicar delegação mínima do Executor somente com endpoints reais
+      |
+      v
+verificar e, quando permitido, reparar/publicar Agent Card
+```
+
+O arquivo `T3N_RUNTIME_PROVISIONING_STATE_PATH` contém somente `tenantDid`, contract id, contract version, numeric contract id e timestamp. Ele nunca contém chaves T3N, credenciais de integração, tokens, chaves privadas ou valores de profile. Um numeric id persistido só é reutilizado quando Tenant DID, contract id e versão coincidem exatamente com a sessão autenticada atual.
+
+`T3N_CONTRACT_NUMERIC_ID` continua aceito como override explícito para contratos já existentes. Para contratos registrados pela própria reconciliação, o numeric id retornado pela T3N é persistido automaticamente em `/data`, eliminando a necessidade de copiar esse identificador manualmente entre redeploys.
+
+A configuração protegida de remediation só é reconciliada quando `SECURITY_API_KEY`, `SECURITY_API_URL` e `SECURITY_VERIFICATION_URL` representam valores reais. Hosts `.invalid`, `example.invalid`, `postman-echo.com`, HTTP e placeholders de documentação não são promovidos a readiness operacional. Os hosts reais também precisam estar permitidos pela policy selecionada em `T3N_POLICY_FILE`; a reconciliação não altera silenciosamente a policy versionada para acomodar um destino novo.
+
+Se `A2A_PUBLIC_URL` estiver configurada e o card público estiver divergente, a reconciliação pode republicar o Agent Card somente quando `T3N_ORG_DID` e `T3N_AGENT_API_KEY` estiverem presentes. O DID publicado continua vindo exclusivamente da autenticação do Proposal Agent.
+
+Falha em qualquer etapa é sanitizada, registrada sem secrets e mantém o sistema fail-closed. O servidor HTTP continua observável para que `/health` e os endpoints de status indiquem o que ainda não está pronto; uma falha de provisionamento nunca é convertida em readiness positivo.
+
 ## Autenticação dos três principais
 
 O gateway reconhece explicitamente dois formatos, sem converter um no outro:
@@ -73,9 +120,9 @@ A credencial `t3n_key_*` é retornada uma única vez ao criar o agente e não de
 
 Além de manter as credenciais distintas por valor, o runtime exige separação dos DIDs canônicos autenticados. Tenant, Proposal Agent e Protected Executor, quando configurados e autenticados, devem resolver para DIDs diferentes entre si. Um guardião compartilhado aplica essa regra em status/readiness, reconnect e operações de sessão; qualquer reutilização de DID mantém a topologia `ready: false` e bloqueia delegações ou execuções dependentes da segregação até que as identidades autenticadas voltem a ser distintas. Quando um principal opcional não está configurado, somente os DIDs efetivamente autenticados são comparados.
 
-## Ordem de provisionamento
+## Ordem de provisionamento manual
 
-Execute os comandos no shell do container publicado, com diretório de trabalho `/app`.
+A sequência abaixo continua disponível como fallback operacional ou quando `T3N_RUNTIME_PROVISIONING=false`. Execute os comandos no shell do container publicado, com diretório de trabalho `/app`.
 
 ### 1. Registrar o contrato
 
@@ -94,13 +141,13 @@ Execute:
 npm run contract:register
 ```
 
-O comando usa o WASM empacotado na imagem e retorna `numericContractId`. Copie somente esse identificador numérico para a configuração de runtime:
+O comando usa o WASM empacotado na imagem e retorna `numericContractId`. No fluxo manual, copie somente esse identificador numérico para a configuração de runtime:
 
 ```text
 T3N_CONTRACT_NUMERIC_ID=<numericContractId retornado pela T3N>
 ```
 
-Nunca invente ou antecipe esse valor. Reinicie/reimplante o serviço com o valor real antes das etapas seguintes.
+Nunca invente ou antecipe esse valor. Reinicie/reimplante o serviço com o valor real antes das etapas seguintes. Quando a reconciliação automática registra o contrato, esse valor é persistido em `/data` e não precisa ser copiado manualmente.
 
 ### 2. Publicar a policy operacional
 
@@ -296,8 +343,11 @@ For `privacy.evaluate_action`, send `request_id`, `action`, `resource`, `purpose
 Os comandos administrativos e o runtime falham fechados quando os artefatos, credenciais ou variáveis obrigatórios não existem. Em particular:
 
 - `contract:setup-policy` e `contract:setup-remediation` recusam execução sem `T3N_CONTRACT_NUMERIC_ID` válido;
+- a reconciliação automática não inventa numeric id: registra contrato ausente ou reutiliza somente override/state coerente com Tenant, contract id e versão;
+- a reconciliação automática não persiste credenciais; o arquivo de state contém somente metadados públicos de provisionamento;
 - `agent:card:publish` recusa execução sem `T3N_AGENT_API_KEY` ou `T3N_ORG_DID` canônico;
 - `agent:card:verify` recusa execução sem `T3N_AGENT_API_KEY`;
+- a reparação automática do Agent Card só ocorre quando a organização e o Proposal Agent estão explicitamente configurados;
 - `contract:register` falha se o WASM runtime estiver ausente ou ilegível;
 - `T3N_API_KEY` fora do formato secp256k1 exato e credenciais Proposal/Executor fora dos formatos suportados são rejeitadas antes de iniciar conexões;
 - `t3n_key_*` malformada, inválida ou expirada não é reinterpretada como chave privada e não cai no fluxo secp256k1;
@@ -305,6 +355,7 @@ Os comandos administrativos e o runtime falham fechados quando os artefatos, cre
 - falhas de autenticação/rede do keyed transport não expõem a API key no status ou na mensagem propagada;
 - falhas de `agentCardSet`/`agentCardPublish` são sanitizadas contra as credenciais Tenant/Admin e Proposal Agent antes de serem propagadas;
 - URLs de remediation devem ser HTTPS;
+- placeholders e hosts de demonstração não recebem delegação operacional automática;
 - chaves privadas, API keys e segredos de integração devem existir somente nas variáveis/secret store do ambiente de execução;
 - nenhum segredo deve ser copiado para a imagem, commitado no repositório ou incluído em logs/evidence.
 
@@ -314,4 +365,4 @@ O serviço normal permanece:
 npm start
 ```
 
-que executa `node dist/index.js` como usuário não-root.
+que executa `node dist/index.js` como usuário não-root. No testnet publicado, a reconciliação idempotente é disparada em paralelo ao startup e qualquer falha mantém readiness fechado enquanto o serviço continua observável.
