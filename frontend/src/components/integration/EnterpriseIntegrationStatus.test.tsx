@@ -1,14 +1,23 @@
 import '@testing-library/jest-dom/vitest';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import type { EnterpriseIntegrationState, SystemStatus } from '../../services/privacyGuardApi';
+import type {
+  EnterpriseIntegrationDiagnosticCode,
+  EnterpriseIntegrationState,
+  SystemStatus,
+} from '../../services/privacyGuardApi';
 import { EnterpriseIntegrationStatus } from './EnterpriseIntegrationStatus';
 
-function status(state: EnterpriseIntegrationState, adapterConfigured = true): SystemStatus {
+function status(
+  state: EnterpriseIntegrationState,
+  adapterConfigured = true,
+  diagnosticCode: EnterpriseIntegrationDiagnosticCode = state === 'UNKNOWN' ? 'T3N_CONTROL_PLANE_UNAVAILABLE' : 'NONE',
+): SystemStatus {
   const ready = state === 'READY';
   return {
     protectedRemediationReady: true,
     enterpriseIntegrationState: state,
+    enterpriseIntegrationDiagnosticCode: diagnosticCode,
     enterpriseIntegrationReady: ready,
     firstPartyRemediationAdapterConfigured: adapterConfigured,
     enterpriseExecutionConfigured: state !== 'UNKNOWN',
@@ -40,6 +49,7 @@ describe('EnterpriseIntegrationStatus', () => {
     expect(screen.getByText('create-incident, isolate-account, notify-security')).toBeInTheDocument();
     expect(screen.getByText(/does not claim endpoint health/i)).toBeInTheDocument();
     expect(screen.getByText(/controlled by Privacy Guard/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Readiness diagnostic:/i)).not.toBeInTheDocument();
   });
 
   it('keeps the workflow blocked when T3N is ready but the first-party adapter is not configured', () => {
@@ -62,15 +72,27 @@ describe('EnterpriseIntegrationStatus', () => {
     expect(screen.getByText('Operational protected workflow').parentElement).toHaveTextContent('NOT READY');
   });
 
-  it('shows UNKNOWN fail-closed when protected configuration cannot be evaluated', () => {
-    render(<EnterpriseIntegrationStatus status={status('UNKNOWN')} loading={false} />);
+  it('shows UNKNOWN fail-closed with a safe policy diagnostic when protected policy cannot be read', () => {
+    render(<EnterpriseIntegrationStatus status={status('UNKNOWN', true, 'POLICY_UNAVAILABLE')} loading={false} />);
     expect(screen.getByText('UNKNOWN')).toHaveClass('status-pill-off');
     expect(screen.getByText('Execution host').parentElement).toHaveTextContent('Not configured');
     expect(screen.getByText('Operational protected workflow').parentElement).toHaveTextContent('NOT READY');
+    expect(screen.getByText('POLICY_UNAVAILABLE')).toBeInTheDocument();
+    expect(screen.getByText(/active protected policy could not be read from T3N/i)).toBeInTheDocument();
+  });
+
+  it('falls back to a safe control-plane diagnostic for an older backend response', () => {
+    const olderStatus = status('UNKNOWN');
+    delete olderStatus.enterpriseIntegrationDiagnosticCode;
+
+    render(<EnterpriseIntegrationStatus status={olderStatus} loading={false} />);
+
+    expect(screen.getByText('T3N_CONTROL_PLANE_UNAVAILABLE')).toBeInTheDocument();
+    expect(screen.getByText(/control-plane readiness could not be confirmed/i)).toBeInTheDocument();
   });
 
   it('does not expose a full private URL or secret-shaped field', () => {
-    const { container } = render(<EnterpriseIntegrationStatus status={status('READY')} loading={false} />);
+    const { container } = render(<EnterpriseIntegrationStatus status={status('UNKNOWN', true, 'PRIVATE_CONFIGURATION_UNAVAILABLE')} loading={false} />);
     expect(container.textContent).not.toContain('https://');
     expect(container.textContent).not.toContain('/private/');
     expect(container.textContent).not.toContain('SECURITY_API_KEY');
