@@ -426,7 +426,7 @@ npm run agent:card:verify    # read-only; does not publish or grant permissions
 npm run agent:card:publish   # explicit mutable T3N operation; may consume credits
 ```
 
-The publish command authenticates the agent, derives the DID from that session, writes the safe card locally, invokes the installed T3N CLI `agent host-card`, then performs read-only verification until the card resolves as `REGISTERED` or fails. It never takes a DID from `.env` as the canonical identity.
+The publish command authenticates the Tenant/Admin through the secp256k1 `T3N_API_KEY`, requires the explicit public `T3N_ORG_DID` as the organization owner, authenticates the Proposal Agent separately through `T3N_AGENT_API_KEY`, and obtains the canonical Proposal Agent DID only from `AgentSession.getAgentDid()`. It writes the safe card locally, creates the organization data client from the authenticated Tenant/Admin session, calls `agentCardSet`/`agentCardPublish` with `ownerDid=T3N_ORG_DID` and that authenticated `agentDid`, then performs read-only `AgentCardRegistry.verify()` until the card resolves as `REGISTERED` or fails closed. `T3N_ORG_DID` is public owner identity and must never be derived from `T3N_API_KEY`, `T3N_AGENT_API_KEY`, an Ethereum address or any other secret/key. The publication path does not use a CLI subprocess; `agent:card:verify` remains read-only.
 
 Runtime/evidence states are intentionally precise:
 
@@ -595,6 +595,8 @@ See the threat model and claims matrix in [`docs/submission/README.md`](docs/sub
 Relevant names include:
 
 ```text
+T3N_API_KEY
+T3N_ORG_DID
 T3N_CONTRACT_VERSION
 T3N_POLICY_FILE
 T3N_AGENT_API_KEY
@@ -624,6 +626,8 @@ EVIDENCE_RUN_PAYLOAD_MINIMIZATION
 EVIDENCE_RUN_PROFILE_PLACEHOLDER
 EVIDENCE_NOTIFICATION_AUTHORIZATION_PROOF
 ```
+
+`T3N_API_KEY` authenticates the Tenant/Admin session used for organization-owned Agent Card publication and other administrative T3N operations. `T3N_ORG_DID` is the canonical public DID of the organization that owns the Proposal Agent; it is explicit configuration and must never be derived from a credential, Ethereum address or other secret. `T3N_AGENT_API_KEY` authenticates the Proposal Agent and must remain separate from the administrative credential.
 
 `T3N_CONTRACT_VERSION` is `0.4.0` for the versioned-policy contract. `T3N_POLICY_FILE` points to the local source document used by the explicit policy provisioning script; the active runtime policy is loaded from private T3N KV.
 

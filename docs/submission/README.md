@@ -721,7 +721,21 @@ Operational commands:
 ```bash
 cd t3n-gateway
 npm run agent:card:verify    # read-only registry verification
-npm run agent:card:publish   # explicit mutable host-card operation; may consume credits
+npm run agent:card:publish   # explicit mutable organization-owned publication; may consume credits
+```
+
+`agent:card:publish` authenticates the Tenant/Admin with the secp256k1 `T3N_API_KEY`, requires the explicit public `T3N_ORG_DID` as the canonical organization owner, authenticates the Proposal Agent separately with `T3N_AGENT_API_KEY`, and obtains the Proposal Agent DID only from `AgentSession.getAgentDid()`. It then calls `agentCardSet`/`agentCardPublish` through the organization data client created from the Tenant/Admin session with `ownerDid=T3N_ORG_DID`. `T3N_ORG_DID` must not be derived from any credential or key. Publication is considered complete only when subsequent read-only `AgentCardRegistry.verify()` reaches `REGISTERED`; any publication, resolution or identity mismatch fails closed. `agent:card:verify` never publishes or grants permissions.
+
+```text
+Tenant/Admin secp256k1 (T3N_API_KEY)
+        |
+        +--> organization owner (T3N_ORG_DID)
+                 |
+                 +--> Proposal Agent DID authenticated by T3N_AGENT_API_KEY
+                         |
+                         +--> agentCardSet
+                         +--> agentCardPublish
+                         +--> AgentCardRegistry.verify() == REGISTERED
 ```
 
 Evidence Center/status surface can show observed onboarding state. Deployment manifest may contain public card URI, SHA-256 exact resolved card, verification timestamp and service names. Those fields are public discoverability provenance; hash is not permission or attestation claim.
