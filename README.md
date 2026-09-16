@@ -730,7 +730,7 @@ The submission guide records the concrete `scopes` documentation inconsistency, 
 - Maven image: `3.9.16-eclipse-temurin-21`
 - Java runtime: `eclipse-temurin:21.0.12_8-jre`
 - Nginx: `1.27.5-alpine3.21-slim`
-- Rust contract: `0.4.0`, target `wasm32-wasip2`
+- Rust contract: `0.4.0`, target `wasm32-wasip2`; the Alpine Docker contract builder installs `build-base` and `musl-dev` so host procedural macros can link before the WASI artifact is produced
 
 ## Local builds
 
