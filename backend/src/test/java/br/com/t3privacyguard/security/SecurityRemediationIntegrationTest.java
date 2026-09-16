@@ -32,14 +32,14 @@ class SecurityRemediationIntegrationTest {
         mvc.perform(post("/api/security/remediation/execute")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Idempotency-Key", "req-anonymous")
-                .content(revokeBody()))
+                .content(revokeBody("req-anonymous")))
             .andExpect(status().isUnauthorized());
 
         mvc.perform(post("/api/security/remediation/execute")
                 .with(user("executor-01").roles("EXECUTOR"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Idempotency-Key", "req-human")
-                .content(revokeBody()))
+                .content(revokeBody("req-human")))
             .andExpect(status().isForbidden());
     }
 
@@ -49,7 +49,7 @@ class SecurityRemediationIntegrationTest {
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + "x".repeat(API_KEY.length()))
                 .header("Idempotency-Key", "req-invalid")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(revokeBody()))
+                .content(revokeBody("req-invalid")))
             .andExpect(status().isUnauthorized());
     }
 
@@ -58,8 +58,18 @@ class SecurityRemediationIntegrationTest {
         mvc.perform(post("/api/security/remediation/execute")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + API_KEY)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(revokeBody()))
+                .content(revokeBody("req-missing-header")))
             .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void remediationEndpointRejectsRequestIdHeaderMismatch() throws Exception {
+        mvc.perform(post("/api/security/remediation/execute")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + API_KEY)
+                .header("Idempotency-Key", "req-header")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(revokeBody("req-body")))
+            .andExpect(status().isConflict());
     }
 
     @Test
@@ -68,7 +78,7 @@ class SecurityRemediationIntegrationTest {
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + API_KEY)
                 .header("Idempotency-Key", "req-live-contract")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(revokeBody()))
+                .content(revokeBody("req-live-contract")))
             .andExpect(status().isAccepted())
             .andExpect(jsonPath("$.operation_id", matchesPattern("op_[a-f0-9]{32}")))
             .andReturn();
@@ -95,13 +105,17 @@ class SecurityRemediationIntegrationTest {
             .andExpect(jsonPath("$.payload_proof.must_not_egress_seen").value(false));
     }
 
-    private static String revokeBody() {
+    private static String revokeBody(String requestId) {
         return """
             {
+              "request_id":"%s",
+              "action":"revoke-credential",
+              "resource":"credential:cred-1",
+              "purpose":"incident-remediation",
               "incident_id":"inc-1",
               "credential_id":"cred-1",
               "reason":"credential exposed"
             }
-            """;
+            """.formatted(requestId);
     }
 }

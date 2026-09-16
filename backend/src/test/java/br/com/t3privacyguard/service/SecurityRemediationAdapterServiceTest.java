@@ -35,13 +35,7 @@ class SecurityRemediationAdapterServiceTest {
     @Test
     void acceptsActualT3nRevokeEgressAndPersistsOnlyOperationalMetadata() throws Exception {
         when(operations.findByRequestId("req-1")).thenReturn(Optional.empty());
-        JsonNode body = json("""
-            {
-              "incident_id":"inc-1",
-              "credential_id":"cred-1",
-              "reason":"credential exposed"
-            }
-            """);
+        JsonNode body = json(revokeBody("req-1", "credential exposed"));
 
         var result = service.execute("req-1", body);
 
@@ -59,6 +53,10 @@ class SecurityRemediationAdapterServiceTest {
         when(operations.findByRequestId("req-notify")).thenReturn(Optional.empty());
         JsonNode body = json("""
             {
+              "request_id":"req-notify",
+              "action":"notify-security",
+              "resource":"incident:inc-2",
+              "purpose":"incident-notification",
               "incident_id":"inc-2",
               "severity":"HIGH",
               "summary":"SENTINEL_MUST_EGRESS",
@@ -79,15 +77,17 @@ class SecurityRemediationAdapterServiceTest {
 
     @Test
     void rejectsMissingIdempotencyKeyBeforePersistence() throws Exception {
-        JsonNode body = json("""
-            {
-              "incident_id":"inc-1",
-              "credential_id":"cred-1",
-              "reason":"credential exposed"
-            }
-            """);
+        JsonNode body = json(revokeBody("req-1", "credential exposed"));
 
         assertStatus(HttpStatus.BAD_REQUEST, () -> service.execute(null, body));
+        verify(operations, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void rejectsRequestIdThatDoesNotMatchIdempotencyKey() throws Exception {
+        JsonNode body = json(revokeBody("req-body", "credential exposed"));
+
+        assertStatus(HttpStatus.CONFLICT, () -> service.execute("req-header", body));
         verify(operations, never()).saveAndFlush(any());
     }
 
@@ -95,6 +95,10 @@ class SecurityRemediationAdapterServiceTest {
     void rejectsUnexpectedExecutionFields() throws Exception {
         JsonNode body = json("""
             {
+              "request_id":"req-extra",
+              "action":"revoke-credential",
+              "resource":"credential:cred-1",
+              "purpose":"incident-remediation",
               "incident_id":"inc-1",
               "credential_id":"cred-1",
               "reason":"credential exposed",
@@ -107,16 +111,28 @@ class SecurityRemediationAdapterServiceTest {
     }
 
     @Test
+    void rejectsWrongActionPurposeBinding() throws Exception {
+        JsonNode body = json("""
+            {
+              "request_id":"req-purpose",
+              "action":"revoke-credential",
+              "resource":"credential:cred-1",
+              "purpose":"incident-notification",
+              "incident_id":"inc-1",
+              "credential_id":"cred-1",
+              "reason":"credential exposed"
+            }
+            """);
+
+        assertStatus(HttpStatus.BAD_REQUEST, () -> service.execute("req-purpose", body));
+        verify(operations, never()).saveAndFlush(any());
+    }
+
+    @Test
     void retryWithSameRequestAndActionReturnsSameOperation() throws Exception {
         SecurityRemediationOperationEntity existing = operation("op_existing", "req-retry", "revoke-credential", "REVOKED", false);
         when(operations.findByRequestId("req-retry")).thenReturn(Optional.of(existing));
-        JsonNode body = json("""
-            {
-              "incident_id":"inc-1",
-              "credential_id":"cred-1",
-              "reason":"retry"
-            }
-            """);
+        JsonNode body = json(revokeBody("req-retry", "retry"));
 
         var result = service.execute("req-retry", body);
 
@@ -130,6 +146,10 @@ class SecurityRemediationAdapterServiceTest {
         when(operations.findByRequestId("req-conflict")).thenReturn(Optional.of(existing));
         JsonNode body = json("""
             {
+              "request_id":"req-conflict",
+              "action":"notify-security",
+              "resource":"incident:inc-2",
+              "purpose":"incident-notification",
               "incident_id":"inc-2",
               "severity":"HIGH",
               "summary":"notify",
@@ -178,8 +198,36 @@ class SecurityRemediationAdapterServiceTest {
         assertStatus(HttpStatus.CONFLICT, () -> service.verify(body));
     }
 
+    @Test
+    void verificationRejectsOperationIdOutsideRustCharset() throws Exception {
+        JsonNode body = json("""
+            {
+              "request_id":"req-verify",
+              "operation_id":"op.invalid",
+              "action":"revoke-credential",
+              "expected_state":"REVOKED"
+            }
+            """);
+
+        assertStatus(HttpStatus.BAD_REQUEST, () -> service.verify(body));
+    }
+
     private JsonNode json(String value) throws Exception {
         return objectMapper.readTree(value);
+    }
+
+    private static String revokeBody(String requestId, String reason) {
+        return """
+            {
+              "request_id":"%s",
+              "action":"revoke-credential",
+              "resource":"credential:cred-1",
+              "purpose":"incident-remediation",
+              "incident_id":"inc-1",
+              "credential_id":"cred-1",
+              "reason":"%s"
+            }
+            """.formatted(requestId, reason);
     }
 
     private static SecurityRemediationOperationEntity operation(
