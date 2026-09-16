@@ -3,6 +3,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { dirname, relative, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { PACKAGED_CONTRACT_VERSION } from './config/contract-version.js';
 
 const sourceDir = dirname(fileURLToPath(import.meta.url));
 const gatewayRoot = resolve(sourceDir, '..');
@@ -56,4 +57,25 @@ test('gateway contract build context mirrors the canonical contract source', asy
       assert.deepEqual(mirrored, canonical, `${file} is out of sync; run npm run contract:sync-build-context`);
     }
   }
+});
+
+test('packaged runtime contract version matches canonical Cargo, Rust and WIT metadata', async () => {
+  const [cargoToml, rustSource, witWorld] = await Promise.all([
+    readFile(resolve(canonicalRoot, 'Cargo.toml'), 'utf8'),
+    readFile(resolve(canonicalRoot, 'src/lib.rs'), 'utf8'),
+    readFile(resolve(canonicalRoot, 'wit/world.wit'), 'utf8'),
+  ]);
+
+  assert.ok(
+    cargoToml.includes(`version = "${PACKAGED_CONTRACT_VERSION}"`),
+    'Cargo.toml version must match PACKAGED_CONTRACT_VERSION',
+  );
+  assert.ok(
+    rustSource.includes(`pub const CONTRACT_VERSION: &str = "${PACKAGED_CONTRACT_VERSION}";`),
+    'Rust CONTRACT_VERSION must match PACKAGED_CONTRACT_VERSION',
+  );
+  assert.ok(
+    witWorld.includes(`package z:privacy-guard@${PACKAGED_CONTRACT_VERSION};`),
+    'WIT package version must match PACKAGED_CONTRACT_VERSION',
+  );
 });

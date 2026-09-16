@@ -1,5 +1,6 @@
 import { createPublicKey } from 'node:crypto';
 import { classifyPrincipalCredential } from '../t3n/principal-credential.js';
+import { resolvePackagedContractVersion } from './contract-version.js';
 
 export type T3nNetwork = 'testnet' | 'production';
 export type AiProvider = 'disabled' | 'openai-compatible';
@@ -230,8 +231,12 @@ export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): Gateway
   const contractTail = (env.T3N_CONTRACT_TAIL ?? 'privacy-guard').trim();
   if (!/^[a-zA-Z0-9_-][a-zA-Z0-9_.-]{0,127}$/.test(contractTail)) throw new ConfigurationError('T3N_CONTRACT_TAIL has an invalid format');
 
-  const contractVersion = (env.T3N_CONTRACT_VERSION ?? '0.4.0').trim();
-  if (!/^\d+\.\d+\.\d+$/.test(contractVersion)) throw new ConfigurationError('T3N_CONTRACT_VERSION must be semantic version MAJOR.MINOR.PATCH');
+  let contractVersion: string;
+  try {
+    contractVersion = resolvePackagedContractVersion(env.T3N_CONTRACT_VERSION);
+  } catch (error) {
+    throw new ConfigurationError(error instanceof Error ? error.message : 'T3N_CONTRACT_VERSION is invalid');
+  }
 
   const aiProviderValue = (env.AI_PROVIDER ?? 'disabled').trim().toLowerCase();
   if (aiProviderValue !== 'disabled' && aiProviderValue !== 'openai-compatible') throw new ConfigurationError('AI_PROVIDER must be disabled or openai-compatible');

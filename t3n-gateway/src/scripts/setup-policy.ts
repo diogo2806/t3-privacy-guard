@@ -39,7 +39,8 @@ await session.connect();
 const tenant = new TenantClient({ t3n: session.getClient(), baseUrl: getNodeUrl(), tenantDid: session.getTenantDid() });
 await tenant.tenant.me();
 
-const mapName = tenant.canonicalName('privacy-guard-policy');
+const mapTail = 'privacy-guard-policy';
+const mapName = tenant.canonicalName(mapTail);
 const executeControl = tenant.executeControl.bind(tenant) as (name: string, input: Record<string, string>) => Promise<unknown>;
 const getEntry = async (key: string): Promise<string | null> => extractValue(await executeControl('map-entry-get', { map_name: mapName, key }));
 const setEntry = async (key: string, value: string): Promise<void> => {
@@ -48,16 +49,20 @@ const setEntry = async (key: string, value: string): Promise<void> => {
 
 let currentEntry: string | null;
 if (numericContractId !== null) {
+  const restrictedAcl = {
+    writers: { only: [numericContractId] },
+    readers: { only: [numericContractId] },
+  };
   try {
     await tenant.maps.create({
-      tail: 'privacy-guard-policy',
+      tail: mapTail,
       visibility: 'private',
-      writers: { only: [numericContractId] },
-      readers: { only: [numericContractId] },
+      ...restrictedAcl,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (!message.toLowerCase().includes('already')) throw error;
+    await tenant.maps.update(mapTail, restrictedAcl);
   }
   currentEntry = await getEntry('current');
 } else {
