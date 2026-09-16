@@ -68,11 +68,11 @@ export function resolveSourceRevision(
   git: GitRunner = defaultGitRunner(repositoryRoot),
   env: NodeJS.ProcessEnv = process.env,
 ): SourceRevision {
+  const deploymentRevision = revisionFromEnvironment(env);
+  if (deploymentRevision) return deploymentRevision;
+
   const metadataPath = env.EVIDENCE_SOURCE_REVISION_FILE?.trim();
   if (metadataPath) return revisionFromMetadataFile(metadataPath);
-
-  const environmentRevision = revisionFromEnvironment(env);
-  if (environmentRevision) return environmentRevision;
 
   const sourceCommitSha = git(['rev-parse', '--verify', 'HEAD']).trim();
   const status = git(['status', '--porcelain=v1', '--untracked-files=normal']);
