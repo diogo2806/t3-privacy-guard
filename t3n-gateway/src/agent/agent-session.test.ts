@@ -10,6 +10,13 @@ const trustFloorStore = {} as TrustManifestFloorStore;
 const secpKey = `0x${'ab'.repeat(32)}`;
 const orgAgentKey = 't3n_key_agent01.secret_value_1234567890';
 const agentDid = 'did:t3n:agent123';
+const delegatedRequest = {
+  contract_id: 'z:tenant:privacy-guard',
+  contract_version: '1',
+  function_name: 'evaluate-action',
+  pii_did: 'did:t3n:tenant',
+  input: {},
+};
 
 function fakeClient(): T3nClient {
   return {
@@ -49,9 +56,7 @@ test('keeps 0x credentials on the secp256k1 session transport', async () => {
   assert.equal(orgAgentCalls, 0);
   assert.equal(session.getAgentDid(), agentDid);
   assert.equal(session.getStatus().ready, true);
-  assert.equal((await session.getClient().executeAndDecode<{ transport: string }>({
-    contract_id: 'z:tenant:privacy-guard', contract_version: '1', function_name: 'evaluate-action',
-  })).transport, 'session');
+  assert.equal((await session.getClient().executeAndDecode<{ transport: string }>(delegatedRequest)).transport, 'session');
 });
 
 test('uses the stateless keyed transport for organization-owned t3n_key credentials', async () => {
@@ -84,9 +89,7 @@ test('uses the stateless keyed transport for organization-owned t3n_key credenti
 
   const session = new AgentSession(config, trustFloorStore, orgAgentKey, 'Agent', dependencies);
   await session.connect();
-  const result = await session.getClient().executeAndDecode<{ transport: string }>({
-    contract_id: 'z:tenant:privacy-guard', contract_version: '1', function_name: 'evaluate-action',
-  });
+  const result = await session.getClient().executeAndDecode<{ transport: string }>(delegatedRequest);
   const delegation = await session.getClient().checkDelegation({
     contract: 'z:tenant:privacy-guard', pii_did: 'did:t3n:tenant', functions: ['evaluate-action'], scopes: ['incident_id'],
   }) as { authorised: boolean };
@@ -150,7 +153,7 @@ test('sanitizes stateless invoke network failures without changing readiness ide
   await session.connect();
 
   await assert.rejects(
-    session.getClient().executeAndDecode({ contract_id: 'z:tenant:privacy-guard', contract_version: '1', function_name: 'execute-remediation' }),
+    session.getClient().executeAndDecode({ ...delegatedRequest, function_name: 'execute-remediation' }),
     (error: Error) => {
       assert.equal(error.message.includes(orgAgentKey), false);
       assert.match(error.message, /^NETWORK:/);
