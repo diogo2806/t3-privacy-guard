@@ -202,10 +202,13 @@ export class EnterpriseIntegrationReadinessService {
     const checkedAt = new Date().toISOString();
     try {
       const contractId = await this.contractService.canonicalContractId();
-      const [configuration, executorDelegation] = await Promise.all([
-        this.readPrivateConfiguration(),
-        this.executorDelegationService.status(contractId),
-      ]);
+      const configuration = await this.readPrivateConfiguration();
+      let executorDelegation: DelegationStatus;
+      try {
+        executorDelegation = await this.executorDelegationService.status(contractId);
+      } catch {
+        throw new ReadinessDiagnosticError('DELEGATION_UNAVAILABLE');
+      }
       return evaluateEnterpriseIntegrationReadiness({ ...configuration, executorDelegation, checkedAt });
     } catch (error) {
       const diagnosticCode = error instanceof ReadinessDiagnosticError
