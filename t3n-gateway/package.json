@@ -14,10 +14,12 @@
     "contract:setup-remediation": "node dist/scripts/setup-remediation-secrets.js",
     "agent:card:verify": "node dist/scripts/agent-card-verify.js",
     "agent:card:publish": "node dist/scripts/agent-card-publish.js",
-    "evidence:testnet": "tsx src/scripts/adversarial-testnet.ts && tsx src/scripts/human-proof-testnet.ts && tsx src/scripts/profile-placeholder-evidence.ts",
-    "evidence:human-proof": "tsx src/scripts/human-proof-testnet.ts",
-    "evidence:profile-placeholder": "tsx src/scripts/profile-placeholder-evidence.ts",
-    "evidence:live": "tsx src/scripts/live-evidence.ts",
+    "evidence:testnet": "node dist/scripts/adversarial-testnet.js && node dist/scripts/human-proof-testnet.js && node dist/scripts/profile-placeholder-evidence.js",
+    "evidence:testnet:dev": "tsx src/scripts/adversarial-testnet.ts && tsx src/scripts/human-proof-testnet.ts && tsx src/scripts/profile-placeholder-evidence.ts",
+    "evidence:human-proof": "node dist/scripts/human-proof-testnet.js",
+    "evidence:profile-placeholder": "node dist/scripts/profile-placeholder-evidence.js",
+    "evidence:live": "node dist/scripts/live-evidence.js",
+    "evidence:live:dev": "tsx src/scripts/live-evidence.ts",
     "start": "node dist/index.js"
   },
   "dependencies": {
