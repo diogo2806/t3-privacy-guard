@@ -58,6 +58,11 @@ interface ContractResolution {
   readonly registered: boolean;
 }
 
+export interface AdminProvisioningStep {
+  readonly scriptName: 'setup-policy.js' | 'setup-remediation-secrets.js';
+  readonly env: NodeJS.ProcessEnv;
+}
+
 function booleanOverride(raw: string | undefined): boolean | null {
   if (raw == null || !raw.trim()) return null;
   const normalized = raw.trim().toLowerCase();
@@ -119,6 +124,26 @@ function remediationConfigurationReady(env: NodeJS.ProcessEnv): boolean {
     && isSafeHttpsEndpoint(env.SECURITY_API_URL)
     && isSafeHttpsEndpoint(env.SECURITY_VERIFICATION_URL),
   );
+}
+
+export function buildAdminProvisioningPlan(
+  numericContractId: number | null,
+  env: NodeJS.ProcessEnv = process.env,
+): AdminProvisioningStep[] {
+  const childEnv: NodeJS.ProcessEnv = { ...env };
+  if (numericContractId !== null) {
+    childEnv.T3N_CONTRACT_NUMERIC_ID = String(numericContractId);
+  } else {
+    delete childEnv.T3N_CONTRACT_NUMERIC_ID;
+  }
+
+  const steps: AdminProvisioningStep[] = [
+    { scriptName: 'setup-policy.js', env: { ...childEnv } },
+  ];
+  if (remediationConfigurationReady(env)) {
+    steps.push({ scriptName: 'setup-remediation-secrets.js', env: { ...childEnv } });
+  }
+  return steps;
 }
 
 export function provisioningStateMatches(
@@ -321,18 +346,10 @@ export async function reconcileRuntimeProvisioning(
   let proposalDelegationReconciled = false;
   let executorDelegationReconciled = false;
 
-  if (contract.numericContractId !== null) {
-    const childEnv = {
-      ...env,
-      T3N_CONTRACT_NUMERIC_ID: String(contract.numericContractId),
-    };
-    await runAdminScript('setup-policy.js', childEnv);
-    policyReconciled = true;
-
-    if (remediationConfigurationReady(env)) {
-      await runAdminScript('setup-remediation-secrets.js', childEnv);
-      remediationReconciled = true;
-    }
+  for (const step of buildAdminProvisioningPlan(contract.numericContractId, env)) {
+    await runAdminScript(step.scriptName, step.env);
+    if (step.scriptName === 'setup-policy.js') policyReconciled = true;
+    if (step.scriptName === 'setup-remediation-secrets.js') remediationReconciled = true;
   }
 
   if (config.agentApiKey) {
