@@ -3,8 +3,13 @@ import test from 'node:test';
 import { ConfigurationError, readGatewayConfig, rejectDocumentationPlaceholder } from './env.js';
 
 const publicKeySpki = 'MCowBQYDK2VwAyEAW3EwSatHmT/ZSgrqu/G3ecXJrTviA5SjAoCwIfwau6A=';
+const tenantKey = `0x${'11'.repeat(32)}`;
+const proposalSecpKey = `0x${'22'.repeat(32)}`;
+const executorSecpKey = `0x${'33'.repeat(32)}`;
+const proposalOrgKey = 't3n_key_proposal01.secret_value_1234567890';
+const executorOrgKey = 't3n_key_executor01.secret_value_0987654321';
 const baseEnv = {
-  T3N_API_KEY: 'tenant-secret',
+  T3N_API_KEY: tenantKey,
   GATEWAY_SERVICE_TOKEN: 'gateway-service-token-1234567890123456',
   REMEDIATION_AUTH_PUBLIC_KEY_SPKI: publicKeySpki,
 };
@@ -26,12 +31,24 @@ test('rejects missing tenant API key', () => {
   }), ConfigurationError);
 });
 
-test('defaults to testnet, disabled AI, versioned remediation key, no public A2A, persistent trust floor and current contract version', () => {
+test('rejects tenant credentials that are not exact secp256k1 private keys without echoing them', () => {
+  for (const invalid of ['tenant-secret', '0x1234', proposalOrgKey]) {
+    assert.throws(
+      () => readGatewayConfig({ ...baseEnv, T3N_API_KEY: invalid }),
+      (error: unknown) => error instanceof ConfigurationError
+        && error.message === 'T3N_API_KEY must be a 0x-prefixed 32-byte secp256k1 private key'
+        && !error.message.includes(invalid),
+    );
+  }
+});
+
+test('defaults to testnet, disabled AI, versioned remediation key, no public A2A, no organization DID, persistent trust floor and current contract version', () => {
   const config = readGatewayConfig(baseEnv);
   assert.equal(config.network, 'testnet');
   assert.equal(config.port, 3001);
   assert.equal(config.agentApiKey, null);
   assert.equal(config.executorApiKey, null);
+  assert.equal(config.orgDid, null);
   assert.equal(config.contractVersion, '0.4.0');
   assert.equal(config.remediationAuthorizationPublicKeySpki, publicKeySpki);
   assert.equal(config.remediationAuthorizationKeyId, 'primary');
@@ -41,6 +58,11 @@ test('defaults to testnet, disabled AI, versioned remediation key, no public A2A
   assert.equal(config.aiApiKey, null);
   assert.equal(config.aiModel, null);
   assert.equal(config.a2aPublicUrl, null);
+});
+
+test('accepts and validates a canonical organization DID', () => {
+  assert.equal(readGatewayConfig({ ...baseEnv, T3N_ORG_DID: ' did:t3n:organization123 ' }).orgDid, 'did:t3n:organization123');
+  assert.throws(() => readGatewayConfig({ ...baseEnv, T3N_ORG_DID: 'did:web:organization.example' }), ConfigurationError);
 });
 
 test('accepts an explicit safe remediation authorization key id', () => {
@@ -53,14 +75,36 @@ test('rejects unsafe remediation authorization key ids', () => {
   }
 });
 
-test('accepts distinct tenant proposal-agent and executor credentials', () => {
-  const config = readGatewayConfig({
+test('accepts distinct secp256k1 and organization-owned proposal/executor credentials', () => {
+  const orgConfig = readGatewayConfig({
     ...baseEnv,
-    T3N_AGENT_API_KEY: 'proposal-agent-secret',
-    T3N_EXECUTOR_API_KEY: 'protected-executor-secret',
+    T3N_AGENT_API_KEY: proposalOrgKey,
+    T3N_EXECUTOR_API_KEY: executorOrgKey,
   });
-  assert.equal(config.agentApiKey, 'proposal-agent-secret');
-  assert.equal(config.executorApiKey, 'protected-executor-secret');
+  assert.equal(orgConfig.agentApiKey, proposalOrgKey);
+  assert.equal(orgConfig.executorApiKey, executorOrgKey);
+
+  const secpConfig = readGatewayConfig({
+    ...baseEnv,
+    T3N_AGENT_API_KEY: proposalSecpKey,
+    T3N_EXECUTOR_API_KEY: executorSecpKey,
+  });
+  assert.equal(secpConfig.agentApiKey, proposalSecpKey);
+  assert.equal(secpConfig.executorApiKey, executorSecpKey);
+});
+
+test('rejects unsupported or malformed proposal/executor credentials without echoing them', () => {
+  const invalidValues = ['proposal-agent-secret', 't3n_key_missing-secret', '0x1234'];
+  for (const invalid of invalidValues) {
+    for (const name of ['T3N_AGENT_API_KEY', 'T3N_EXECUTOR_API_KEY'] as const) {
+      assert.throws(
+        () => readGatewayConfig({ ...baseEnv, [name]: invalid }),
+        (error: unknown) => error instanceof ConfigurationError
+          && error.message.includes(`${name} must be a supported`)
+          && !error.message.includes(invalid),
+      );
+    }
+  }
 });
 
 test('accepts and normalizes an HTTPS public A2A endpoint', () => {
@@ -137,25 +181,19 @@ test('rejects enabled AI provider without model or key', () => {
 });
 
 test('rejects reuse of tenant key as proposal-agent or executor key', () => {
-  assert.throws(
-    () => readGatewayConfig({ ...baseEnv, T3N_API_KEY: 'same-secret', T3N_AGENT_API_KEY: 'same-secret' }),
-    ConfigurationError,
-  );
-  assert.throws(
-    () => readGatewayConfig({ ...baseEnv, T3N_API_KEY: 'same-secret', T3N_EXECUTOR_API_KEY: 'same-secret' }),
-    ConfigurationError,
-  );
+  assert.throws(() => readGatewayConfig({ ...baseEnv, T3N_AGENT_API_KEY: tenantKey }), ConfigurationError);
+  assert.throws(() => readGatewayConfig({ ...baseEnv, T3N_EXECUTOR_API_KEY: tenantKey }), ConfigurationError);
 });
 
 test('rejects reuse of proposal-agent key as executor key', () => {
   assert.throws(
-    () => readGatewayConfig({ ...baseEnv, T3N_AGENT_API_KEY: 'same-delegated-secret', T3N_EXECUTOR_API_KEY: 'same-delegated-secret' }),
+    () => readGatewayConfig({ ...baseEnv, T3N_AGENT_API_KEY: proposalOrgKey, T3N_EXECUTOR_API_KEY: proposalOrgKey }),
     ConfigurationError,
   );
 });
 
 test('rejects missing or invalid internal security configuration', () => {
-  assert.throws(() => readGatewayConfig({ T3N_API_KEY: 'tenant-secret' }), ConfigurationError);
+  assert.throws(() => readGatewayConfig({ T3N_API_KEY: tenantKey }), ConfigurationError);
   assert.throws(() => readGatewayConfig({ ...baseEnv, GATEWAY_SERVICE_TOKEN: 'short' }), ConfigurationError);
   assert.throws(() => readGatewayConfig({ ...baseEnv, REMEDIATION_AUTH_PUBLIC_KEY_SPKI: 'not-an-ed25519-spki' }), ConfigurationError);
 });
