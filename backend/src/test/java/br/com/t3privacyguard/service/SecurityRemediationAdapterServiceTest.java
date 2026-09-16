@@ -198,6 +198,20 @@ class SecurityRemediationAdapterServiceTest {
         assertStatus(HttpStatus.CONFLICT, () -> service.verify(body));
     }
 
+    @Test
+    void verificationRejectsOperationIdOutsideRustCharset() throws Exception {
+        JsonNode body = json("""
+            {
+              "request_id":"req-verify",
+              "operation_id":"op.invalid",
+              "action":"revoke-credential",
+              "expected_state":"REVOKED"
+            }
+            """);
+
+        assertStatus(HttpStatus.BAD_REQUEST, () -> service.verify(body));
+    }
+
     private JsonNode json(String value) throws Exception {
         return objectMapper.readTree(value);
     }
