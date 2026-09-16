@@ -75,6 +75,21 @@ export function contractVersionAction(resolvedVersion: string | null, packagedVe
   return comparison < 0 ? 'REGISTER' : 'REUSE';
 }
 
+export async function reconcileAgentCardIndependently(
+  reconcile: () => Promise<string>,
+  observe: () => Promise<string>,
+): Promise<string> {
+  try {
+    return await reconcile();
+  } catch {
+    try {
+      return await observe();
+    } catch {
+      return 'UNAVAILABLE';
+    }
+  }
+}
+
 function booleanOverride(raw: string | undefined): boolean | null {
   if (raw == null || !raw.trim()) return null;
   const normalized = raw.trim().toLowerCase();
@@ -348,11 +363,6 @@ export async function reconcileRuntimeProvisioning(
   if (config.agentApiKey) await agentSession.connect();
   if (config.executorApiKey) await executorSession.connect();
 
-  let agentCardState = 'UNAVAILABLE';
-  if (config.agentApiKey) {
-    agentCardState = await reconcileAgentCard(config, tenantSession, agentSession, agentCardRegistry, sleep);
-  }
-
   const contract = await resolveOrRegisterContract(config, tenantSession, contractService, env);
   let policyReconciled = false;
   let remediationReconciled = false;
@@ -379,6 +389,14 @@ export async function reconcileRuntimeProvisioning(
   if (config.executorApiKey) {
     await executorDelegation.grant(executorDelegationGrantRequest(contract.contractId, contract.contractVersion, env));
     executorDelegationReconciled = true;
+  }
+
+  let agentCardState = 'UNAVAILABLE';
+  if (config.agentApiKey) {
+    agentCardState = await reconcileAgentCardIndependently(
+      () => reconcileAgentCard(config, tenantSession, agentSession, agentCardRegistry, sleep),
+      async () => (await agentCardRegistry.verify()).state,
+    );
   }
 
   return {

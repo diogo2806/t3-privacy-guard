@@ -6,6 +6,7 @@ import {
   contractVersionAction,
   executorDelegationGrantRequest,
   provisioningStateMatches,
+  reconcileAgentCardIndependently,
   runtimeProvisioningEnabled,
   type RuntimeProvisioningState,
 } from './runtime-provisioning.js';
@@ -23,6 +24,30 @@ test('runtime provisioning explicit override is honored', () => {
     () => runtimeProvisioningEnabled({ network: 'testnet' }, { T3N_RUNTIME_PROVISIONING: 'yes', NODE_ENV: 'production' }),
     /must be true or false/,
   );
+});
+
+test('Agent Card mismatch remains visible without becoming a fatal provisioning error', async () => {
+  const state = await reconcileAgentCardIndependently(
+    async () => { throw new Error('Published Agent Card did not verify as REGISTERED (MISMATCH)'); },
+    async () => 'MISMATCH',
+  );
+  assert.equal(state, 'MISMATCH');
+});
+
+test('Agent Card observation failure remains non-fatal and explicit', async () => {
+  const state = await reconcileAgentCardIndependently(
+    async () => { throw new Error('publish failed'); },
+    async () => { throw new Error('verify failed'); },
+  );
+  assert.equal(state, 'UNAVAILABLE');
+});
+
+test('Agent Card registered state is preserved when reconciliation succeeds', async () => {
+  const state = await reconcileAgentCardIndependently(
+    async () => 'REGISTERED',
+    async () => 'MISMATCH',
+  );
+  assert.equal(state, 'REGISTERED');
 });
 
 test('contract version migration registers absent or older versions and reuses the packaged version', () => {
