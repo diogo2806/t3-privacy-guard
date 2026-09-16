@@ -72,20 +72,18 @@ const executeControl = tenant.executeControl.bind(tenant) as (name: string, inpu
 
 async function ensurePrivateContractMap(tail: string): Promise<string> {
   const mapName = tenant.canonicalName(tail);
-  if (numericContractId !== null) {
-    try {
-      await tenant.maps.create({ tail, visibility: 'private', writers: { only: [numericContractId] }, readers: { only: [numericContractId] } });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (!message.toLowerCase().includes('already')) throw error;
-    }
-    return mapName;
-  }
+  if (numericContractId === null) return mapName;
 
+  const restrictedAcl = {
+    writers: { only: [numericContractId] },
+    readers: { only: [numericContractId] },
+  };
   try {
-    await executeControl('map-entry-get', { map_name: mapName, key: '__runtime_provisioning_probe__' });
-  } catch {
-    throw new Error(`${tail} is unavailable; T3N_CONTRACT_NUMERIC_ID is required to create the private map safely`);
+    await tenant.maps.create({ tail, visibility: 'private', ...restrictedAcl });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.toLowerCase().includes('already')) throw error;
+    await tenant.maps.update(tail, restrictedAcl);
   }
   return mapName;
 }
