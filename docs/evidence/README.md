@@ -225,7 +225,21 @@ Explicit mutable publication:
 npm run agent:card:publish
 ```
 
-Publication uses the locally installed T3N CLI `agent host-card`, authenticates with the separate Proposal Agent credential, derives the DID from the session and verifies the hosted card after publication. It may consume T3N credits and is therefore never run implicitly as a background or evidence-side mutation.
+Publication authenticates the Tenant/Admin with the secp256k1 `T3N_API_KEY`, requires the explicit public `T3N_ORG_DID` as the canonical organization owner, and authenticates the Proposal Agent separately through `T3N_AGENT_API_KEY`. The Proposal Agent DID comes only from `AgentSession.getAgentDid()`. The command writes the safe card locally and calls `agentCardSet`/`agentCardPublish` through the organization data client created from the authenticated Tenant/Admin session with `ownerDid=T3N_ORG_DID` and the authenticated Proposal Agent DID. `T3N_ORG_DID` must never be derived from any credential, Ethereum address or other secret. Publication is mutable and may consume T3N credits; `agent:card:verify` remains read-only and neither operation grants delegation.
+
+After publication, `AgentCardRegistry.verify()` must resolve the card for the authenticated Proposal Agent and reach `REGISTERED`; otherwise publication fails closed.
+
+```text
+Tenant/Admin secp256k1 (T3N_API_KEY)
+        |
+        +--> organization owner (T3N_ORG_DID)
+                 |
+                 +--> Proposal Agent (authenticated by T3N_AGENT_API_KEY)
+                         |
+                         +--> agentCardSet
+                         +--> agentCardPublish
+                         +--> AgentCardRegistry.verify() == REGISTERED
+```
 
 State meanings:
 
