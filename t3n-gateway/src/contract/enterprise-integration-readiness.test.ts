@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { DelegationStatus } from '../agent/delegation-service.js';
 import type { OperationalPolicyDocument } from '../policy/policy-document.js';
-import { evaluateEnterpriseIntegrationReadiness } from './enterprise-integration-readiness.js';
+import { evaluateEnterpriseIntegrationReadiness, unknownEnterpriseIntegrationReadiness } from './enterprise-integration-readiness.js';
 
 const checkedAt = '2026-09-13T21:00:00.000Z';
 
@@ -75,6 +75,7 @@ describe('enterprise integration readiness', () => {
   it('reports READY only when config, both executable policy rules, delegation and verification contracts align', () => {
     const result = evaluate();
     assert.equal(result.state, 'READY');
+    assert.equal(result.diagnosticCode, 'NONE');
     assert.equal(result.executionHost, 'security.company.example');
     assert.equal(result.verificationHost, 'verify.company.example');
     assert.equal(result.policyAllowsExecutionHost, true);
@@ -98,6 +99,7 @@ describe('enterprise integration readiness', () => {
       executorDelegation: delegation({ allowedHosts: [] }),
     });
     assert.equal(result.state, 'INCOMPLETE');
+    assert.equal(result.diagnosticCode, 'NONE');
     assert.equal(result.executionConfigured, false);
     assert.equal(result.verificationConfigured, false);
     assert.equal(result.credentialConfigured, false);
@@ -127,6 +129,7 @@ describe('enterprise integration readiness', () => {
   it('reports MISMATCH when active policy does not allow the configured host', () => {
     const result = evaluate({ policy: policy(['different.example', 'verify.company.example']) });
     assert.equal(result.state, 'MISMATCH');
+    assert.equal(result.diagnosticCode, 'NONE');
     assert.equal(result.policyAllowsExecutionHost, false);
   });
 
@@ -147,14 +150,22 @@ describe('enterprise integration readiness', () => {
     assert.equal(result.executorDelegationAllowsVerificationHost, false);
   });
 
-  it('fails closed to UNKNOWN for inconclusive effective delegation', () => {
+  it('fails closed with a delegation diagnostic for inconclusive effective delegation', () => {
     const result = evaluate({ executorDelegation: delegation({ effectiveState: 'UNKNOWN' }) });
     assert.equal(result.state, 'UNKNOWN');
+    assert.equal(result.diagnosticCode, 'DELEGATION_UNAVAILABLE');
   });
 
-  it('fails closed to UNKNOWN for malformed or non-HTTPS private endpoint configuration', () => {
-    assert.equal(evaluate({ executionUrl: 'http://security.company.example/private' }).state, 'UNKNOWN');
-    assert.equal(evaluate({ executionUrl: 'not-a-url' }).state, 'UNKNOWN');
+  it('fails closed with a sanitized endpoint diagnostic for malformed or non-HTTPS private endpoint configuration', () => {
+    assert.equal(evaluate({ executionUrl: 'http://security.company.example/private' }).diagnosticCode, 'ENDPOINT_CONFIGURATION_INVALID');
+    assert.equal(evaluate({ executionUrl: 'not-a-url' }).diagnosticCode, 'ENDPOINT_CONFIGURATION_INVALID');
+  });
+
+  it('builds an allowlisted unknown response without arbitrary error text', () => {
+    const result = unknownEnterpriseIntegrationReadiness(checkedAt, 'POLICY_UNAVAILABLE');
+    assert.equal(result.state, 'UNKNOWN');
+    assert.equal(result.diagnosticCode, 'POLICY_UNAVAILABLE');
+    assert.equal(JSON.stringify(result).includes('secret'), false);
   });
 
   it('returns only canonical hostnames and never private paths, query strings or credentials', () => {
