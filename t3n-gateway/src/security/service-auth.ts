@@ -17,3 +17,17 @@ export function requireServiceToken(expectedToken: string) {
     next();
   };
 }
+
+export function requireBearerServiceToken(expectedToken: string) {
+  return (request: Request, response: Response, next: NextFunction): void => {
+    const authorization = request.header('Authorization') ?? '';
+    const match = /^Bearer\s+([^\s]+)$/i.exec(authorization);
+    const supplied = match?.[1] ?? '';
+    if (!supplied || !safeEqual(supplied, expectedToken)) {
+      response.set('WWW-Authenticate', 'Bearer realm="t3-privacy-guard-mcp"');
+      response.status(401).json({ error: 'MCP bearer authentication required' });
+      return;
+    }
+    next();
+  };
+}
