@@ -179,25 +179,51 @@ test('keeps DID conflicts fail-closed across readiness, reconnect and operations
     'proposal-agent',
   );
 
-  await assert.rejects(session.connect(), /distinct DIDs/);
-  assert.equal(session.getStatus().ready, false);
-  assert.equal(session.getStatus().lastError?.category, 'AUTHENTICATION');
-  assert.equal(JSON.stringify(session.getStatus()).includes(orgAgentKey), false);
-  await assert.rejects(session.connect(), /distinct DIDs/);
-  assert.throws(() => session.getAgentDid(), /distinct DIDs/);
-  assert.throws(() => session.getClient(), /distinct DIDs/);
-});
-
-test('executor session reuses organization-owned agent transport and redaction', async () => {
-  const executor = new ExecutorSession(config, trustFloorStore, orgAgentKey, baseDependencies());
-  await executor.connect();
-  const result = await executor.getClient().executeAndDecode<{ transport: string }>({
-    ...delegatedRequest,
-    function_name: 'execute-remediation',
+  await assert.rejects(session.connect(), (error: Error) => {
+    assert.match(error.message, /^AUTHENTICATION:/);
+    assert.equal(error.message.includes(orgAgentKey), false);
+    return true;
   });
 
-  assert.equal(executor.getAgentDid(), agentDid);
-  assert.equal(result.transport, 'stateless');
-  assert.equal(executor.getStatus().ready, true);
-  assert.equal(JSON.stringify(executor.getStatus()).includes(orgAgentKey), false);
+  const conflictedStatus = session.getStatus();
+  assert.equal(conflictedStatus.connected, true);
+  assert.equal(conflictedStatus.ready, false);
+  assert.equal(conflictedStatus.lastError?.category, 'AUTHENTICATION');
+  assert.equal(JSON.stringify(conflictedStatus).includes(orgAgentKey), false);
+  assert.throws(() => session.getClient(), /distinct DIDs/);
+  assert.throws(() => session.getAgentDid(), /distinct DIDs/);
+  await assert.rejects(session.connect(), /^AUTHENTICATION:/);
+
+  guard.recordAuthenticated('tenant', 'did:t3n:tenant999');
+  await session.connect();
+  assert.equal(session.getStatus().ready, true);
+  assert.equal(session.getAgentDid(), agentDid);
+});
+
+test('protected executor preserves both supported credential transports', async () => {
+  const secpConfig = { network: 'testnet', agentApiKey: null, executorApiKey: secpKey } as GatewayConfig;
+  const secpSession = new ExecutorSession(secpConfig, trustFloorStore, null, baseDependencies());
+  await secpSession.connect();
+  assert.equal(secpSession.getExecutorStatus().ready, true);
+  assert.equal(secpSession.getExecutorDid(), agentDid);
+  assert.equal(
+    (await secpSession.getClient().executeAndDecode<{ transport: string }>({
+      ...delegatedRequest,
+      function_name: 'execute-remediation',
+    })).transport,
+    'session',
+  );
+
+  const orgConfig = { network: 'testnet', agentApiKey: null, executorApiKey: orgAgentKey } as GatewayConfig;
+  const orgSession = new ExecutorSession(orgConfig, trustFloorStore, null, baseDependencies());
+  await orgSession.connect();
+  assert.equal(orgSession.getExecutorStatus().ready, true);
+  assert.equal(orgSession.getExecutorDid(), agentDid);
+  assert.equal(
+    (await orgSession.getClient().executeAndDecode<{ transport: string }>({
+      ...delegatedRequest,
+      function_name: 'execute-remediation',
+    })).transport,
+    'stateless',
+  );
 });
