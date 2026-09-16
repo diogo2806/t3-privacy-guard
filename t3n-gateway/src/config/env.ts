@@ -7,7 +7,7 @@ export interface GatewayConfig {
   readonly apiKey: string;
   readonly agentApiKey: string | null;
   readonly executorApiKey: string | null;
-  readonly orgDid: string | null;
+  readonly orgDid?: string | null;
   readonly network: T3nNetwork;
   readonly port: number;
   readonly contractTail: string;
