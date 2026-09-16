@@ -14,10 +14,10 @@
     "contract:setup-remediation": "node dist/scripts/setup-remediation-secrets.js",
     "agent:card:verify": "node dist/scripts/agent-card-verify.js",
     "agent:card:publish": "node dist/scripts/agent-card-publish.js",
-    "evidence:testnet": "EVIDENCE_OUTPUT=/data/evidence/testnet-run.json node dist/scripts/adversarial-testnet.js && EVIDENCE_HUMAN_PROOF_OUTPUT=/data/evidence/human-proof-testnet.json node dist/scripts/human-proof-testnet.js && EVIDENCE_OUTPUT=/data/evidence/testnet-run.json node dist/scripts/profile-placeholder-evidence.js",
+    "evidence:testnet": "EVIDENCE_OUTPUT=${EVIDENCE_OUTPUT:-/data/evidence/testnet-run.json} node dist/scripts/adversarial-testnet.js && EVIDENCE_HUMAN_PROOF_OUTPUT=${EVIDENCE_HUMAN_PROOF_OUTPUT:-/data/evidence/human-proof-testnet.json} node dist/scripts/human-proof-testnet.js && EVIDENCE_OUTPUT=${EVIDENCE_OUTPUT:-/data/evidence/testnet-run.json} node dist/scripts/profile-placeholder-evidence.js",
     "evidence:testnet:dev": "tsx src/scripts/adversarial-testnet.ts && tsx src/scripts/human-proof-testnet.ts && tsx src/scripts/profile-placeholder-evidence.ts",
-    "evidence:human-proof": "EVIDENCE_HUMAN_PROOF_OUTPUT=/data/evidence/human-proof-testnet.json node dist/scripts/human-proof-testnet.js",
-    "evidence:profile-placeholder": "EVIDENCE_OUTPUT=/data/evidence/testnet-run.json node dist/scripts/profile-placeholder-evidence.js",
+    "evidence:human-proof": "EVIDENCE_HUMAN_PROOF_OUTPUT=${EVIDENCE_HUMAN_PROOF_OUTPUT:-/data/evidence/human-proof-testnet.json} node dist/scripts/human-proof-testnet.js",
+    "evidence:profile-placeholder": "EVIDENCE_OUTPUT=${EVIDENCE_OUTPUT:-/data/evidence/testnet-run.json} node dist/scripts/profile-placeholder-evidence.js",
     "evidence:live": "node dist/scripts/live-evidence.js",
     "evidence:live:dev": "tsx src/scripts/live-evidence.ts",
     "start": "node dist/index.js"
