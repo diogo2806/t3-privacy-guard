@@ -1,6 +1,6 @@
 [package]
 name = "privacy-guard-contract"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 description = "T3 Privacy Guard policy and secretless-remediation TEE contract"
 license = "MIT"
