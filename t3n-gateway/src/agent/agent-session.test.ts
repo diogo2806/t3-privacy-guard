@@ -77,7 +77,7 @@ test('uses the stateless keyed transport for organization-owned t3n_key credenti
       assert.equal(apiKey, orgAgentKey);
       return { did: agentDid, trustManifestVersion: 9 };
     },
-    invokeOrgAgent: async <T>(apiKey) => {
+    invokeOrgAgent: async <T>(apiKey: string) => {
       invokeCalls += 1;
       assert.equal(apiKey, orgAgentKey);
       return { transport: 'stateless' } as T;
