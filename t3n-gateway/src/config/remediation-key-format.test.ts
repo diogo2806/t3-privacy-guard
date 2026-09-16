@@ -6,7 +6,7 @@ const publicKeySpki = 'MCowBQYDK2VwAyEAW3EwSatHmT/ZSgrqu/G3ecXJrTviA5SjAoCwIfwau
 const publicKeyPem = `-----BEGIN PUBLIC KEY-----\n${publicKeySpki}\n-----END PUBLIC KEY-----`;
 const publicKeyPemBase64 = Buffer.from(publicKeyPem, 'ascii').toString('base64');
 const baseEnv = {
-  T3N_API_KEY: 'test-tenant-key',
+  T3N_API_KEY: `0x${'44'.repeat(32)}`,
   GATEWAY_SERVICE_TOKEN: 'g'.repeat(32),
 };
 
