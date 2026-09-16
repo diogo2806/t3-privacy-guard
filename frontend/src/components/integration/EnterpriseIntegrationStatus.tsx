@@ -27,7 +27,11 @@ function adapterPill(value: boolean | undefined, loading: boolean) {
 
 export function EnterpriseIntegrationStatus({ status, loading }: Props) {
   const integrationState = status?.enterpriseIntegrationState ?? 'UNKNOWN';
-  const operational = Boolean(status?.protectedRemediationReady && status.enterpriseIntegrationReady);
+  const operational = Boolean(
+    status?.protectedRemediationReady
+    && status.enterpriseIntegrationReady
+    && status.firstPartyRemediationAdapterConfigured
+  );
   const verifiedContracts = status?.enterpriseVerificationContracts ?? [];
   const evaluationOnlyActions = status?.enterpriseEvaluationOnlyActions ?? [];
 
