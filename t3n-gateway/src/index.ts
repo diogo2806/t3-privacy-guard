@@ -1,4 +1,5 @@
 import express from 'express';
+import { toNodeHandler } from '@modelcontextprotocol/node';
 import { A2aEvaluationService } from './agent/a2a-service.js';
 import { AgentCardRegistry } from './agent/agent-card.js';
 import { AgentService } from './agent/agent-service.js';
@@ -20,9 +21,10 @@ import { createAiAgentRouter } from './http/ai-agent-router.js';
 import { createContractRouter } from './http/contract-router.js';
 import { createExecutorRouter } from './http/executor-router.js';
 import { createStatusRouter } from './http/status-router.js';
+import { createPrivacyGuardMcpHandler } from './mcp/privacy-tools.js';
 import { RemediationAuthorizationVerifier } from './security/remediation-authorization.js';
 import { sanitizeError } from './security/sanitize.js';
-import { requireServiceToken } from './security/service-auth.js';
+import { requireBearerServiceToken, requireServiceToken } from './security/service-auth.js';
 import { TrustManifestFloorStore } from './security/trust-manifest-floor-store.js';
 import { ActivityLogService } from './t3n/activity-log-service.js';
 import { T3nSession } from './t3n/session.js';
@@ -48,12 +50,17 @@ const aiProvider = config.aiProvider === 'openai-compatible' && config.aiApiUrl 
   : null;
 const aiAgentService = new AgentService(aiProvider);
 const a2aEvaluationService = new A2aEvaluationService(aiAgentService, contractService, agentSession);
+const privacyGuardMcpHandler = createPrivacyGuardMcpHandler(contractService);
+const privacyGuardMcpNodeHandler = toNodeHandler(privacyGuardMcpHandler);
 const app = express();
 
 app.disable('x-powered-by');
 if (config.a2aPublicUrl) app.use(createA2aRouter(a2aEvaluationService, config.a2aPublicUrl));
 app.use(express.json({ limit: '256kb' }));
 app.get('/health', (_request, response) => response.json({ status: 'UP', service: 't3n-gateway' }));
+app.all('/mcp', requireBearerServiceToken(config.gatewayServiceToken), (request, response) => {
+  void privacyGuardMcpNodeHandler(request, response, request.body);
+});
 app.use('/internal', requireServiceToken(config.gatewayServiceToken));
 app.use('/internal/t3n', createStatusRouter(tenantSession));
 app.use('/internal/t3n/activity', createActivityRouter(activityLogService, config.gatewayServiceToken));
