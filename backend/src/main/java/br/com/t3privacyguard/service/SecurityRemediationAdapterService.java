@@ -19,14 +19,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class SecurityRemediationAdapterService {
-    private static final Set<String> REVOKE_FIELDS = Set.of(
-        "request_id", "action", "resource", "purpose",
-        "incident_id", "credential_id", "reason"
-    );
-    private static final Set<String> NOTIFY_FIELDS = Set.of(
-        "request_id", "action", "resource", "purpose",
-        "incident_id", "severity", "summary", "recipient"
-    );
+    private static final Set<String> REVOKE_FIELDS = Set.of("incident_id", "credential_id", "reason");
+    private static final Set<String> NOTIFY_FIELDS = Set.of("incident_id", "severity", "summary", "recipient");
     private static final Pattern REQUEST_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}");
     private static final Pattern OPERATION_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,127}");
     private static final String MUST_EGRESS_SENTINEL = "SENTINEL_MUST_EGRESS";
@@ -40,7 +34,7 @@ public class SecurityRemediationAdapterService {
 
     public ExecutionResult execute(String idempotencyKey, JsonNode body) {
         String requestId = requireSafeRequestId(idempotencyKey);
-        ActionContract contract = validateExecutionBody(body, requestId);
+        ActionContract contract = validateExecutionBody(body);
 
         var existing = operations.findByRequestId(requestId);
         if (existing.isPresent()) return idempotentResult(existing.get(), contract.action());
@@ -97,11 +91,10 @@ public class SecurityRemediationAdapterService {
         return new ExecutionResult(operation.getOperationId());
     }
 
-    private static ActionContract validateExecutionBody(JsonNode body, String idempotencyKey) {
+    private static ActionContract validateExecutionBody(JsonNode body) {
         if (body == null || !body.isObject()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Remediation body must be a JSON object");
         }
-
         Set<String> fields = new HashSet<>();
         Iterator<Map.Entry<String, JsonNode>> entries = body.fields();
         while (entries.hasNext()) {
@@ -110,33 +103,13 @@ public class SecurityRemediationAdapterService {
             requireText(entry.getValue(), entry.getKey(), maxLength(entry.getKey()));
         }
 
-        String requestId = requireText(body.get("request_id"), "request_id", 128);
-        if (!REQUEST_ID.matcher(requestId).matches()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Remediation request_id is invalid");
+        if (fields.equals(REVOKE_FIELDS)) {
+            return new ActionContract("revoke-credential", "REVOKED", false);
         }
-        if (!idempotencyKey.equals(requestId)) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Idempotency-Key does not match remediation request_id");
+        if (fields.equals(NOTIFY_FIELDS)) {
+            return new ActionContract("notify-security", "DELIVERED", true);
         }
-
-        String action = requireText(body.get("action"), "action", 32);
-        String purpose = requireText(body.get("purpose"), "purpose", 64);
-        requireText(body.get("resource"), "resource", 512);
-
-        if ("revoke-credential".equals(action)) {
-            if (!fields.equals(REVOKE_FIELDS) || !"incident-remediation".equals(purpose)) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Remediation body does not match the revoke-credential execution contract");
-            }
-            return new ActionContract(action, "REVOKED", false);
-        }
-
-        if ("notify-security".equals(action)) {
-            if (!fields.equals(NOTIFY_FIELDS) || !"incident-notification".equals(purpose)) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Remediation body does not match the notify-security execution contract");
-            }
-            return new ActionContract(action, "DELIVERED", true);
-        }
-
-        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Remediation action is not supported");
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Remediation body does not match a supported closed execution contract");
     }
 
     private static VerificationRequest validateVerificationBody(JsonNode body) {
@@ -192,10 +165,9 @@ public class SecurityRemediationAdapterService {
 
     private static int maxLength(String field) {
         return switch (field) {
-            case "request_id", "incident_id", "credential_id" -> 128;
-            case "action", "severity" -> 32;
-            case "purpose" -> 64;
-            case "reason", "recipient", "resource" -> 512;
+            case "incident_id", "credential_id" -> 128;
+            case "severity" -> 32;
+            case "reason", "recipient" -> 512;
             case "summary" -> 1024;
             default -> 512;
         };
