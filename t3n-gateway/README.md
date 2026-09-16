@@ -54,6 +54,8 @@ T3N_TRUST_FLOOR_STORE_PATH
 
 `T3N_API_KEY` é a credencial administrativa do Tenant e continua usando autenticação de sessão secp256k1; mantenha nela a chave privada `0x` de 32 bytes. Proposal Agent e Protected Executor podem usar credenciais secp256k1 legadas distintas, mas o fluxo recomendado é provisioná-los como agentes organization-owned e usar as credenciais opacas `t3n_key_<key-id>.<secret>` emitidas pela T3N.
 
+`readGatewayConfig()` valida esses formatos antes de qualquer tentativa de conexão. `T3N_API_KEY` aceita somente `0x` seguido por exatamente 64 caracteres hexadecimais; `T3N_AGENT_API_KEY` e `T3N_EXECUTOR_API_KEY`, quando presentes, aceitam somente esse mesmo formato secp256k1 ou `t3n_key_<key-id>.<secret>`. Formato desconhecido ou malformado encerra a inicialização sem incluir o valor da credencial na mensagem de erro.
+
 Os valores opcionais podem continuar usando os defaults já definidos pelo runtime. Credenciais reais devem existir somente no secret store/ambiente do serviço. Os requisitos abaixo são adicionais ou específicos de cada etapa e não substituem essa configuração-base.
 
 ## Autenticação dos três principais
@@ -68,6 +70,8 @@ O gateway reconhece explicitamente dois formatos, sem converter um no outro:
 Para `t3n_key_*`, o gateway valida a identidade com `discoverWhoami`, obtém o DID canônico retornado pela própria T3N e executa contratos por `invoke`. A verificação efetiva de delegação usa `discoverCheckDelegation`. Esse caminho não chama `eth_get_address`, `metamask_sign`, `createEthAuthInput`, `handshake` nem autenticação de sessão. Credenciais opacas inválidas ou expiradas falham fechadas e são removidas de mensagens de erro/log antes de serem propagadas.
 
 A credencial `t3n_key_*` é retornada uma única vez ao criar o agente e não deve ser impressa, commitada ou armazenada em evidence. Registre o DID retornado no provisionamento para conferência operacional, mas o runtime considera canônico o DID obtido pela autenticação T3N daquele principal.
+
+Além de manter as credenciais distintas por valor, o runtime exige separação dos DIDs canônicos autenticados. Tenant, Proposal Agent e Protected Executor, quando configurados e autenticados, devem resolver para DIDs diferentes entre si. Um guardião compartilhado aplica essa regra em status/readiness, reconnect e operações de sessão; qualquer reutilização de DID mantém a topologia `ready: false` e bloqueia delegações ou execuções dependentes da segregação até que as identidades autenticadas voltem a ser distintas. Quando um principal opcional não está configurado, somente os DIDs efetivamente autenticados são comparados.
 
 ## Ordem de provisionamento
 
@@ -295,7 +299,9 @@ Os comandos administrativos e o runtime falham fechados quando os artefatos, cre
 - `agent:card:publish` recusa execução sem `T3N_AGENT_API_KEY` ou `T3N_ORG_DID` canônico;
 - `agent:card:verify` recusa execução sem `T3N_AGENT_API_KEY`;
 - `contract:register` falha se o WASM runtime estiver ausente ou ilegível;
+- `T3N_API_KEY` fora do formato secp256k1 exato e credenciais Proposal/Executor fora dos formatos suportados são rejeitadas antes de iniciar conexões;
 - `t3n_key_*` malformada, inválida ou expirada não é reinterpretada como chave privada e não cai no fluxo secp256k1;
+- DIDs canônicos repetidos entre Tenant, Proposal Agent e Protected Executor tornam readiness inválido e bloqueiam operações que dependem da segregação;
 - falhas de autenticação/rede do keyed transport não expõem a API key no status ou na mensagem propagada;
 - falhas de `agentCardSet`/`agentCardPublish` são sanitizadas contra as credenciais Tenant/Admin e Proposal Agent antes de serem propagadas;
 - URLs de remediation devem ser HTTPS;
