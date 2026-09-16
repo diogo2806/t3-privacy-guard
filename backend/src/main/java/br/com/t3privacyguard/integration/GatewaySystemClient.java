@@ -22,6 +22,15 @@ public class GatewaySystemClient {
     private static final List<String> MEMBER_DELEGATION_STATES = List.of("ACTIVE", "SCHEDULED", "REVOKED", "NOT_GRANTED", "UNKNOWN");
     private static final List<String> EFFECTIVE_DELEGATION_STATES = List.of("ACTIVE", "DENIED", "UNKNOWN");
     private static final List<String> ENTERPRISE_INTEGRATION_STATES = List.of("READY", "INCOMPLETE", "MISMATCH", "UNKNOWN");
+    private static final List<String> ENTERPRISE_INTEGRATION_DIAGNOSTIC_CODES = List.of(
+        "NONE",
+        "POLICY_UNAVAILABLE",
+        "POLICY_INVALID",
+        "PRIVATE_CONFIGURATION_UNAVAILABLE",
+        "ENDPOINT_CONFIGURATION_INVALID",
+        "DELEGATION_UNAVAILABLE",
+        "T3N_CONTROL_PLANE_UNAVAILABLE"
+    );
 
     private final HttpClient httpClient;
     private final ObjectMapper mapper;
@@ -167,6 +176,7 @@ public class GatewaySystemClient {
     public record EnterpriseVerificationContract(String action, String expectedState) {}
     public record EnterpriseIntegrationReadiness(
         String state,
+        String diagnosticCode,
         boolean executionConfigured,
         boolean verificationConfigured,
         boolean credentialConfigured,
@@ -184,6 +194,9 @@ public class GatewaySystemClient {
     ) {
         public EnterpriseIntegrationReadiness {
             state = ENTERPRISE_INTEGRATION_STATES.contains(state) ? state : "UNKNOWN";
+            diagnosticCode = ENTERPRISE_INTEGRATION_DIAGNOSTIC_CODES.contains(diagnosticCode)
+                ? diagnosticCode
+                : "T3N_CONTROL_PLANE_UNAVAILABLE";
             executionHost = safeHostname(executionHost);
             verificationHost = safeHostname(verificationHost);
             supportedExecutableActions = safeList(supportedExecutableActions);
@@ -201,7 +214,14 @@ public class GatewaySystemClient {
                 && executorDelegationAllowsVerificationHost
                 && !supportedExecutableActions.isEmpty()
                 && !supportedVerifiedActions.isEmpty();
-            if ("READY".equals(state) && !coherentReady) state = "UNKNOWN";
+            if ("READY".equals(state) && !coherentReady) {
+                state = "UNKNOWN";
+                diagnosticCode = "T3N_CONTROL_PLANE_UNAVAILABLE";
+            } else if ("UNKNOWN".equals(state)) {
+                if ("NONE".equals(diagnosticCode)) diagnosticCode = "T3N_CONTROL_PLANE_UNAVAILABLE";
+            } else {
+                diagnosticCode = "NONE";
+            }
         }
     }
     public record ActivityEvent(
