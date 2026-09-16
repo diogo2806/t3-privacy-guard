@@ -31,6 +31,7 @@ function status(agentRegistrationState: SystemStatus['agentRegistrationState']):
     protectedRemediationReady: true,
     enterpriseIntegrationState: 'READY',
     enterpriseIntegrationReady: true,
+    firstPartyRemediationAdapterConfigured: true,
     enterpriseExecutionConfigured: true,
     enterpriseVerificationConfigured: true,
     enterpriseCredentialConfigured: true,
