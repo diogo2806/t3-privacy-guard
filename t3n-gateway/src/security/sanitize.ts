@@ -1,5 +1,5 @@
 const PRIVATE_KEY_PATTERN = /\b0x[a-fA-F0-9]{64}\b/g;
-const ORG_AGENT_API_KEY_PATTERN = /\bt3n_key_[A-Za-z0-9]+(?:\.[A-Za-z0-9_-]+)?/g;
+const ORG_AGENT_API_KEY_PATTERN = /\bt3n_key_[A-Za-z0-9._-]+/g;
 
 export type T3nErrorCategory = 'AUTHENTICATION' | 'NETWORK' | 'TRUST_ANCHOR' | 'UNKNOWN';
 
