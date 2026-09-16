@@ -91,6 +91,8 @@ async function ensurePrivateContractMap(tail: string): Promise<string> {
 }
 
 const secretsMapName = await ensurePrivateContractMap('secrets');
+const replayMapName = await ensurePrivateContractMap('privacy-guard-execution-nonces');
+
 await executeControl('map-entry-set', { map_name: secretsMapName, key: 'security_api_key', value: securityApiKey });
 await executeControl('map-entry-set', { map_name: secretsMapName, key: 'security_api_url', value: securityApiUrl });
 await executeControl('map-entry-set', { map_name: secretsMapName, key: 'security_verification_url', value: securityVerificationUrl });
@@ -130,7 +132,6 @@ if (previousVerificationKey) {
   seededKeys.push(previousKeyEntry, previousExpiryEntry);
 }
 
-const replayMapName = await ensurePrivateContractMap('privacy-guard-execution-nonces');
 console.info(JSON.stringify({
   secretsMapName,
   replayMapName,
