@@ -1,0 +1,21 @@
+package z:privacy-guard@0.4.0;
+
+world privacy-guard {
+    import host:tenant/tenant-context@1.0.0;
+    import host:interfaces/logging@2.1.0;
+    import host:interfaces/kv-store@2.1.0;
+    import host:interfaces/http-with-placeholders@2.1.0;
+    export contracts;
+}
+
+interface contracts {
+    record generic-input {
+        input: option<list<u8>>,
+        user-profile: option<list<u8>>,
+        context: option<list<u8>>,
+    }
+
+    evaluate-action: func(req: generic-input) -> result<list<u8>, string>;
+    execute-remediation: func(req: generic-input) -> result<list<u8>, string>;
+    verify-remediation: func(req: generic-input) -> result<list<u8>, string>;
+}

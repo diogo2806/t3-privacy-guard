@@ -4,13 +4,27 @@ Este diretório contém o runtime do gateway e os comandos administrativos neces
 
 ## Build do container
 
-O Dockerfile do gateway também compila o contrato Rust localizado em `contracts/privacy-guard`. Por isso, o contexto de build deve ser a raiz do repositório, mantendo o Dockerfile em `t3n-gateway/Dockerfile`:
+O serviço do T3N Gateway usa `t3n-gateway` como contexto/base do build no EasyPanel. O `Dockerfile` é, portanto, autocontido nesse diretório e não tenta executar `COPY` de caminhos irmãos ou da raiz do monorepo.
+
+O código-fonte canônico do contrato continua em `contracts/privacy-guard`. Para que o Docker consiga compilá-lo sem acessar arquivos fora do contexto, `t3n-gateway/contract-source` mantém somente os inputs necessários ao build (`Cargo.toml`, `src` e `wit`). Esse espelho deve permanecer byte a byte igual ao contrato canônico.
+
+Sempre que `contracts/privacy-guard/Cargo.toml`, `contracts/privacy-guard/src` ou `contracts/privacy-guard/wit` mudar, regenere o espelho antes de commitar:
 
 ```bash
-docker build -f t3n-gateway/Dockerfile -t t3-privacy-guard-gateway .
+cd t3n-gateway
+npm run contract:sync-build-context
+npm test
 ```
 
-No EasyPanel, use a raiz do repositório como contexto/base de build e `t3n-gateway/Dockerfile` como Dockerfile. O runtime final não contém o código-fonte TypeScript nem as dependências de desenvolvimento. Ele contém apenas as dependências Node de produção, `dist`, a policy versionada e o WASM compilado.
+O teste `contract-source-sync.test.ts` falha se o conjunto de arquivos ou qualquer conteúdo do espelho divergir da fonte canônica.
+
+Build local equivalente ao deploy:
+
+```bash
+docker build -t t3-privacy-guard-gateway t3n-gateway
+```
+
+No EasyPanel, mantenha `t3n-gateway` como contexto/base de build e use o `Dockerfile` desse diretório. O runtime final não contém o código-fonte TypeScript nem as dependências de desenvolvimento. Ele contém apenas as dependências Node de produção, `dist`, a policy versionada e o WASM compilado do contrato sincronizado.
 
 A imagem define caminhos estáveis para os artefatos administrativos:
 
