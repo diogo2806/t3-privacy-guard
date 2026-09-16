@@ -20,8 +20,8 @@ export interface PrincipalExecutionRequest<TInput = unknown> {
   readonly contract_id: string;
   readonly contract_version: string;
   readonly function_name: string;
-  readonly pii_did?: string;
-  readonly input?: TInput;
+  readonly pii_did: string;
+  readonly input: TInput;
 }
 
 export interface PrincipalDelegationCheckRequest {
