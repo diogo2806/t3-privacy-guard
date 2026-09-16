@@ -19,6 +19,7 @@ import { createActivityRouter } from './http/activity-router.js';
 import { createAgentRouter } from './http/agent-router.js';
 import { createAiAgentRouter } from './http/ai-agent-router.js';
 import { createContractRouter } from './http/contract-router.js';
+import { createEvidenceRouter } from './http/evidence-router.js';
 import { createExecutorRouter } from './http/executor-router.js';
 import { createStatusRouter } from './http/status-router.js';
 import { createPrivacyGuardMcpHandler } from './mcp/privacy-tools.js';
@@ -75,6 +76,7 @@ app.all('/mcp', requireBearerServiceToken(config.gatewayServiceToken), (request,
 app.use('/internal', requireServiceToken(config.gatewayServiceToken));
 app.use('/internal/t3n', createStatusRouter(tenantSession));
 app.use('/internal/t3n/activity', createActivityRouter(activityLogService, config.gatewayServiceToken));
+app.use('/internal/evidence', createEvidenceRouter());
 app.use('/internal/agent', createAgentRouter(agentSession, delegationService, agentCardRegistry, config.gatewayServiceToken));
 app.use('/internal/executor', createExecutorRouter(executorSession, executorDelegationService, config.gatewayServiceToken));
 app.use('/internal/ai-agent', createAiAgentRouter(aiAgentService, config.gatewayServiceToken));
