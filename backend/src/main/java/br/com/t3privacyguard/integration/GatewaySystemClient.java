@@ -1,5 +1,6 @@
 package br.com.t3privacyguard.integration;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.net.URI;
@@ -53,6 +54,31 @@ public class GatewaySystemClient {
     public Optional<ContractIdentity> contractIdentity() {
         return get("/internal/contracts/privacy-guard/identity", ContractIdentity.class, true)
             .filter(identity -> identity.contractVersion() != null && !identity.contractVersion().isBlank());
+    }
+
+    public EvidenceBundle evidenceBundle() {
+        try {
+            HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/internal/evidence/latest"))
+                .GET()
+                .timeout(Duration.ofSeconds(5))
+                .header("Accept", "application/json")
+                .header(SERVICE_TOKEN_HEADER, serviceToken)
+                .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 204) return new EvidenceBundle("ABSENT", null, null);
+            if (response.statusCode() == 409) return new EvidenceBundle("INVALID", null, null);
+            if (response.statusCode() < 200 || response.statusCode() >= 300 || response.body() == null || response.body().isBlank()) {
+                return new EvidenceBundle("UNAVAILABLE", null, null);
+            }
+            JsonNode root = mapper.readTree(response.body());
+            if (!"AVAILABLE".equals(root.path("state").asText()) || !root.path("manifest").isObject() || !root.path("testnet").isObject()) {
+                return new EvidenceBundle("INVALID", null, null);
+            }
+            return new EvidenceBundle("AVAILABLE", root.get("manifest"), root.get("testnet"));
+        } catch (IOException | InterruptedException | RuntimeException ex) {
+            if (ex instanceof InterruptedException) Thread.currentThread().interrupt();
+            return new EvidenceBundle("UNAVAILABLE", null, null);
+        }
     }
 
     public Optional<DelegationStatus> delegationStatus(String contractId) {
@@ -118,6 +144,7 @@ public class GatewaySystemClient {
         String a2aConfigurationCheckedAt
     ) {}
     public record ContractIdentity(String contractId, String contractVersion) {}
+    public record EvidenceBundle(String state, JsonNode manifest, JsonNode testnet) {}
     public record DelegationStatus(
         String memberState,
         String effectiveState,
