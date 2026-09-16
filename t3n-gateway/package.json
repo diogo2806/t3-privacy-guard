@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test src/**/*.test.ts",
+    "contract:sync-build-context": "node scripts/sync-contract-source.mjs",
     "contract:register": "node dist/scripts/register-contract.js",
     "contract:setup-policy": "node dist/scripts/setup-policy.js",
     "contract:setup-remediation": "node dist/scripts/setup-remediation-secrets.js",
