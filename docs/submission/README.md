@@ -34,7 +34,7 @@ Each live evidence bundle records the full public Git commit SHA and whether the
 
 ## Executive Demo presentation contract
 
-`Executive demo` is a presentation-only projection of the same `SystemStatus`, selected scenario, `AgentAnalysis`, `ActionProposal`, `PolicyDecision`, `RemediationExecution` and `EvidenceBundle` already owned by the dashboard. It does not create a second incident, decision, authorization, execution, verification or evidence pipeline. The only action in the view is navigation to the technical Evidence area; the Manual da Tela remains available through the standard `BookOpen` dialog. All state-changing controls stay in `Protection flow`.
+`Executive demo` is a presentation-only projection of the same `SystemStatus`, selected scenario, `AgentAnalysis`, `ActionProposal`, `PolicyDecision`, `RemediationExecution` and `EvidenceBundle` already owned by the dashboard. It does not create a second incident, decision, authorization, execution, verification or evidence pipeline. The only action in the view is navigation to the technical Evidence area; the Screen Manual remains available through the standard `BookOpen` dialog. All state-changing controls stay in `Protection flow`.
 
 The presentation order is intentionally **problem → observed result → measured impact → authority mechanism → proof**. The first headline states the business value before exposing architecture. The technical thesis remains visible in Trust path as the concise explanation of how the control works.
 
@@ -57,7 +57,7 @@ Expected 1440×900 composition:
 +--------------------------------------------------------------------------------+
 | Proof at a glance: commit/tree/network/contract/PASS-FAIL-NOT RUN/DIDs/...     |
 +--------------------------------------------------------------------------------+
-| [Open technical evidence]                                      [Manual da Tela]|
+| [Open technical evidence]                                      [Screen Manual] |
 +--------------------------------------------------------------------------------+
 ```
 
@@ -370,7 +370,7 @@ Only bounded Member-grant fields and the exact checked function/scope labels are
 13. Switch to Notify security contact. Confirm the app-visible contract contains logical private ref verified_email, Plaintext in browser = NO, Plaintext in backend = NO and Resolution boundary = T3N protected execution.
 14. For an executable notify-security proposal, confirm human authorization remains required and the UI never renders a raw profile marker/address.
 15. Execute only in a compatible synthetic T3N profile environment. Accept Delivery verified only after independent read-back is VERIFIED + DELIVERED + recipient_resolved=true.
-16. Open Manual da Tela and confirm it explains logical refs, Rust-only marker creation, plaintext visibility, action-specific required fields, human authorization, fail-closed placeholder errors and verification semantics.
+16. Open Screen Manual and confirm it explains logical refs, Rust-only marker creation, plaintext visibility, action-specific required fields, human authorization, fail-closed placeholder errors and verification semantics.
 17. Open Evidence. Confirm 0 FAIL, T3N_TESTNET, full Source commit, Source tree CLEAN, separate DIDs, contract/WASM/policy provenance and honest NOT_RUN boundaries.
 18. Treat LIVE-PROFILE-PLACEHOLDER-RESOLUTION as proof only when it is actually PASS from a compatible testnet run; local tests/docs do not upgrade NOT_RUN.
 ```
@@ -498,7 +498,7 @@ Trust model:
 | REDACT removes an actual normal value before protected HTTP egress | PROVED LOCAL; LIVE OPTIONAL | `remediation.rs`, `RemediationPanel.test.tsx`; `LIVE-NORMAL-PAYLOAD-MINIMIZATION` when executed |
 | Controlled live payload-minimization sentinel proof | NOT CLAIMED until matching live run | `LIVE-NORMAL-PAYLOAD-MINIMIZATION` |
 | High-confidence prompt literals are blocked before provider execution for supported classes, with shared Java/TypeScript conformance fixtures | PROVED LOCAL | prompt/privacy tests + shared corpus |
-| Prompt guard is partial/non-semantic and does not certify accepted text as PII-free | PROVED LOCAL | frontend copy/tests + Manual da Tela |
+| Prompt guard is partial/non-semantic and does not certify accepted text as PII-free | PROVED LOCAL | frontend copy/tests + Screen Manual |
 | Four enterprise presets map to existing policy actions without authorizing them | PROVED LOCAL | `scenarioDefinitions.ts` + catalog tests |
 | Business Outcome keeps DENY/REDACT/ALLOW/authorization/PENDING_VERIFICATION/COMPLETED semantically distinct | PROVED LOCAL | `BusinessOutcomeSummary.test.tsx` |
 | Executive Demo projects existing dashboard runtime state without protected controls | PROVED LOCAL | Executive Demo tests |
@@ -834,7 +834,7 @@ When preparing egress evidence, configure `SECURITY_API_URL` and separate `SECUR
 11. Notify security contact showing `Logical private reference = verified_email`, `Plaintext in browser = NO`, `Plaintext in backend = NO`, `Resolution boundary = T3N protected execution`, and no address/raw marker.
 12. Notify authorization/execution state showing human authorization separately from PENDING verification.
 13. Notify completed state only when UI reports `DELIVERED — VERIFIED`; if compatible live profile evidence is absent, keep `LIVE-PROFILE-PLACEHOLDER-RESOLUTION = NOT_RUN` visible.
-14. Manual da Tela with notification purpose, fields, actions, permissions, fail-closed errors and verification semantics.
+14. Screen Manual with notification purpose, fields, actions, permissions, fail-closed errors and verification semantics.
 15. Evidence summary/outcomes/provenance with full source commit/tree, DIDs, contract/WASM/policy provenance and honest PASS/FAIL/NOT_RUN.
 
 Never capture passwords, cookies, T3N keys, provider key, service/capability keys, audit-integrity key, remediation secret, notification authorization proof, resolved profile PII, `.env` or raw logs.
