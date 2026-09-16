@@ -30,14 +30,16 @@ function baseDependencies(): AgentSessionDependencies {
 test('keeps 0x credentials on the secp256k1 session transport', async () => {
   let secpCalls = 0;
   let orgAgentCalls = 0;
-  const dependencies = baseDependencies();
-  dependencies.authenticateSecp256k1 = async () => {
-    secpCalls += 1;
-    return { client: fakeClient(), did: agentDid, trustManifestVersion: 7 };
-  };
-  dependencies.authenticateOrgAgent = async () => {
-    orgAgentCalls += 1;
-    return { did: agentDid, trustManifestVersion: 7 };
+  const dependencies: AgentSessionDependencies = {
+    ...baseDependencies(),
+    authenticateSecp256k1: async () => {
+      secpCalls += 1;
+      return { client: fakeClient(), did: agentDid, trustManifestVersion: 7 };
+    },
+    authenticateOrgAgent: async () => {
+      orgAgentCalls += 1;
+      return { did: agentDid, trustManifestVersion: 7 };
+    },
   };
 
   const session = new AgentSession(config, trustFloorStore, secpKey, 'Agent', dependencies);
@@ -57,25 +59,27 @@ test('uses the stateless keyed transport for organization-owned t3n_key credenti
   let orgAgentCalls = 0;
   let invokeCalls = 0;
   let delegationCalls = 0;
-  const dependencies = baseDependencies();
-  dependencies.authenticateSecp256k1 = async () => {
-    secpCalls += 1;
-    throw new Error('private-key authentication must not run');
-  };
-  dependencies.authenticateOrgAgent = async (apiKey) => {
-    orgAgentCalls += 1;
-    assert.equal(apiKey, orgAgentKey);
-    return { did: agentDid, trustManifestVersion: 9 };
-  };
-  dependencies.invokeOrgAgent = async <T>(apiKey) => {
-    invokeCalls += 1;
-    assert.equal(apiKey, orgAgentKey);
-    return { transport: 'stateless' } as T;
-  };
-  dependencies.checkOrgAgentDelegation = async (apiKey) => {
-    delegationCalls += 1;
-    assert.equal(apiKey, orgAgentKey);
-    return { authorised: true };
+  const dependencies: AgentSessionDependencies = {
+    ...baseDependencies(),
+    authenticateSecp256k1: async () => {
+      secpCalls += 1;
+      throw new Error('private-key authentication must not run');
+    },
+    authenticateOrgAgent: async (apiKey) => {
+      orgAgentCalls += 1;
+      assert.equal(apiKey, orgAgentKey);
+      return { did: agentDid, trustManifestVersion: 9 };
+    },
+    invokeOrgAgent: async <T>(apiKey) => {
+      invokeCalls += 1;
+      assert.equal(apiKey, orgAgentKey);
+      return { transport: 'stateless' } as T;
+    },
+    checkOrgAgentDelegation: async (apiKey) => {
+      delegationCalls += 1;
+      assert.equal(apiKey, orgAgentKey);
+      return { authorised: true };
+    },
   };
 
   const session = new AgentSession(config, trustFloorStore, orgAgentKey, 'Agent', dependencies);
@@ -116,9 +120,11 @@ test('rejects malformed t3n_key credentials before authentication', async () => 
 });
 
 test('fails closed and redacts an opaque credential from authentication failures', async () => {
-  const dependencies = baseDependencies();
-  dependencies.authenticateOrgAgent = async () => {
-    throw new Error(`Unauthorized credential ${orgAgentKey}`);
+  const dependencies: AgentSessionDependencies = {
+    ...baseDependencies(),
+    authenticateOrgAgent: async () => {
+      throw new Error(`Unauthorized credential ${orgAgentKey}`);
+    },
   };
   const session = new AgentSession(config, trustFloorStore, orgAgentKey, 'Agent', dependencies);
 
@@ -134,9 +140,11 @@ test('fails closed and redacts an opaque credential from authentication failures
 });
 
 test('sanitizes stateless invoke network failures without changing readiness identity', async () => {
-  const dependencies = baseDependencies();
-  dependencies.invokeOrgAgent = async () => {
-    throw new Error(`fetch failed for ${orgAgentKey}`);
+  const dependencies: AgentSessionDependencies = {
+    ...baseDependencies(),
+    invokeOrgAgent: async () => {
+      throw new Error(`fetch failed for ${orgAgentKey}`);
+    },
   };
   const session = new AgentSession(config, trustFloorStore, orgAgentKey, 'Protected executor', dependencies);
   await session.connect();
