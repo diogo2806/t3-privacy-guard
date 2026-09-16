@@ -240,6 +240,6 @@ describe('ExecutiveDemoView', () => {
     await user.click(screen.getByRole('button', { name: 'Open technical evidence' }));
     expect(onOpenEvidence).toHaveBeenCalledTimes(1);
     const manual = screen.getByRole('button', { name: 'Open Screen Manual' });
-    expect(manual).toHaveAttribute('title', 'Manual da Tela / Screen Manual');
+    expect(manual).toHaveAttribute('title', 'Open Screen Manual');
   });
 });
