@@ -52,7 +52,7 @@ REMEDIATION_REPLAY_STORE_PATH
 T3N_TRUST_FLOOR_STORE_PATH
 ```
 
-`T3N_API_KEY` é a credencial do Tenant e continua usando autenticação de sessão secp256k1; mantenha nela a chave privada `0x` de 32 bytes. Proposal Agent e Protected Executor podem usar credenciais secp256k1 legadas distintas, mas o fluxo recomendado é provisioná-los como agentes organization-owned e usar as credenciais opacas `t3n_key_<key-id>.<secret>` emitidas pela T3N.
+`T3N_API_KEY` é a credencial administrativa do Tenant e continua usando autenticação de sessão secp256k1; mantenha nela a chave privada `0x` de 32 bytes. Proposal Agent e Protected Executor podem usar credenciais secp256k1 legadas distintas, mas o fluxo recomendado é provisioná-los como agentes organization-owned e usar as credenciais opacas `t3n_key_<key-id>.<secret>` emitidas pela T3N.
 
 Os valores opcionais podem continuar usando os defaults já definidos pelo runtime. Credenciais reais devem existir somente no secret store/ambiente do serviço. Os requisitos abaixo são adicionais ou específicos de cada etapa e não substituem essa configuração-base.
 
@@ -135,9 +135,17 @@ npm run contract:setup-remediation
 
 O script cria/atualiza somente os mapas privados necessários ao contrato, incluindo a chave da integração protegida, URLs HTTPS, chave pública de autorização e o mapa de nonces. Valores sensíveis não são impressos no resultado.
 
-### 4. Provisionar Proposal Agent e Protected Executor
+### 4. Provisionar organização, Proposal Agent e Protected Executor
 
-Crie dois agentes distintos sob a organização T3N do Tenant usando o fluxo oficial de criação de agent (`createAgent`/comando equivalente da versão instalada da CLI). Para cada criação, capture imediatamente os três valores retornados pela T3N:
+Use o DID canônico da organização T3N proprietária dos agentes. Grave esse DID público explicitamente no ambiente do gateway:
+
+```text
+T3N_ORG_DID=did:t3n:<organization-id>
+```
+
+`T3N_ORG_DID` nunca deve ser derivado de `T3N_API_KEY`, `T3N_AGENT_API_KEY`, endereço Ethereum ou outro segredo. Ele deve ser o DID canônico retornado/confirmado pelo fluxo oficial de organização da T3N.
+
+Crie dois agentes distintos sob essa organização usando o fluxo oficial atual, por exemplo `t3n agent create --org <did> --name <name> ...` ou a API equivalente da versão instalada. Para cada criação, capture imediatamente os três valores retornados pela T3N:
 
 ```text
 agent DID
@@ -156,13 +164,14 @@ Depois do deploy, confirme pelo status/readiness que `agentDid` e `executorDid` 
 
 ### 5. Publicar e verificar o Agent Card
 
-Requisito adicional:
+Requisitos adicionais:
 
 ```text
+T3N_ORG_DID
 T3N_AGENT_API_KEY
 ```
 
-`T3N_AGENT_API_KEY` é a credencial exclusiva do Proposal Agent e deve ser diferente de `T3N_API_KEY` e `T3N_EXECUTOR_API_KEY`. O Proposal Agent permanece limitado a `evaluate-action`.
+`T3N_API_KEY` continua sendo a credencial administrativa secp256k1 do Tenant/Admin. `T3N_AGENT_API_KEY` continua sendo exclusivamente a credencial do Proposal Agent e deve ser diferente de `T3N_API_KEY` e `T3N_EXECUTOR_API_KEY`. Ela não é copiada, convertida nem reinterpretada como `T3N_API_KEY`.
 
 Quando `A2A_PUBLIC_URL` estiver configurada, ela deve apontar para o endpoint HTTPS `/a2a` externamente alcançável.
 
@@ -173,14 +182,28 @@ npm run agent:card:publish
 npm run agent:card:verify
 ```
 
-A publicação gera o card em `/data/agent-card.json`, usa a CLI T3N instalada com as dependências de produção e depois verifica o card publicado. A publicação é uma operação mutável e pode consumir créditos T3N.
+A publicação gera o card em `/data/agent-card.json`, autentica o Tenant/Admin com `T3N_API_KEY`, cria o cliente administrativo de organização a partir dessa sessão e chama `agentCardSet`/`agentCardPublish` com `ownerDid=T3N_ORG_DID`. O `agentDid` é obtido exclusivamente pela autenticação T3N do Proposal Agent (`AgentSession.getAgentDid()`), inclusive quando sua credencial é `t3n_key_*`. O fluxo não executa `t3n agent host-card`, não cria subprocesso de CLI e não assume que o DID da organização é igual ao DID do agente.
+
+Após a publicação, `AgentCardRegistry.verify()` resolve novamente o registro usando a identidade autenticada do Proposal Agent. O comando só conclui quando o estado chega a `REGISTERED`; falha de publicação, resolução ou mismatch permanece fail-closed. A publicação é uma operação mutável e pode consumir créditos T3N.
+
+Fluxo de identidade da publicação:
+
+```text
+Tenant/Admin secp256k1 (T3N_API_KEY)
+        |
+        +--> organização (T3N_ORG_DID)
+                 |
+                 +--> Proposal Agent (DID autenticado via T3N_AGENT_API_KEY)
+                         |
+                         +--> Agent Card set/publish
+```
 
 ### 6. Validar readiness e delegações
 
 Depois do provisionamento, mantenha as três credenciais separadas:
 
 ```text
-T3N_API_KEY          -> Tenant, sessão secp256k1
+T3N_API_KEY          -> Tenant/Admin, sessão secp256k1
 T3N_AGENT_API_KEY    -> Proposal Agent: evaluate-action
 T3N_EXECUTOR_API_KEY -> Protected Executor: execute-remediation + verify-remediation
 ```
@@ -202,7 +225,10 @@ setup policy + read-back
 setup remediation private maps
       |
       v
-provision Proposal Agent + Protected Executor
+provision organization + Proposal Agent + Protected Executor
+      |
+      v
+persist T3N_ORG_DID and agent credentials
       |
       v
 publish + verify Agent Card
@@ -216,10 +242,12 @@ validate readiness + effective delegations
 Os comandos administrativos e o runtime falham fechados quando os artefatos, credenciais ou variáveis obrigatórios não existem. Em particular:
 
 - `contract:setup-policy` e `contract:setup-remediation` recusam execução sem `T3N_CONTRACT_NUMERIC_ID` válido;
-- `agent:card:publish` e `agent:card:verify` recusam execução sem `T3N_AGENT_API_KEY`;
+- `agent:card:publish` recusa execução sem `T3N_AGENT_API_KEY` ou `T3N_ORG_DID` canônico;
+- `agent:card:verify` recusa execução sem `T3N_AGENT_API_KEY`;
 - `contract:register` falha se o WASM runtime estiver ausente ou ilegível;
 - `t3n_key_*` malformada, inválida ou expirada não é reinterpretada como chave privada e não cai no fluxo secp256k1;
 - falhas de autenticação/rede do keyed transport não expõem a API key no status ou na mensagem propagada;
+- falhas de `agentCardSet`/`agentCardPublish` são sanitizadas contra as credenciais Tenant/Admin e Proposal Agent antes de serem propagadas;
 - URLs de remediation devem ser HTTPS;
 - chaves privadas, API keys e segredos de integração devem existir somente nas variáveis/secret store do ambiente de execução;
 - nenhum segredo deve ser copiado para a imagem, commitado no repositório ou incluído em logs/evidence.
