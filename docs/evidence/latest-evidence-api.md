@@ -10,11 +10,11 @@ Returned only when both live evidence artifacts exist and `EvidenceService` vali
 
 ### `204 No Content`
 
-Returned when no live evidence bundle has been generated yet. This is an expected empty state, not a missing endpoint and not proof of any T3N outcome. The frontend already treats a no-content response as an empty evidence state and renders the existing `No live T3N evidence has been generated yet.` message with the `Refresh evidence` action.
+Returned when neither live evidence artifact exists yet. This is an expected empty state, not a missing endpoint and not proof of any T3N outcome. `EvidenceService.latestState()` represents this condition explicitly before the controller chooses the HTTP response, so the normal empty state does not depend on `EvidenceNotFoundException` or the global exception mapper. The frontend already treats a no-content response as an empty evidence state and renders the existing `No live T3N evidence has been generated yet.` message with the `Refresh evidence` action.
 
 ### Error response
 
-If evidence files are present but invalid or inconsistent, validation continues to fail closed. A malformed, mismatched or partially trustworthy bundle must not be converted into `204`, `PASS` or synthetic metadata.
+If only one evidence artifact exists, the bundle is incomplete and fails closed instead of being reported as unavailable. If both files exist but are malformed, mismatched or otherwise inconsistent, validation also fails closed. These states must not be converted into `204`, `PASS` or synthetic metadata.
 
 ## Generation boundary
 
