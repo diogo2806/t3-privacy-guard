@@ -90,6 +90,21 @@ describe('enterprise integration readiness', () => {
     assert.deepEqual(result.evaluationOnlyActions, ['create-incident', 'isolate-account']);
   });
 
+  it('reports INCOMPLETE when no enterprise execution integration is configured', () => {
+    const result = evaluate({
+      executionUrl: null,
+      verificationUrl: null,
+      credentialConfigured: false,
+      executorDelegation: delegation({ allowedHosts: [] }),
+    });
+    assert.equal(result.state, 'INCOMPLETE');
+    assert.equal(result.executionConfigured, false);
+    assert.equal(result.verificationConfigured, false);
+    assert.equal(result.credentialConfigured, false);
+    assert.equal(result.executorDelegationAllowsExecutionHost, false);
+    assert.equal(result.executorDelegationAllowsVerificationHost, false);
+  });
+
   it('reports INCOMPLETE when a required endpoint is absent', () => {
     assert.equal(evaluate({ verificationUrl: null }).state, 'INCOMPLETE');
   });
