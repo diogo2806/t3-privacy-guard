@@ -37,10 +37,6 @@ class SecurityRemediationAdapterServiceTest {
         when(operations.findByRequestId("req-1")).thenReturn(Optional.empty());
         JsonNode body = json("""
             {
-              "request_id":"req-1",
-              "action":"revoke-credential",
-              "resource":"credential:cred-1",
-              "purpose":"incident-remediation",
               "incident_id":"inc-1",
               "credential_id":"cred-1",
               "reason":"credential exposed"
@@ -63,10 +59,6 @@ class SecurityRemediationAdapterServiceTest {
         when(operations.findByRequestId("req-notify")).thenReturn(Optional.empty());
         JsonNode body = json("""
             {
-              "request_id":"req-notify",
-              "action":"notify-security",
-              "resource":"incident:inc-2",
-              "purpose":"incident-notification",
               "incident_id":"inc-2",
               "severity":"HIGH",
               "summary":"SENTINEL_MUST_EGRESS",
@@ -86,20 +78,16 @@ class SecurityRemediationAdapterServiceTest {
     }
 
     @Test
-    void rejectsRequestIdThatDoesNotMatchIdempotencyKey() throws Exception {
+    void rejectsMissingIdempotencyKeyBeforePersistence() throws Exception {
         JsonNode body = json("""
             {
-              "request_id":"req-body",
-              "action":"revoke-credential",
-              "resource":"credential:cred-1",
-              "purpose":"incident-remediation",
               "incident_id":"inc-1",
               "credential_id":"cred-1",
               "reason":"credential exposed"
             }
             """);
 
-        assertStatus(HttpStatus.CONFLICT, () -> service.execute("req-header", body));
+        assertStatus(HttpStatus.BAD_REQUEST, () -> service.execute(null, body));
         verify(operations, never()).saveAndFlush(any());
     }
 
@@ -107,10 +95,6 @@ class SecurityRemediationAdapterServiceTest {
     void rejectsUnexpectedExecutionFields() throws Exception {
         JsonNode body = json("""
             {
-              "request_id":"req-extra",
-              "action":"revoke-credential",
-              "resource":"credential:cred-1",
-              "purpose":"incident-remediation",
               "incident_id":"inc-1",
               "credential_id":"cred-1",
               "reason":"credential exposed",
@@ -128,10 +112,6 @@ class SecurityRemediationAdapterServiceTest {
         when(operations.findByRequestId("req-retry")).thenReturn(Optional.of(existing));
         JsonNode body = json("""
             {
-              "request_id":"req-retry",
-              "action":"revoke-credential",
-              "resource":"credential:cred-1",
-              "purpose":"incident-remediation",
               "incident_id":"inc-1",
               "credential_id":"cred-1",
               "reason":"retry"
@@ -150,10 +130,6 @@ class SecurityRemediationAdapterServiceTest {
         when(operations.findByRequestId("req-conflict")).thenReturn(Optional.of(existing));
         JsonNode body = json("""
             {
-              "request_id":"req-conflict",
-              "action":"notify-security",
-              "resource":"incident:inc-2",
-              "purpose":"incident-notification",
               "incident_id":"inc-2",
               "severity":"HIGH",
               "summary":"notify",
