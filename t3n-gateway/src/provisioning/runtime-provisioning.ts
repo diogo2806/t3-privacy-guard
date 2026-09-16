@@ -317,6 +317,7 @@ async function reconcileAgentCard(
   await publishAgentCardToOrganization({
     ownerDid: config.orgDid,
     agentDid: agentSession.getAgentDid(),
+    adminDid: tenantSession.getTenantDid(),
     card,
     adminClient: tenantSession.getClient(),
     secrets: [config.apiKey, config.agentApiKey],
