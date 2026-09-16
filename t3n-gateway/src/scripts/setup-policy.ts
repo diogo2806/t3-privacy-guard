@@ -3,6 +3,12 @@ import { resolve } from 'node:path';
 import { TenantClient, getNodeUrl } from '@terminal3/t3n-sdk';
 import { readGatewayConfig } from '../config/env.js';
 import { assertPolicyVersionImmutable, canonicalizeOperationalPolicy, type CanonicalOperationalPolicy } from '../policy/policy-document.js';
+import {
+  activateOperationalPolicy,
+  ensureImmutablePolicyVersion,
+  parsePersistedPolicy,
+  readOptionalPolicyEntry,
+} from '../policy/policy-map-bootstrap.js';
 import { TrustManifestFloorStore } from '../security/trust-manifest-floor-store.js';
 import { T3nSession } from '../t3n/session.js';
 
@@ -23,15 +29,6 @@ function extractValue(value: unknown): string | null {
   return null;
 }
 
-function parsePersistedPolicy(value: string | null, label: string): CanonicalOperationalPolicy | null {
-  if (!value) return null;
-  try {
-    return canonicalizeOperationalPolicy(JSON.parse(value) as unknown);
-  } catch {
-    throw new Error(`${label} contains an invalid operational policy`);
-  }
-}
-
 const config = readGatewayConfig();
 const trustFloorStore = new TrustManifestFloorStore(config.trustManifestFloorStorePath);
 const session = new T3nSession(config, trustFloorStore);
@@ -43,13 +40,6 @@ const mapTail = 'privacy-guard-policy';
 const mapName = tenant.canonicalName(mapTail);
 const executeControl = tenant.executeControl.bind(tenant) as (name: string, input: Record<string, string>) => Promise<unknown>;
 const getEntry = async (key: string): Promise<string | null> => extractValue(await executeControl('map-entry-get', { map_name: mapName, key }));
-const getOptionalEntry = async (key: string): Promise<string | null> => {
-  try {
-    return await getEntry(key);
-  } catch {
-    return null;
-  }
-};
 const setEntry = async (key: string, value: string): Promise<void> => {
   await tenant.executeControl('map-entry-set', { map_name: mapName, key, value });
 };
@@ -71,7 +61,7 @@ if (numericContractId !== null) {
     if (!message.toLowerCase().includes('already')) throw error;
     await tenant.maps.update(mapTail, restrictedAcl);
   }
-  currentEntry = await getOptionalEntry('current');
+  currentEntry = await readOptionalPolicyEntry(getEntry, 'current');
 } else {
   try {
     currentEntry = await getEntry('current');
@@ -87,7 +77,10 @@ let operation: 'publish' | 'rollback';
 
 if (rollbackVersion) {
   if (!/^[A-Za-z0-9._:-]{1,64}$/.test(rollbackVersion)) throw new Error('T3N_POLICY_ROLLBACK_VERSION is invalid');
-  const stored = parsePersistedPolicy(await getOptionalEntry(`version:${rollbackVersion}`), `Stored policy version ${rollbackVersion}`);
+  const stored = parsePersistedPolicy(
+    await readOptionalPolicyEntry(getEntry, `version:${rollbackVersion}`),
+    `Stored policy version ${rollbackVersion}`,
+  );
   if (!stored) throw new Error(`Policy version ${rollbackVersion} is not stored and cannot be rolled back`);
   if (stored.document.version !== rollbackVersion) throw new Error('Stored rollback policy version does not match its immutable KV key');
   target = stored;
@@ -100,18 +93,10 @@ if (rollbackVersion) {
   operation = 'publish';
 
   assertPolicyVersionImmutable(previous, target);
-  const versionKey = `version:${target.document.version}`;
-  const storedVersion = parsePersistedPolicy(await getOptionalEntry(versionKey), `Stored policy version ${target.document.version}`);
-  assertPolicyVersionImmutable(storedVersion, target);
-  if (!storedVersion) await setEntry(versionKey, target.canonicalJson);
+  await ensureImmutablePolicyVersion(target, getEntry, setEntry);
 }
 
-await setEntry('current', target.canonicalJson);
-const verified = parsePersistedPolicy(await getEntry('current'), 'Policy read-back');
-if (!verified) throw new Error('Policy read-back returned no value');
-if (verified.document.version !== target.document.version || verified.hash !== target.hash) {
-  throw new Error('Policy read-back version/hash mismatch');
-}
+await activateOperationalPolicy(target, getEntry, setEntry);
 
 const changedAt = new Date().toISOString();
 const auditRecord = JSON.stringify({
