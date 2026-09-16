@@ -237,6 +237,56 @@ publish + verify Agent Card
 validate readiness + effective delegations
 ```
 
+## Remote MCP integration
+
+The gateway exposes an authenticated Model Context Protocol endpoint at `/mcp`. It uses the official MCP TypeScript SDK v2 Streamable HTTP handler, which implements the `2026-07-28` protocol revision and keeps the SDK's stateless compatibility path for 2025-era clients.
+
+The endpoint is protected before MCP dispatch with the existing gateway service credential using standard bearer authentication:
+
+```http
+Authorization: Bearer <GATEWAY_SERVICE_TOKEN>
+```
+
+Do not use `T3N_API_KEY`, `T3N_AGENT_API_KEY` or `T3N_EXECUTOR_API_KEY` as the MCP bearer token. Those credentials remain server-side only.
+
+Exactly three MCP tools are registered:
+
+```text
+privacy.contract_identity
+privacy.evaluate_action
+privacy.verify_remediation
+```
+
+`privacy.contract_identity` returns the canonical deployed contract identity and version. `privacy.evaluate_action` evaluates a proposed action and never authorizes remediation. `privacy.verify_remediation` verifies the observed state of a remediation that was already authorized and executed through the protected flow.
+
+`execute-remediation`, `privacy.execute_remediation` and any equivalent privileged operation are intentionally not registered. MCP cannot bypass `RemediationAuthorizationVerifier` or obtain the Protected Executor capability.
+
+Tool arguments are validated by the MCP SDK from strict Zod schemas before the contract service handler is invoked. Unknown fields, missing required fields, oversized arrays, invalid remediation actions and invalid expected states fail closed without invoking T3N. Contract/T3N failures return the generic tool error `Privacy Guard MCP operation failed closed`; internal exception messages and credentials are not returned to the MCP client.
+
+A compatible v2 client can connect with a static bearer provider:
+
+```ts
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+
+const client = new Client(
+  { name: 'privacy-guard-client', version: '1.0.0' },
+  { versionNegotiation: { mode: 'auto' } },
+);
+const transport = new StreamableHTTPClientTransport(
+  new URL('https://gateway.example/mcp'),
+  { authProvider: { token: async () => process.env.GATEWAY_SERVICE_TOKEN } },
+);
+
+await client.connect(transport);
+const { tools } = await client.listTools();
+const identity = await client.callTool({
+  name: 'privacy.contract_identity',
+  arguments: {},
+});
+```
+
+For `privacy.evaluate_action`, send `request_id`, `action`, `resource`, `purpose` and `fields`; `host` and `private_refs` are optional. For `privacy.verify_remediation`, send `request_id`, `operation_id`, `action` (`revoke-credential` or `notify-security`) and `expected_state` (`REVOKED` or `DELIVERED`).
+
 ## Falhas esperadas e segurança
 
 Os comandos administrativos e o runtime falham fechados quando os artefatos, credenciais ou variáveis obrigatórios não existem. Em particular:
