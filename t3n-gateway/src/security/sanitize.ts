@@ -1,4 +1,5 @@
 const PRIVATE_KEY_PATTERN = /\b0x[a-fA-F0-9]{64}\b/g;
+const ORG_AGENT_API_KEY_PATTERN = /\bt3n_key_[A-Za-z0-9._-]+/g;
 
 export type T3nErrorCategory = 'AUTHENTICATION' | 'NETWORK' | 'TRUST_ANCHOR' | 'UNKNOWN';
 
@@ -15,7 +16,9 @@ function messageFrom(error: unknown): string {
 }
 
 export function sanitizeText(value: string, secrets: readonly string[] = []): string {
-  let sanitized = value.replace(PRIVATE_KEY_PATTERN, '[REDACTED_PRIVATE_KEY]');
+  let sanitized = value
+    .replace(PRIVATE_KEY_PATTERN, '[REDACTED_PRIVATE_KEY]')
+    .replace(ORG_AGENT_API_KEY_PATTERN, '[REDACTED_T3N_API_KEY]');
   for (const secret of secrets) {
     if (secret) {
       sanitized = sanitized.split(secret).join('[REDACTED_SECRET]');
