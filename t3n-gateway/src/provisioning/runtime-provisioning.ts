@@ -13,6 +13,7 @@ import type { AgentSession } from '../agent/agent-session.js';
 import {
   EXECUTOR_DELEGATION_REQUIREMENTS,
   PROPOSAL_DELEGATION_REQUIREMENTS,
+  type DelegationGrantRequest,
   type DelegationService,
 } from '../agent/delegation-service.js';
 import type { ExecutorSession } from '../agent/executor-session.js';
@@ -94,6 +95,20 @@ export function configuredEnterpriseHosts(env: NodeJS.ProcessEnv = process.env):
     .filter(isSafeHttpsEndpoint)
     .map((value) => new URL(value.trim()).hostname.toLowerCase().replace(/\.$/, ''));
   return [...new Set(hosts)].sort();
+}
+
+export function executorDelegationGrantRequest(
+  contractId: string,
+  contractVersion: string,
+  env: NodeJS.ProcessEnv = process.env,
+): DelegationGrantRequest {
+  return {
+    contractId,
+    versionReq: contractVersion,
+    functions: [...EXECUTOR_DELEGATION_REQUIREMENTS.functions],
+    scopes: [...EXECUTOR_DELEGATION_REQUIREMENTS.scopes],
+    allowedHosts: configuredEnterpriseHosts(env),
+  };
 }
 
 function remediationConfigurationReady(env: NodeJS.ProcessEnv): boolean {
@@ -331,15 +346,8 @@ export async function reconcileRuntimeProvisioning(
     proposalDelegationReconciled = true;
   }
 
-  const enterpriseHosts = configuredEnterpriseHosts(env);
-  if (config.executorApiKey && remediationConfigurationReady(env) && enterpriseHosts.length > 0) {
-    await executorDelegation.grant({
-      contractId: contract.contractId,
-      versionReq: contract.contractVersion,
-      functions: [...EXECUTOR_DELEGATION_REQUIREMENTS.functions],
-      scopes: [...EXECUTOR_DELEGATION_REQUIREMENTS.scopes],
-      allowedHosts: enterpriseHosts,
-    });
+  if (config.executorApiKey) {
+    await executorDelegation.grant(executorDelegationGrantRequest(contract.contractId, contract.contractVersion, env));
     executorDelegationReconciled = true;
   }
 
