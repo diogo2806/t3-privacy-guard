@@ -29,7 +29,7 @@ function status(state: EnterpriseIntegrationState, adapterConfigured = true): Sy
 }
 
 describe('EnterpriseIntegrationStatus', () => {
-  it('shows READY only for coherent configuration and T3N protected readiness', () => {
+  it('shows READY only for coherent configuration, T3N protected readiness and the first-party adapter', () => {
     render(<EnterpriseIntegrationStatus status={status('READY')} loading={false} />);
     expect(screen.getAllByText('READY').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByRole('heading', { name: 'Protected execution integration' })).toBeInTheDocument();
@@ -42,10 +42,10 @@ describe('EnterpriseIntegrationStatus', () => {
     expect(screen.getByText(/controlled by Privacy Guard/i)).toBeInTheDocument();
   });
 
-  it('shows the first-party adapter independently from T3N integration readiness', () => {
+  it('keeps the workflow blocked when T3N is ready but the first-party adapter is not configured', () => {
     render(<EnterpriseIntegrationStatus status={status('READY', false)} loading={false} />);
     expect(screen.getByText('First-party remediation adapter').parentElement).toHaveTextContent('Not configured');
-    expect(screen.getByText('Operational protected workflow').parentElement).toHaveTextContent('READY');
+    expect(screen.getByText('Operational protected workflow').parentElement).toHaveTextContent('NOT READY');
   });
 
   it('shows INCOMPLETE without pretending that a missing read-back endpoint is healthy', () => {
