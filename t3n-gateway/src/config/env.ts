@@ -7,6 +7,7 @@ export interface GatewayConfig {
   readonly apiKey: string;
   readonly agentApiKey: string | null;
   readonly executorApiKey: string | null;
+  readonly orgDid?: string | null;
   readonly network: T3nNetwork;
   readonly port: number;
   readonly contractTail: string;
@@ -34,11 +35,20 @@ export class ConfigurationError extends Error {
 const DOCUMENTATION_PLACEHOLDER_PREFIX = 'replace-with-';
 const PUBLIC_KEY_PEM_BEGIN = '-----BEGIN PUBLIC KEY-----';
 const PUBLIC_KEY_PEM_END = '-----END PUBLIC KEY-----';
+const CANONICAL_T3N_DID_PATTERN = /^did:t3n:[A-Za-z0-9]+$/;
 
 export function rejectDocumentationPlaceholder(value: string, name: string): void {
   if (value.trim().startsWith(DOCUMENTATION_PLACEHOLDER_PREFIX)) {
     throw new ConfigurationError(`${name} must be replaced with a runtime-specific value`);
   }
+}
+
+export function validateCanonicalT3nDid(value: string, name: string): string {
+  const normalized = value.trim();
+  if (!CANONICAL_T3N_DID_PATTERN.test(normalized)) {
+    throw new ConfigurationError(`${name} must be a canonical did:t3n:<id>`);
+  }
+  return normalized;
 }
 
 function requiredSecret(env: NodeJS.ProcessEnv, name: string): string {
@@ -184,6 +194,9 @@ export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): Gateway
   if (executorApiKey && executorApiKey === apiKey) throw new ConfigurationError('T3N_EXECUTOR_API_KEY must be different from T3N_API_KEY');
   if (executorApiKey && agentApiKey && executorApiKey === agentApiKey) throw new ConfigurationError('T3N_EXECUTOR_API_KEY must be different from T3N_AGENT_API_KEY');
 
+  const orgDidRaw = env.T3N_ORG_DID?.trim() || null;
+  const orgDid = orgDidRaw ? validateCanonicalT3nDid(orgDidRaw, 'T3N_ORG_DID') : null;
+
   const networkValue = (env.T3N_NETWORK ?? 'testnet').trim().toLowerCase();
   if (networkValue !== 'testnet' && networkValue !== 'production') throw new ConfigurationError('T3N_NETWORK must be either testnet or production');
 
@@ -218,6 +231,7 @@ export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): Gateway
     apiKey,
     agentApiKey,
     executorApiKey,
+    orgDid,
     network: networkValue,
     port: portValue,
     contractTail,
