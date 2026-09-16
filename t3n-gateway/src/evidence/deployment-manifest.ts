@@ -48,6 +48,15 @@ export async function sha256File(path: string): Promise<string> {
   return createHash('sha256').update(await readFile(path)).digest('hex');
 }
 
+function assertRegisteredAgentCardServices(services: readonly string[]): void {
+  const allowed = new Set(['DID', 'A2A']);
+  const unique = new Set(services);
+  if (!services.includes('DID')) throw new Error('Registered Agent evidence requires the DID service');
+  if (unique.size !== services.length) throw new Error('Registered Agent evidence contains duplicate services');
+  if (services.some((service) => !allowed.has(service))) throw new Error('Registered Agent evidence contains an unsupported service');
+  if (services.length > allowed.size) throw new Error('Registered Agent evidence contains too many services');
+}
+
 export function assertManifestIdentity(manifest: DeploymentManifest): void {
   if (!/^[a-f0-9]{40}$/.test(manifest.sourceCommitSha)) {
     throw new Error('Deployment manifest contains an invalid source commit SHA');
@@ -76,7 +85,7 @@ export function assertManifestIdentity(manifest: DeploymentManifest): void {
   if (manifest.agentRegistrationState === 'REGISTERED') {
     if (!manifest.agentCardUri?.startsWith('https://')) throw new Error('Registered Agent evidence requires a public HTTPS card URI');
     if (!manifest.agentCardSha256 || !/^[a-f0-9]{64}$/.test(manifest.agentCardSha256)) throw new Error('Registered Agent evidence requires a valid Agent Card SHA-256');
-    if (manifest.agentCardServices.length !== 1 || manifest.agentCardServices[0] !== 'DID') throw new Error('Registered Agent evidence must advertise only the supported DID service');
+    assertRegisteredAgentCardServices(manifest.agentCardServices);
   }
   if (manifest.trustAnchorVerified !== true || manifest.trustManifestFloorPersisted !== true) {
     throw new Error('Deployment manifest must prove verified trust anchor and persisted rollback floor');

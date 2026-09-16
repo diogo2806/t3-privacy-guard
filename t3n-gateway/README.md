@@ -140,6 +140,8 @@ O SHA deve ser completo, com 40 caracteres. Se a imagem não tiver metadado de b
 
 Antes de gravar os artefatos, o fluxo mantém as validações já existentes de três DIDs distintos, trust anchor, rollback floor, contract id/version, WASM SHA-256, policy version/hash, Member grants e effective access. `assertNoSecretLeak` continua obrigatório tanto no manifest quanto no run final. `NOT_RUN` permanece `NOT_RUN`.
 
+Para Agent Card em estado `REGISTERED`, a evidência exige o serviço `DID` e aceita opcionalmente `A2A` quando ele está efetivamente publicado. Somente `DID` e `A2A` são aceitos, sem duplicatas e sem dependência da ordem retornada. Essa regra espelha o `AgentCardRegistry`: endpoint, DID canônico e endpoint A2A continuam validados no card resolvido antes de a evidência registrar o conjunto de serviços.
+
 O backend não compartilha filesystem com o gateway. O gateway expõe o último par persistido somente em `GET /internal/evidence/latest`, atrás do mesmo `X-Gateway-Service-Token` usado pelos demais endpoints internos. A semântica é:
 
 ```text

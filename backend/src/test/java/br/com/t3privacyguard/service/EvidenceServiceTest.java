@@ -51,6 +51,46 @@ class EvidenceServiceTest {
     }
 
     @Test
+    void registeredAgentWithDidAndA2aServicesIsAcceptedInAnyOrder() throws Exception {
+        String wasmHash = "a".repeat(64);
+        String policyHash = "b".repeat(64);
+        for (List<String> services : List.of(List.of("DID", "A2A"), List.of("A2A", "DID"))) {
+            Path manifest = tempDir.resolve("manifest-a2a-" + services.get(0) + ".json");
+            Path testnet = tempDir.resolve("run-a2a-" + services.get(0) + ".json");
+            Map<String, Object> manifestData = validManifest(wasmHash, "2026-09-12.1", policyHash);
+            manifestData.put("agentCardServices", services);
+            write(manifest, manifestData);
+            write(testnet, validRun(wasmHash, "2026-09-12.1", policyHash, List.of()));
+
+            var result = new EvidenceService(mapper, manifest.toString(), testnet.toString()).latest();
+            assertThat(result.metadata().agentCardServices()).containsExactlyElementsOf(services);
+        }
+    }
+
+    @Test
+    void registeredAgentRejectsMissingDidDuplicateOrUnsupportedService() throws Exception {
+        String wasmHash = "c".repeat(64);
+        String policyHash = "d".repeat(64);
+        List<List<String>> invalidServices = List.of(
+            List.of("A2A"),
+            List.of("DID", "DID"),
+            List.of("DID", "MCP")
+        );
+        for (int index = 0; index < invalidServices.size(); index++) {
+            Path manifest = tempDir.resolve("manifest-invalid-services-" + index + ".json");
+            Path testnet = tempDir.resolve("run-invalid-services-" + index + ".json");
+            Map<String, Object> manifestData = validManifest(wasmHash, "2026-09-12.1", policyHash);
+            manifestData.put("agentCardServices", invalidServices.get(index));
+            write(manifest, manifestData);
+            write(testnet, validRun(wasmHash, "2026-09-12.1", policyHash, List.of()));
+
+            assertThatThrownBy(() -> new EvidenceService(mapper, manifest.toString(), testnet.toString()).latest())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("invalid or inconsistent");
+        }
+    }
+
+    @Test
     void missingLiveEvidenceIsExplicitlyNotFound() {
         var service = new EvidenceService(mapper, tempDir.resolve("missing-manifest.json").toString(), tempDir.resolve("missing-run.json").toString());
         assertThatThrownBy(service::latest).isInstanceOf(EvidenceNotFoundException.class);

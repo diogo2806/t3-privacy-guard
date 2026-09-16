@@ -19,6 +19,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class EvidenceService {
     private static final List<String> REGISTRATION_STATES = List.of("REGISTERED", "NOT_REGISTERED", "MISMATCH", "UNAVAILABLE");
+    private static final List<String> REGISTERED_AGENT_CARD_SERVICES = List.of("DID", "A2A");
     private final ObjectMapper mapper;
     private final GatewaySystemClient gateway;
     private final Path manifestPath;
@@ -170,11 +171,20 @@ public class EvidenceService {
         if ("REGISTERED".equals(value.agentRegistrationState())) {
             if (value.agentCardUri() == null || !"https".equalsIgnoreCase(URI.create(value.agentCardUri()).getScheme())) throw new IllegalStateException("Registered Agent evidence requires an HTTPS card URI");
             if (value.agentCardSha256() == null || !value.agentCardSha256().matches("[a-f0-9]{64}")) throw new IllegalStateException("Registered Agent evidence requires a valid card SHA-256");
-            if (!value.agentCardServices().equals(List.of("DID"))) throw new IllegalStateException("Registered Agent evidence must advertise only the DID service");
+            validateRegisteredAgentCardServices(value.agentCardServices());
         }
         if (!value.trustAnchorVerified()) throw new IllegalStateException("Evidence trust anchor is not verified");
         if (!value.trustManifestFloorPersisted()) throw new IllegalStateException("Evidence trust manifest rollback floor is not persisted");
         if (value.trustManifestVersion() < 1) throw new IllegalStateException("Evidence trust manifest version is invalid");
+    }
+
+    private static void validateRegisteredAgentCardServices(List<String> services) {
+        if (!services.contains("DID")) throw new IllegalStateException("Registered Agent evidence requires the DID service");
+        if (new HashSet<>(services).size() != services.size()) throw new IllegalStateException("Registered Agent evidence contains duplicate services");
+        if (services.stream().anyMatch(service -> !REGISTERED_AGENT_CARD_SERVICES.contains(service))) {
+            throw new IllegalStateException("Registered Agent evidence contains an unsupported service");
+        }
+        if (services.size() > REGISTERED_AGENT_CARD_SERVICES.size()) throw new IllegalStateException("Registered Agent evidence contains too many services");
     }
 
     private static String required(JsonNode node, String field) {
