@@ -6,10 +6,10 @@ import { assertPolicyVersionImmutable, canonicalizeOperationalPolicy, type Canon
 import { TrustManifestFloorStore } from '../security/trust-manifest-floor-store.js';
 import { T3nSession } from '../t3n/session.js';
 
-const numericContractId = Number(process.env.T3N_CONTRACT_NUMERIC_ID);
-if (!Number.isInteger(numericContractId) || numericContractId <= 0) {
-  throw new Error('T3N_CONTRACT_NUMERIC_ID is required after contract registration');
-}
+const configuredNumericContractId = Number(process.env.T3N_CONTRACT_NUMERIC_ID);
+const numericContractId = Number.isInteger(configuredNumericContractId) && configuredNumericContractId > 0
+  ? configuredNumericContractId
+  : null;
 
 function extractValue(value: unknown): string | null {
   if (typeof value === 'string') return value;
@@ -39,18 +39,6 @@ await session.connect();
 const tenant = new TenantClient({ t3n: session.getClient(), baseUrl: getNodeUrl(), tenantDid: session.getTenantDid() });
 await tenant.tenant.me();
 
-try {
-  await tenant.maps.create({
-    tail: 'privacy-guard-policy',
-    visibility: 'private',
-    writers: { only: [numericContractId] },
-    readers: { only: [numericContractId] },
-  });
-} catch (error) {
-  const message = error instanceof Error ? error.message : String(error);
-  if (!message.toLowerCase().includes('already')) throw error;
-}
-
 const mapName = tenant.canonicalName('privacy-guard-policy');
 const executeControl = tenant.executeControl.bind(tenant) as (name: string, input: Record<string, string>) => Promise<unknown>;
 const getEntry = async (key: string): Promise<string | null> => extractValue(await executeControl('map-entry-get', { map_name: mapName, key }));
@@ -58,7 +46,29 @@ const setEntry = async (key: string, value: string): Promise<void> => {
   await tenant.executeControl('map-entry-set', { map_name: mapName, key, value });
 };
 
-const previous = parsePersistedPolicy(await getEntry('current'), 'Current policy entry');
+let currentEntry: string | null;
+if (numericContractId !== null) {
+  try {
+    await tenant.maps.create({
+      tail: 'privacy-guard-policy',
+      visibility: 'private',
+      writers: { only: [numericContractId] },
+      readers: { only: [numericContractId] },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.toLowerCase().includes('already')) throw error;
+  }
+  currentEntry = await getEntry('current');
+} else {
+  try {
+    currentEntry = await getEntry('current');
+  } catch {
+    throw new Error('privacy-guard-policy is unavailable; T3N_CONTRACT_NUMERIC_ID is required to create the private policy map safely');
+  }
+}
+
+const previous = parsePersistedPolicy(currentEntry, 'Current policy entry');
 const rollbackVersion = process.env.T3N_POLICY_ROLLBACK_VERSION?.trim() || null;
 let target: CanonicalOperationalPolicy;
 let operation: 'publish' | 'rollback';
