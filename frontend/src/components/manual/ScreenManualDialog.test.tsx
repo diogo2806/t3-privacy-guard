@@ -17,7 +17,7 @@ describe('ScreenManualDialog', () => {
     const dialog = screen.getByRole('dialog', { name: 'Incident Response Dashboard' });
     const closeButton = screen.getByRole('button', { name: 'Close Screen Manual' });
     expect(dialog).toHaveAttribute('aria-modal', 'true');
-    expect(screen.getByText('Screen Manual')).toBeInTheDocument();
+    expect(dialog).toHaveTextContent('Screen Manual');
     expect(screen.getByRole('heading', { name: 'Purpose' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Areas, fields and actions' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Human access and permissions' })).toBeInTheDocument();
