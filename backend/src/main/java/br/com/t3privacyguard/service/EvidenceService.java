@@ -1,5 +1,7 @@
 package br.com.t3privacyguard.service;
 
+import br.com.t3privacyguard.integration.GatewaySystemClient;
+import br.com.t3privacyguard.integration.GatewaySystemClient.EvidenceBundle;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -10,6 +12,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -17,43 +20,71 @@ import org.springframework.stereotype.Service;
 public class EvidenceService {
     private static final List<String> REGISTRATION_STATES = List.of("REGISTERED", "NOT_REGISTERED", "MISMATCH", "UNAVAILABLE");
     private final ObjectMapper mapper;
+    private final GatewaySystemClient gateway;
     private final Path manifestPath;
     private final Path testnetPath;
 
+    @Autowired
     public EvidenceService(
         ObjectMapper mapper,
+        GatewaySystemClient gateway,
         @Value("${privacy-guard.evidence.manifest-path:../docs/evidence/deployment-manifest.json}") String manifestPath,
         @Value("${privacy-guard.evidence.testnet-path:../docs/evidence/testnet-run.json}") String testnetPath
     ) {
         this.mapper = mapper;
+        this.gateway = gateway;
+        this.manifestPath = Path.of(manifestPath).normalize();
+        this.testnetPath = Path.of(testnetPath).normalize();
+    }
+
+    public EvidenceService(ObjectMapper mapper, String manifestPath, String testnetPath) {
+        this.mapper = mapper;
+        this.gateway = null;
         this.manifestPath = Path.of(manifestPath).normalize();
         this.testnetPath = Path.of(testnetPath).normalize();
     }
 
     public EvidenceAvailability latestState() {
-        boolean manifestAvailable = Files.isRegularFile(manifestPath);
-        boolean testnetAvailable = Files.isRegularFile(testnetPath);
-        if (!manifestAvailable && !testnetAvailable) {
+        if (gateway != null) {
+            EvidenceBundle bundle = gateway.evidenceBundle();
+            if ("AVAILABLE".equals(bundle.state())) return new EvidenceAvailability(true, parse(bundle.manifest(), bundle.testnet()));
+            if ("INVALID".equals(bundle.state())) throw new IllegalStateException("Live evidence bundle exposed by the gateway is incomplete or invalid");
             return new EvidenceAvailability(false, null);
         }
-        if (manifestAvailable != testnetAvailable) {
-            throw new IllegalStateException("Live evidence bundle is incomplete");
-        }
-        return new EvidenceAvailability(true, latest());
+        boolean manifestAvailable = Files.isRegularFile(manifestPath);
+        boolean testnetAvailable = Files.isRegularFile(testnetPath);
+        if (!manifestAvailable && !testnetAvailable) return new EvidenceAvailability(false, null);
+        if (manifestAvailable != testnetAvailable) throw new IllegalStateException("Live evidence bundle is incomplete");
+        return new EvidenceAvailability(true, latestFromFiles());
     }
 
     public EvidenceResponse latest() {
-        boolean manifestAvailable = Files.isRegularFile(manifestPath);
-        boolean testnetAvailable = Files.isRegularFile(testnetPath);
-        if (!manifestAvailable && !testnetAvailable) {
+        if (gateway != null) {
+            EvidenceBundle bundle = gateway.evidenceBundle();
+            if ("AVAILABLE".equals(bundle.state())) return parse(bundle.manifest(), bundle.testnet());
+            if ("INVALID".equals(bundle.state())) throw new IllegalStateException("Live evidence bundle exposed by the gateway is incomplete or invalid");
             throw new EvidenceNotFoundException("No live T3N evidence has been generated yet.");
         }
-        if (manifestAvailable != testnetAvailable) {
-            throw new IllegalStateException("Live evidence bundle is incomplete");
-        }
+        return latestFromFiles();
+    }
+
+    private EvidenceResponse latestFromFiles() {
+        boolean manifestAvailable = Files.isRegularFile(manifestPath);
+        boolean testnetAvailable = Files.isRegularFile(testnetPath);
+        if (!manifestAvailable && !testnetAvailable) throw new EvidenceNotFoundException("No live T3N evidence has been generated yet.");
+        if (manifestAvailable != testnetAvailable) throw new IllegalStateException("Live evidence bundle is incomplete");
         try {
-            JsonNode manifest = mapper.readTree(Files.readString(manifestPath));
-            JsonNode testnet = mapper.readTree(Files.readString(testnetPath));
+            return parse(mapper.readTree(Files.readString(manifestPath)), mapper.readTree(Files.readString(testnetPath)));
+        } catch (IOException ex) {
+            throw new IllegalStateException("Live evidence is present but invalid or inconsistent", ex);
+        }
+    }
+
+    private EvidenceResponse parse(JsonNode manifest, JsonNode testnet) {
+        try {
+            if (manifest == null || !manifest.isObject() || testnet == null || !testnet.isObject()) {
+                throw new IllegalStateException("Live evidence bundle objects are missing");
+            }
             String source = required(manifest, "source");
             if (!"T3N_TESTNET".equals(source)) throw new IllegalStateException("Evidence source is not T3N_TESTNET");
 
@@ -117,8 +148,9 @@ public class EvidenceService {
                 else notRun++;
             }
             return new EvidenceResponse(metadata, scenarios, new Totals(pass, fail, notRun));
-        } catch (IOException | RuntimeException ex) {
+        } catch (RuntimeException ex) {
             if (ex instanceof EvidenceNotFoundException notFound) throw notFound;
+            if (ex instanceof IllegalStateException state && "Live evidence is present but invalid or inconsistent".equals(state.getMessage())) throw state;
             throw new IllegalStateException("Live evidence is present but invalid or inconsistent", ex);
         }
     }

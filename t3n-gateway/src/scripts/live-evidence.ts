@@ -2,7 +2,6 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TenantClient, getNodeUrl } from '@terminal3/t3n-sdk';
 import { AgentCardRegistry } from '../agent/agent-card.js';
 import { AgentSession } from '../agent/agent-session.js';
 import {
@@ -24,17 +23,29 @@ import { T3nSession } from '../t3n/session.js';
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const gatewayRoot = resolve(scriptDir, '../..');
 const repositoryRoot = resolve(gatewayRoot, '..');
-const evidenceDir = resolve(repositoryRoot, 'docs/evidence');
-const wasmPath = resolve(process.env.T3N_CONTRACT_WASM_PATH ?? resolve(repositoryRoot, 'contracts/privacy-guard/target/wasm32-wasip2/release/privacy_guard_contract.wasm'));
-const policyPath = resolve(gatewayRoot, process.env.T3N_POLICY_FILE ?? 'policy/privacy-guard-policy.json');
-const manifestPath = resolve(process.env.EVIDENCE_DEPLOYMENT_MANIFEST ?? resolve(evidenceDir, 'deployment-manifest.json'));
-const testnetPath = resolve(process.env.EVIDENCE_OUTPUT ?? resolve(evidenceDir, 'testnet-run.json'));
+const productionRuntime = process.env.NODE_ENV === 'production';
+const evidenceDir = resolve(
+  process.env.EVIDENCE_RUNTIME_DIR?.trim()
+    || (productionRuntime ? '/data/evidence' : resolve(repositoryRoot, 'docs/evidence')),
+);
+const wasmPath = resolve(process.env.T3N_CONTRACT_WASM_PATH?.trim() || resolve(repositoryRoot, 'contracts/privacy-guard/target/wasm32-wasip2/release/privacy_guard_contract.wasm'));
+const policyPath = resolve(process.env.T3N_POLICY_FILE?.trim() || resolve(gatewayRoot, 'policy/privacy-guard-policy.json'));
+const manifestPath = resolve(process.env.EVIDENCE_DEPLOYMENT_MANIFEST?.trim() || resolve(evidenceDir, 'deployment-manifest.json'));
+const testnetPath = resolve(process.env.EVIDENCE_OUTPUT?.trim() || resolve(evidenceDir, 'testnet-run.json'));
+const provisioningStatePath = resolve(process.env.T3N_RUNTIME_PROVISIONING_STATE_PATH?.trim() || '/data/t3n-runtime-provisioning.json');
 
 interface DelegationEvidence {
   readonly memberState: DelegationStatus['memberState'];
   readonly effectiveState: DelegationStatus['effectiveState'];
   readonly checkedFunctions: string[];
   readonly checkedScopes: string[];
+}
+
+interface ProvisioningState {
+  readonly tenantDid?: unknown;
+  readonly contractId?: unknown;
+  readonly contractVersion?: unknown;
+  readonly numericContractId?: unknown;
 }
 
 function configuredEgressHosts(): string[] {
@@ -59,6 +70,34 @@ function assertEffectiveDelegation(label: string, status: DelegationStatus): voi
 
 function sameStrings(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+async function resolveNumericContractId(tenantDid: string, contractId: string, contractVersion: string): Promise<number | null> {
+  const configured = Number(process.env.T3N_CONTRACT_NUMERIC_ID);
+  if (Number.isInteger(configured) && configured > 0) return configured;
+  try {
+    const state = JSON.parse(await readFile(provisioningStatePath, 'utf8')) as ProvisioningState;
+    if (
+      state.tenantDid === tenantDid
+      && state.contractId === contractId
+      && state.contractVersion === contractVersion
+      && typeof state.numericContractId === 'number'
+      && Number.isInteger(state.numericContractId)
+      && state.numericContractId > 0
+    ) return state.numericContractId;
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function runNpmScript(name: string, extraEnv: NodeJS.ProcessEnv = {}): void {
+  const result = spawnSync('npm', ['run', name], {
+    cwd: gatewayRoot,
+    env: { ...process.env, ...extraEnv },
+    stdio: 'inherit',
+  });
+  if (result.status !== 0) throw new Error(`${name} failed`);
 }
 
 const config = readGatewayConfig();
@@ -115,34 +154,26 @@ const wasmSha256 = await sha256File(wasmPath);
 const policySource = JSON.parse(await readFile(policyPath, 'utf8')) as unknown;
 const policy = canonicalizeOperationalPolicy(policySource);
 
-let contractId: string;
-let contractVersion: string;
-let numericContractId: number | null = null;
+let identity: { contractId: string; contractVersion: string };
 try {
-  const identity = await contract.identity();
-  contractId = identity.contractId;
-  contractVersion = identity.contractVersion;
-  if (contractVersion !== config.contractVersion) {
-    throw new Error(`Resolved contract version ${contractVersion} does not match configured ${config.contractVersion}`);
-  }
-  const configuredNumeric = Number(process.env.T3N_CONTRACT_NUMERIC_ID);
-  numericContractId = Number.isInteger(configuredNumeric) && configuredNumeric > 0 ? configuredNumeric : null;
+  identity = await contract.identity();
 } catch {
-  const tenant = new TenantClient({ t3n: tenantSession.getClient(), baseUrl: getNodeUrl(), tenantDid });
-  const result = await tenant.contracts.register({ tail: config.contractTail, version: config.contractVersion, wasm: await readFile(wasmPath) });
-  numericContractId = result.contract_id;
-  const identity = await contract.identity();
-  contractId = identity.contractId;
-  contractVersion = identity.contractVersion;
+  throw new Error('T3N contract is not resolved; complete runtime provisioning before generating live evidence');
 }
-if (!numericContractId) throw new Error('T3N_CONTRACT_NUMERIC_ID is required for an existing contract so the versioned policy map can authorize this contract');
+const contractId = identity.contractId;
+const contractVersion = identity.contractVersion;
+if (contractVersion !== config.contractVersion) {
+  throw new Error(`Resolved contract version ${contractVersion} does not match configured ${config.contractVersion}`);
+}
+const numericContractId = await resolveNumericContractId(tenantDid, contractId, contractVersion);
+if (!numericContractId) {
+  throw new Error('Live evidence requires the numeric contract id from T3N runtime provisioning or T3N_CONTRACT_NUMERIC_ID');
+}
 
-const policySetup = spawnSync('npm', ['run', 'contract:setup-policy'], {
-  cwd: gatewayRoot,
-  env: { ...process.env, T3N_CONTRACT_NUMERIC_ID: String(numericContractId), T3N_POLICY_FILE: policyPath },
-  stdio: 'inherit',
+runNpmScript('contract:setup-policy', {
+  T3N_CONTRACT_NUMERIC_ID: String(numericContractId),
+  T3N_POLICY_FILE: policyPath,
 });
-if (policySetup.status !== 0) throw new Error('Versioned T3N operational policy setup/read-back failed');
 
 const manifest: DeploymentManifest = {
   source: 'T3N_TESTNET', generatedAt: new Date().toISOString(), sourceCommitSha: sourceRevision.sourceCommitSha,
@@ -159,13 +190,12 @@ const sensitiveValues = [config.apiKey, config.agentApiKey, config.executorApiKe
 const serializedManifest = `${JSON.stringify(manifest, null, 2)}\n`;
 assertNoSecretLeak(serializedManifest, sensitiveValues);
 await mkdir(dirname(manifestPath), { recursive: true });
-await writeFile(manifestPath, serializedManifest, 'utf8');
+await writeFile(manifestPath, serializedManifest, { encoding: 'utf8', mode: 0o600 });
 
 if (process.env.EVIDENCE_PREPARE_EGRESS === 'true') {
   if (!process.env.SECURITY_API_URL?.startsWith('https://')) throw new Error('SECURITY_API_URL is required when preparing verifiable remediation evidence');
   if (!process.env.SECURITY_VERIFICATION_URL?.startsWith('https://')) throw new Error('SECURITY_VERIFICATION_URL is required when preparing verifiable remediation evidence');
-  const setup = spawnSync('npm', ['run', 'contract:setup-remediation'], { cwd: gatewayRoot, env: { ...process.env, T3N_CONTRACT_NUMERIC_ID: String(numericContractId) }, stdio: 'inherit' });
-  if (setup.status !== 0) throw new Error('Private remediation map setup failed');
+  runNpmScript('contract:setup-remediation', { T3N_CONTRACT_NUMERIC_ID: String(numericContractId) });
 }
 
 await proposalDelegation.grant({ contractId, versionReq: contractVersion, functions: [...PROPOSAL_DELEGATION_REQUIREMENTS.functions], scopes: [...PROPOSAL_DELEGATION_REQUIREMENTS.scopes], allowedHosts: [] });
@@ -176,8 +206,11 @@ const executorEffectiveStatus = await executorDelegation.status(contractId);
 assertEffectiveDelegation('Proposal Agent', proposalEffectiveStatus);
 assertEffectiveDelegation('Protected Executor', executorEffectiveStatus);
 
-const run = spawnSync('npm', ['run', 'evidence:testnet'], { cwd: gatewayRoot, env: { ...process.env, EVIDENCE_OUTPUT: testnetPath, T3N_CONTRACT_WASM_PATH: wasmPath }, stdio: 'inherit' });
-if (run.status !== 0) throw new Error('T3N testnet evidence runner reported a failure');
+runNpmScript('evidence:testnet', {
+  EVIDENCE_OUTPUT: testnetPath,
+  T3N_CONTRACT_WASM_PATH: wasmPath,
+  T3N_CONTRACT_NUMERIC_ID: String(numericContractId),
+});
 
 const evidence = JSON.parse(await readFile(testnetPath, 'utf8')) as TestnetEvidenceIdentity & {
   scenarios?: Array<{ status?: string }>;
@@ -187,7 +220,7 @@ evidence.sourceCommitSha = sourceRevision.sourceCommitSha;
 evidence.sourceTreeClean = sourceRevision.sourceTreeClean;
 const serializedEvidence = `${JSON.stringify(evidence, null, 2)}\n`;
 assertNoSecretLeak(serializedEvidence, sensitiveValues);
-await writeFile(testnetPath, serializedEvidence, 'utf8');
+await writeFile(testnetPath, serializedEvidence, { encoding: 'utf8', mode: 0o600 });
 assertEvidenceMatchesDeployment(manifest, evidence);
 if (evidence.scenarios?.some((scenario) => scenario.status === 'FAIL')) throw new Error('T3N testnet evidence contains FAIL scenarios');
 if (!evidence.delegation?.proposal || !evidence.delegation.executor) throw new Error('T3N testnet evidence is missing effective delegation verdicts');
