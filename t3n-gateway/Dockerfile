@@ -20,7 +20,8 @@ WORKDIR /app
 ENV NODE_ENV=production \
     T3N_CONTRACT_WASM_PATH=/app/runtime/privacy_guard_contract.wasm \
     T3N_POLICY_FILE=/app/policy/privacy-guard-policy.json \
-    AGENT_CARD_OUTPUT=/data/agent-card.json
+    AGENT_CARD_OUTPUT=/data/agent-card.json \
+    T3N_RUNTIME_PROVISIONING_STATE_PATH=/data/t3n-runtime-provisioning.json
 COPY package*.json ./
 RUN npm install --omit=dev && npm cache clean --force
 COPY --from=gateway-build /app/dist ./dist
@@ -32,6 +33,7 @@ RUN test -f /app/dist/scripts/register-contract.js \
     && test -f /app/dist/scripts/setup-remediation-secrets.js \
     && test -f /app/dist/scripts/agent-card-verify.js \
     && test -f /app/dist/scripts/agent-card-publish.js \
+    && test -f /app/dist/provisioning/runtime-provisioning.js \
     && test -f /app/policy/privacy-guard-policy.json \
     && test -s /app/runtime/privacy_guard_contract.wasm \
     && chown -R node:node /data
