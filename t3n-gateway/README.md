@@ -21,18 +21,25 @@ O teste `contract-source-sync.test.ts` falha se o conjunto de arquivos ou qualqu
 Build local equivalente ao deploy:
 
 ```bash
-docker build -t t3-privacy-guard-gateway t3n-gateway
+docker build \
+  --build-arg EVIDENCE_SOURCE_COMMIT_SHA=<full-40-char-commit-built> \
+  --build-arg EVIDENCE_SOURCE_TREE_CLEAN=true \
+  -t t3-privacy-guard-gateway t3n-gateway
 ```
+
+Os build args de evidência são metadados públicos, não secrets. Quando fornecidos, a imagem grava `/app/runtime/source-revision.json` como metadado imutável do artefato. Se o provedor de deploy não injeta build args, o mesmo par pode ser fornecido explicitamente no ambiente como `EVIDENCE_SOURCE_COMMIT_SHA` e `EVIDENCE_SOURCE_TREE_CLEAN`; o fluxo nunca consulta a `main` remota para adivinhar qual commit foi construído.
 
 No EasyPanel, mantenha `t3n-gateway` como contexto/base de build e use o `Dockerfile` desse diretório. O runtime final não contém o código-fonte TypeScript nem as dependências de desenvolvimento. Ele contém apenas as dependências Node de produção, `dist`, a policy versionada e o WASM compilado do contrato sincronizado.
 
-A imagem define caminhos estáveis para os artefatos administrativos:
+A imagem define caminhos estáveis para os artefatos administrativos e de evidência:
 
 ```text
 T3N_CONTRACT_WASM_PATH=/app/runtime/privacy_guard_contract.wasm
 T3N_POLICY_FILE=/app/policy/privacy-guard-policy.json
 AGENT_CARD_OUTPUT=/data/agent-card.json
 T3N_RUNTIME_PROVISIONING_STATE_PATH=/data/t3n-runtime-provisioning.json
+EVIDENCE_RUNTIME_DIR=/data/evidence
+EVIDENCE_SOURCE_REVISION_FILE=/app/runtime/source-revision.json
 ```
 
 `/data` continua sendo o volume persistente e o processo continua executando como usuário `node`, não-root. Nenhum segredo é incorporado à imagem.
@@ -104,6 +111,46 @@ A configuração protegida de remediation só é reconciliada quando `SECURITY_A
 Se `A2A_PUBLIC_URL` estiver configurada e o card público estiver divergente, a reconciliação pode republicar o Agent Card somente quando `T3N_ORG_DID` e `T3N_AGENT_API_KEY` estiverem presentes. O DID publicado continua vindo exclusivamente da autenticação do Proposal Agent.
 
 Falha em qualquer etapa é sanitizada, registrada sem secrets e mantém o sistema fail-closed. O servidor HTTP continua observável para que `/health` e os endpoints de status indiquem o que ainda não está pronto; uma falha de provisionamento nunca é convertida em readiness positivo.
+
+## Evidência live no container de produção
+
+A imagem final executa a geração live somente a partir de JavaScript compilado em `dist`; `src`, `tsx` e `.git` não são requisitos de runtime.
+
+```bash
+npm run evidence:live
+```
+
+Em `NODE_ENV=production`, o bundle principal é persistido no volume do gateway:
+
+```text
+/data/evidence/deployment-manifest.json
+/data/evidence/testnet-run.json
+/data/evidence/human-proof-testnet.json
+```
+
+`evidence:live` reutiliza o contrato já reconciliado. O `numericContractId` vem de `T3N_CONTRACT_NUMERIC_ID` quando explicitamente configurado ou de `/data/t3n-runtime-provisioning.json` somente quando Tenant DID, contract id e versão coincidem. O comando não inventa um numeric id nem consulta estado externo para inferi-lo.
+
+A proveniência de código vem, nesta ordem, de:
+
+1. `EVIDENCE_SOURCE_COMMIT_SHA` + `EVIDENCE_SOURCE_TREE_CLEAN` fornecidos explicitamente pelo deploy;
+2. `/app/runtime/source-revision.json` criado pelos build args equivalentes;
+3. somente em desenvolvimento, um checkout Git local.
+
+O SHA deve ser completo, com 40 caracteres. Se a imagem não tiver metadado de build válido e o deploy também não fornecer o par explícito, a geração falha fechada. Uma execução de submissão também recusa `sourceTreeClean=false` salvo override explícito para uma execução marcada como não submetível.
+
+Antes de gravar os artefatos, o fluxo mantém as validações já existentes de três DIDs distintos, trust anchor, rollback floor, contract id/version, WASM SHA-256, policy version/hash, Member grants e effective access. `assertNoSecretLeak` continua obrigatório tanto no manifest quanto no run final. `NOT_RUN` permanece `NOT_RUN`.
+
+O backend não compartilha filesystem com o gateway. O gateway expõe o último par persistido somente em `GET /internal/evidence/latest`, atrás do mesmo `X-Gateway-Service-Token` usado pelos demais endpoints internos. A semântica é:
+
+```text
+204 -> nenhum bundle gerado
+200 -> par manifest + testnet disponível
+409 -> bundle parcial, ilegível ou inválido estruturalmente no storage
+```
+
+O backend consulta esse endpoint e aplica novamente a validação semântica completa antes de responder `GET /api/evidence/latest`. Assim, reiniciar containers preserva o último bundle em `/data`, ausência nunca vira PASS e arquivos parciais continuam fail-closed.
+
+Os comandos `evidence:testnet`, `evidence:human-proof` e `evidence:profile-placeholder` da imagem também usam `node dist/...` e caminhos persistentes de `/data/evidence`. Para desenvolvimento com TypeScript/checkout local, use os comandos `*:dev`.
 
 ## Autenticação dos três principais
 
@@ -349,6 +396,9 @@ Os comandos administrativos e o runtime falham fechados quando os artefatos, cre
 - `agent:card:verify` recusa execução sem `T3N_AGENT_API_KEY`;
 - a reparação automática do Agent Card só ocorre quando a organização e o Proposal Agent estão explicitamente configurados;
 - `contract:register` falha se o WASM runtime estiver ausente ou ilegível;
+- `evidence:live` falha se a proveniência do artefato não trouxer um SHA completo ou se o bundle de origem estiver DIRTY sem override explícito;
+- `evidence:live` não usa `tsx`, `src` ou `.git` no container final e só publica o par persistente após manter as verificações de identidade, trust, policy, contrato e delegação;
+- `/internal/evidence/latest` exige `GATEWAY_SERVICE_TOKEN`; bundle parcial/ilegível retorna estado inválido e nunca é exposto como sucesso;
 - `T3N_API_KEY` fora do formato secp256k1 exato e credenciais Proposal/Executor fora dos formatos suportados são rejeitadas antes de iniciar conexões;
 - `t3n_key_*` malformada, inválida ou expirada não é reinterpretada como chave privada e não cai no fluxo secp256k1;
 - DIDs canônicos repetidos entre Tenant, Proposal Agent e Protected Executor tornam readiness inválido e bloqueiam operações que dependem da segregação;
