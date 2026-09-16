@@ -9,6 +9,7 @@ import br.com.t3privacyguard.integration.GatewaySystemClient.EnterpriseIntegrati
 import br.com.t3privacyguard.integration.GatewaySystemClient.EnterpriseVerificationContract;
 import br.com.t3privacyguard.integration.GatewaySystemClient.ExecutorStatus;
 import br.com.t3privacyguard.integration.GatewaySystemClient.TenantStatus;
+import br.com.t3privacyguard.security.SecurityRemediationCredential;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.stereotype.Service;
@@ -17,9 +18,11 @@ import org.springframework.stereotype.Service;
 public class SystemStatusService {
     private static final List<String> REGISTRATION_STATES = List.of("REGISTERED", "NOT_REGISTERED", "MISMATCH", "UNAVAILABLE");
     private final GatewaySystemClient gateway;
+    private final SecurityRemediationCredential remediationCredential;
 
-    public SystemStatusService(GatewaySystemClient gateway) {
+    public SystemStatusService(GatewaySystemClient gateway, SecurityRemediationCredential remediationCredential) {
         this.gateway = gateway;
+        this.remediationCredential = remediationCredential;
     }
 
     public SystemStatusResponse status() {
@@ -94,6 +97,7 @@ public class SystemStatusService {
             protectedRemediationReady,
             enterpriseIntegrationState,
             enterpriseIntegrationReady,
+            remediationCredential.isConfigured(),
             enterpriseIntegration.map(EnterpriseIntegrationReadiness::executionConfigured).orElse(false),
             enterpriseIntegration.map(EnterpriseIntegrationReadiness::verificationConfigured).orElse(false),
             enterpriseIntegration.map(EnterpriseIntegrationReadiness::credentialConfigured).orElse(false),
@@ -197,6 +201,7 @@ public class SystemStatusService {
         boolean protectedRemediationReady,
         String enterpriseIntegrationState,
         boolean enterpriseIntegrationReady,
+        boolean firstPartyRemediationAdapterConfigured,
         boolean enterpriseExecutionConfigured,
         boolean enterpriseVerificationConfigured,
         boolean enterpriseCredentialConfigured,

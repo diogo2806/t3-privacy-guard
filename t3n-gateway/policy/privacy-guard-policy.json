@@ -1,5 +1,5 @@
 {
-  "version": "2026-09-13.1",
+  "version": "2026-09-16.1",
   "actions": {
     "create-incident": {
       "purpose": "incident-recording",
@@ -20,7 +20,7 @@
     "notify-security": {
       "purpose": "incident-notification",
       "allowed_fields": ["incident_id", "severity", "summary"],
-      "allowed_hosts": ["postman-echo.com", "security-api.internal"],
+      "allowed_hosts": ["api-privacy.iforce.com.br", "postman-echo.com", "security-api.internal"],
       "allowed_private_refs": ["verified_email"],
       "requires_host": true,
       "requires_human_authorization": true
@@ -28,7 +28,7 @@
     "revoke-credential": {
       "purpose": "incident-remediation",
       "allowed_fields": ["incident_id", "credential_id", "reason"],
-      "allowed_hosts": ["postman-echo.com", "security-api.internal"],
+      "allowed_hosts": ["api-privacy.iforce.com.br", "postman-echo.com", "security-api.internal"],
       "allowed_private_refs": [],
       "requires_host": true,
       "requires_human_authorization": true

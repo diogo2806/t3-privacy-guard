@@ -118,6 +118,7 @@ export interface SystemStatus {
   protectedRemediationReady: boolean;
   enterpriseIntegrationState: EnterpriseIntegrationState;
   enterpriseIntegrationReady: boolean;
+  firstPartyRemediationAdapterConfigured: boolean;
   enterpriseExecutionConfigured: boolean;
   enterpriseVerificationConfigured: boolean;
   enterpriseCredentialConfigured: boolean;

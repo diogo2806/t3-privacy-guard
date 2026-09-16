@@ -113,6 +113,45 @@ public class SecurityConfig {
 
     @Bean
     @Order(1)
+    SecurityFilterChain securityRemediationSecurityFilterChain(
+        HttpSecurity http,
+        ObjectMapper objectMapper,
+        SecurityRemediationCredential remediationCredential
+    ) throws Exception {
+        http
+            .securityMatcher("/api/security/remediation/**")
+            .csrf(AbstractHttpConfigurer::disable)
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers(HttpMethod.POST,
+                    "/api/security/remediation/execute",
+                    "/api/security/remediation/verify"
+                ).hasAuthority(SecurityRemediationAuthenticationFilter.REMEDIATION_AUTHORITY)
+                .anyRequest().denyAll())
+            .formLogin(AbstractHttpConfigurer::disable)
+            .httpBasic(AbstractHttpConfigurer::disable)
+            .logout(AbstractHttpConfigurer::disable)
+            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .addFilterBefore(new SecurityRemediationAuthenticationFilter(remediationCredential), UsernamePasswordAuthenticationFilter.class)
+            .exceptionHandling(errors -> errors
+                .authenticationEntryPoint((request, response, exception) -> writeProblem(
+                    objectMapper,
+                    response,
+                    HttpServletResponse.SC_UNAUTHORIZED,
+                    "Remediation authentication required",
+                    "A valid protected remediation credential is required."
+                ))
+                .accessDeniedHandler((request, response, exception) -> writeProblem(
+                    objectMapper,
+                    response,
+                    HttpServletResponse.SC_FORBIDDEN,
+                    "Remediation action not allowed",
+                    "This machine credential is not allowed to perform the requested action."
+                )));
+        return http.build();
+    }
+
+    @Bean
+    @Order(2)
     SecurityFilterChain incidentIntakeSecurityFilterChain(
         HttpSecurity http,
         ObjectMapper objectMapper,
@@ -149,7 +188,7 @@ public class SecurityConfig {
     }
 
     @Bean
-    @Order(2)
+    @Order(3)
     SecurityFilterChain operatorSecurityFilterChain(
         HttpSecurity http,
         ObjectMapper objectMapper,

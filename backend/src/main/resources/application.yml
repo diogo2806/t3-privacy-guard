@@ -31,6 +31,8 @@ privacy-guard:
   gateway:
     base-url: ${T3N_GATEWAY_URL:http://t3n-gateway:3001}
     service-token: ${GATEWAY_SERVICE_TOKEN:}
+  security-remediation:
+    api-key: ${SECURITY_API_KEY:}
   remediation-capability:
     private-key-pkcs8: ${REMEDIATION_AUTH_PRIVATE_KEY_PKCS8:}
     key-id: ${REMEDIATION_AUTH_KEY_ID:primary}
