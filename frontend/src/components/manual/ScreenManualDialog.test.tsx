@@ -47,7 +47,9 @@ describe('ScreenManualDialog', () => {
     expect(dialog).toHaveTextContent(/evaluate-action.*execute-remediation.*verify-remediation/i);
     expect(dialog).toHaveTextContent(/Confirmed.*Denied.*Unknown/i);
     expect(screen.getByText('Readiness')).toBeInTheDocument();
-    expect(dialog).toHaveTextContent(/Proposal evaluation.*Protected remediation/i);
+    expect(dialog).toHaveTextContent(/Proposal evaluation.*Protected remediation authorization/i);
+    expect(dialog).toHaveTextContent(/T3N authorization is independent.*external execution integration.*INCOMPLETE.*Execute stays blocked/i);
+    expect(dialog).toHaveTextContent(/Missing external integration is not reported as a T3N denial/i);
     expect(screen.getByText('Agent Card and public A2A')).toBeInTheDocument();
     expect(dialog).toHaveTextContent(/A2A.*public evaluation/i);
     expect(dialog).toHaveTextContent(/PII-free/i);
