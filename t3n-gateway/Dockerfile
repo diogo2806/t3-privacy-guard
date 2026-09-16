@@ -1,5 +1,6 @@
 FROM rust:1.90.0-alpine3.22 AS contract-build
 WORKDIR /contract
+RUN apk add --no-cache build-base musl-dev
 RUN rustup target add wasm32-wasip2
 COPY contract-source/Cargo.toml ./Cargo.toml
 COPY contract-source/src ./src
