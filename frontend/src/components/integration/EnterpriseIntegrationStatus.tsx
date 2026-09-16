@@ -1,11 +1,24 @@
 import { BadgeCheck, KeyRound, Link2, ServerCog, ShieldCheck } from 'lucide-react';
-import type { EnterpriseIntegrationState, SystemStatus } from '../../services/privacyGuardApi';
+import type {
+  EnterpriseIntegrationDiagnosticCode,
+  EnterpriseIntegrationState,
+  SystemStatus,
+} from '../../services/privacyGuardApi';
 import { StatusPill, type PillState } from '../status/StatusPill';
 
 interface Props {
   status: SystemStatus | null;
   loading: boolean;
 }
+
+const DIAGNOSTIC_COPY: Record<Exclude<EnterpriseIntegrationDiagnosticCode, 'NONE'>, string> = {
+  POLICY_UNAVAILABLE: 'The active protected policy could not be read from T3N.',
+  POLICY_INVALID: 'The active protected policy could not be validated.',
+  PRIVATE_CONFIGURATION_UNAVAILABLE: 'The protected execution configuration could not be read from T3N.',
+  ENDPOINT_CONFIGURATION_INVALID: 'A protected execution endpoint is invalid or is not an HTTPS endpoint.',
+  DELEGATION_UNAVAILABLE: 'Protected Executor delegation could not be confirmed.',
+  T3N_CONTROL_PLANE_UNAVAILABLE: 'T3N control-plane readiness could not be confirmed.',
+};
 
 function integrationPillState(state?: EnterpriseIntegrationState): PillState {
   if (state === 'READY') return 'ok';
@@ -27,6 +40,8 @@ function adapterPill(value: boolean | undefined, loading: boolean) {
 
 export function EnterpriseIntegrationStatus({ status, loading }: Props) {
   const integrationState = status?.enterpriseIntegrationState ?? 'UNKNOWN';
+  const diagnosticCode: EnterpriseIntegrationDiagnosticCode = status?.enterpriseIntegrationDiagnosticCode
+    ?? (integrationState === 'UNKNOWN' ? 'T3N_CONTROL_PLANE_UNAVAILABLE' : 'NONE');
   const operational = Boolean(
     status?.protectedRemediationReady
     && status.enterpriseIntegrationReady
@@ -75,10 +90,14 @@ export function EnterpriseIntegrationStatus({ status, loading }: Props) {
         </div>
         <div>
           <span>Evaluation only</span>
-          <code>{evaluationOnlyActions.length ? evaluationOnlyActions.join(', ') : 'None'}</code></div>
+          <code>{evaluationOnlyActions.length ? evaluationOnlyActions.join(', ') : 'None'}</code>
+        </div>
       </div>
 
       <div className="status-footer">
+        {!loading && diagnosticCode !== 'NONE' && (
+          <p role="status"><strong>Readiness diagnostic:</strong> <code>{diagnosticCode}</code>. {DIAGNOSTIC_COPY[diagnosticCode]}</p>
+        )}
         <p>The first-party adapter is controlled by Privacy Guard and is reported separately from T3N authorization. Only canonical hostnames are shown; secrets, private paths, query strings and fragments remain inside the protected configuration boundary.</p>
       </div>
     </section>
