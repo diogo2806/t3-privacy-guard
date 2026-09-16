@@ -29,6 +29,7 @@ console.info(`Publishing public Agent Card for ${agentDid} owned by ${config.org
 await publishAgentCardToOrganization({
   ownerDid: config.orgDid,
   agentDid,
+  adminDid: adminSession.getTenantDid(),
   card,
   adminClient: adminSession.getClient(),
   secrets: [config.apiKey, config.agentApiKey],
