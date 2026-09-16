@@ -1,4 +1,5 @@
 import { createPublicKey } from 'node:crypto';
+import { classifyPrincipalCredential } from '../t3n/principal-credential.js';
 
 export type T3nNetwork = 'testnet' | 'production';
 export type AiProvider = 'disabled' | 'openai-compatible';
@@ -55,6 +56,31 @@ function requiredSecret(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name]?.trim();
   if (!value || value.length < 32) throw new ConfigurationError(`${name} is required and must contain at least 32 characters`);
   rejectDocumentationPlaceholder(value, name);
+  return value;
+}
+
+function requiredTenantCredential(env: NodeJS.ProcessEnv): string {
+  const value = env.T3N_API_KEY?.trim();
+  if (!value) throw new ConfigurationError('T3N_API_KEY is required and must be provided through the runtime environment');
+  try {
+    if (classifyPrincipalCredential(value) !== 'secp256k1') throw new Error('wrong tenant credential kind');
+  } catch {
+    throw new ConfigurationError('T3N_API_KEY must be a 0x-prefixed 32-byte secp256k1 private key');
+  }
+  return value;
+}
+
+function optionalPrincipalCredential(
+  env: NodeJS.ProcessEnv,
+  name: 'T3N_AGENT_API_KEY' | 'T3N_EXECUTOR_API_KEY',
+): string | null {
+  const value = env[name]?.trim() || null;
+  if (!value) return null;
+  try {
+    classifyPrincipalCredential(value);
+  } catch {
+    throw new ConfigurationError(`${name} must be a supported 0x secp256k1 key or t3n_key organization-owned credential`);
+  }
   return value;
 }
 
@@ -184,13 +210,11 @@ export function validateA2aPublicUrl(value: string): string {
 }
 
 export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig {
-  const apiKey = env.T3N_API_KEY?.trim();
-  if (!apiKey) throw new ConfigurationError('T3N_API_KEY is required and must be provided through the runtime environment');
+  const apiKey = requiredTenantCredential(env);
+  const agentApiKey = optionalPrincipalCredential(env, 'T3N_AGENT_API_KEY');
+  const executorApiKey = optionalPrincipalCredential(env, 'T3N_EXECUTOR_API_KEY');
 
-  const agentApiKey = env.T3N_AGENT_API_KEY?.trim() || null;
   if (agentApiKey && agentApiKey === apiKey) throw new ConfigurationError('T3N_AGENT_API_KEY must be different from T3N_API_KEY');
-
-  const executorApiKey = env.T3N_EXECUTOR_API_KEY?.trim() || null;
   if (executorApiKey && executorApiKey === apiKey) throw new ConfigurationError('T3N_EXECUTOR_API_KEY must be different from T3N_API_KEY');
   if (executorApiKey && agentApiKey && executorApiKey === agentApiKey) throw new ConfigurationError('T3N_EXECUTOR_API_KEY must be different from T3N_AGENT_API_KEY');
 
