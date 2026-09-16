@@ -33,7 +33,7 @@ describe('EnterpriseIntegrationStatus', () => {
     render(<EnterpriseIntegrationStatus status={status('READY')} loading={false} />);
     expect(screen.getAllByText('READY').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByRole('heading', { name: 'Protected execution integration' })).toBeInTheDocument();
-    expect(screen.getByText('First-party remediation adapter').parentElement).toHaveTextContent('Yes');
+    expect(screen.getByText('First-party remediation adapter').parentElement).toHaveTextContent('Configured');
     expect(screen.getByText('security.company.example')).toBeInTheDocument();
     expect(screen.getByText('verify.company.example')).toBeInTheDocument();
     expect(screen.getByText('revoke-credential → REVOKED')).toBeInTheDocument();
@@ -44,7 +44,7 @@ describe('EnterpriseIntegrationStatus', () => {
 
   it('shows the first-party adapter independently from T3N integration readiness', () => {
     render(<EnterpriseIntegrationStatus status={status('READY', false)} loading={false} />);
-    expect(screen.getByText('First-party remediation adapter').parentElement).toHaveTextContent('No');
+    expect(screen.getByText('First-party remediation adapter').parentElement).toHaveTextContent('Not configured');
     expect(screen.getByText('Operational protected workflow').parentElement).toHaveTextContent('READY');
   });
 
