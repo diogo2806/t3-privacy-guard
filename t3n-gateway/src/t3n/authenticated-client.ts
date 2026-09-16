@@ -13,8 +13,7 @@ import {
 } from '@terminal3/t3n-sdk';
 import type { T3nNetwork } from '../config/env.js';
 import { TrustManifestFloorStore } from '../security/trust-manifest-floor-store.js';
-
-export type PrincipalCredentialKind = 'secp256k1' | 'org-agent';
+import { classifyPrincipalCredential } from './principal-credential.js';
 
 export interface PrincipalExecutionRequest<TInput = unknown> {
   readonly contract_id: string;
@@ -42,16 +41,7 @@ export interface AuthenticatedOrgAgentPrincipal {
   readonly trustManifestVersion: number;
 }
 
-const SECP256K1_PRIVATE_KEY_PATTERN = /^0x[a-fA-F0-9]{64}$/;
-const ORG_AGENT_API_KEY_PATTERN = /^t3n_key_[A-Za-z0-9]+\.[A-Za-z0-9_-]+$/;
 const CANONICAL_DID_PATTERN = /^did:t3n:[A-Za-z0-9]+$/;
-
-export function classifyPrincipalCredential(value: string): PrincipalCredentialKind {
-  if (SECP256K1_PRIVATE_KEY_PATTERN.test(value)) return 'secp256k1';
-  if (ORG_AGENT_API_KEY_PATTERN.test(value)) return 'org-agent';
-  if (value.startsWith('t3n_key_')) throw new Error('Malformed T3N organization-owned agent credential');
-  throw new Error('Unsupported T3N principal credential format');
-}
 
 async function loadVerifiedTrustManifest(
   network: T3nNetwork,

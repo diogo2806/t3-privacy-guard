@@ -6,12 +6,16 @@ import {
   authenticateOrgAgentPrincipal,
   authenticatePrincipal,
   checkOrgAgentDelegation,
-  classifyPrincipalCredential,
   invokeOrgAgent,
-  type PrincipalCredentialKind,
   type PrincipalDelegationCheckRequest,
   type PrincipalExecutionRequest,
 } from '../t3n/authenticated-client.js';
+import { classifyPrincipalCredential, type PrincipalCredentialKind } from '../t3n/principal-credential.js';
+import {
+  PrincipalIdentityConflictError,
+  type PrincipalIdentityGuard,
+  type PrincipalIdentityRole,
+} from '../t3n/principal-identity.js';
 
 export interface AgentSessionStatus {
   readonly configured: boolean;
@@ -57,25 +61,35 @@ export class AgentSession {
     private readonly principalApiKey: string | null = config.agentApiKey,
     private readonly principalLabel: string = 'Agent',
     private readonly dependencies: AgentSessionDependencies = DEFAULT_DEPENDENCIES,
+    private readonly identityGuard: PrincipalIdentityGuard | null = null,
+    private readonly identityRole: PrincipalIdentityRole = 'proposal-agent',
   ) {}
 
   getClient(): AgentPrincipalClient {
     if (!this.agentDid || !this.credentialKind || !this.principalApiKey) {
       throw new Error(`${this.principalLabel} session is not authenticated`);
     }
+    this.assertIdentitySeparation();
 
     if (this.credentialKind === 'secp256k1') {
       if (!this.client) throw new Error(`${this.principalLabel} session is not authenticated`);
       const client = this.client;
       return {
-        executeAndDecode: <T = unknown>(request: PrincipalExecutionRequest) => client.executeAndDecode(request) as Promise<T>,
-        checkDelegation: (request: PrincipalDelegationCheckRequest) => client.checkDelegation(request),
+        executeAndDecode: <T = unknown>(request: PrincipalExecutionRequest) => {
+          this.assertIdentitySeparation();
+          return client.executeAndDecode(request) as Promise<T>;
+        },
+        checkDelegation: (request: PrincipalDelegationCheckRequest) => {
+          this.assertIdentitySeparation();
+          return client.checkDelegation(request);
+        },
       };
     }
 
     const apiKey = this.principalApiKey;
     return {
       executeAndDecode: async <T = unknown>(request: PrincipalExecutionRequest): Promise<T> => {
+        this.assertIdentitySeparation();
         try {
           return await this.dependencies.invokeOrgAgent<T>(apiKey, this.config.network, request);
         } catch (error) {
@@ -83,6 +97,7 @@ export class AgentSession {
         }
       },
       checkDelegation: async (request: PrincipalDelegationCheckRequest): Promise<unknown> => {
+        this.assertIdentitySeparation();
         try {
           return await this.dependencies.checkOrgAgentDelegation(apiKey, this.config.network, request);
         } catch (error) {
@@ -94,13 +109,14 @@ export class AgentSession {
 
   getAgentDid(): string {
     if (!this.agentDid) throw new Error(`${this.principalLabel} session is not authenticated`);
+    this.assertIdentitySeparation();
     return this.agentDid;
   }
 
   getStatus(): AgentSessionStatus {
     const configured = Boolean(this.principalApiKey);
     const connected = this.credentialKind !== null && this.agentDid !== null;
-    return {
+    const status: AgentSessionStatus = {
       configured,
       connected,
       ready: configured && connected && this.lastError === null,
@@ -110,6 +126,7 @@ export class AgentSession {
       trustManifestVersion: this.trustManifestVersion,
       lastError: this.lastError,
     };
+    return this.identityGuard?.protectStatus(status) ?? status;
   }
 
   async connect(): Promise<void> {
@@ -141,14 +158,22 @@ export class AgentSession {
       }
       this.credentialKind = credentialKind;
       this.lastError = null;
+      if (this.agentDid) this.identityGuard?.recordAuthenticated(this.identityRole, this.agentDid);
     } catch (error) {
-      this.client = null;
-      this.credentialKind = null;
-      this.agentDid = null;
-      this.trustManifestVersion = null;
+      if (!(error instanceof PrincipalIdentityConflictError)) {
+        this.client = null;
+        this.credentialKind = null;
+        this.agentDid = null;
+        this.trustManifestVersion = null;
+        this.identityGuard?.clear(this.identityRole);
+      }
       this.lastError = sanitizeError(error, [apiKey]);
       throw new Error(`${this.lastError.category}: ${this.lastError.message}`);
     }
+  }
+
+  private assertIdentitySeparation(): void {
+    this.identityGuard?.assertDistinct();
   }
 
   private sanitizedTransportError(error: unknown, apiKey: string): Error {

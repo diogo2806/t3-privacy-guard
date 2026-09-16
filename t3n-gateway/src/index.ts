@@ -27,13 +27,23 @@ import { sanitizeError } from './security/sanitize.js';
 import { requireBearerServiceToken, requireServiceToken } from './security/service-auth.js';
 import { TrustManifestFloorStore } from './security/trust-manifest-floor-store.js';
 import { ActivityLogService } from './t3n/activity-log-service.js';
+import { PrincipalIdentityGuard } from './t3n/principal-identity.js';
 import { T3nSession } from './t3n/session.js';
 
 const config = readGatewayConfig();
 const trustFloorStore = new TrustManifestFloorStore(config.trustManifestFloorStorePath);
-const tenantSession = new T3nSession(config, trustFloorStore);
-const agentSession = new AgentSession(config, trustFloorStore);
-const executorSession = new ExecutorSession(config, trustFloorStore);
+const principalIdentityGuard = new PrincipalIdentityGuard();
+const tenantSession = new T3nSession(config, trustFloorStore, principalIdentityGuard);
+const agentSession = new AgentSession(
+  config,
+  trustFloorStore,
+  config.agentApiKey,
+  'Proposal agent',
+  undefined,
+  principalIdentityGuard,
+  'proposal-agent',
+);
+const executorSession = new ExecutorSession(config, trustFloorStore, principalIdentityGuard);
 const agentCardRegistry = new AgentCardRegistry(agentSession, undefined, undefined, config.a2aPublicUrl);
 const activityLogService = new ActivityLogService(tenantSession);
 const delegationService = new DelegationService(tenantSession, agentSession, PROPOSAL_DELEGATION_REQUIREMENTS);

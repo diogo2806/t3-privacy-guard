@@ -3,7 +3,9 @@ import test from 'node:test';
 import type { T3nClient } from '@terminal3/t3n-sdk';
 import type { GatewayConfig } from '../config/env.js';
 import type { TrustManifestFloorStore } from '../security/trust-manifest-floor-store.js';
+import { PrincipalIdentityGuard } from '../t3n/principal-identity.js';
 import { AgentSession, type AgentSessionDependencies } from './agent-session.js';
+import { ExecutorSession } from './executor-session.js';
 
 const config = { network: 'testnet', agentApiKey: null } as GatewayConfig;
 const trustFloorStore = {} as TrustManifestFloorStore;
@@ -162,4 +164,66 @@ test('sanitizes stateless invoke network failures without changing readiness ide
   );
   assert.equal(session.getStatus().ready, true);
   assert.equal(JSON.stringify(session.getStatus()).includes(orgAgentKey), false);
+});
+
+test('keeps DID conflicts fail-closed across readiness, reconnect and operations without exposing credentials', async () => {
+  const guard = new PrincipalIdentityGuard();
+  guard.recordAuthenticated('tenant', agentDid);
+  const session = new AgentSession(
+    config,
+    trustFloorStore,
+    orgAgentKey,
+    'Proposal agent',
+    baseDependencies(),
+    guard,
+    'proposal-agent',
+  );
+
+  await assert.rejects(session.connect(), (error: Error) => {
+    assert.match(error.message, /^AUTHENTICATION:/);
+    assert.equal(error.message.includes(orgAgentKey), false);
+    return true;
+  });
+
+  const conflictedStatus = session.getStatus();
+  assert.equal(conflictedStatus.connected, true);
+  assert.equal(conflictedStatus.ready, false);
+  assert.equal(conflictedStatus.lastError?.category, 'AUTHENTICATION');
+  assert.equal(JSON.stringify(conflictedStatus).includes(orgAgentKey), false);
+  assert.throws(() => session.getClient(), /distinct DIDs/);
+  assert.throws(() => session.getAgentDid(), /distinct DIDs/);
+  await assert.rejects(session.connect(), /^AUTHENTICATION:/);
+
+  guard.recordAuthenticated('tenant', 'did:t3n:tenant999');
+  await session.connect();
+  assert.equal(session.getStatus().ready, true);
+  assert.equal(session.getAgentDid(), agentDid);
+});
+
+test('protected executor preserves both supported credential transports', async () => {
+  const secpConfig = { network: 'testnet', agentApiKey: null, executorApiKey: secpKey } as GatewayConfig;
+  const secpSession = new ExecutorSession(secpConfig, trustFloorStore, null, baseDependencies());
+  await secpSession.connect();
+  assert.equal(secpSession.getExecutorStatus().ready, true);
+  assert.equal(secpSession.getExecutorDid(), agentDid);
+  assert.equal(
+    (await secpSession.getClient().executeAndDecode<{ transport: string }>({
+      ...delegatedRequest,
+      function_name: 'execute-remediation',
+    })).transport,
+    'session',
+  );
+
+  const orgConfig = { network: 'testnet', agentApiKey: null, executorApiKey: orgAgentKey } as GatewayConfig;
+  const orgSession = new ExecutorSession(orgConfig, trustFloorStore, null, baseDependencies());
+  await orgSession.connect();
+  assert.equal(orgSession.getExecutorStatus().ready, true);
+  assert.equal(orgSession.getExecutorDid(), agentDid);
+  assert.equal(
+    (await orgSession.getClient().executeAndDecode<{ transport: string }>({
+      ...delegatedRequest,
+      function_name: 'execute-remediation',
+    })).transport,
+    'stateless',
+  );
 });
