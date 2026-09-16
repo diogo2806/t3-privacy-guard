@@ -56,7 +56,7 @@ export class PrincipalIdentityGuard {
     assertDistinctPrincipalDids(this.snapshot());
   }
 
-  protectStatus<T extends ReadyStatus>(status: T): T {
+  protectStatus<T extends ReadyStatus>(status: T): Omit<T, keyof ReadyStatus> & ReadyStatus {
     try {
       this.assertDistinct();
       return status;

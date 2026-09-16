@@ -82,7 +82,7 @@ test('uses the stateless keyed transport for organization-owned t3n_key credenti
       assert.equal(apiKey, orgAgentKey);
       return { transport: 'stateless' } as T;
     },
-    checkOrgAgentDelegation: async (apiKey) => {
+    checkOrgAgentDelegation: async (apiKey: string) => {
       delegationCalls += 1;
       assert.equal(apiKey, orgAgentKey);
       return { authorised: true };
