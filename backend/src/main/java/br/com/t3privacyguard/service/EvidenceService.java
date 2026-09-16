@@ -30,9 +30,26 @@ public class EvidenceService {
         this.testnetPath = Path.of(testnetPath).normalize();
     }
 
+    public EvidenceAvailability latestState() {
+        boolean manifestAvailable = Files.isRegularFile(manifestPath);
+        boolean testnetAvailable = Files.isRegularFile(testnetPath);
+        if (!manifestAvailable && !testnetAvailable) {
+            return new EvidenceAvailability(false, null);
+        }
+        if (manifestAvailable != testnetAvailable) {
+            throw new IllegalStateException("Live evidence bundle is incomplete");
+        }
+        return new EvidenceAvailability(true, latest());
+    }
+
     public EvidenceResponse latest() {
-        if (!Files.isRegularFile(manifestPath) || !Files.isRegularFile(testnetPath)) {
+        boolean manifestAvailable = Files.isRegularFile(manifestPath);
+        boolean testnetAvailable = Files.isRegularFile(testnetPath);
+        if (!manifestAvailable && !testnetAvailable) {
             throw new EvidenceNotFoundException("No live T3N evidence has been generated yet.");
+        }
+        if (manifestAvailable != testnetAvailable) {
+            throw new IllegalStateException("Live evidence bundle is incomplete");
         }
         try {
             JsonNode manifest = mapper.readTree(Files.readString(manifestPath));
@@ -172,6 +189,7 @@ public class EvidenceService {
         if (requiredBoolean(node, field) != expected) throw new IllegalStateException("Evidence mismatch for " + field);
     }
 
+    public record EvidenceAvailability(boolean available, EvidenceResponse evidence) {}
     public record EvidenceResponse(Metadata metadata, List<Scenario> scenarios, Totals totals) {}
     public record Metadata(
         String source,
