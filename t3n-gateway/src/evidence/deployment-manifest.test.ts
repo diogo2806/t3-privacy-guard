@@ -55,6 +55,33 @@ test('rejects a REGISTERED claim without matching public card evidence', () => {
   assert.throws(() => assertManifestIdentity(value), /Agent Card SHA-256/);
 });
 
+test('accepts REGISTERED card with DID only or DID plus A2A in either order', () => {
+  const didOnly = manifest();
+  assert.doesNotThrow(() => assertManifestIdentity(didOnly));
+
+  const didA2a = manifest();
+  didA2a.agentCardServices = ['DID', 'A2A'];
+  assert.doesNotThrow(() => assertManifestIdentity(didA2a));
+
+  const a2aDid = manifest();
+  a2aDid.agentCardServices = ['A2A', 'DID'];
+  assert.doesNotThrow(() => assertManifestIdentity(a2aDid));
+});
+
+test('rejects missing DID, duplicate or unsupported REGISTERED card services', () => {
+  const noDid = manifest();
+  noDid.agentCardServices = ['A2A'];
+  assert.throws(() => assertManifestIdentity(noDid), /requires the DID service/);
+
+  const duplicate = manifest();
+  duplicate.agentCardServices = ['DID', 'DID'];
+  assert.throws(() => assertManifestIdentity(duplicate), /duplicate services/);
+
+  const unsupported = manifest();
+  unsupported.agentCardServices = ['DID', 'MCP'];
+  assert.throws(() => assertManifestIdentity(unsupported), /unsupported service/);
+});
+
 test('negative registration states are preserved without being upgraded to success', () => {
   const value = manifest();
   value.agentRegistrationState = 'NOT_REGISTERED';
