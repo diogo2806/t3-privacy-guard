@@ -139,6 +139,10 @@ Se `A2A_PUBLIC_URL` estiver configurada e o card público estiver divergente, a 
 
 Falha em qualquer etapa é sanitizada, registrada sem secrets e mantém o sistema fail-closed. O servidor HTTP continua observável para que `/health` e os endpoints de status indiquem o que ainda não está pronto; uma falha de provisionamento nunca é convertida em readiness positivo.
 
+O bootstrap de `privacy-guard-policy` trata `current` e `version:<version>` como entradas opcionais somente antes do primeiro publish. Se uma dessas leituras ainda não existir, a publicação pode prosseguir; falha de escrita nunca é ignorada. A reconciliação só considera a policy ativa depois de gravar `current` e fazer read-back estrito da mesma versão e hash. Erro ou divergência no read-back continua falhando fechado.
+
+`GET /internal/contracts/privacy-guard/enterprise-integration-readiness` expõe `diagnosticCode` apenas por allowlist quando o estado é `UNKNOWN`; o backend propaga o mesmo código em `/api/system/status`. Os códigos possíveis são `POLICY_UNAVAILABLE`, `POLICY_INVALID`, `PRIVATE_CONFIGURATION_UNAVAILABLE`, `ENDPOINT_CONFIGURATION_INVALID`, `DELEGATION_UNAVAILABLE` e `T3N_CONTROL_PLANE_UNAVAILABLE`; `NONE` indica ausência de diagnóstico de falha. Nenhum código contém mensagem bruta do SDK, segredo, URL privada completa, path, query, fragment ou stack trace. `UNKNOWN` permanece fail-closed e nunca é promovido a `READY` somente por variáveis de ambiente.
+
 ## Evidência live no container de produção
 
 A imagem final executa a geração live somente a partir de JavaScript compilado em `dist`; `src`, `tsx` e `.git` não são requisitos de runtime.

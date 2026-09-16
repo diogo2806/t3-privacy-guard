@@ -56,6 +56,7 @@ class SystemStatusServiceTest {
         assertThat(result.evaluationReady()).isTrue();
         assertThat(result.protectedRemediationReady()).isTrue();
         assertThat(result.enterpriseIntegrationState()).isEqualTo("READY");
+        assertThat(result.enterpriseIntegrationDiagnosticCode()).isEqualTo("NONE");
         assertThat(result.enterpriseIntegrationReady()).isTrue();
         assertThat(result.firstPartyRemediationAdapterConfigured()).isTrue();
         assertThat(result.enterpriseExecutionHost()).isEqualTo("security.example");
@@ -91,6 +92,27 @@ class SystemStatusServiceTest {
 
         assertThat(result.protectedRemediationReady()).isTrue();
         assertThat(result.enterpriseIntegrationState()).isEqualTo("MISMATCH");
+        assertThat(result.enterpriseIntegrationDiagnosticCode()).isEqualTo("NONE");
+        assertThat(result.enterpriseIntegrationReady()).isFalse();
+    }
+
+    @Test
+    void propagatesSanitizedEnterpriseDiagnosticWithoutChangingT3nReadiness() {
+        when(gateway.enterpriseIntegrationReadiness()).thenReturn(Optional.of(integrationUnknown("POLICY_UNAVAILABLE")));
+        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
+            "ACTIVE", "ACTIVE", List.of("evaluate-action"), List.of("incident_id"), List.of(),
+            List.of("evaluate-action"), List.of("incident_id", "credential_id", "reason")
+        )));
+        when(gateway.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
+            "ACTIVE", "ACTIVE", List.of("execute-remediation", "verify-remediation"), List.of("incident_id"), List.of("security.example"),
+            List.of("execute-remediation", "verify-remediation"), List.of("incident_id", "credential_id", "reason")
+        )));
+
+        var result = service.status();
+
+        assertThat(result.protectedRemediationReady()).isTrue();
+        assertThat(result.enterpriseIntegrationState()).isEqualTo("UNKNOWN");
+        assertThat(result.enterpriseIntegrationDiagnosticCode()).isEqualTo("POLICY_UNAVAILABLE");
         assertThat(result.enterpriseIntegrationReady()).isFalse();
     }
 
@@ -110,6 +132,7 @@ class SystemStatusServiceTest {
 
         assertThat(result.protectedRemediationReady()).isTrue();
         assertThat(result.enterpriseIntegrationState()).isEqualTo("UNKNOWN");
+        assertThat(result.enterpriseIntegrationDiagnosticCode()).isEqualTo("T3N_CONTROL_PLANE_UNAVAILABLE");
         assertThat(result.enterpriseIntegrationReady()).isFalse();
         assertThat(result.enterpriseExecutionHost()).isNull();
         assertThat(result.enterpriseSupportedVerifiedActions()).isEmpty();
@@ -274,6 +297,7 @@ class SystemStatusServiceTest {
         boolean ready = "READY".equals(state);
         return new EnterpriseIntegrationReadiness(
             state,
+            "NONE",
             true,
             true,
             true,
@@ -287,6 +311,27 @@ class SystemStatusServiceTest {
             List.of("revoke-credential"),
             List.of(new EnterpriseVerificationContract("revoke-credential", "REVOKED")),
             List.of("create-incident", "isolate-account", "notify-security"),
+            "2026-09-13T21:00:00Z"
+        );
+    }
+
+    private static EnterpriseIntegrationReadiness integrationUnknown(String diagnosticCode) {
+        return new EnterpriseIntegrationReadiness(
+            "UNKNOWN",
+            diagnosticCode,
+            false,
+            false,
+            false,
+            null,
+            null,
+            false,
+            false,
+            false,
+            false,
+            List.of("revoke-credential", "notify-security"),
+            List.of("revoke-credential", "notify-security"),
+            List.of(new EnterpriseVerificationContract("revoke-credential", "REVOKED")),
+            List.of(),
             "2026-09-13T21:00:00Z"
         );
     }

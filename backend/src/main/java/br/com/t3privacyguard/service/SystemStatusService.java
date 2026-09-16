@@ -48,6 +48,9 @@ public class SystemStatusService {
         String executorDelegationMemberState = executorDelegation.map(DelegationStatus::memberState).orElse("UNKNOWN");
         String executorDelegationEffectiveState = executorDelegation.map(DelegationStatus::effectiveState).orElse("UNKNOWN");
         String enterpriseIntegrationState = enterpriseIntegration.map(EnterpriseIntegrationReadiness::state).orElse("UNKNOWN");
+        String enterpriseIntegrationDiagnosticCode = enterpriseIntegration
+            .map(EnterpriseIntegrationReadiness::diagnosticCode)
+            .orElse("T3N_CONTROL_PLANE_UNAVAILABLE");
         boolean enterpriseIntegrationReady = "READY".equals(enterpriseIntegrationState);
 
         boolean evaluationReady = tenantAuthenticated
@@ -96,6 +99,7 @@ public class SystemStatusService {
             evaluationReady,
             protectedRemediationReady,
             enterpriseIntegrationState,
+            enterpriseIntegrationDiagnosticCode,
             enterpriseIntegrationReady,
             remediationCredential.isConfigured(),
             enterpriseIntegration.map(EnterpriseIntegrationReadiness::executionConfigured).orElse(false),
@@ -200,6 +204,7 @@ public class SystemStatusService {
         boolean evaluationReady,
         boolean protectedRemediationReady,
         String enterpriseIntegrationState,
+        String enterpriseIntegrationDiagnosticCode,
         boolean enterpriseIntegrationReady,
         boolean firstPartyRemediationAdapterConfigured,
         boolean enterpriseExecutionConfigured,

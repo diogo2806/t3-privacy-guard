@@ -5,6 +5,14 @@ export type DelegationState = 'ACTIVE' | 'SCHEDULED' | 'REVOKED' | 'NOT_GRANTED'
 export type EffectiveDelegationState = 'ACTIVE' | 'DENIED' | 'UNKNOWN';
 export type AgentRegistrationState = 'REGISTERED' | 'NOT_REGISTERED' | 'MISMATCH' | 'UNAVAILABLE';
 export type EnterpriseIntegrationState = 'READY' | 'INCOMPLETE' | 'MISMATCH' | 'UNKNOWN';
+export type EnterpriseIntegrationDiagnosticCode =
+  | 'NONE'
+  | 'POLICY_UNAVAILABLE'
+  | 'POLICY_INVALID'
+  | 'PRIVATE_CONFIGURATION_UNAVAILABLE'
+  | 'ENDPOINT_CONFIGURATION_INVALID'
+  | 'DELEGATION_UNAVAILABLE'
+  | 'T3N_CONTROL_PLANE_UNAVAILABLE';
 export type EvidenceScenarioStatus = 'PASS' | 'FAIL' | 'NOT_RUN';
 export type RemediationState = 'EXECUTING' | 'PENDING_VERIFICATION' | 'COMPLETED' | 'UNVERIFIED' | 'FAILED';
 export type AuditReconciliationStatus = 'LOCAL_ONLY' | 'T3N_ONLY' | 'MATCHED' | 'UNMATCHED';
@@ -117,6 +125,7 @@ export interface SystemStatus {
   evaluationReady: boolean;
   protectedRemediationReady: boolean;
   enterpriseIntegrationState: EnterpriseIntegrationState;
+  enterpriseIntegrationDiagnosticCode?: EnterpriseIntegrationDiagnosticCode;
   enterpriseIntegrationReady: boolean;
   firstPartyRemediationAdapterConfigured: boolean;
   enterpriseExecutionConfigured: boolean;
