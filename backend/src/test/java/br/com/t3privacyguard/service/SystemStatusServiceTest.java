@@ -12,6 +12,7 @@ import br.com.t3privacyguard.integration.GatewaySystemClient.EnterpriseIntegrati
 import br.com.t3privacyguard.integration.GatewaySystemClient.EnterpriseVerificationContract;
 import br.com.t3privacyguard.integration.GatewaySystemClient.ExecutorStatus;
 import br.com.t3privacyguard.integration.GatewaySystemClient.TenantStatus;
+import br.com.t3privacyguard.security.SecurityRemediationCredential;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,6 +25,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class SystemStatusServiceTest {
     @Mock GatewaySystemClient gateway;
+    @Mock SecurityRemediationCredential remediationCredential;
     @InjectMocks SystemStatusService service;
 
     @BeforeEach
@@ -35,6 +37,7 @@ class SystemStatusServiceTest {
         when(gateway.agentRegistration()).thenReturn(Optional.of(registration("did:t3n:proposal-agent", "REGISTERED")));
         when(gateway.enterpriseIntegrationReadiness()).thenReturn(Optional.of(integration("READY")));
         when(gateway.contractIdentity()).thenReturn(Optional.of(new ContractIdentity("z:tenant:privacy-guard", "0.4.0")));
+        when(remediationCredential.isConfigured()).thenReturn(true);
     }
 
     @Test
@@ -54,6 +57,7 @@ class SystemStatusServiceTest {
         assertThat(result.protectedRemediationReady()).isTrue();
         assertThat(result.enterpriseIntegrationState()).isEqualTo("READY");
         assertThat(result.enterpriseIntegrationReady()).isTrue();
+        assertThat(result.firstPartyRemediationAdapterConfigured()).isTrue();
         assertThat(result.enterpriseExecutionHost()).isEqualTo("security.example");
         assertThat(result.enterpriseVerificationHost()).isEqualTo("verification.example");
         assertThat(result.enterpriseVerificationContracts()).containsExactly(new EnterpriseVerificationContract("revoke-credential", "REVOKED"));
