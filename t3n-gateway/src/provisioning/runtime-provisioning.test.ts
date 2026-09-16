@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  buildAdminProvisioningPlan,
   configuredEnterpriseHosts,
   executorDelegationGrantRequest,
   provisioningStateMatches,
@@ -55,6 +56,43 @@ test('executor grant adds only canonical real HTTPS enterprise hosts when config
     SECURITY_API_URL: 'https://security.example.com/private/remediate',
     SECURITY_VERIFICATION_URL: 'https://verify.example.com/private/read-back',
   }).allowedHosts, ['security.example.com', 'verify.example.com']);
+});
+
+test('admin provisioning reconciles existing maps even when no numeric contract id is locally available', () => {
+  const plan = buildAdminProvisioningPlan(null, {
+    T3N_CONTRACT_NUMERIC_ID: '999',
+    SECURITY_API_KEY: 'a'.repeat(64),
+    SECURITY_API_URL: 'https://security.example.com/private/remediate',
+    SECURITY_VERIFICATION_URL: 'https://security.example.com/private/read-back',
+  });
+
+  assert.deepEqual(plan.map(({ scriptName }) => scriptName), [
+    'setup-policy.js',
+    'setup-remediation-secrets.js',
+  ]);
+  for (const step of plan) assert.equal(step.env.T3N_CONTRACT_NUMERIC_ID, undefined);
+});
+
+test('admin provisioning forwards a known numeric contract id to map creation capable scripts', () => {
+  const plan = buildAdminProvisioningPlan(42, {
+    SECURITY_API_KEY: 'a'.repeat(64),
+    SECURITY_API_URL: 'https://security.example.com/private/remediate',
+    SECURITY_VERIFICATION_URL: 'https://verify.example.com/private/read-back',
+  });
+
+  assert.deepEqual(plan.map(({ scriptName }) => scriptName), [
+    'setup-policy.js',
+    'setup-remediation-secrets.js',
+  ]);
+  for (const step of plan) assert.equal(step.env.T3N_CONTRACT_NUMERIC_ID, '42');
+});
+
+test('admin provisioning keeps policy reconciliation independent from incomplete remediation configuration', () => {
+  const plan = buildAdminProvisioningPlan(null, {
+    SECURITY_API_KEY: 'a'.repeat(64),
+  });
+
+  assert.deepEqual(plan.map(({ scriptName }) => scriptName), ['setup-policy.js']);
 });
 
 test('persisted numeric id is reusable only for the same tenant contract and version', () => {
