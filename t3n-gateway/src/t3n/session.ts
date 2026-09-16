@@ -3,6 +3,7 @@ import type { GatewayConfig } from '../config/env.js';
 import { sanitizeError, type SanitizedError } from '../security/sanitize.js';
 import { TrustManifestFloorStore } from '../security/trust-manifest-floor-store.js';
 import { authenticatePrincipal } from './authenticated-client.js';
+import { PrincipalIdentityConflictError, type PrincipalIdentityGuard } from './principal-identity.js';
 
 export interface T3nSessionStatus {
   readonly connected: boolean;
@@ -24,12 +25,14 @@ export class T3nSession {
   constructor(
     private readonly config: GatewayConfig,
     private readonly trustFloorStore: TrustManifestFloorStore,
+    private readonly identityGuard: PrincipalIdentityGuard | null = null,
   ) {}
 
   getClient(): T3nClient {
     if (!this.client || !this.tenantDid) {
       throw new Error('T3N session is not authenticated');
     }
+    this.identityGuard?.assertDistinct();
     return this.client;
   }
 
@@ -37,12 +40,13 @@ export class T3nSession {
     if (!this.tenantDid) {
       throw new Error('T3N session is not authenticated');
     }
+    this.identityGuard?.assertDistinct();
     return this.tenantDid;
   }
 
   getStatus(): T3nSessionStatus {
     const connected = this.client !== null && this.tenantDid !== null;
-    return {
+    const status: T3nSessionStatus = {
       connected,
       ready: connected && this.lastError === null,
       tenantDid: this.tenantDid,
@@ -51,6 +55,7 @@ export class T3nSession {
       trustManifestVersion: this.trustManifestVersion,
       lastError: this.lastError,
     };
+    return this.identityGuard?.protectStatus(status) ?? status;
   }
 
   async connect(): Promise<void> {
@@ -72,10 +77,14 @@ export class T3nSession {
       this.tenantDid = principal.did;
       this.trustManifestVersion = principal.trustManifestVersion;
       this.lastError = null;
+      this.identityGuard?.recordAuthenticated('tenant', principal.did);
     } catch (error) {
-      this.client = null;
-      this.tenantDid = null;
-      this.trustManifestVersion = null;
+      if (!(error instanceof PrincipalIdentityConflictError)) {
+        this.client = null;
+        this.tenantDid = null;
+        this.trustManifestVersion = null;
+        this.identityGuard?.clear('tenant');
+      }
       this.lastError = sanitizeError(error, [this.config.apiKey]);
       throw new Error(`${this.lastError.category}: ${this.lastError.message}`);
     }
