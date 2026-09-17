@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildDelegatedExecutionRequest } from './privacy-guard-contract.js';
+import { buildDelegatedExecutionRequest, PrivacyGuardContractService } from './privacy-guard-contract.js';
 
 const tenantDid = 'did:t3n:tenant123';
 const agentDid = 'did:t3n:agent456';
@@ -105,4 +105,32 @@ test('caller-controlled agent metadata cannot replace the delegation subject', (
 
   assert.equal(request.pii_did, tenantDid);
   assert.equal(request.input.agent_did, 'did:t3n:forged-agent');
+});
+
+test('contract identity resolves the T3N version fresh on every request', async () => {
+  const observedVersions = ['0.4.4', '0.4.5'];
+  const lookupCalls: Array<{ nodeUrl: string; contractId: string }> = [];
+  const identityContractId = 'z:tenant123:privacy-guard';
+  const service = new PrivacyGuardContractService(
+    { contractTail: 'privacy-guard' } as unknown as ConstructorParameters<typeof PrivacyGuardContractService>[0],
+    {
+      connect: async () => undefined,
+      getTenantDid: () => tenantDid,
+    } as unknown as ConstructorParameters<typeof PrivacyGuardContractService>[1],
+    {} as ConstructorParameters<typeof PrivacyGuardContractService>[2],
+    {} as ConstructorParameters<typeof PrivacyGuardContractService>[3],
+    undefined,
+    async (nodeUrl, requestedContractId) => {
+      lookupCalls.push({ nodeUrl, contractId: requestedContractId });
+      const version = observedVersions.shift();
+      if (!version) throw new Error('unexpected lookup');
+      return version;
+    },
+  );
+
+  assert.deepEqual(await service.identity(), { contractId: identityContractId, contractVersion: '0.4.4' });
+  assert.deepEqual(await service.identity(), { contractId: identityContractId, contractVersion: '0.4.5' });
+  assert.equal(lookupCalls.length, 2);
+  assert.equal(lookupCalls[0]?.contractId, identityContractId);
+  assert.equal(lookupCalls[1]?.contractId, identityContractId);
 });
