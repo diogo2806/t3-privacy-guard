@@ -135,7 +135,7 @@ SECURITY_VERIFICATION_URL=https://api-privacy.iforce.com.br/api/security/remedia
 
 O backend não precisa das duas URLs para servir esses endpoints; ele precisa apenas da mesma `SECURITY_API_KEY`. O gateway precisa das três variáveis para inserir a configuração no KV privado T3N e reconciliar os hosts autorizados. Após alterar essas variáveis, reinicie/reimplante o gateway para que a reconciliação automática seja executada, ou use a etapa manual de setup-remediation.
 
-Se `A2A_PUBLIC_URL` estiver configurada e o card público estiver divergente, a reconciliação pode republicar o Agent Card somente quando `T3N_ORG_DID` e `T3N_AGENT_API_KEY` estiverem presentes. O DID publicado continua vindo exclusivamente da autenticação do Proposal Agent.
+Se `A2A_PUBLIC_URL` estiver configurada e o card público estiver divergente, a reconciliação pode republicar o Agent Card somente quando `T3N_ORG_DID` e `T3N_AGENT_API_KEY` estiverem presentes. O DID publicado continua vindo exclusivamente da autenticação do Proposal Agent. Para agentes organization-owned, o Tenant/Admin autenticado também precisa ser writer do scope T3N `agent-cards`: antes de `agentCardSet`, o runtime lê a lista atual, preserva todos os writers existentes, adiciona de forma idempotente o DID canônico retornado por `T3nSession.getTenantDid()` quando necessário e só então publica. Como `setWriters` substitui a lista completa, falha ao ler ou reconciliar esse ACL interrompe a publicação em vez de assumir uma lista vazia.
 
 Falha em qualquer etapa é sanitizada, registrada sem secrets e mantém o sistema fail-closed. O servidor HTTP continua observável para que `/health` e os endpoints de status indiquem o que ainda não está pronto; uma falha de provisionamento nunca é convertida em readiness positivo.
 
@@ -326,7 +326,9 @@ npm run agent:card:publish
 npm run agent:card:verify
 ```
 
-A publicação gera o card em `/data/agent-card.json`, autentica o Tenant/Admin com `T3N_API_KEY`, cria o cliente administrativo de organização a partir dessa sessão e chama `agentCardSet`/`agentCardPublish` com `ownerDid=T3N_ORG_DID`. O `agentDid` é obtido exclusivamente pela autenticação T3N do Proposal Agent (`AgentSession.getAgentDid()`), inclusive quando sua credencial é `t3n_key_*`. O fluxo não executa `t3n agent host-card`, não cria subprocesso de CLI e não assume que o DID da organização é igual ao DID do agente.
+A publicação gera o card em `/data/agent-card.json`, autentica o Tenant/Admin com `T3N_API_KEY`, cria o cliente administrativo de organização a partir dessa sessão e usa o DID canônico retornado pela mesma sessão para reconciliar o ACL do scope `agent-cards`. O publicador lê `writersGet`, preserva os writers existentes, adiciona o Tenant/Admin quando ausente e chama `setWriters` somente quando a lista precisa mudar. Depois desse pré-requisito chama `agentCardSet`/`agentCardPublish` com `ownerDid=T3N_ORG_DID`. O `agentDid` é obtido exclusivamente pela autenticação T3N do Proposal Agent (`AgentSession.getAgentDid()`), inclusive quando sua credencial é `t3n_key_*`. O fluxo não executa `t3n agent host-card`, não cria subprocesso de CLI e não assume que o DID da organização é igual ao DID do agente.
+
+Como `setWriters` substitui o documento de writers do scope, uma falha em `writersGet` ou `setWriters` interrompe a publicação antes de `agentCardSet`; o código nunca trata uma leitura falha como lista vazia nem remove outros writers para conceder acesso ao admin atual.
 
 Após a publicação, `AgentCardRegistry.verify()` resolve novamente o registro usando a identidade autenticada do Proposal Agent. O comando só conclui quando o estado chega a `REGISTERED`; falha de publicação, resolução ou mismatch permanece fail-closed. A publicação é uma operação mutável e pode consumir créditos T3N.
 
@@ -334,6 +336,10 @@ Fluxo de identidade da publicação:
 
 ```text
 Tenant/Admin secp256k1 (T3N_API_KEY)
+        |
+        +--> DID autenticado do Tenant/Admin
+        |       |
+        |       +--> reconcile writer em organization/agent-cards
         |
         +--> organização (T3N_ORG_DID)
                  |
@@ -381,6 +387,9 @@ persist T3N_ORG_DID and agent credentials
 reconcile Proposal + Executor Member grants
       |
       v
+reconcile Tenant/Admin writer on agent-cards
+      |
+      v
 publish + verify Agent Card
       |
       v
@@ -417,7 +426,6 @@ A compatible v2 client can connect with a static bearer provider:
 
 ```ts
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-
 const client = new Client(
   { name: 'privacy-guard-client', version: '1.0.0' },
   { versionNegotiation: { mode: 'auto' } },
@@ -449,6 +457,7 @@ Os comandos administrativos e o runtime falham fechados quando os artefatos, cre
 - `agent:card:publish` recusa execução sem `T3N_AGENT_API_KEY` ou `T3N_ORG_DID` canônico;
 - `agent:card:verify` recusa execução sem `T3N_AGENT_API_KEY`;
 - a reparação automática do Agent Card só ocorre quando a organização e o Proposal Agent estão explicitamente configurados;
+- a publicação de Agent Card organization-owned falha fechada se o DID autenticado do Tenant/Admin não puder ser reconciliado como writer de `agent-cards`; writers existentes nunca são descartados para conceder esse acesso;
 - `contract:register` falha se o WASM runtime estiver ausente ou ilegível;
 - `evidence:live` falha se a proveniência do artefato não trouxer um SHA completo ou se o bundle de origem estiver DIRTY sem override explícito;
 - `evidence:live` não usa `tsx`, `src` ou `.git` no container final e só publica o par persistente após manter as verificações de identidade, trust, policy, contrato e delegação;
