@@ -28,6 +28,15 @@ import type { T3nSession } from '../t3n/session.js';
 const execFileAsync = promisify(execFile);
 const DEFAULT_STATE_PATH = '/data/t3n-runtime-provisioning.json';
 const DEFAULT_WASM_PATH = '/app/runtime/privacy_guard_contract.wasm';
+const REMOTE_STATE_MAP_TAIL = 'privacy-guard-runtime-provisioning';
+const REMOTE_STATE_KEY = 'current';
+const PROVISIONING_STATE_FIELDS = new Set([
+  'tenantDid',
+  'contractId',
+  'contractVersion',
+  'numericContractId',
+  'updatedAt',
+]);
 const MAX_CARD_VERIFY_ATTEMPTS = 4;
 
 export interface RuntimeProvisioningState {
@@ -50,12 +59,14 @@ export interface RuntimeProvisioningResult {
   readonly agentCardState: string;
 }
 
-interface RuntimeProvisioningDependencies {
+export interface RuntimeProvisioningDependencies {
   readonly runAdminScript?: (scriptName: string, env: NodeJS.ProcessEnv) => Promise<void>;
   readonly sleep?: (milliseconds: number) => Promise<void>;
+  readonly readRemoteProvisioningState?: () => Promise<RuntimeProvisioningState | null>;
+  readonly persistRemoteProvisioningState?: (state: RuntimeProvisioningState) => Promise<void>;
 }
 
-interface ContractResolution {
+export interface ContractResolution {
   readonly contractId: string;
   readonly contractVersion: string;
   readonly numericContractId: number | null;
@@ -187,19 +198,40 @@ export function provisioningStateMatches(
     && state.numericContractId > 0;
 }
 
-async function readProvisioningState(path: string): Promise<RuntimeProvisioningState | null> {
+export function parseProvisioningState(raw: string): RuntimeProvisioningState | null {
   try {
-    const parsed = JSON.parse(await readFile(path, 'utf8')) as Partial<RuntimeProvisioningState>;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const keys = Object.keys(parsed);
+    if (keys.length !== PROVISIONING_STATE_FIELDS.size || keys.some((key) => !PROVISIONING_STATE_FIELDS.has(key))) return null;
     if (
       typeof parsed.tenantDid !== 'string'
+      || !parsed.tenantDid.trim()
       || typeof parsed.contractId !== 'string'
+      || !parsed.contractId.trim()
       || typeof parsed.contractVersion !== 'string'
+      || !parsed.contractVersion.trim()
       || typeof parsed.numericContractId !== 'number'
       || !Number.isInteger(parsed.numericContractId)
       || parsed.numericContractId <= 0
       || typeof parsed.updatedAt !== 'string'
+      || !parsed.updatedAt.trim()
     ) return null;
-    return parsed as RuntimeProvisioningState;
+    return {
+      tenantDid: parsed.tenantDid,
+      contractId: parsed.contractId,
+      contractVersion: parsed.contractVersion,
+      numericContractId: parsed.numericContractId,
+      updatedAt: parsed.updatedAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function readProvisioningState(path: string): Promise<RuntimeProvisioningState | null> {
+  try {
+    return parseProvisioningState(await readFile(path, 'utf8'));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
     return null;
@@ -216,6 +248,111 @@ function configuredNumericContractId(env: NodeJS.ProcessEnv): number | null {
   return Number.isInteger(value) && value > 0 ? value : null;
 }
 
+function extractControlValue(value: unknown, depth = 0): string | null {
+  if (depth > 4) return null;
+  if (typeof value === 'string') return value;
+  if (value instanceof Uint8Array) return Buffer.from(value).toString('utf8');
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  for (const key of ['value', 'data', 'result']) {
+    const extracted = extractControlValue(record[key], depth + 1);
+    if (extracted != null) return extracted;
+  }
+  return null;
+}
+
+async function tenantClientForProvisioning(tenantSession: T3nSession): Promise<TenantClient> {
+  const tenant = new TenantClient({
+    t3n: tenantSession.getClient(),
+    baseUrl: getNodeUrl(),
+    tenantDid: tenantSession.getTenantDid(),
+  });
+  await tenant.tenant.me();
+  return tenant;
+}
+
+async function readRemoteProvisioningState(tenantSession: T3nSession): Promise<RuntimeProvisioningState | null> {
+  const tenant = await tenantClientForProvisioning(tenantSession);
+  const mapName = tenant.canonicalName(REMOTE_STATE_MAP_TAIL);
+  try {
+    const raw = extractControlValue(await tenant.executeControl('map-entry-get', {
+      map_name: mapName,
+      key: REMOTE_STATE_KEY,
+    }));
+    if (!raw) return null;
+    const state = parseProvisioningState(raw);
+    if (!state) throw new Error('Remote T3N runtime provisioning state is invalid');
+    return state;
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Remote T3N runtime provisioning state is invalid') throw error;
+    return null;
+  }
+}
+
+async function persistRemoteProvisioningState(
+  tenantSession: T3nSession,
+  state: RuntimeProvisioningState,
+): Promise<void> {
+  const tenant = await tenantClientForProvisioning(tenantSession);
+  const restrictedAcl = {
+    writers: { only: [state.numericContractId] },
+    readers: { only: [state.numericContractId] },
+  };
+  try {
+    await tenant.maps.create({
+      tail: REMOTE_STATE_MAP_TAIL,
+      visibility: 'private',
+      ...restrictedAcl,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.toLowerCase().includes('already')) {
+      throw new Error('Remote T3N runtime provisioning state map could not be created');
+    }
+    await tenant.maps.update(REMOTE_STATE_MAP_TAIL, restrictedAcl);
+  }
+
+  const mapName = tenant.canonicalName(REMOTE_STATE_MAP_TAIL);
+  const serialized = JSON.stringify(state);
+  try {
+    await tenant.executeControl('map-entry-set', {
+      map_name: mapName,
+      key: REMOTE_STATE_KEY,
+      value: serialized,
+    });
+    const readBack = extractControlValue(await tenant.executeControl('map-entry-get', {
+      map_name: mapName,
+      key: REMOTE_STATE_KEY,
+    }));
+    const verified = readBack ? parseProvisioningState(readBack) : null;
+    if (!verified
+      || !provisioningStateMatches(verified, state)
+      || verified.numericContractId !== state.numericContractId
+      || verified.updatedAt !== state.updatedAt) {
+      throw new Error('read-back mismatch');
+    }
+  } catch {
+    throw new Error('Remote T3N runtime provisioning state could not be verified after write');
+  }
+}
+
+export function reusableNumericContractId(
+  configuredId: number | null,
+  localState: RuntimeProvisioningState | null,
+  remoteState: RuntimeProvisioningState | null,
+  expected: Pick<RuntimeProvisioningState, 'tenantDid' | 'contractId' | 'contractVersion'>,
+): number | null {
+  if (configuredId !== null) return configuredId;
+  if (localState && provisioningStateMatches(localState, expected)) return localState.numericContractId;
+  if (remoteState) {
+    if (!provisioningStateMatches(remoteState, expected)) {
+      throw new Error('Remote T3N runtime provisioning state does not match the authenticated Tenant, contract, and version');
+    }
+    return remoteState.numericContractId;
+  }
+  return null;
+}
+
 async function defaultRunAdminScript(scriptName: string, env: NodeJS.ProcessEnv): Promise<void> {
   const scriptPath = resolve(process.cwd(), 'dist', 'scripts', scriptName);
   try {
@@ -230,11 +367,12 @@ async function defaultRunAdminScript(scriptName: string, env: NodeJS.ProcessEnv)
   }
 }
 
-async function resolveOrRegisterContract(
+export async function resolveOrRegisterContract(
   config: GatewayConfig,
   tenantSession: T3nSession,
   contractService: PrivacyGuardContractService,
   env: NodeJS.ProcessEnv,
+  dependencies: Pick<RuntimeProvisioningDependencies, 'readRemoteProvisioningState' | 'persistRemoteProvisioningState'> = {},
 ): Promise<ContractResolution> {
   const tenantDid = tenantSession.getTenantDid();
   const canonicalContractId = await contractService.canonicalContractId();
@@ -253,26 +391,45 @@ async function resolveOrRegisterContract(
 
   const versionAction = contractVersionAction(identity?.contractVersion ?? null, config.contractVersion);
   if (identity && versionAction === 'REUSE') {
-    const state = await readProvisioningState(statePath);
-    const persistedNumericId = state && provisioningStateMatches(state, {
+    const expected = {
       tenantDid,
       contractId: identity.contractId,
       contractVersion: identity.contractVersion,
-    }) ? state.numericContractId : null;
+    };
+    const localState = await readProvisioningState(statePath);
+    const configuredId = configuredNumericContractId(env);
+    const localNumericId = localState && provisioningStateMatches(localState, expected)
+      ? localState.numericContractId
+      : null;
+    let remoteState: RuntimeProvisioningState | null = null;
+    if (configuredId === null && localNumericId === null) {
+      const readRemote = dependencies.readRemoteProvisioningState
+        ?? (() => readRemoteProvisioningState(tenantSession));
+      remoteState = await readRemote();
+    }
+    const numericContractId = reusableNumericContractId(configuredId, localState, remoteState, expected);
+    if (numericContractId === null) {
+      throw new Error('Numeric T3N contract id is unavailable for the current contract version; recover it explicitly or deploy a higher packaged contract version');
+    }
+
+    const state: RuntimeProvisioningState = {
+      ...expected,
+      numericContractId,
+      updatedAt: new Date().toISOString(),
+    };
+    await persistProvisioningState(statePath, state);
+    const persistRemote = dependencies.persistRemoteProvisioningState
+      ?? ((value: RuntimeProvisioningState) => persistRemoteProvisioningState(tenantSession, value));
+    await persistRemote(state);
     return {
       contractId: identity.contractId,
       contractVersion: identity.contractVersion,
-      numericContractId: configuredNumericContractId(env) ?? persistedNumericId,
+      numericContractId,
       registered: false,
     };
   }
 
-  const tenant = new TenantClient({
-    t3n: tenantSession.getClient(),
-    baseUrl: getNodeUrl(),
-    tenantDid,
-  });
-  await tenant.tenant.me();
+  const tenant = await tenantClientForProvisioning(tenantSession);
   const wasmPath = resolve(env.T3N_CONTRACT_WASM_PATH?.trim() || DEFAULT_WASM_PATH);
   const wasm = await readFile(wasmPath);
   const registration = await tenant.contracts.register({
@@ -297,6 +454,9 @@ async function resolveOrRegisterContract(
     updatedAt: new Date().toISOString(),
   };
   await persistProvisioningState(statePath, state);
+  const persistRemote = dependencies.persistRemoteProvisioningState
+    ?? ((value: RuntimeProvisioningState) => persistRemoteProvisioningState(tenantSession, value));
+  await persistRemote(state);
   return {
     contractId: verified.contractId,
     contractVersion: verified.contractVersion,
@@ -370,7 +530,7 @@ export async function reconcileRuntimeProvisioning(
   if (config.agentApiKey) await agentSession.connect();
   if (config.executorApiKey) await executorSession.connect();
 
-  const contract = await resolveOrRegisterContract(config, tenantSession, contractService, env);
+  const contract = await resolveOrRegisterContract(config, tenantSession, contractService, env, dependencies);
   let policyReconciled = false;
   let remediationReconciled = false;
   let proposalDelegationReconciled = false;
