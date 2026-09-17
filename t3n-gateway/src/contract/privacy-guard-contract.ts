@@ -2,6 +2,7 @@ import { getContractVersion, getNodeUrl } from '@terminal3/t3n-sdk';
 import type { AgentSession } from '../agent/agent-session.js';
 import type { ExecutorSession } from '../agent/executor-session.js';
 import type { GatewayConfig } from '../config/env.js';
+import { getFreshContractVersion } from './fresh-contract-version.js';
 import type { ActivityLogService, ActivityReference } from '../t3n/activity-log-service.js';
 import type { T3nSession } from '../t3n/session.js';
 
@@ -86,6 +87,7 @@ export interface RemediationVerificationResult extends ActivityAnnotated {
 
 export interface ContractIdentity { readonly contractId: string; readonly contractVersion: string; }
 export interface DelegatedExecutionRequest<TInput> { readonly contract_id: string; readonly contract_version: string; readonly function_name: string; readonly pii_did: string; readonly input: TInput; }
+export type ContractVersionLookup = (nodeUrl: string, contractId: string) => Promise<string>;
 
 export function buildDelegatedExecutionRequest<TInput>(tenantDid: string, contractId: string, contractVersion: string, functionName: string, input: TInput): DelegatedExecutionRequest<TInput> {
   if (!tenantDid.startsWith('did:t3n:')) throw new Error('Authenticated tenant DID is required for delegated execution');
@@ -149,6 +151,7 @@ export class PrivacyGuardContractService {
     private readonly agentSession: AgentSession,
     private readonly executorSession: ExecutorSession,
     private readonly activityLog?: ActivityLogService,
+    private readonly freshVersionLookup: ContractVersionLookup = getFreshContractVersion,
   ) {}
 
   async canonicalContractId(): Promise<string> {
@@ -176,7 +179,7 @@ export class PrivacyGuardContractService {
 
   async identity(): Promise<ContractIdentity> {
     const contractId = await this.canonicalContractId();
-    return { contractId, contractVersion: await this.currentVersion(contractId) };
+    return { contractId, contractVersion: await this.freshVersionLookup(getNodeUrl(), contractId) };
   }
 
   async evaluate(request: Omit<PolicyEvaluationRequest, 'agent_did'>): Promise<PolicyDecision> {
