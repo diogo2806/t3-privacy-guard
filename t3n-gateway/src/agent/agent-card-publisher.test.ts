@@ -9,7 +9,11 @@ function createDependencies(
   factory: (client: unknown, baseUrl: string) => unknown,
 ): AgentCardPublicationDependencies {
   return {
-    createOrgDataClientFromSession: factory as AgentCardPublicationDependencies['createOrgDataClientFromSession'],
+    createOrgDataClientFromSession: ((client: unknown, baseUrl: string) => ({
+      policyGet: async () => ({ orgDid: ownerDid }),
+      createPolicy: async () => { throw new Error('unexpected policy bootstrap'); },
+      ...(factory(client, baseUrl) as object),
+    })) as AgentCardPublicationDependencies['createOrgDataClientFromSession'],
     getNodeUrl: (() => 'https://cn-api.testnet.t3n.example') as AgentCardPublicationDependencies['getNodeUrl'],
   };
 }
@@ -293,4 +297,173 @@ test('sanitizes Tenant/Admin and organization-owned agent credentials from publi
       && error.message.includes('[REDACTED_PRIVATE_KEY]')
       && error.message.includes('[REDACTED_T3N_API_KEY]'),
   );
+});
+
+test('checks an existing organization policy before reading writers', async () => {
+  const calls: string[] = [];
+  const dependencies = createDependencies(() => ({
+    policyGet: async () => { calls.push('policy-get'); return { orgDid: ownerDid }; },
+    writersGet: async () => { calls.push('writers-get'); return { writers: [adminDid] }; },
+    setWriters: async () => undefined,
+    agentCardSet: async () => { calls.push('card-set'); },
+    agentCardPublish: async () => { calls.push('card-publish'); },
+  }));
+
+  await publishAgentCardToOrganization({
+    ownerDid,
+    agentDid,
+    adminDid,
+    card: '{}',
+    adminClient: {} as Parameters<AgentCardPublicationDependencies['createOrgDataClientFromSession']>[0],
+  }, dependencies);
+
+  assert.deepEqual(calls, ['policy-get', 'writers-get', 'card-set', 'card-publish']);
+});
+
+test('bootstraps an absent OrgPolicy once, confirms it by read-back, then publishes', async () => {
+  const calls: Array<{ operation: string; input?: unknown }> = [];
+  let policyReads = 0;
+  const dependencies = createDependencies(() => ({
+    policyGet: async (input: unknown) => {
+      policyReads += 1;
+      calls.push({ operation: 'policy-get', input });
+      if (policyReads === 1) {
+        throw new Error('RPC Error: OrgPolicyNotInitialised: org policy is not initialised for this organisation');
+      }
+      return { orgDid: ownerDid };
+    },
+    createPolicy: async (input: unknown) => { calls.push({ operation: 'policy-create', input }); },
+    writersGet: async () => { calls.push({ operation: 'writers-get' }); return { writers: [adminDid] }; },
+    setWriters: async () => undefined,
+    agentCardSet: async () => { calls.push({ operation: 'card-set' }); },
+    agentCardPublish: async () => { calls.push({ operation: 'card-publish' }); },
+  }));
+
+  await publishAgentCardToOrganization({
+    ownerDid,
+    agentDid,
+    adminDid,
+    card: '{}',
+    adminClient: {} as Parameters<AgentCardPublicationDependencies['createOrgDataClientFromSession']>[0],
+  }, dependencies);
+
+  assert.deepEqual(calls, [
+    { operation: 'policy-get', input: { orgDid: ownerDid } },
+    { operation: 'policy-create', input: { orgDid: ownerDid, initialAdminDid: adminDid } },
+    { operation: 'policy-get', input: { orgDid: ownerDid } },
+    { operation: 'writers-get' },
+    { operation: 'card-set' },
+    { operation: 'card-publish' },
+  ]);
+});
+
+test('fails with CONFIGURATION and does not create a policy for an unknown organization DID', async () => {
+  let createPolicyCalled = false;
+  let writerReadCalled = false;
+  const dependencies = createDependencies(() => ({
+    policyGet: async () => { throw new Error('RPC Error: OrganisationNotFound: organisation does not exist'); },
+    createPolicy: async () => { createPolicyCalled = true; },
+    writersGet: async () => { writerReadCalled = true; return { writers: [] }; },
+    setWriters: async () => undefined,
+    agentCardSet: async () => undefined,
+    agentCardPublish: async () => undefined,
+  }));
+
+  await assert.rejects(
+    publishAgentCardToOrganization({
+      ownerDid,
+      agentDid,
+      adminDid,
+      card: '{}',
+      adminClient: {} as Parameters<AgentCardPublicationDependencies['createOrgDataClientFromSession']>[0],
+    }, dependencies),
+    (error: unknown) => error instanceof Error
+      && error.message.includes('(CONFIGURATION)')
+      && error.message.includes('canonical Organization DID instead of the Tenant/Admin DID'),
+  );
+  assert.equal(createPolicyCalled, false);
+  assert.equal(writerReadCalled, false);
+});
+
+test('fails closed on unauthorized OrgPolicy bootstrap without touching writers or Agent Card', async () => {
+  let writerReadCalled = false;
+  let cardSetCalled = false;
+  const dependencies = createDependencies(() => ({
+    policyGet: async () => { throw new Error('OrgPolicyNotInitialised: org policy is not initialised for this organisation'); },
+    createPolicy: async () => { throw new Error('forbidden: tenant is not an organization admin'); },
+    writersGet: async () => { writerReadCalled = true; return { writers: [] }; },
+    setWriters: async () => undefined,
+    agentCardSet: async () => { cardSetCalled = true; },
+    agentCardPublish: async () => undefined,
+  }));
+
+  await assert.rejects(
+    publishAgentCardToOrganization({
+      ownerDid,
+      agentDid,
+      adminDid,
+      card: '{}',
+      adminClient: {} as Parameters<AgentCardPublicationDependencies['createOrgDataClientFromSession']>[0],
+    }, dependencies),
+    /T3N Agent Card publication failed \(AUTHENTICATION\)/,
+  );
+  assert.equal(writerReadCalled, false);
+  assert.equal(cardSetCalled, false);
+});
+
+test('fails closed when policy bootstrap cannot be confirmed by read-back', async () => {
+  let policyReads = 0;
+  let writerReadCalled = false;
+  const dependencies = createDependencies(() => ({
+    policyGet: async () => {
+      policyReads += 1;
+      if (policyReads === 1) throw new Error('OrgPolicyNotInitialised: org policy is not initialised for this organisation');
+      return null;
+    },
+    createPolicy: async () => undefined,
+    writersGet: async () => { writerReadCalled = true; return { writers: [] }; },
+    setWriters: async () => undefined,
+    agentCardSet: async () => undefined,
+    agentCardPublish: async () => undefined,
+  }));
+
+  await assert.rejects(
+    publishAgentCardToOrganization({
+      ownerDid,
+      agentDid,
+      adminDid,
+      card: '{}',
+      adminClient: {} as Parameters<AgentCardPublicationDependencies['createOrgDataClientFromSession']>[0],
+    }, dependencies),
+    /policy read-back is invalid after initialization/,
+  );
+  assert.equal(writerReadCalled, false);
+});
+
+test('treats a concurrent policy bootstrap as idempotent after successful read-back', async () => {
+  let policyReads = 0;
+  let published = false;
+  const dependencies = createDependencies(() => ({
+    policyGet: async () => {
+      policyReads += 1;
+      if (policyReads === 1) throw new Error('OrgPolicyNotInitialised: org policy is not initialised for this organisation');
+      return { orgDid: ownerDid };
+    },
+    createPolicy: async () => { throw new Error('policy already exists'); },
+    writersGet: async () => ({ writers: [adminDid] }),
+    setWriters: async () => undefined,
+    agentCardSet: async () => undefined,
+    agentCardPublish: async () => { published = true; },
+  }));
+
+  await publishAgentCardToOrganization({
+    ownerDid,
+    agentDid,
+    adminDid,
+    card: '{}',
+    adminClient: {} as Parameters<AgentCardPublicationDependencies['createOrgDataClientFromSession']>[0],
+  }, dependencies);
+
+  assert.equal(published, true);
+  assert.equal(policyReads, 2);
 });
