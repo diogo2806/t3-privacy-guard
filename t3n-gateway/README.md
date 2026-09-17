@@ -42,7 +42,18 @@ EVIDENCE_RUNTIME_DIR=/data/evidence
 EVIDENCE_SOURCE_REVISION_FILE=/app/runtime/source-revision.json
 ```
 
-`/data` continua sendo o volume persistente e o processo continua executando como usuário `node`, não-root. Nenhum segredo é incorporado à imagem. Para runtime provisioning, `/data/t3n-runtime-provisioning.json` é apenas um cache local: a reconciliação também mantém uma cópia mínima e durável no mapa privado T3N `privacy-guard-runtime-provisioning`.
+No EasyPanel, `/data` deve ser uma **Montagem de Volume nomeada e persistente** criada antes do primeiro deploy capaz de registrar ou migrar o contrato, por exemplo `t3-gateway-data -> /data`. A declaração `VOLUME ["/data"]` da imagem Docker não substitui a persistência administrada pelo EasyPanel e pode resultar em volume anônimo que não acompanha a recriação do serviço. O processo continua executando como usuário `node`, não-root, e o volume deve permanecer gravável por esse usuário. Nenhum segredo é incorporado à imagem. Para runtime provisioning, `/data/t3n-runtime-provisioning.json` é apenas um cache local: a reconciliação também mantém uma cópia mínima e durável no mapa privado T3N `privacy-guard-runtime-provisioning`.
+
+Antes de qualquer primeira publicação ou upgrade, valide a persistência com um marcador que sobreviva a uma recriação real do container:
+
+```bash
+echo "persistent-$(date -Iseconds)" > /data/persistence-check.txt
+cat /data/persistence-check.txt
+# faça um novo deploy/recreate do serviço e confirme novamente:
+cat /data/persistence-check.txt
+```
+
+Se o segundo `cat` não devolver o mesmo conteúdo, não prossiga com registro/migração T3N. Corrija a montagem persistente primeiro.
 
 ## Configuração-base do runtime
 
@@ -63,7 +74,7 @@ T3N_TRUST_FLOOR_STORE_PATH
 
 `readGatewayConfig()` valida esses formatos antes de qualquer tentativa de conexão. `T3N_API_KEY` aceita somente `0x` seguido por exatamente 64 caracteres hexadecimais; `T3N_AGENT_API_KEY` e `T3N_EXECUTOR_API_KEY`, quando presentes, aceitam somente esse mesmo formato secp256k1 ou `t3n_key_<key-id>.<secret>`. Formato desconhecido ou malformado encerra a inicialização sem incluir o valor da credencial na mensagem de erro.
 
-A versão do contrato é propriedade do artefato empacotado. O container atual carrega `privacy-guard` `0.4.4`; no EasyPanel, deixe `T3N_CONTRACT_VERSION` ausente. Valores legados `0.4.0`, `0.4.1`, `0.4.2` e `0.4.3` continuam aceitos somente para normalizar deploys antigos para `0.4.4`. Qualquer outro valor é recusado para impedir que uma variável de ambiente force um contrato diferente do WASM empacotado.
+A versão do contrato é propriedade do artefato empacotado. O container atual carrega `privacy-guard` `0.4.5`; no EasyPanel, deixe `T3N_CONTRACT_VERSION` ausente. Valores legados `0.4.0`, `0.4.1`, `0.4.2`, `0.4.3` e `0.4.4` continuam aceitos somente para normalizar deploys antigos para `0.4.5`. Qualquer outro valor é recusado para impedir que uma variável de ambiente force um contrato diferente do WASM empacotado.
 
 Os valores opcionais podem continuar usando os defaults já definidos pelo runtime. Credenciais reais devem existir somente no secret store/ambiente do serviço. Os requisitos abaixo são adicionais ou específicos de cada etapa e não substituem essa configuração-base.
 
@@ -85,7 +96,7 @@ autenticar Tenant + Proposal Agent + Protected Executor
       v
 resolver contrato canônico
       |
-      +--> ausente ou versão < 0.4.4: registrar WASM 0.4.4 pelo transporte autenticado
+      +--> ausente ou versão < 0.4.5: registrar WASM 0.4.5 pelo transporte autenticado
       |                              tee:tenant/contracts::contract-register
       |                              via T3nClient.executeWithBlob
       |       |
@@ -94,8 +105,8 @@ resolver contrato canônico
       |       +--> verificar identidade canônica/version após a persistência local
       |       +--> persistir + read-back do state remoto T3N somente após a verificação
       |
-      +--> versão = 0.4.4: reutilizar contrato atual e recuperar numericContractId por env -> cache /data -> state T3N
-      +--> versão > 0.4.4: falhar fechado; nunca fazer downgrade
+      +--> versão = 0.4.5: reutilizar contrato atual e recuperar numericContractId por env -> cache /data -> state T3N
+      +--> versão > 0.4.5: falhar fechado; nunca fazer downgrade
       |
       v
 criar/re-ACL + read-back do mapa privado privacy-guard-runtime-provisioning
@@ -133,7 +144,7 @@ verificar e, quando permitido, reparar/publicar Agent Card
 
 Na reutilização da mesma versão, a precedência é deliberada: `T3N_CONTRACT_NUMERIC_ID` explícito, depois cache local válido em `/data`, depois state remoto T3N válido. Cache ou state só são aceitos quando Tenant DID, contract id e versão coincidem exatamente com a sessão autenticada e o numeric id é inteiro positivo. Se nenhuma fonte válida existir, o runtime falha fechado em vez de inventar o identificador ou tentar registrar novamente a mesma versão.
 
-`T3N_CONTRACT_NUMERIC_ID` continua aceito como override explícito para contratos já existentes. Para contratos registrados ou atualizados pela própria reconciliação, o numeric id retornado pela T3N é persistido primeiro no cache `/data`, antes da verificação pós-registro, e depois no state remoto após a identidade publicada ser confirmada. A migração `0.4.3 -> 0.4.4` fornece um novo `contract_id` oficial para instalações que já consumiram `0.4.3` sem deixar state recuperável; a ordem `contract-register -> validar id -> cache local -> verify -> state remoto` passa a usar o adapter compartilhado `registerContractWithDurableId`. Depois de o state remoto ser estabelecido, perder/recriar o container não depende exclusivamente do arquivo local. O runtime nunca deriva nem inventa esse id.
+`T3N_CONTRACT_NUMERIC_ID` continua aceito como override explícito para contratos já existentes. Para contratos registrados ou atualizados pela própria reconciliação, o numeric id retornado pela T3N é persistido primeiro no cache `/data`, antes da verificação pós-registro, e depois no state remoto após a identidade publicada ser confirmada. A migração `0.4.4 -> 0.4.5` é a recuperação única do ambiente que consumiu `0.4.4` antes de existir uma montagem persistente administrada pelo EasyPanel. Agora que `/data` está persistente, o `0.4.5` obtém um novo `contract_id` oficial e a ordem `contract-register -> validar id -> cache local -> verify -> state remoto` usa o adapter compartilhado `registerContractWithDurableId`. Depois de o state remoto ser estabelecido, perder/recriar o container não depende exclusivamente do arquivo local. O runtime nunca deriva nem inventa esse id. Operação normal não exige novos bumps de versão para recuperar state.
 
 Quando um numeric id real está disponível, os scripts administrativos criam mapas ausentes com `readers/writers.only=[numericContractId]` e, se o mapa já existir, chamam `tenant.maps.update(...)` para reparar o ACL ao contrato atual antes de gravar policy ou configuração protegida. ACL ampla não é usada como mecanismo de recuperação.
 
@@ -229,7 +240,7 @@ T3N_NETWORK
 T3N_CONTRACT_TAIL
 ```
 
-O artefato atual é `0.4.4`. Em um ambiente ainda publicado em `0.4.0`, `0.4.1`, `0.4.2` ou `0.4.3`, prefira a reconciliação automática do container `0.4.4`. Ela registra a nova versão pelo mesmo adapter de baixo nível usado pelo comando administrativo, recebe o novo numeric id, persiste o cache local imediatamente, verifica a identidade publicada, persiste o state remoto e repara os ACLs de mapas. `T3N_CONTRACT_VERSION` deve permanecer ausente no EasyPanel.
+O artefato atual é `0.4.5`. Em um ambiente ainda publicado em `0.4.0`, `0.4.1`, `0.4.2`, `0.4.3` ou `0.4.4`, prefira a reconciliação automática do container `0.4.5`. Ela registra a nova versão pelo mesmo adapter de baixo nível usado pelo comando administrativo, recebe o novo numeric id, persiste o cache local imediatamente no volume nomeado `/data`, verifica a identidade publicada, persiste o state remoto e repara os ACLs de mapas. `T3N_CONTRACT_VERSION` deve permanecer ausente no EasyPanel.
 
 Execute:
 
@@ -379,7 +390,7 @@ A sequência operacional completa é:
 ```text
 resolve current contract
       |
-      +--> absent/older: register packaged 0.4.4 through shared low-level registrar and obtain official numeric id
+      +--> absent/older: register packaged 0.4.5 through shared low-level registrar and obtain official numeric id
       |       |
       |       +--> persist numeric id to local cache immediately
       |       +--> verify canonical published identity/version
@@ -467,7 +478,7 @@ For `privacy.evaluate_action`, send `request_id`, `action`, `resource`, `purpose
 
 Os comandos administrativos e o runtime falham fechados quando os artefatos, credenciais ou variáveis obrigatórios não existem. Em particular:
 
-- a reconciliação automática registra `0.4.4` quando o contrato está ausente ou em versão anterior, usando o adapter compartilhado de baixo nível, valida o numeric id real retornado pela T3N e o persiste imediatamente no cache local antes da verificação pós-registro;
+- a reconciliação automática registra `0.4.5` quando o contrato está ausente ou em versão anterior, usando o adapter compartilhado de baixo nível, valida o numeric id real retornado pela T3N e o persiste imediatamente no cache local antes da verificação pós-registro;
 - uma falha depois de `contract-register` não apaga o cache local já confirmado; o próximo startup pode reutilizar o numeric id da mesma versão sem tentar registrá-la novamente, mas readiness continua fechado até concluir as etapas restantes;
 - na mesma versão, o reconciler reutiliza somente numeric id explícito ou state local/remoto que coincida exatamente com Tenant DID, contract id e versão; ausência de todas as fontes falha fechada e não tenta registrar novamente a mesma versão;
 - o state remoto contém apenas Tenant DID, contract id/version, numeric id e timestamp, é privado, é re-ACLado para o numeric id atual e exige read-back compatível após gravação; ele só é gravado depois de a identidade publicada ser confirmada;
