@@ -210,14 +210,15 @@ test('persisted numeric id is reusable only for the same tenant contract and ver
 });
 
 test('remote provisioning state parser accepts only the minimal validated state shape', () => {
-  const valid = JSON.stringify({
+  const state = {
     tenantDid: 'did:t3n:tenant123',
     contractId: 'z:tenant123:privacy-guard',
     contractVersion: '0.4.2',
     numericContractId: 77,
     updatedAt: '2026-09-17T15:10:00.000Z',
-  });
-  assert.equal(parseProvisioningState(valid)?.numericContractId, 77);
+  };
+  assert.equal(parseProvisioningState(JSON.stringify(state))?.numericContractId, 77);
+  assert.equal(parseProvisioningState(JSON.stringify({ ...state, secret: 'must-not-be-accepted' })), null);
   assert.equal(parseProvisioningState('{"numericContractId":0}'), null);
   assert.equal(parseProvisioningState('{not-json'), null);
 });
