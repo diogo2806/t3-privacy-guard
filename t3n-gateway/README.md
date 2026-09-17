@@ -102,7 +102,7 @@ resolver contrato canônico
       |       |
       |       +--> validar e normalizar o numericContractId oficial
       |       +--> persistir imediatamente o numericContractId no cache /data
-      |       +--> verificar identidade canônica/version após a persistência local
+      |       +--> verificar identidade canônica/version por leitura fresh após a persistência local
       |       +--> persistir + read-back do state remoto T3N somente após a verificação
       |
       +--> versão = 0.4.5: reutilizar contrato atual e recuperar numericContractId por env -> cache /data -> state T3N
@@ -141,6 +141,8 @@ verificar e, quando permitido, reparar/publicar Agent Card
 ```
 
 `T3N_RUNTIME_PROVISIONING_STATE_PATH` contém somente `tenantDid`, contract id, contract version, numeric contract id e timestamp. Esse arquivo é cache local e nunca contém chaves T3N, credenciais de integração, tokens, chaves privadas ou valores de profile. Em um registro/upgrade bem-sucedido, o runtime obtém a resposta do `contract-register` pelo transporte T3N de baixo nível, valida o `contract_id` e grava o cache imediatamente antes de qualquer nova verificação de rede. Isso reduz a dependência do wrapper `TenantClient.contracts.register()` na mutação crítica e fecha a janela observada em que a nova versão podia aparecer remotamente sem que o caller mantivesse um numeric id utilizável. Depois da verificação da identidade canônica, a mesma estrutura mínima é armazenada sob `current` no mapa privado T3N `privacy-guard-runtime-provisioning`. O mapa usa o mesmo ACL administrativo dos demais mapas privados: `readers.only=[numericContractId]` mantém a leitura restrita ao contrato e `writers.only=[]` impede escrita de negócio pelo contrato. A manutenção é feita pelo Tenant autenticado via `TenantClient.executeControl('map-entry-set')`, no caminho administrativo da T3N. Após cada gravação remota, o runtime lê o state de volta e só prossegue se Tenant DID, contract id, contract version, numeric id e timestamp coincidirem.
+
+A leitura de versão tem duas semânticas deliberadas. As chamadas estáveis de execução (`evaluate`, `remediate` e `verifyRemediation`) continuam usando `getContractVersion()` e podem aproveitar o cache interno do SDK. Já `PrivacyGuardContractService.identity()` é observabilidade/readiness e sempre consulta a versão em um Worker isolado, com cache de módulo próprio e descartável. Como `resolveOrRegisterContract()` reutiliza `identity()` imediatamente após `contract-register`, a validação pós-mutação não reutiliza um `contractVersionCache` preenchido antes do registro. O endpoint `/internal/contracts/privacy-guard/identity` usa a mesma leitura fresh por requisição. Assim, um processo que tenha observado `0.4.4` antes de registrar `0.4.5` consegue confirmar `0.4.5` sem reinício, sem bump artificial e sem exigir `T3N_CONTRACT_VERSION` no EasyPanel. Falhas dessa leitura são convertidas em erro sanitizado pelo gateway; nenhum erro bruto do SDK é exposto.
 
 Na reutilização da mesma versão, a precedência é deliberada: `T3N_CONTRACT_NUMERIC_ID` explícito, depois cache local válido em `/data`, depois state remoto T3N válido. Cache ou state só são aceitos quando Tenant DID, contract id e versão coincidem exatamente com a sessão autenticada e o numeric id é inteiro positivo. Se nenhuma fonte válida existir, o runtime falha fechado em vez de inventar o identificador ou tentar registrar novamente a mesma versão.
 
@@ -393,7 +395,7 @@ resolve current contract
       +--> absent/older: register packaged 0.4.5 through shared low-level registrar and obtain official numeric id
       |       |
       |       +--> persist numeric id to local cache immediately
-      |       +--> verify canonical published identity/version
+      |       +--> verify canonical published identity/version through a fresh isolated lookup
       |       +--> persist/read-back private T3N runtime state
       +--> current: reuse and recover numeric id from env/local/remote validated state
       +--> newer: fail closed
@@ -449,7 +451,7 @@ privacy.verify_remediation
 
 `execute-remediation`, `privacy.execute_remediation` and any equivalent privileged operation are intentionally not registered. MCP cannot bypass `RemediationAuthorizationVerifier` or obtain the Protected Executor capability.
 
-Tool arguments are validated by the MCP SDK from strict Zod schemas before the contract service handler is invoked. Unknown fields, missing required fields, oversized arrays, invalid remediation actions and invalid expected states fail closed without invoking T3N. Contract/T3N failures return the generic tool error `Privacy Guard MCP operation failed closed`; internal exception messages and credentials are not returned to the MCP client.
+Tool arguments are validated by the MCP SDK from strict Zod schemas before the contract service handler is invoked. Unknown fields, missing required fields, oversized arrays, invalid remediation actions e invalid expected states fail closed without invoking T3N. Contract/T3N failures return the generic tool error `Privacy Guard MCP operation failed closed`; internal exception messages and credentials are not returned to the MCP client.
 
 A compatible v2 client can connect with a static bearer provider:
 
@@ -479,6 +481,7 @@ For `privacy.evaluate_action`, send `request_id`, `action`, `resource`, `purpose
 Os comandos administrativos e o runtime falham fechados quando os artefatos, credenciais ou variáveis obrigatórios não existem. Em particular:
 
 - a reconciliação automática registra `0.4.5` quando o contrato está ausente ou em versão anterior, usando o adapter compartilhado de baixo nível, valida o numeric id real retornado pela T3N e o persiste imediatamente no cache local antes da verificação pós-registro;
+- a verificação pós-registro e os endpoints de identity/readiness consultam a versão por leitura fresh isolada, sem reutilizar o `contractVersionCache` do SDK preenchido antes da mutação;
 - uma falha depois de `contract-register` não apaga o cache local já confirmado; o próximo startup pode reutilizar o numeric id da mesma versão sem tentar registrá-la novamente, mas readiness continua fechado até concluir as etapas restantes;
 - na mesma versão, o reconciler reutiliza somente numeric id explícito ou state local/remoto que coincida exatamente com Tenant DID, contract id e versão; ausência de todas as fontes falha fechada e não tenta registrar novamente a mesma versão;
 - o state remoto contém apenas Tenant DID, contract id/version, numeric id e timestamp, é privado, usa `readers.only=[numericContractId]` e `writers.only=[]`, e exige read-back compatível após gravação administrativa; ele só é gravado depois de a identidade publicada ser confirmada;
