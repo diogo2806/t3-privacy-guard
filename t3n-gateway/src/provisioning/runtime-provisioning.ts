@@ -28,6 +28,8 @@ import type { T3nSession } from '../t3n/session.js';
 const execFileAsync = promisify(execFile);
 const DEFAULT_STATE_PATH = '/data/t3n-runtime-provisioning.json';
 const DEFAULT_WASM_PATH = '/app/runtime/privacy_guard_contract.wasm';
+const REMOTE_STATE_MAP_TAIL = 'privacy-guard-runtime';
+const REMOTE_STATE_KEY = 'provisioning';
 const MAX_CARD_VERIFY_ATTEMPTS = 4;
 
 export interface RuntimeProvisioningState {
@@ -60,6 +62,23 @@ interface ContractResolution {
   readonly contractVersion: string;
   readonly numericContractId: number | null;
   readonly registered: boolean;
+}
+
+interface ProvisioningControlPlane {
+  canonicalName(tail: string): string;
+  executeControl(name: string, input: Record<string, string>): Promise<unknown>;
+  readonly maps: {
+    create(input: {
+      tail: string;
+      visibility: 'private';
+      writers: { only: number[] };
+      readers: { only: number[] };
+    }): Promise<unknown>;
+    update(tail: string, patch: {
+      writers: { only: number[] };
+      readers: { only: number[] };
+    }): Promise<unknown>;
+  };
 }
 
 export interface AdminProvisioningStep {
@@ -187,9 +206,9 @@ export function provisioningStateMatches(
     && state.numericContractId > 0;
 }
 
-async function readProvisioningState(path: string): Promise<RuntimeProvisioningState | null> {
+export function parseProvisioningState(value: string): RuntimeProvisioningState | null {
   try {
-    const parsed = JSON.parse(await readFile(path, 'utf8')) as Partial<RuntimeProvisioningState>;
+    const parsed = JSON.parse(value) as Partial<RuntimeProvisioningState>;
     if (
       typeof parsed.tenantDid !== 'string'
       || typeof parsed.contractId !== 'string'
@@ -200,6 +219,44 @@ async function readProvisioningState(path: string): Promise<RuntimeProvisioningS
       || typeof parsed.updatedAt !== 'string'
     ) return null;
     return parsed as RuntimeProvisioningState;
+  } catch {
+    return null;
+  }
+}
+
+function extractControlValue(value: unknown, depth = 0): string | null {
+  if (depth > 4) return null;
+  if (typeof value === 'string') return value;
+  if (value instanceof Uint8Array) return Buffer.from(value).toString('utf8');
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  for (const key of ['value', 'data', 'result']) {
+    const extracted = extractControlValue(record[key], depth + 1);
+    if (extracted != null) return extracted;
+  }
+  return null;
+}
+
+function errorText(error: unknown): string {
+  const record = error && typeof error === 'object' ? error as Record<string, unknown> : null;
+  return [
+    error instanceof Error ? error.message : null,
+    typeof record?.detail === 'string' ? record.detail : null,
+  ].filter((value): value is string => Boolean(value)).join(' ').toLowerCase();
+}
+
+function isMissingMapOrEntry(error: unknown): boolean {
+  const text = errorText(error);
+  return text.includes('map not found') || text.includes('entry not found') || text.includes('key not found');
+}
+
+function isAlreadyExists(error: unknown): boolean {
+  return errorText(error).includes('already');
+}
+
+async function readProvisioningState(path: string): Promise<RuntimeProvisioningState | null> {
+  try {
+    return parseProvisioningState(await readFile(path, 'utf8'));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
     return null;
@@ -209,6 +266,64 @@ async function readProvisioningState(path: string): Promise<RuntimeProvisioningS
 async function persistProvisioningState(path: string, state: RuntimeProvisioningState): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify(state, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+}
+
+async function persistLocalProvisioningCache(path: string, state: RuntimeProvisioningState): Promise<void> {
+  try {
+    await persistProvisioningState(path, state);
+  } catch {
+    console.warn('Local T3N provisioning cache could not be persisted; remote T3N provisioning state remains authoritative');
+  }
+}
+
+export async function readRemoteProvisioningState(control: ProvisioningControlPlane): Promise<RuntimeProvisioningState | null> {
+  const mapName = control.canonicalName(REMOTE_STATE_MAP_TAIL);
+  try {
+    const raw = extractControlValue(await control.executeControl('map-entry-get', {
+      map_name: mapName,
+      key: REMOTE_STATE_KEY,
+    }));
+    return raw ? parseProvisioningState(raw) : null;
+  } catch (error) {
+    if (isMissingMapOrEntry(error)) return null;
+    throw new Error('Remote T3N provisioning state could not be read');
+  }
+}
+
+export async function persistRemoteProvisioningState(
+  control: ProvisioningControlPlane,
+  state: RuntimeProvisioningState,
+): Promise<void> {
+  const restrictedAcl = {
+    writers: { only: [state.numericContractId] },
+    readers: { only: [state.numericContractId] },
+  };
+  try {
+    await control.maps.create({
+      tail: REMOTE_STATE_MAP_TAIL,
+      visibility: 'private',
+      ...restrictedAcl,
+    });
+  } catch (error) {
+    if (!isAlreadyExists(error)) throw new Error('Remote T3N provisioning state map could not be created');
+    await control.maps.update(REMOTE_STATE_MAP_TAIL, restrictedAcl);
+  }
+
+  const mapName = control.canonicalName(REMOTE_STATE_MAP_TAIL);
+  await control.executeControl('map-entry-set', {
+    map_name: mapName,
+    key: REMOTE_STATE_KEY,
+    value: JSON.stringify(state),
+  });
+  const verified = await readRemoteProvisioningState(control);
+  if (
+    !verified
+    || !provisioningStateMatches(verified, state)
+    || verified.numericContractId !== state.numericContractId
+    || verified.updatedAt !== state.updatedAt
+  ) {
+    throw new Error('Remote T3N provisioning state read-back did not match the current contract');
+  }
 }
 
 function configuredNumericContractId(env: NodeJS.ProcessEnv): number | null {
@@ -251,31 +366,69 @@ async function resolveOrRegisterContract(
     throw new Error('Resolved T3N contract id is not canonical for the authenticated Tenant');
   }
 
+  let tenant: TenantClient | null = null;
+  const tenantControl = async (): Promise<TenantClient> => {
+    if (!tenant) {
+      tenant = new TenantClient({
+        t3n: tenantSession.getClient(),
+        baseUrl: getNodeUrl(),
+        tenantDid,
+      });
+      await tenant.tenant.me();
+    }
+    return tenant;
+  };
+
   const versionAction = contractVersionAction(identity?.contractVersion ?? null, config.contractVersion);
   if (identity && versionAction === 'REUSE') {
-    const state = await readProvisioningState(statePath);
-    const persistedNumericId = state && provisioningStateMatches(state, {
+    let numericContractId = configuredNumericContractId(env);
+    if (numericContractId === null) {
+      const localState = await readProvisioningState(statePath);
+      if (localState && provisioningStateMatches(localState, {
+        tenantDid,
+        contractId: identity.contractId,
+        contractVersion: identity.contractVersion,
+      })) {
+        numericContractId = localState.numericContractId;
+      }
+    }
+
+    if (numericContractId === null) {
+      const remoteState = await readRemoteProvisioningState(await tenantControl());
+      if (remoteState && provisioningStateMatches(remoteState, {
+        tenantDid,
+        contractId: identity.contractId,
+        contractVersion: identity.contractVersion,
+      })) {
+        numericContractId = remoteState.numericContractId;
+      }
+    }
+
+    if (numericContractId === null) {
+      throw new Error('Numeric contract id is unavailable for the current packaged contract and no valid remote T3N provisioning state exists');
+    }
+
+    const state: RuntimeProvisioningState = {
       tenantDid,
       contractId: identity.contractId,
       contractVersion: identity.contractVersion,
-    }) ? state.numericContractId : null;
+      numericContractId,
+      updatedAt: new Date().toISOString(),
+    };
+    await persistRemoteProvisioningState(await tenantControl(), state);
+    await persistLocalProvisioningCache(statePath, state);
     return {
       contractId: identity.contractId,
       contractVersion: identity.contractVersion,
-      numericContractId: configuredNumericContractId(env) ?? persistedNumericId,
+      numericContractId,
       registered: false,
     };
   }
 
-  const tenant = new TenantClient({
-    t3n: tenantSession.getClient(),
-    baseUrl: getNodeUrl(),
-    tenantDid,
-  });
-  await tenant.tenant.me();
+  const tenantClient = await tenantControl();
   const wasmPath = resolve(env.T3N_CONTRACT_WASM_PATH?.trim() || DEFAULT_WASM_PATH);
   const wasm = await readFile(wasmPath);
-  const registration = await tenant.contracts.register({
+  const registration = await tenantClient.contracts.register({
     tail: config.contractTail,
     version: config.contractVersion,
     wasm,
@@ -296,7 +449,8 @@ async function resolveOrRegisterContract(
     numericContractId: registration.contract_id,
     updatedAt: new Date().toISOString(),
   };
-  await persistProvisioningState(statePath, state);
+  await persistRemoteProvisioningState(tenantClient, state);
+  await persistLocalProvisioningCache(statePath, state);
   return {
     contractId: verified.contractId,
     contractVersion: verified.contractVersion,
