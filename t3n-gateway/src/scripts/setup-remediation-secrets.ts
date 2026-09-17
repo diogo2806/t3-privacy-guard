@@ -3,12 +3,14 @@ import { TenantClient, getNodeUrl } from '@terminal3/t3n-sdk';
 import { readGatewayConfig, rejectDocumentationPlaceholder } from '../config/env.js';
 import { authorizationPublicKeyFingerprint } from '../security/remediation-authorization.js';
 import { TrustManifestFloorStore } from '../security/trust-manifest-floor-store.js';
-import { ensureAdministrativePrivateMap } from '../t3n/administrative-private-map.js';
+import {
+  ensureAdministrativePrivateMap,
+  writeAndVerifyAdministrativePrivateMapEntry,
+} from '../t3n/administrative-private-map.js';
 import { T3nSession } from '../t3n/session.js';
 
 const KEY_ID_PATTERN = /^[A-Za-z0-9._-]{1,32}$/;
 const MAX_PREVIOUS_KEY_GRACE_SECONDS = 300;
-const MAP_PROBE_KEY = '__privacy_guard_map_probe__';
 
 const configuredNumericContractId = Number(process.env.T3N_CONTRACT_NUMERIC_ID);
 const numericContractId = Number.isInteger(configuredNumericContractId) && configuredNumericContractId > 0
@@ -64,30 +66,8 @@ function readPreviousVerificationKey(): PreviousVerificationKey | null {
   };
 }
 
-function errorText(error: unknown): string {
-  return (error instanceof Error ? error.message : String(error)).toLowerCase();
-}
-
-function isMapNotFound(error: unknown): boolean {
-  const message = errorText(error);
-  return message.includes('map not found') || message.includes('map_not_found') || message.includes('map does not exist');
-}
-
 function missingMapError(tail: string): Error {
   return new Error(`${tail} private map is unavailable; T3N_CONTRACT_NUMERIC_ID is required to create or repair it safely`);
-}
-
-function extractControlValue(value: unknown, depth = 0): string | null {
-  if (depth > 4) return null;
-  if (typeof value === 'string') return value;
-  if (value instanceof Uint8Array) return Buffer.from(value).toString('utf8');
-  if (!value || typeof value !== 'object') return null;
-  const record = value as Record<string, unknown>;
-  for (const key of ['value', 'data', 'result']) {
-    const extracted = extractControlValue(record[key], depth + 1);
-    if (extracted != null) return extracted;
-  }
-  return null;
 }
 
 const previousVerificationKey = readPreviousVerificationKey();
@@ -96,19 +76,17 @@ const session = new T3nSession(config, trustFloorStore);
 await session.connect();
 const tenant = new TenantClient({ t3n: session.getClient(), baseUrl: getNodeUrl(), tenantDid: session.getTenantDid() });
 await tenant.tenant.me();
-const executeControl = tenant.executeControl.bind(tenant) as (name: string, input: Record<string, string>) => Promise<unknown>;
 
 async function ensurePrivateContractMap(tail: string): Promise<string> {
   const mapName = tenant.canonicalName(tail);
   if (numericContractId === null) {
     try {
-      await executeControl('map-entry-get', { map_name: mapName, key: MAP_PROBE_KEY });
+      const status = await tenant.maps.getStatus(tail);
+      if (status === 'absent') throw missingMapError(tail);
+      if (status !== 'active') throw new Error('private map is not active');
     } catch (error) {
-      if (isMapNotFound(error)) throw missingMapError(tail);
-      const message = errorText(error);
-      if (!message.includes('not found') && !message.includes('missing')) {
-        throw new Error(`Unable to confirm existing ${tail} private map without T3N_CONTRACT_NUMERIC_ID`);
-      }
+      if (error instanceof Error && error.message === missingMapError(tail).message) throw error;
+      throw new Error(`Unable to confirm existing ${tail} private map without T3N_CONTRACT_NUMERIC_ID`);
     }
     return mapName;
   }
@@ -116,13 +94,10 @@ async function ensurePrivateContractMap(tail: string): Promise<string> {
   return ensureAdministrativePrivateMap(tenant, tail, numericContractId);
 }
 
-async function setProtectedEntry(mapName: string, mapTail: string, key: string, value: string): Promise<void> {
+async function setProtectedEntry(mapTail: string, key: string, value: string): Promise<void> {
   try {
-    await executeControl('map-entry-set', { map_name: mapName, key, value });
-    const readBack = extractControlValue(await executeControl('map-entry-get', { map_name: mapName, key }));
-    if (readBack !== value) throw new Error('read-back mismatch');
-  } catch (error) {
-    if (isMapNotFound(error) && numericContractId === null) throw missingMapError(mapTail);
+    await writeAndVerifyAdministrativePrivateMapEntry(tenant, mapTail, key, value);
+  } catch {
     throw new Error(`Unable to seed and verify protected ${mapTail} configuration`);
   }
 }
@@ -130,18 +105,16 @@ async function setProtectedEntry(mapName: string, mapTail: string, key: string, 
 const secretsMapName = await ensurePrivateContractMap('secrets');
 const replayMapName = await ensurePrivateContractMap('privacy-guard-execution-nonces');
 
-await setProtectedEntry(secretsMapName, 'secrets', 'security_api_key', securityApiKey);
-await setProtectedEntry(secretsMapName, 'secrets', 'security_api_url', securityApiUrl);
-await setProtectedEntry(secretsMapName, 'secrets', 'security_verification_url', securityVerificationUrl);
+await setProtectedEntry('secrets', 'security_api_key', securityApiKey);
+await setProtectedEntry('secrets', 'security_api_url', securityApiUrl);
+await setProtectedEntry('secrets', 'security_verification_url', securityVerificationUrl);
 await setProtectedEntry(
-  secretsMapName,
   'secrets',
   'remediation_auth_active_key_id',
   config.remediationAuthorizationKeyId,
 );
 const verificationKeyEntry = `remediation_auth_public_key_spki:${config.remediationAuthorizationKeyId}`;
 await setProtectedEntry(
-  secretsMapName,
   'secrets',
   verificationKeyEntry,
   config.remediationAuthorizationPublicKeySpki,
@@ -159,13 +132,11 @@ if (previousVerificationKey) {
   const previousKeyEntry = `remediation_auth_public_key_spki:${previousVerificationKey.keyId}`;
   const previousExpiryEntry = `remediation_auth_key_valid_until:${previousVerificationKey.keyId}`;
   await setProtectedEntry(
-    secretsMapName,
     'secrets',
     previousKeyEntry,
     previousVerificationKey.publicKeySpki,
   );
   await setProtectedEntry(
-    secretsMapName,
     'secrets',
     previousExpiryEntry,
     String(previousVerificationKey.validUntilMs),
