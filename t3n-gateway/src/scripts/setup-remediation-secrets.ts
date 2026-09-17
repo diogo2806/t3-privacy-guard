@@ -3,6 +3,7 @@ import { TenantClient, getNodeUrl } from '@terminal3/t3n-sdk';
 import { readGatewayConfig, rejectDocumentationPlaceholder } from '../config/env.js';
 import { authorizationPublicKeyFingerprint } from '../security/remediation-authorization.js';
 import { TrustManifestFloorStore } from '../security/trust-manifest-floor-store.js';
+import { ensureAdministrativePrivateMap } from '../t3n/administrative-private-map.js';
 import { T3nSession } from '../t3n/session.js';
 
 const KEY_ID_PATTERN = /^[A-Za-z0-9._-]{1,32}$/;
@@ -76,6 +77,19 @@ function missingMapError(tail: string): Error {
   return new Error(`${tail} private map is unavailable; T3N_CONTRACT_NUMERIC_ID is required to create or repair it safely`);
 }
 
+function extractControlValue(value: unknown, depth = 0): string | null {
+  if (depth > 4) return null;
+  if (typeof value === 'string') return value;
+  if (value instanceof Uint8Array) return Buffer.from(value).toString('utf8');
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  for (const key of ['value', 'data', 'result']) {
+    const extracted = extractControlValue(record[key], depth + 1);
+    if (extracted != null) return extracted;
+  }
+  return null;
+}
+
 const previousVerificationKey = readPreviousVerificationKey();
 const trustFloorStore = new TrustManifestFloorStore(config.trustManifestFloorStorePath);
 const session = new T3nSession(config, trustFloorStore);
@@ -99,26 +113,17 @@ async function ensurePrivateContractMap(tail: string): Promise<string> {
     return mapName;
   }
 
-  const restrictedAcl = {
-    writers: { only: [numericContractId] },
-    readers: { only: [numericContractId] },
-  };
-  try {
-    await tenant.maps.create({ tail, visibility: 'private', ...restrictedAcl });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!message.toLowerCase().includes('already')) throw error;
-    await tenant.maps.update(tail, restrictedAcl);
-  }
-  return mapName;
+  return ensureAdministrativePrivateMap(tenant, tail, numericContractId);
 }
 
 async function setProtectedEntry(mapName: string, mapTail: string, key: string, value: string): Promise<void> {
   try {
     await executeControl('map-entry-set', { map_name: mapName, key, value });
+    const readBack = extractControlValue(await executeControl('map-entry-get', { map_name: mapName, key }));
+    if (readBack !== value) throw new Error('read-back mismatch');
   } catch (error) {
     if (isMapNotFound(error) && numericContractId === null) throw missingMapError(mapTail);
-    throw new Error(`Unable to seed protected ${mapTail} configuration`);
+    throw new Error(`Unable to seed and verify protected ${mapTail} configuration`);
   }
 }
 

@@ -23,6 +23,7 @@ import type { ExecutorSession } from '../agent/executor-session.js';
 import { compareContractVersions } from '../config/contract-version.js';
 import type { GatewayConfig } from '../config/env.js';
 import type { PrivacyGuardContractService } from '../contract/privacy-guard-contract.js';
+import { ensureAdministrativePrivateMap } from '../t3n/administrative-private-map.js';
 import type { T3nSession } from '../t3n/session.js';
 
 const execFileAsync = promisify(execFile);
@@ -299,25 +300,7 @@ async function persistRemoteProvisioningState(
   state: RuntimeProvisioningState,
 ): Promise<void> {
   const tenant = await tenantClientForProvisioning(tenantSession);
-  const restrictedAcl = {
-    writers: { only: [state.numericContractId] },
-    readers: { only: [state.numericContractId] },
-  };
-  try {
-    await tenant.maps.create({
-      tail: REMOTE_STATE_MAP_TAIL,
-      visibility: 'private',
-      ...restrictedAcl,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!message.toLowerCase().includes('already')) {
-      throw new Error('Remote T3N runtime provisioning state map could not be created');
-    }
-    await tenant.maps.update(REMOTE_STATE_MAP_TAIL, restrictedAcl);
-  }
-
-  const mapName = tenant.canonicalName(REMOTE_STATE_MAP_TAIL);
+  const mapName = await ensureAdministrativePrivateMap(tenant, REMOTE_STATE_MAP_TAIL, state.numericContractId);
   const serialized = JSON.stringify(state);
   try {
     await tenant.executeControl('map-entry-set', {

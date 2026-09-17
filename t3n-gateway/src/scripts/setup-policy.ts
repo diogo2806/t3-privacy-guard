@@ -10,6 +10,7 @@ import {
   readOptionalPolicyEntry,
 } from '../policy/policy-map-bootstrap.js';
 import { TrustManifestFloorStore } from '../security/trust-manifest-floor-store.js';
+import { ensureAdministrativePrivateMap } from '../t3n/administrative-private-map.js';
 import { T3nSession } from '../t3n/session.js';
 
 const configuredNumericContractId = Number(process.env.T3N_CONTRACT_NUMERIC_ID);
@@ -41,26 +42,18 @@ const mapName = tenant.canonicalName(mapTail);
 const executeControl = tenant.executeControl.bind(tenant) as (name: string, input: Record<string, string>) => Promise<unknown>;
 const getEntry = async (key: string): Promise<string | null> => extractValue(await executeControl('map-entry-get', { map_name: mapName, key }));
 const setEntry = async (key: string, value: string): Promise<void> => {
-  await tenant.executeControl('map-entry-set', { map_name: mapName, key, value });
+  try {
+    await executeControl('map-entry-set', { map_name: mapName, key, value });
+    const readBack = await getEntry(key);
+    if (readBack !== value) throw new Error('read-back mismatch');
+  } catch {
+    throw new Error('Unable to write and verify operational policy entry');
+  }
 };
 
 let currentEntry: string | null;
 if (numericContractId !== null) {
-  const restrictedAcl = {
-    writers: { only: [numericContractId] },
-    readers: { only: [numericContractId] },
-  };
-  try {
-    await tenant.maps.create({
-      tail: mapTail,
-      visibility: 'private',
-      ...restrictedAcl,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!message.toLowerCase().includes('already')) throw error;
-    await tenant.maps.update(mapTail, restrictedAcl);
-  }
+  await ensureAdministrativePrivateMap(tenant, mapTail, numericContractId);
   currentEntry = await readOptionalPolicyEntry(getEntry, 'current');
 } else {
   try {
