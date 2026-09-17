@@ -4,6 +4,8 @@ import { readGatewayConfig, rejectDocumentationPlaceholder } from '../config/env
 import { authorizationPublicKeyFingerprint } from '../security/remediation-authorization.js';
 import { TrustManifestFloorStore } from '../security/trust-manifest-floor-store.js';
 import {
+  AdministrativePrivateMapError,
+  classifyAdministrativePrivateMapError,
   ensureAdministrativePrivateMap,
   writeAndVerifyAdministrativePrivateMapEntry,
 } from '../t3n/administrative-private-map.js';
@@ -86,6 +88,12 @@ async function ensurePrivateContractMap(tail: string): Promise<string> {
       if (status !== 'active') throw new Error('private map is not active');
     } catch (error) {
       if (error instanceof Error && error.message === missingMapError(tail).message) throw error;
+      if (classifyAdministrativePrivateMapError(error) === 'INSUFFICIENT_CREDIT') {
+        throw new AdministrativePrivateMapError(
+          'INSUFFICIENT_CREDIT',
+          `T3N status check failed for ${tail} private map: insufficient credit; replenish T3N account credits and retry`,
+        );
+      }
       throw new Error(`Unable to confirm existing ${tail} private map without T3N_CONTRACT_NUMERIC_ID`);
     }
     return mapName;
@@ -95,11 +103,7 @@ async function ensurePrivateContractMap(tail: string): Promise<string> {
 }
 
 async function setProtectedEntry(mapTail: string, key: string, value: string): Promise<void> {
-  try {
-    await writeAndVerifyAdministrativePrivateMapEntry(tenant, mapTail, key, value);
-  } catch {
-    throw new Error(`Unable to seed and verify protected ${mapTail} configuration`);
-  }
+  await writeAndVerifyAdministrativePrivateMapEntry(tenant, mapTail, key, value);
 }
 
 const secretsMapName = await ensurePrivateContractMap('secrets');
