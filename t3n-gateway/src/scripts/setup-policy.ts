@@ -10,25 +10,17 @@ import {
   readOptionalPolicyEntry,
 } from '../policy/policy-map-bootstrap.js';
 import { TrustManifestFloorStore } from '../security/trust-manifest-floor-store.js';
-import { ensureAdministrativePrivateMap } from '../t3n/administrative-private-map.js';
+import {
+  ensureAdministrativePrivateMap,
+  readAdministrativePrivateMapEntry,
+  writeAndVerifyAdministrativePrivateMapEntry,
+} from '../t3n/administrative-private-map.js';
 import { T3nSession } from '../t3n/session.js';
 
 const configuredNumericContractId = Number(process.env.T3N_CONTRACT_NUMERIC_ID);
 const numericContractId = Number.isInteger(configuredNumericContractId) && configuredNumericContractId > 0
   ? configuredNumericContractId
   : null;
-
-function extractValue(value: unknown): string | null {
-  if (typeof value === 'string') return value;
-  if (value instanceof Uint8Array) return Buffer.from(value).toString('utf8');
-  if (!value || typeof value !== 'object') return null;
-  const record = value as Record<string, unknown>;
-  for (const key of ['value', 'data', 'result']) {
-    const extracted = extractValue(record[key]);
-    if (extracted != null) return extracted;
-  }
-  return null;
-}
 
 const config = readGatewayConfig();
 const trustFloorStore = new TrustManifestFloorStore(config.trustManifestFloorStorePath);
@@ -39,13 +31,10 @@ await tenant.tenant.me();
 
 const mapTail = 'privacy-guard-policy';
 const mapName = tenant.canonicalName(mapTail);
-const executeControl = tenant.executeControl.bind(tenant) as (name: string, input: Record<string, string>) => Promise<unknown>;
-const getEntry = async (key: string): Promise<string | null> => extractValue(await executeControl('map-entry-get', { map_name: mapName, key }));
+const getEntry = async (key: string): Promise<string | null> => readAdministrativePrivateMapEntry(tenant, mapTail, key);
 const setEntry = async (key: string, value: string): Promise<void> => {
   try {
-    await executeControl('map-entry-set', { map_name: mapName, key, value });
-    const readBack = await getEntry(key);
-    if (readBack !== value) throw new Error('read-back mismatch');
+    await writeAndVerifyAdministrativePrivateMapEntry(tenant, mapTail, key, value);
   } catch {
     throw new Error('Unable to write and verify operational policy entry');
   }
