@@ -150,21 +150,37 @@ describe('enterprise integration readiness', () => {
     assert.equal(result.executorDelegationAllowsVerificationHost, false);
   });
 
-  it('fails closed with a delegation diagnostic for inconclusive effective delegation', () => {
+  it('fails closed with a delegation diagnostic while preserving observed config and unknown delegation facts', () => {
     const result = evaluate({ executorDelegation: delegation({ effectiveState: 'UNKNOWN' }) });
     assert.equal(result.state, 'UNKNOWN');
     assert.equal(result.diagnosticCode, 'DELEGATION_UNAVAILABLE');
+    assert.equal(result.executionConfigured, true);
+    assert.equal(result.verificationConfigured, true);
+    assert.equal(result.credentialConfigured, true);
+    assert.equal(result.policyAllowsExecutionHost, true);
+    assert.equal(result.policyAllowsVerificationHost, true);
+    assert.equal(result.executorDelegationAllowsExecutionHost, null);
+    assert.equal(result.executorDelegationAllowsVerificationHost, null);
   });
 
   it('fails closed with a sanitized endpoint diagnostic for malformed or non-HTTPS private endpoint configuration', () => {
-    assert.equal(evaluate({ executionUrl: 'http://security.company.example/private' }).diagnosticCode, 'ENDPOINT_CONFIGURATION_INVALID');
+    const nonHttps = evaluate({ executionUrl: 'http://security.company.example/private' });
+    assert.equal(nonHttps.diagnosticCode, 'ENDPOINT_CONFIGURATION_INVALID');
+    assert.equal(nonHttps.executionConfigured, null);
     assert.equal(evaluate({ executionUrl: 'not-a-url' }).diagnosticCode, 'ENDPOINT_CONFIGURATION_INVALID');
   });
 
-  it('builds an allowlisted unknown response without arbitrary error text', () => {
+  it('builds an allowlisted unknown response without fabricating false facts or arbitrary error text', () => {
     const result = unknownEnterpriseIntegrationReadiness(checkedAt, 'POLICY_UNAVAILABLE');
     assert.equal(result.state, 'UNKNOWN');
     assert.equal(result.diagnosticCode, 'POLICY_UNAVAILABLE');
+    assert.equal(result.executionConfigured, null);
+    assert.equal(result.verificationConfigured, null);
+    assert.equal(result.credentialConfigured, null);
+    assert.equal(result.policyAllowsExecutionHost, null);
+    assert.equal(result.policyAllowsVerificationHost, null);
+    assert.equal(result.executorDelegationAllowsExecutionHost, null);
+    assert.equal(result.executorDelegationAllowsVerificationHost, null);
     assert.equal(JSON.stringify(result).includes('secret'), false);
   });
 

@@ -102,15 +102,15 @@ public class SystemStatusService {
             enterpriseIntegrationDiagnosticCode,
             enterpriseIntegrationReady,
             remediationCredential.isConfigured(),
-            enterpriseIntegration.map(EnterpriseIntegrationReadiness::executionConfigured).orElse(false),
-            enterpriseIntegration.map(EnterpriseIntegrationReadiness::verificationConfigured).orElse(false),
-            enterpriseIntegration.map(EnterpriseIntegrationReadiness::credentialConfigured).orElse(false),
+            enterpriseIntegration.map(EnterpriseIntegrationReadiness::executionConfigured).orElse(null),
+            enterpriseIntegration.map(EnterpriseIntegrationReadiness::verificationConfigured).orElse(null),
+            enterpriseIntegration.map(EnterpriseIntegrationReadiness::credentialConfigured).orElse(null),
             enterpriseIntegration.map(EnterpriseIntegrationReadiness::executionHost).orElse(null),
             enterpriseIntegration.map(EnterpriseIntegrationReadiness::verificationHost).orElse(null),
-            enterpriseIntegration.map(EnterpriseIntegrationReadiness::policyAllowsExecutionHost).orElse(false),
-            enterpriseIntegration.map(EnterpriseIntegrationReadiness::policyAllowsVerificationHost).orElse(false),
-            enterpriseIntegration.map(EnterpriseIntegrationReadiness::executorDelegationAllowsExecutionHost).orElse(false),
-            enterpriseIntegration.map(EnterpriseIntegrationReadiness::executorDelegationAllowsVerificationHost).orElse(false),
+            enterpriseIntegration.map(EnterpriseIntegrationReadiness::policyAllowsExecutionHost).orElse(null),
+            enterpriseIntegration.map(EnterpriseIntegrationReadiness::policyAllowsVerificationHost).orElse(null),
+            enterpriseIntegration.map(EnterpriseIntegrationReadiness::executorDelegationAllowsExecutionHost).orElse(null),
+            enterpriseIntegration.map(EnterpriseIntegrationReadiness::executorDelegationAllowsVerificationHost).orElse(null),
             enterpriseIntegration.map(EnterpriseIntegrationReadiness::supportedExecutableActions).map(SystemStatusService::safeList).orElse(List.of()),
             enterpriseIntegration.map(EnterpriseIntegrationReadiness::supportedVerifiedActions).map(SystemStatusService::safeList).orElse(List.of()),
             enterpriseIntegration.map(EnterpriseIntegrationReadiness::verificationContracts).map(SystemStatusService::safeVerificationContracts).orElse(List.of()),
@@ -145,14 +145,24 @@ public class SystemStatusService {
         String registrationState
     ) {
         if (!gatewayReachable) return "T3N gateway is unreachable.";
+        if ("UNKNOWN".equals(proposalMemberState)) {
+            return "Proposal Member grant could not be confirmed; policy evaluation remains unavailable.";
+        }
         if ("SCHEDULED".equals(proposalMemberState) && "SCHEDULED".equals(executorMemberState)) {
             return "Proposal and Executor Member grants exist, but their authorization windows have not begun.";
         }
         if ("SCHEDULED".equals(proposalMemberState)) return "Proposal Member grant exists, but its authorization window has not begun.";
-        if ("SCHEDULED".equals(executorMemberState) && evaluationReady) return "Policy evaluation is ready, but the Executor Member grant window has not begun; protected remediation remains unavailable.";
+        if ("NOT_GRANTED".equals(proposalMemberState)) return "Proposal Member grant has not been granted; policy evaluation is not ready.";
+        if ("REVOKED".equals(proposalMemberState)) return "Proposal Member grant has been revoked; policy evaluation is not ready.";
         if (!"ACTIVE".equals(proposalMemberState)) return "Proposal Member grant is not active; policy evaluation is not ready.";
         if ("DENIED".equals(proposalEffectiveState)) return "Proposal Member grant is active, but effective T3N access is denied for the required evaluation function/scopes.";
         if (!"ACTIVE".equals(proposalEffectiveState)) return "Proposal Member grant is active, but effective T3N access could not be confirmed for policy evaluation.";
+        if (evaluationReady && "UNKNOWN".equals(executorMemberState)) {
+            return "Policy evaluation is ready, but the Executor Member grant could not be confirmed; protected remediation remains unavailable.";
+        }
+        if ("SCHEDULED".equals(executorMemberState) && evaluationReady) return "Policy evaluation is ready, but the Executor Member grant window has not begun; protected remediation remains unavailable.";
+        if (evaluationReady && "NOT_GRANTED".equals(executorMemberState)) return "Policy evaluation is ready, but the Executor Member grant has not been granted; protected remediation remains unavailable.";
+        if (evaluationReady && "REVOKED".equals(executorMemberState)) return "Policy evaluation is ready, but the Executor Member grant has been revoked; protected remediation remains unavailable.";
         if (evaluationReady && !"ACTIVE".equals(executorMemberState)) return "Policy evaluation is ready, but the Executor Member grant is not active; protected remediation remains unavailable.";
         if (evaluationReady && "DENIED".equals(executorEffectiveState)) return "Policy evaluation is ready, but effective T3N access is denied for the Protected Executor.";
         if (evaluationReady && !"ACTIVE".equals(executorEffectiveState)) return "Policy evaluation is ready, but effective T3N access could not be confirmed for the Protected Executor.";
@@ -207,15 +217,15 @@ public class SystemStatusService {
         String enterpriseIntegrationDiagnosticCode,
         boolean enterpriseIntegrationReady,
         boolean firstPartyRemediationAdapterConfigured,
-        boolean enterpriseExecutionConfigured,
-        boolean enterpriseVerificationConfigured,
-        boolean enterpriseCredentialConfigured,
+        Boolean enterpriseExecutionConfigured,
+        Boolean enterpriseVerificationConfigured,
+        Boolean enterpriseCredentialConfigured,
         String enterpriseExecutionHost,
         String enterpriseVerificationHost,
-        boolean enterprisePolicyAllowsExecutionHost,
-        boolean enterprisePolicyAllowsVerificationHost,
-        boolean enterpriseExecutorDelegationAllowsExecutionHost,
-        boolean enterpriseExecutorDelegationAllowsVerificationHost,
+        Boolean enterprisePolicyAllowsExecutionHost,
+        Boolean enterprisePolicyAllowsVerificationHost,
+        Boolean enterpriseExecutorDelegationAllowsExecutionHost,
+        Boolean enterpriseExecutorDelegationAllowsVerificationHost,
         List<String> enterpriseSupportedExecutableActions,
         List<String> enterpriseSupportedVerifiedActions,
         List<EnterpriseVerificationContract> enterpriseVerificationContracts,

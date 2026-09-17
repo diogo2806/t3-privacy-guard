@@ -22,15 +22,15 @@ export interface EnterpriseVerificationContract {
 export interface EnterpriseIntegrationReadiness {
   readonly state: EnterpriseIntegrationState;
   readonly diagnosticCode: EnterpriseIntegrationDiagnosticCode;
-  readonly executionConfigured: boolean;
-  readonly verificationConfigured: boolean;
-  readonly credentialConfigured: boolean;
+  readonly executionConfigured: boolean | null;
+  readonly verificationConfigured: boolean | null;
+  readonly credentialConfigured: boolean | null;
   readonly executionHost: string | null;
   readonly verificationHost: string | null;
-  readonly policyAllowsExecutionHost: boolean;
-  readonly policyAllowsVerificationHost: boolean;
-  readonly executorDelegationAllowsExecutionHost: boolean;
-  readonly executorDelegationAllowsVerificationHost: boolean;
+  readonly policyAllowsExecutionHost: boolean | null;
+  readonly policyAllowsVerificationHost: boolean | null;
+  readonly executorDelegationAllowsExecutionHost: boolean | null;
+  readonly executorDelegationAllowsVerificationHost: boolean | null;
   readonly supportedExecutableActions: string[];
   readonly supportedVerifiedActions: string[];
   readonly verificationContracts: EnterpriseVerificationContract[];
@@ -109,15 +109,15 @@ export function unknownEnterpriseIntegrationReadiness(
   return {
     state: 'UNKNOWN',
     diagnosticCode,
-    executionConfigured: false,
-    verificationConfigured: false,
-    credentialConfigured: false,
+    executionConfigured: null,
+    verificationConfigured: null,
+    credentialConfigured: null,
     executionHost: null,
     verificationHost: null,
-    policyAllowsExecutionHost: false,
-    policyAllowsVerificationHost: false,
-    executorDelegationAllowsExecutionHost: false,
-    executorDelegationAllowsVerificationHost: false,
+    policyAllowsExecutionHost: null,
+    policyAllowsVerificationHost: null,
+    executorDelegationAllowsExecutionHost: null,
+    executorDelegationAllowsVerificationHost: null,
     supportedExecutableActions: VERIFICATION_CONTRACTS.map(({ action }) => action),
     supportedVerifiedActions: VERIFICATION_CONTRACTS.map(({ action }) => action),
     verificationContracts: VERIFICATION_CONTRACTS.map((contract) => ({ ...contract })),
@@ -148,15 +148,20 @@ export function evaluateEnterpriseIntegrationReadiness(input: EnterpriseIntegrat
   const executorHosts = normalizedHosts(input.executorDelegation.allowedHosts);
   const policyAllowsExecutionHost = allSupportedRulesAllowHost(supportedPolicyRules, executionHost);
   const policyAllowsVerificationHost = allSupportedRulesAllowHost(supportedPolicyRules, verificationHost);
+  const delegationUnknown = input.executorDelegation.memberState === 'UNKNOWN' || input.executorDelegation.effectiveState === 'UNKNOWN';
   const delegationActive = input.executorDelegation.memberState === 'ACTIVE' && input.executorDelegation.effectiveState === 'ACTIVE';
-  const executorDelegationAllowsExecutionHost = executionHost != null && delegationActive && executorHosts.has(executionHost);
-  const executorDelegationAllowsVerificationHost = verificationHost != null && delegationActive && executorHosts.has(verificationHost);
+  const executorDelegationAllowsExecutionHost = delegationUnknown
+    ? null
+    : executionHost != null && delegationActive && executorHosts.has(executionHost);
+  const executorDelegationAllowsVerificationHost = delegationUnknown
+    ? null
+    : verificationHost != null && delegationActive && executorHosts.has(verificationHost);
 
   let state: EnterpriseIntegrationState;
   let diagnosticCode: EnterpriseIntegrationDiagnosticCode = 'NONE';
   if (!executionConfigured || !verificationConfigured || !input.credentialConfigured || isDemoHost(executionHost) || isDemoHost(verificationHost)) {
     state = 'INCOMPLETE';
-  } else if (input.executorDelegation.memberState === 'UNKNOWN' || input.executorDelegation.effectiveState === 'UNKNOWN') {
+  } else if (delegationUnknown) {
     state = 'UNKNOWN';
     diagnosticCode = 'DELEGATION_UNAVAILABLE';
   } else if (

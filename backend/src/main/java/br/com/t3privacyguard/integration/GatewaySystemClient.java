@@ -177,15 +177,15 @@ public class GatewaySystemClient {
     public record EnterpriseIntegrationReadiness(
         String state,
         String diagnosticCode,
-        boolean executionConfigured,
-        boolean verificationConfigured,
-        boolean credentialConfigured,
+        Boolean executionConfigured,
+        Boolean verificationConfigured,
+        Boolean credentialConfigured,
         String executionHost,
         String verificationHost,
-        boolean policyAllowsExecutionHost,
-        boolean policyAllowsVerificationHost,
-        boolean executorDelegationAllowsExecutionHost,
-        boolean executorDelegationAllowsVerificationHost,
+        Boolean policyAllowsExecutionHost,
+        Boolean policyAllowsVerificationHost,
+        Boolean executorDelegationAllowsExecutionHost,
+        Boolean executorDelegationAllowsVerificationHost,
         List<String> supportedExecutableActions,
         List<String> supportedVerifiedActions,
         List<EnterpriseVerificationContract> verificationContracts,
@@ -203,15 +203,15 @@ public class GatewaySystemClient {
             supportedVerifiedActions = safeList(supportedVerifiedActions);
             verificationContracts = verificationContracts == null ? List.of() : List.copyOf(verificationContracts);
             evaluationOnlyActions = safeList(evaluationOnlyActions);
-            boolean coherentReady = executionConfigured
-                && verificationConfigured
-                && credentialConfigured
+            boolean coherentReady = Boolean.TRUE.equals(executionConfigured)
+                && Boolean.TRUE.equals(verificationConfigured)
+                && Boolean.TRUE.equals(credentialConfigured)
                 && executionHost != null
                 && verificationHost != null
-                && policyAllowsExecutionHost
-                && policyAllowsVerificationHost
-                && executorDelegationAllowsExecutionHost
-                && executorDelegationAllowsVerificationHost
+                && Boolean.TRUE.equals(policyAllowsExecutionHost)
+                && Boolean.TRUE.equals(policyAllowsVerificationHost)
+                && Boolean.TRUE.equals(executorDelegationAllowsExecutionHost)
+                && Boolean.TRUE.equals(executorDelegationAllowsVerificationHost)
                 && !supportedExecutableActions.isEmpty()
                 && !supportedVerifiedActions.isEmpty();
             if ("READY".equals(state) && !coherentReady) {

@@ -14,21 +14,22 @@ function status(
   diagnosticCode: EnterpriseIntegrationDiagnosticCode = state === 'UNKNOWN' ? 'T3N_CONTROL_PLANE_UNAVAILABLE' : 'NONE',
 ): SystemStatus {
   const ready = state === 'READY';
+  const unknown = state === 'UNKNOWN';
   return {
     protectedRemediationReady: true,
     enterpriseIntegrationState: state,
     enterpriseIntegrationDiagnosticCode: diagnosticCode,
     enterpriseIntegrationReady: ready,
     firstPartyRemediationAdapterConfigured: adapterConfigured,
-    enterpriseExecutionConfigured: state !== 'UNKNOWN',
-    enterpriseVerificationConfigured: state !== 'INCOMPLETE' && state !== 'UNKNOWN',
-    enterpriseCredentialConfigured: state !== 'UNKNOWN',
-    enterpriseExecutionHost: state === 'UNKNOWN' ? null : 'security.company.example',
-    enterpriseVerificationHost: state === 'INCOMPLETE' || state === 'UNKNOWN' ? null : 'verify.company.example',
-    enterprisePolicyAllowsExecutionHost: ready,
-    enterprisePolicyAllowsVerificationHost: ready,
-    enterpriseExecutorDelegationAllowsExecutionHost: ready,
-    enterpriseExecutorDelegationAllowsVerificationHost: ready,
+    enterpriseExecutionConfigured: unknown ? null : true,
+    enterpriseVerificationConfigured: unknown ? null : state !== 'INCOMPLETE',
+    enterpriseCredentialConfigured: unknown ? null : true,
+    enterpriseExecutionHost: unknown ? null : 'security.company.example',
+    enterpriseVerificationHost: state === 'INCOMPLETE' || unknown ? null : 'verify.company.example',
+    enterprisePolicyAllowsExecutionHost: unknown ? null : ready,
+    enterprisePolicyAllowsVerificationHost: unknown ? null : ready,
+    enterpriseExecutorDelegationAllowsExecutionHost: unknown ? null : ready,
+    enterpriseExecutorDelegationAllowsVerificationHost: unknown ? null : ready,
     enterpriseSupportedExecutableActions: ['revoke-credential'],
     enterpriseSupportedVerifiedActions: ['revoke-credential'],
     enterpriseVerificationContracts: [{ action: 'revoke-credential', expectedState: 'REVOKED' }],
@@ -62,6 +63,7 @@ describe('EnterpriseIntegrationStatus', () => {
     render(<EnterpriseIntegrationStatus status={status('INCOMPLETE')} loading={false} />);
     expect(screen.getByText('INCOMPLETE')).toHaveClass('status-pill-pending');
     expect(screen.getByText('Independent verification configured').parentElement).toHaveTextContent('No');
+    expect(screen.getByText('Verification host').parentElement).toHaveTextContent('Not configured');
     expect(screen.getByText('Operational protected workflow').parentElement).toHaveTextContent('NOT READY');
   });
 
@@ -72,10 +74,17 @@ describe('EnterpriseIntegrationStatus', () => {
     expect(screen.getByText('Operational protected workflow').parentElement).toHaveTextContent('NOT READY');
   });
 
-  it('shows UNKNOWN fail-closed with a safe policy diagnostic when protected policy cannot be read', () => {
+  it('shows UNKNOWN for inconclusive facts while keeping observed adapter state and workflow fail-closed', () => {
     render(<EnterpriseIntegrationStatus status={status('UNKNOWN', true, 'POLICY_UNAVAILABLE')} loading={false} />);
     expect(screen.getByText('UNKNOWN')).toHaveClass('status-pill-off');
-    expect(screen.getByText('Execution host').parentElement).toHaveTextContent('Not configured');
+    expect(screen.getByText('Execution endpoint configured').parentElement).toHaveTextContent('Unknown');
+    expect(screen.getByText('Independent verification configured').parentElement).toHaveTextContent('Unknown');
+    expect(screen.getByText('Execution credential configured').parentElement).toHaveTextContent('Unknown');
+    expect(screen.getByText('Policy allows execution host').parentElement).toHaveTextContent('Unknown');
+    expect(screen.getByText('Executor delegation allows execution host').parentElement).toHaveTextContent('Unknown');
+    expect(screen.getByText('Execution host').parentElement).toHaveTextContent('Unknown');
+    expect(screen.getByText('Verification host').parentElement).toHaveTextContent('Unknown');
+    expect(screen.getByText('First-party remediation adapter').parentElement).toHaveTextContent('Configured');
     expect(screen.getByText('Operational protected workflow').parentElement).toHaveTextContent('NOT READY');
     expect(screen.getByText('POLICY_UNAVAILABLE')).toBeInTheDocument();
     expect(screen.getByText(/active protected policy could not be read from T3N/i)).toBeInTheDocument();
