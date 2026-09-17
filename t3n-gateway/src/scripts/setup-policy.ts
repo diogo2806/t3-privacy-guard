@@ -44,7 +44,7 @@ if (numericContractId !== null) {
   try {
     currentEntry = await getEntry('current');
   } catch (error) {
-    if (error instanceof AdministrativePrivateMapError) throw error;
+    if (error instanceof AdministrativePrivateMapError && error.diagnosticCode !== 'UNKNOWN') throw error;
     throw new Error('privacy-guard-policy is unavailable; T3N_CONTRACT_NUMERIC_ID is required to create the private policy map safely');
   }
 }
