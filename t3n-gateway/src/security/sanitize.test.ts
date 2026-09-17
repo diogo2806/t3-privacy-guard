@@ -35,3 +35,13 @@ test('classifies opaque-key authentication failures without exposing the credent
   assert.equal(result.category, 'AUTHENTICATION');
   assert.equal(result.message.includes(syntheticOrgAgentKey), false);
 });
+
+test('classifies an uninitialised organization policy as actionable configuration', () => {
+  const result = sanitizeError(new Error('RPC Error: OrgPolicyNotInitialised: org policy is not initialised for this organisation'));
+  assert.equal(result.category, 'CONFIGURATION');
+});
+
+test('classifies an unknown organization DID as actionable configuration', () => {
+  const result = sanitizeError(new Error('RPC Error: OrganisationNotFound: organisation does not exist'));
+  assert.equal(result.category, 'CONFIGURATION');
+});
