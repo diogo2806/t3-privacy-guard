@@ -23,7 +23,11 @@ import type { ExecutorSession } from '../agent/executor-session.js';
 import { compareContractVersions } from '../config/contract-version.js';
 import type { GatewayConfig } from '../config/env.js';
 import type { PrivacyGuardContractService } from '../contract/privacy-guard-contract.js';
-import { ensureAdministrativePrivateMap } from '../t3n/administrative-private-map.js';
+import {
+  ensureAdministrativePrivateMap,
+  readAdministrativePrivateMapEntry,
+  writeAndVerifyAdministrativePrivateMapEntry,
+} from '../t3n/administrative-private-map.js';
 import type { T3nSession } from '../t3n/session.js';
 
 const execFileAsync = promisify(execFile);
@@ -254,19 +258,6 @@ function configuredNumericContractId(env: NodeJS.ProcessEnv): number | null {
   return Number.isInteger(value) && value > 0 ? value : null;
 }
 
-function extractControlValue(value: unknown, depth = 0): string | null {
-  if (depth > 4) return null;
-  if (typeof value === 'string') return value;
-  if (value instanceof Uint8Array) return Buffer.from(value).toString('utf8');
-  if (!value || typeof value !== 'object') return null;
-  const record = value as Record<string, unknown>;
-  for (const key of ['value', 'data', 'result']) {
-    const extracted = extractControlValue(record[key], depth + 1);
-    if (extracted != null) return extracted;
-  }
-  return null;
-}
-
 async function tenantClientForProvisioning(tenantSession: T3nSession): Promise<TenantClient> {
   const tenant = new TenantClient({
     t3n: tenantSession.getClient(),
@@ -279,12 +270,8 @@ async function tenantClientForProvisioning(tenantSession: T3nSession): Promise<T
 
 async function readRemoteProvisioningState(tenantSession: T3nSession): Promise<RuntimeProvisioningState | null> {
   const tenant = await tenantClientForProvisioning(tenantSession);
-  const mapName = tenant.canonicalName(REMOTE_STATE_MAP_TAIL);
   try {
-    const raw = extractControlValue(await tenant.executeControl('map-entry-get', {
-      map_name: mapName,
-      key: REMOTE_STATE_KEY,
-    }));
+    const raw = await readAdministrativePrivateMapEntry(tenant, REMOTE_STATE_MAP_TAIL, REMOTE_STATE_KEY);
     if (!raw) return null;
     const state = parseProvisioningState(raw);
     if (!state) throw new Error('Remote T3N runtime provisioning state is invalid');
@@ -300,25 +287,15 @@ async function persistRemoteProvisioningState(
   state: RuntimeProvisioningState,
 ): Promise<void> {
   const tenant = await tenantClientForProvisioning(tenantSession);
-  const mapName = await ensureAdministrativePrivateMap(tenant, REMOTE_STATE_MAP_TAIL, state.numericContractId);
+  await ensureAdministrativePrivateMap(tenant, REMOTE_STATE_MAP_TAIL, state.numericContractId);
   const serialized = JSON.stringify(state);
   try {
-    await tenant.executeControl('map-entry-set', {
-      map_name: mapName,
-      key: REMOTE_STATE_KEY,
-      value: serialized,
-    });
-    const readBack = extractControlValue(await tenant.executeControl('map-entry-get', {
-      map_name: mapName,
-      key: REMOTE_STATE_KEY,
-    }));
-    const verified = readBack ? parseProvisioningState(readBack) : null;
-    if (!verified
-      || !provisioningStateMatches(verified, state)
-      || verified.numericContractId !== state.numericContractId
-      || verified.updatedAt !== state.updatedAt) {
-      throw new Error('read-back mismatch');
-    }
+    await writeAndVerifyAdministrativePrivateMapEntry(
+      tenant,
+      REMOTE_STATE_MAP_TAIL,
+      REMOTE_STATE_KEY,
+      serialized,
+    );
   } catch {
     throw new Error('Remote T3N runtime provisioning state could not be verified after write');
   }
