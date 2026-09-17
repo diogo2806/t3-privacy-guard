@@ -268,7 +268,7 @@ test('same-version reuse recovers numeric id from remote T3N state when local ca
     numericContractId: 77,
     updatedAt: '2026-09-17T15:10:00.000Z',
   };
-  let persistedRemote: RuntimeProvisioningState | null = null;
+  const persistedRemote: RuntimeProvisioningState[] = [];
 
   try {
     const result = await resolveOrRegisterContract(
@@ -281,13 +281,13 @@ test('same-version reuse recovers numeric id from remote T3N state when local ca
       { T3N_RUNTIME_PROVISIONING_STATE_PATH: statePath },
       {
         readRemoteProvisioningState: async () => remoteState,
-        persistRemoteProvisioningState: async (state) => { persistedRemote = state; },
+        persistRemoteProvisioningState: async (state) => { persistedRemote.push(state); },
       },
     );
 
     assert.equal(result.numericContractId, 77);
     assert.equal(result.registered, false);
-    assert.equal(persistedRemote?.numericContractId, 77);
+    assert.equal(persistedRemote[0]?.numericContractId, 77);
     const cached = parseProvisioningState(await readFile(statePath, 'utf8'));
     assert.equal(cached?.numericContractId, 77);
     assert.equal(cached?.contractVersion, '0.4.2');
