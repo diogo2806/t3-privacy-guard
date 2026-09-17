@@ -26,9 +26,9 @@ function integrationPillState(state?: EnterpriseIntegrationState): PillState {
   return 'off';
 }
 
-function booleanPill(value: boolean | undefined, loading: boolean) {
+function booleanPill(value: boolean | null | undefined, loading: boolean) {
   if (loading) return <StatusPill state="pending" label="Checking" />;
-  if (value === undefined) return <StatusPill state="off" label="Unknown" />;
+  if (value == null) return <StatusPill state="off" label="Unknown" />;
   return <StatusPill state={value ? 'ok' : 'off'} label={value ? 'Yes' : 'No'} />;
 }
 
@@ -36,6 +36,11 @@ function adapterPill(value: boolean | undefined, loading: boolean) {
   if (loading) return <StatusPill state="pending" label="Checking" />;
   if (value === undefined) return <StatusPill state="off" label="Unknown" />;
   return <StatusPill state={value ? 'ok' : 'off'} label={value ? 'Configured' : 'Not configured'} />;
+}
+
+function observedHost(host: string | null | undefined, state: EnterpriseIntegrationState) {
+  if (host) return host;
+  return state === 'UNKNOWN' ? 'Unknown' : 'Not configured';
 }
 
 export function EnterpriseIntegrationStatus({ status, loading }: Props) {
@@ -78,8 +83,8 @@ export function EnterpriseIntegrationStatus({ status, loading }: Props) {
       </div>
 
       <div className="status-meta">
-        <div><span>Execution host</span><code>{status?.enterpriseExecutionHost ?? 'Not configured'}</code></div>
-        <div><span>Verification host</span><code>{status?.enterpriseVerificationHost ?? 'Not configured'}</code></div>
+        <div><span>Execution host</span><code>{observedHost(status?.enterpriseExecutionHost, integrationState)}</code></div>
+        <div><span>Verification host</span><code>{observedHost(status?.enterpriseVerificationHost, integrationState)}</code></div>
         <div><span>Readiness check</span><code>{status?.enterpriseIntegrationCheckedAt ? new Date(status.enterpriseIntegrationCheckedAt).toLocaleString() : 'Not available'}</code></div>
       </div>
 
