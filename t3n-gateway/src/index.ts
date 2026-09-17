@@ -14,6 +14,7 @@ import { OpenAiCompatibleProvider } from './agent/openai-compatible-provider.js'
 import { readGatewayConfig } from './config/env.js';
 import { EnterpriseIntegrationReadinessService } from './contract/enterprise-integration-readiness.js';
 import { PrivacyGuardContractService } from './contract/privacy-guard-contract.js';
+import { registerContractWithDurableId } from './contract/t3n-contract-registrar.js';
 import { createA2aRouter } from './http/a2a-router.js';
 import { createActivityRouter } from './http/activity-router.js';
 import { createAgentRouter } from './http/agent-router.js';
@@ -102,6 +103,15 @@ void reconcileRuntimeProvisioning(
   executorDelegationService,
   contractService,
   agentCardRegistry,
+  process.env,
+  {
+    registerContract: async (request) => registerContractWithDurableId({
+      client: tenantSession.getClient(),
+      canonicalContractId: await contractService.canonicalContractId(),
+      version: request.version,
+      wasm: request.wasm,
+    }),
+  },
 ).then((result) => {
   if (!result.enabled) return;
   console.info(`T3N runtime provisioning reconciled: ${JSON.stringify(result)}`);
