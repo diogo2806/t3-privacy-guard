@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import type { AgentCardPublicationRequest } from '../agent/agent-card-publisher.js';
 import {
@@ -6,9 +9,12 @@ import {
   configuredEnterpriseHosts,
   contractVersionAction,
   executorDelegationGrantRequest,
+  parseProvisioningState,
   provisioningStateMatches,
   reconcileAgentCard,
   reconcileAgentCardIndependently,
+  resolveOrRegisterContract,
+  reusableNumericContractId,
   runtimeProvisioningEnabled,
   type RuntimeProvisioningState,
 } from './runtime-provisioning.js';
@@ -92,15 +98,16 @@ test('runtime Agent Card reconciliation forwards the authenticated Tenant/Admin 
   assert.equal(capturedRequest.adminClient, adminClient);
 });
 
-test('contract version migration registers absent or older versions and reuses the packaged version', () => {
-  assert.equal(contractVersionAction(null, '0.4.1'), 'REGISTER');
-  assert.equal(contractVersionAction('0.4.0', '0.4.1'), 'REGISTER');
-  assert.equal(contractVersionAction('0.4.1', '0.4.1'), 'REUSE');
+test('contract version migration registers absent or older versions and reuses packaged 0.4.2', () => {
+  assert.equal(contractVersionAction(null, '0.4.2'), 'REGISTER');
+  assert.equal(contractVersionAction('0.4.0', '0.4.2'), 'REGISTER');
+  assert.equal(contractVersionAction('0.4.1', '0.4.2'), 'REGISTER');
+  assert.equal(contractVersionAction('0.4.2', '0.4.2'), 'REUSE');
 });
 
 test('contract version migration fails closed when T3N is newer than the packaged artifact', () => {
   assert.throws(
-    () => contractVersionAction('0.4.2', '0.4.1'),
+    () => contractVersionAction('0.4.3', '0.4.2'),
     /newer than packaged/,
   );
 });
@@ -123,9 +130,9 @@ test('enterprise hosts use only real HTTPS endpoints and are deduplicated', () =
 });
 
 test('executor grant keeps T3N least privilege even when enterprise integration is absent', () => {
-  assert.deepEqual(executorDelegationGrantRequest('z:tenant:privacy-guard', '0.4.1', {}), {
+  assert.deepEqual(executorDelegationGrantRequest('z:tenant:privacy-guard', '0.4.2', {}), {
     contractId: 'z:tenant:privacy-guard',
-    versionReq: '0.4.1',
+    versionReq: '0.4.2',
     functions: ['execute-remediation', 'verify-remediation'],
     scopes: ['incident_id', 'credential_id', 'reason', 'verified_contacts.email.value'],
     allowedHosts: [],
@@ -133,7 +140,7 @@ test('executor grant keeps T3N least privilege even when enterprise integration 
 });
 
 test('executor grant adds only canonical real HTTPS enterprise hosts when configured', () => {
-  assert.deepEqual(executorDelegationGrantRequest('z:tenant:privacy-guard', '0.4.1', {
+  assert.deepEqual(executorDelegationGrantRequest('z:tenant:privacy-guard', '0.4.2', {
     SECURITY_API_URL: 'https://security.example.com/private/remediate',
     SECURITY_VERIFICATION_URL: 'https://verify.example.com/private/read-back',
   }).allowedHosts, ['security.example.com', 'verify.example.com']);
@@ -180,24 +187,134 @@ test('persisted numeric id is reusable only for the same tenant contract and ver
   const state: RuntimeProvisioningState = {
     tenantDid: 'did:t3n:tenant123',
     contractId: 'z:tenant123:privacy-guard',
-    contractVersion: '0.4.1',
+    contractVersion: '0.4.2',
     numericContractId: 42,
-    updatedAt: '2026-09-16T15:00:00.000Z',
+    updatedAt: '2026-09-17T15:00:00.000Z',
   };
 
   assert.equal(provisioningStateMatches(state, {
     tenantDid: 'did:t3n:tenant123',
     contractId: 'z:tenant123:privacy-guard',
-    contractVersion: '0.4.1',
+    contractVersion: '0.4.2',
   }), true);
   assert.equal(provisioningStateMatches(state, {
     tenantDid: 'did:t3n:other',
     contractId: 'z:tenant123:privacy-guard',
-    contractVersion: '0.4.1',
+    contractVersion: '0.4.2',
   }), false);
   assert.equal(provisioningStateMatches(state, {
     tenantDid: 'did:t3n:tenant123',
     contractId: 'z:tenant123:privacy-guard',
     contractVersion: '0.5.0',
   }), false);
+});
+
+test('remote provisioning state parser accepts only the minimal validated state shape', () => {
+  const valid = JSON.stringify({
+    tenantDid: 'did:t3n:tenant123',
+    contractId: 'z:tenant123:privacy-guard',
+    contractVersion: '0.4.2',
+    numericContractId: 77,
+    updatedAt: '2026-09-17T15:10:00.000Z',
+  });
+  assert.equal(parseProvisioningState(valid)?.numericContractId, 77);
+  assert.equal(parseProvisioningState('{"numericContractId":0}'), null);
+  assert.equal(parseProvisioningState('{not-json'), null);
+});
+
+test('numeric id selection prefers explicit config, then matching local cache, then matching remote state', () => {
+  const expected = {
+    tenantDid: 'did:t3n:tenant123',
+    contractId: 'z:tenant123:privacy-guard',
+    contractVersion: '0.4.2',
+  };
+  const local = { ...expected, numericContractId: 41, updatedAt: '2026-09-17T15:00:00.000Z' };
+  const remote = { ...expected, numericContractId: 42, updatedAt: '2026-09-17T15:01:00.000Z' };
+
+  assert.equal(reusableNumericContractId(40, local, remote, expected), 40);
+  assert.equal(reusableNumericContractId(null, local, remote, expected), 41);
+  assert.equal(reusableNumericContractId(null, null, remote, expected), 42);
+  assert.equal(reusableNumericContractId(null, null, null, expected), null);
+});
+
+test('numeric id selection rejects remote state from another tenant, contract or version', () => {
+  const expected = {
+    tenantDid: 'did:t3n:tenant123',
+    contractId: 'z:tenant123:privacy-guard',
+    contractVersion: '0.4.2',
+  };
+  assert.throws(
+    () => reusableNumericContractId(null, null, {
+      ...expected,
+      tenantDid: 'did:t3n:other',
+      numericContractId: 42,
+      updatedAt: '2026-09-17T15:01:00.000Z',
+    }, expected),
+    /does not match/,
+  );
+});
+
+test('same-version reuse recovers numeric id from remote T3N state when local cache is absent', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 't3pg-runtime-state-'));
+  const statePath = join(directory, 'missing-cache.json');
+  const expected = {
+    tenantDid: 'did:t3n:tenant123',
+    contractId: 'z:tenant123:privacy-guard',
+    contractVersion: '0.4.2',
+  };
+  const remoteState: RuntimeProvisioningState = {
+    ...expected,
+    numericContractId: 77,
+    updatedAt: '2026-09-17T15:10:00.000Z',
+  };
+  let persistedRemote: RuntimeProvisioningState | null = null;
+
+  try {
+    const result = await resolveOrRegisterContract(
+      { contractVersion: '0.4.2' } as unknown as Parameters<typeof resolveOrRegisterContract>[0],
+      { getTenantDid: () => expected.tenantDid } as unknown as Parameters<typeof resolveOrRegisterContract>[1],
+      {
+        canonicalContractId: async () => expected.contractId,
+        identity: async () => ({ contractId: expected.contractId, contractVersion: expected.contractVersion }),
+      } as unknown as Parameters<typeof resolveOrRegisterContract>[2],
+      { T3N_RUNTIME_PROVISIONING_STATE_PATH: statePath },
+      {
+        readRemoteProvisioningState: async () => remoteState,
+        persistRemoteProvisioningState: async (state) => { persistedRemote = state; },
+      },
+    );
+
+    assert.equal(result.numericContractId, 77);
+    assert.equal(result.registered, false);
+    assert.equal(persistedRemote?.numericContractId, 77);
+    const cached = parseProvisioningState(await readFile(statePath, 'utf8'));
+    assert.equal(cached?.numericContractId, 77);
+    assert.equal(cached?.contractVersion, '0.4.2');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('same-version reuse fails closed when env, local cache and remote T3N state cannot supply the numeric id', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 't3pg-runtime-state-'));
+  try {
+    await assert.rejects(
+      () => resolveOrRegisterContract(
+        { contractVersion: '0.4.2' } as unknown as Parameters<typeof resolveOrRegisterContract>[0],
+        { getTenantDid: () => 'did:t3n:tenant123' } as unknown as Parameters<typeof resolveOrRegisterContract>[1],
+        {
+          canonicalContractId: async () => 'z:tenant123:privacy-guard',
+          identity: async () => ({ contractId: 'z:tenant123:privacy-guard', contractVersion: '0.4.2' }),
+        } as unknown as Parameters<typeof resolveOrRegisterContract>[2],
+        { T3N_RUNTIME_PROVISIONING_STATE_PATH: join(directory, 'missing.json') },
+        {
+          readRemoteProvisioningState: async () => null,
+          persistRemoteProvisioningState: async () => undefined,
+        },
+      ),
+      /Numeric T3N contract id is unavailable/,
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
