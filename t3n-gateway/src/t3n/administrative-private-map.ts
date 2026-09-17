@@ -36,8 +36,6 @@ function diagnosticText(error: unknown, depth = 0): string {
     record.name,
     record.code,
     record.message,
-    record.status,
-    record.statusCode,
     diagnosticText(record.cause, depth + 1),
   ]
     .filter((value) => value != null)
@@ -46,26 +44,34 @@ function diagnosticText(error: unknown, depth = 0): string {
     .toLowerCase();
 }
 
+function diagnosticStatus(error: unknown): number | null {
+  if (error == null || typeof error !== 'object') return null;
+  const record = error as Record<string, unknown>;
+  const rawStatus = record.statusCode ?? record.status;
+  if (typeof rawStatus === 'number' && Number.isInteger(rawStatus)) return rawStatus;
+  if (typeof rawStatus === 'string' && /^\d{3}$/.test(rawStatus.trim())) return Number(rawStatus.trim());
+  return error instanceof Error ? diagnosticStatus(error.cause) : null;
+}
+
 export function classifyAdministrativePrivateMapError(error: unknown): AdministrativePrivateMapDiagnosticCode {
   if (error instanceof AdministrativePrivateMapError) return error.diagnosticCode;
   const text = diagnosticText(error);
+  const status = diagnosticStatus(error);
   if (text.includes('insufficientcredit') || text.includes('insufficient credit')) return 'INSUFFICIENT_CREDIT';
   if (
-    text.includes('authentication')
+    status === 401
+    || text.includes('authentication')
     || text.includes('unauthorized')
     || text.includes('invalid api key')
     || text.includes('invalid credential')
-    || text.includes('status 401')
-    || text.includes('statuscode 401')
   ) return 'AUTHENTICATION';
   if (
-    text.includes('accessdenied')
+    status === 403
+    || text.includes('accessdenied')
     || text.includes('access denied')
     || text.includes('forbidden')
     || text.includes('permission denied')
     || text.includes('not authorized')
-    || text.includes('status 403')
-    || text.includes('statuscode 403')
   ) return 'ACCESS_DENIED';
   if (
     text.includes('network')
