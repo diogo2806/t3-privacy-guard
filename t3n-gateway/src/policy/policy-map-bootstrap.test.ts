@@ -53,6 +53,22 @@ describe('policy map bootstrap', () => {
     assert.deepEqual(writes, [[`version:${policy.document.version}`, policy.canonicalJson]]);
   });
 
+  it('does not rewrite an immutable version entry when the same policy is published again', async () => {
+    const policy = target();
+    const writes: Array<[string, string]> = [];
+
+    await ensureImmutablePolicyVersion(
+      policy,
+      async (key) => {
+        assert.equal(key, `version:${policy.document.version}`);
+        return policy.canonicalJson;
+      },
+      async (key, value) => { writes.push([key, value]); },
+    );
+
+    assert.deepEqual(writes, []);
+  });
+
   it('fails when the immutable version entry cannot be written', async () => {
     const policy = target();
 

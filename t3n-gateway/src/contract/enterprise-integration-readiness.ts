@@ -1,6 +1,7 @@
 import { TenantClient, getNodeUrl } from '@terminal3/t3n-sdk';
 import type { DelegationService, DelegationStatus } from '../agent/delegation-service.js';
 import { canonicalizeOperationalPolicy, type OperationalPolicyDocument } from '../policy/policy-document.js';
+import { readAdministrativePrivateMapEntry } from '../t3n/administrative-private-map.js';
 import type { T3nSession } from '../t3n/session.js';
 import type { PrivacyGuardContractService } from './privacy-guard-contract.js';
 
@@ -47,7 +48,7 @@ interface EnterpriseIntegrationInputs {
   readonly checkedAt: string;
 }
 
-interface PrivateConfiguration {
+export interface EnterprisePrivateConfiguration {
   readonly executionUrl: string | null;
   readonly verificationUrl: string | null;
   readonly credentialConfigured: boolean;
@@ -66,19 +67,6 @@ const VERIFICATION_CONTRACTS: readonly EnterpriseVerificationContract[] = Object
   Object.freeze({ action: 'notify-security', expectedState: 'DELIVERED' }),
 ]);
 const DEMO_HOSTS = new Set(['postman-echo.com']);
-
-function extractValue(value: unknown, depth = 0): string | null {
-  if (depth > 4) return null;
-  if (typeof value === 'string') return value;
-  if (value instanceof Uint8Array) return Buffer.from(value).toString('utf8');
-  if (!value || typeof value !== 'object') return null;
-  const record = value as Record<string, unknown>;
-  for (const key of ['value', 'data', 'result']) {
-    const extracted = extractValue(record[key], depth + 1);
-    if (extracted != null) return extracted;
-  }
-  return null;
-}
 
 function canonicalHttpsHost(value: string | null): string | null {
   if (value == null || !value.trim()) return null;
@@ -196,6 +184,48 @@ export function evaluateEnterpriseIntegrationReadiness(input: EnterpriseIntegrat
   };
 }
 
+export async function readEnterprisePrivateConfigurationFromTenant(
+  tenant: TenantClient,
+): Promise<EnterprisePrivateConfiguration> {
+  const readEntry = async (mapTail: string, key: string): Promise<string | null> =>
+    readAdministrativePrivateMapEntry(tenant, mapTail, key);
+
+  let policyRaw: string | null;
+  try {
+    policyRaw = await readEntry('privacy-guard-policy', 'current');
+  } catch {
+    throw new ReadinessDiagnosticError('POLICY_UNAVAILABLE');
+  }
+  if (!policyRaw) throw new ReadinessDiagnosticError('POLICY_UNAVAILABLE');
+
+  let policy: OperationalPolicyDocument;
+  try {
+    policy = canonicalizeOperationalPolicy(JSON.parse(policyRaw) as unknown).document;
+  } catch {
+    throw new ReadinessDiagnosticError('POLICY_INVALID');
+  }
+
+  let executionUrl: string | null;
+  let verificationUrl: string | null;
+  let credential: string | null;
+  try {
+    [executionUrl, verificationUrl, credential] = await Promise.all([
+      readEntry('secrets', 'security_api_url'),
+      readEntry('secrets', 'security_verification_url'),
+      readEntry('secrets', 'security_api_key'),
+    ]);
+  } catch {
+    throw new ReadinessDiagnosticError('PRIVATE_CONFIGURATION_UNAVAILABLE');
+  }
+
+  return {
+    executionUrl: executionUrl?.trim() || null,
+    verificationUrl: verificationUrl?.trim() || null,
+    credentialConfigured: Boolean(credential?.trim()),
+    policy,
+  };
+}
+
 export class EnterpriseIntegrationReadinessService {
   constructor(
     private readonly tenantSession: T3nSession,
@@ -223,7 +253,7 @@ export class EnterpriseIntegrationReadinessService {
     }
   }
 
-  private async readPrivateConfiguration(): Promise<PrivateConfiguration> {
+  private async readPrivateConfiguration(): Promise<EnterprisePrivateConfiguration> {
     await this.tenantSession.connect();
     const tenant = new TenantClient({
       t3n: this.tenantSession.getClient(),
@@ -231,44 +261,6 @@ export class EnterpriseIntegrationReadinessService {
       tenantDid: this.tenantSession.getTenantDid(),
     });
     await tenant.tenant.me();
-    const executeControl = tenant.executeControl.bind(tenant) as (name: string, input: Record<string, string>) => Promise<unknown>;
-    const readEntry = async (mapName: string, key: string): Promise<string | null> => extractValue(await executeControl('map-entry-get', { map_name: mapName, key }));
-    const secretsMapName = tenant.canonicalName('secrets');
-    const policyMapName = tenant.canonicalName('privacy-guard-policy');
-
-    let policyRaw: string | null;
-    try {
-      policyRaw = await readEntry(policyMapName, 'current');
-    } catch {
-      throw new ReadinessDiagnosticError('POLICY_UNAVAILABLE');
-    }
-    if (!policyRaw) throw new ReadinessDiagnosticError('POLICY_UNAVAILABLE');
-
-    let policy: OperationalPolicyDocument;
-    try {
-      policy = canonicalizeOperationalPolicy(JSON.parse(policyRaw) as unknown).document;
-    } catch {
-      throw new ReadinessDiagnosticError('POLICY_INVALID');
-    }
-
-    let executionUrl: string | null;
-    let verificationUrl: string | null;
-    let credential: string | null;
-    try {
-      [executionUrl, verificationUrl, credential] = await Promise.all([
-        readEntry(secretsMapName, 'security_api_url'),
-        readEntry(secretsMapName, 'security_verification_url'),
-        readEntry(secretsMapName, 'security_api_key'),
-      ]);
-    } catch {
-      throw new ReadinessDiagnosticError('PRIVATE_CONFIGURATION_UNAVAILABLE');
-    }
-
-    return {
-      executionUrl: executionUrl?.trim() || null,
-      verificationUrl: verificationUrl?.trim() || null,
-      credentialConfigured: Boolean(credential?.trim()),
-      policy,
-    };
+    return readEnterprisePrivateConfigurationFromTenant(tenant);
   }
 }
