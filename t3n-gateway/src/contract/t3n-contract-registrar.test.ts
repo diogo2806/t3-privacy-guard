@@ -51,7 +51,7 @@ test('low-level registration sends the canonical contract-register request and n
   const result = await registerContractWithDurableId({
     client,
     canonicalContractId: CONTRACT_ID,
-    version: '0.4.4',
+    version: '0.4.5',
     wasm: new Uint8Array([0, 97, 115, 109]),
     resolveTenantContractsVersion: async () => '1.26.0',
   });
@@ -65,7 +65,7 @@ test('low-level registration sends the canonical contract-register request and n
     function_name: 'contract-register',
     input: {
       name: CONTRACT_ID,
-      version: '0.4.4',
+      version: '0.4.5',
     },
   });
 });
