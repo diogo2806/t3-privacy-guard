@@ -6,7 +6,10 @@ import {
   configuredEnterpriseHosts,
   contractVersionAction,
   executorDelegationGrantRequest,
+  parseProvisioningState,
+  persistRemoteProvisioningState,
   provisioningStateMatches,
+  readRemoteProvisioningState,
   reconcileAgentCard,
   reconcileAgentCardIndependently,
   runtimeProvisioningEnabled,
@@ -93,14 +96,15 @@ test('runtime Agent Card reconciliation forwards the authenticated Tenant/Admin 
 });
 
 test('contract version migration registers absent or older versions and reuses the packaged version', () => {
-  assert.equal(contractVersionAction(null, '0.4.1'), 'REGISTER');
-  assert.equal(contractVersionAction('0.4.0', '0.4.1'), 'REGISTER');
-  assert.equal(contractVersionAction('0.4.1', '0.4.1'), 'REUSE');
+  assert.equal(contractVersionAction(null, '0.4.2'), 'REGISTER');
+  assert.equal(contractVersionAction('0.4.0', '0.4.2'), 'REGISTER');
+  assert.equal(contractVersionAction('0.4.1', '0.4.2'), 'REGISTER');
+  assert.equal(contractVersionAction('0.4.2', '0.4.2'), 'REUSE');
 });
 
 test('contract version migration fails closed when T3N is newer than the packaged artifact', () => {
   assert.throws(
-    () => contractVersionAction('0.4.2', '0.4.1'),
+    () => contractVersionAction('0.4.3', '0.4.2'),
     /newer than packaged/,
   );
 });
@@ -123,9 +127,9 @@ test('enterprise hosts use only real HTTPS endpoints and are deduplicated', () =
 });
 
 test('executor grant keeps T3N least privilege even when enterprise integration is absent', () => {
-  assert.deepEqual(executorDelegationGrantRequest('z:tenant:privacy-guard', '0.4.1', {}), {
+  assert.deepEqual(executorDelegationGrantRequest('z:tenant:privacy-guard', '0.4.2', {}), {
     contractId: 'z:tenant:privacy-guard',
-    versionReq: '0.4.1',
+    versionReq: '0.4.2',
     functions: ['execute-remediation', 'verify-remediation'],
     scopes: ['incident_id', 'credential_id', 'reason', 'verified_contacts.email.value'],
     allowedHosts: [],
@@ -133,7 +137,7 @@ test('executor grant keeps T3N least privilege even when enterprise integration 
 });
 
 test('executor grant adds only canonical real HTTPS enterprise hosts when configured', () => {
-  assert.deepEqual(executorDelegationGrantRequest('z:tenant:privacy-guard', '0.4.1', {
+  assert.deepEqual(executorDelegationGrantRequest('z:tenant:privacy-guard', '0.4.2', {
     SECURITY_API_URL: 'https://security.example.com/private/remediate',
     SECURITY_VERIFICATION_URL: 'https://verify.example.com/private/read-back',
   }).allowedHosts, ['security.example.com', 'verify.example.com']);
@@ -180,24 +184,123 @@ test('persisted numeric id is reusable only for the same tenant contract and ver
   const state: RuntimeProvisioningState = {
     tenantDid: 'did:t3n:tenant123',
     contractId: 'z:tenant123:privacy-guard',
-    contractVersion: '0.4.1',
+    contractVersion: '0.4.2',
     numericContractId: 42,
-    updatedAt: '2026-09-16T15:00:00.000Z',
+    updatedAt: '2026-09-17T13:00:00.000Z',
   };
 
   assert.equal(provisioningStateMatches(state, {
     tenantDid: 'did:t3n:tenant123',
     contractId: 'z:tenant123:privacy-guard',
-    contractVersion: '0.4.1',
+    contractVersion: '0.4.2',
   }), true);
   assert.equal(provisioningStateMatches(state, {
     tenantDid: 'did:t3n:other',
     contractId: 'z:tenant123:privacy-guard',
-    contractVersion: '0.4.1',
+    contractVersion: '0.4.2',
   }), false);
   assert.equal(provisioningStateMatches(state, {
     tenantDid: 'did:t3n:tenant123',
     contractId: 'z:tenant123:privacy-guard',
     contractVersion: '0.5.0',
   }), false);
+});
+
+test('provisioning state parser rejects malformed or non-positive numeric ids', () => {
+  assert.equal(parseProvisioningState('{"tenantDid":"did:t3n:a"}'), null);
+  assert.equal(parseProvisioningState(JSON.stringify({
+    tenantDid: 'did:t3n:tenant123',
+    contractId: 'z:tenant123:privacy-guard',
+    contractVersion: '0.4.2',
+    numericContractId: 0,
+    updatedAt: '2026-09-17T13:00:00.000Z',
+  })), null);
+});
+
+test('remote T3N provisioning state persists with contract-only ACL and strict read-back', async () => {
+  const state: RuntimeProvisioningState = {
+    tenantDid: 'did:t3n:tenant123',
+    contractId: 'z:tenant123:privacy-guard',
+    contractVersion: '0.4.2',
+    numericContractId: 42,
+    updatedAt: '2026-09-17T13:00:00.000Z',
+  };
+  let stored: string | null = null;
+  let created: unknown;
+  const control = {
+    canonicalName: (tail: string) => `z:tenant123:${tail}`,
+    maps: {
+      create: async (input: unknown) => { created = input; },
+      update: async () => undefined,
+    },
+    executeControl: async (name: string, input: Record<string, string>) => {
+      if (name === 'map-entry-set') {
+        stored = input.value;
+        return {};
+      }
+      if (name === 'map-entry-get') return stored;
+      throw new Error('unexpected control operation');
+    },
+  } as unknown as Parameters<typeof persistRemoteProvisioningState>[0];
+
+  await persistRemoteProvisioningState(control, state);
+  assert.deepEqual(created, {
+    tail: 'privacy-guard-runtime',
+    visibility: 'private',
+    writers: { only: [42] },
+    readers: { only: [42] },
+  });
+  assert.deepEqual(await readRemoteProvisioningState(control), state);
+});
+
+test('remote T3N provisioning state repairs ACL when its map already exists', async () => {
+  const state: RuntimeProvisioningState = {
+    tenantDid: 'did:t3n:tenant123',
+    contractId: 'z:tenant123:privacy-guard',
+    contractVersion: '0.4.2',
+    numericContractId: 77,
+    updatedAt: '2026-09-17T13:01:00.000Z',
+  };
+  let stored: string | null = null;
+  let updated: unknown;
+  const control = {
+    canonicalName: (tail: string) => `z:tenant123:${tail}`,
+    maps: {
+      create: async () => { throw new Error('map already exists'); },
+      update: async (tail: string, patch: unknown) => { updated = { tail, patch }; },
+    },
+    executeControl: async (name: string, input: Record<string, string>) => {
+      if (name === 'map-entry-set') {
+        stored = input.value;
+        return {};
+      }
+      if (name === 'map-entry-get') return stored;
+      throw new Error('unexpected control operation');
+    },
+  } as unknown as Parameters<typeof persistRemoteProvisioningState>[0];
+
+  await persistRemoteProvisioningState(control, state);
+  assert.deepEqual(updated, {
+    tail: 'privacy-guard-runtime',
+    patch: {
+      writers: { only: [77] },
+      readers: { only: [77] },
+    },
+  });
+});
+
+test('remote T3N provisioning state treats a missing map as no state but not arbitrary control-plane failures', async () => {
+  const missing = {
+    canonicalName: (tail: string) => `z:tenant123:${tail}`,
+    maps: { create: async () => undefined, update: async () => undefined },
+    executeControl: async () => { throw Object.assign(new Error('RPC Error: map not found'), { detail: 'map not found' }); },
+  } as unknown as Parameters<typeof readRemoteProvisioningState>[0];
+  assert.equal(await readRemoteProvisioningState(missing), null);
+
+  const unavailable = {
+    canonicalName: (tail: string) => `z:tenant123:${tail}`,
+    maps: { create: async () => undefined, update: async () => undefined },
+    executeControl: async () => { throw new Error('transport unavailable'); },
+  } as unknown as Parameters<typeof readRemoteProvisioningState>[0];
+  await assert.rejects(() => readRemoteProvisioningState(unavailable), /could not be read/);
 });
