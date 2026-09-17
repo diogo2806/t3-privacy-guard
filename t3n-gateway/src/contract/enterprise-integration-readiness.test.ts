@@ -133,6 +133,50 @@ describe('enterprise integration readiness', () => {
     );
   });
 
+  it('maps insufficient credit during policy reads to a dedicated sanitized readiness diagnostic', async () => {
+    const tenant = {
+      maps: {
+        entryGet: async () => {
+          throw new Error('InsufficientCreditError: InsufficientCredit account=tenant-secret required=10000000000 available=0 SECURITY_API_KEY=raw-secret-value httpStatus=403');
+        },
+      },
+    } as unknown as TenantClient;
+
+    await assert.rejects(
+      () => readEnterprisePrivateConfigurationFromTenant(tenant),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.equal(error.message, 'INSUFFICIENT_CREDIT');
+        assert.equal(error.message.includes('tenant-secret'), false);
+        assert.equal(error.message.includes('10000000000'), false);
+        assert.equal(error.message.includes('raw-secret-value'), false);
+        return true;
+      },
+    );
+  });
+
+  it('maps insufficient credit during protected configuration reads to the same sanitized readiness diagnostic', async () => {
+    const tenant = {
+      maps: {
+        entryGet: async (tail: string) => {
+          if (tail === 'privacy-guard-policy') return JSON.stringify(policy());
+          throw new Error('InsufficientCredit available=0 private-url=https://secret.example/private SECURITY_API_KEY=raw-secret-value');
+        },
+      },
+    } as unknown as TenantClient;
+
+    await assert.rejects(
+      () => readEnterprisePrivateConfigurationFromTenant(tenant),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.equal(error.message, 'INSUFFICIENT_CREDIT');
+        assert.equal(error.message.includes('private-url'), false);
+        assert.equal(error.message.includes('raw-secret-value'), false);
+        return true;
+      },
+    );
+  });
+
   it('reports READY only when config, both executable policy rules, delegation and verification contracts align', () => {
     const result = evaluate();
     assert.equal(result.state, 'READY');
@@ -243,6 +287,15 @@ describe('enterprise integration readiness', () => {
     assert.equal(result.executorDelegationAllowsExecutionHost, null);
     assert.equal(result.executorDelegationAllowsVerificationHost, null);
     assert.equal(JSON.stringify(result).includes('secret'), false);
+  });
+
+  it('keeps insufficient credit fail-closed without fabricating observed integration facts', () => {
+    const result = unknownEnterpriseIntegrationReadiness(checkedAt, 'INSUFFICIENT_CREDIT');
+    assert.equal(result.state, 'UNKNOWN');
+    assert.equal(result.diagnosticCode, 'INSUFFICIENT_CREDIT');
+    assert.equal(result.executionConfigured, null);
+    assert.equal(result.verificationConfigured, null);
+    assert.equal(result.credentialConfigured, null);
   });
 
   it('returns only canonical hostnames and never private paths, query strings or credentials', () => {
