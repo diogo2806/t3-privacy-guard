@@ -1,7 +1,7 @@
 const PRIVATE_KEY_PATTERN = /\b0x[a-fA-F0-9]{64}\b/g;
 const ORG_AGENT_API_KEY_PATTERN = /\bt3n_key_[A-Za-z0-9._-]+/g;
 
-export type T3nErrorCategory = 'AUTHENTICATION' | 'NETWORK' | 'TRUST_ANCHOR' | 'UNKNOWN';
+export type T3nErrorCategory = 'AUTHENTICATION' | 'NETWORK' | 'TRUST_ANCHOR' | 'CONFIGURATION' | 'UNKNOWN';
 
 export interface SanitizedError {
   readonly category: T3nErrorCategory;
@@ -29,6 +29,17 @@ export function sanitizeText(value: string, secrets: readonly string[] = []): st
 
 export function classifyT3nError(error: unknown): T3nErrorCategory {
   const message = messageFrom(error).toLowerCase();
+  if (
+    message.includes('orgpolicynotinitialised')
+    || message.includes('org policy is not initialised')
+    || message.includes('organisationnotfound')
+    || message.includes('organizationnotfound')
+    || message.includes('organisation does not exist')
+    || message.includes('organization does not exist')
+    || message.includes('t3n_org_did')
+  ) {
+    return 'CONFIGURATION';
+  }
   if (message.includes('trust') || message.includes('manifest') || message.includes('attestation')) {
     return 'TRUST_ANCHOR';
   }
