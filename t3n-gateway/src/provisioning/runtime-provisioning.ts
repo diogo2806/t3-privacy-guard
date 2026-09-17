@@ -30,6 +30,13 @@ const DEFAULT_STATE_PATH = '/data/t3n-runtime-provisioning.json';
 const DEFAULT_WASM_PATH = '/app/runtime/privacy_guard_contract.wasm';
 const REMOTE_STATE_MAP_TAIL = 'privacy-guard-runtime-provisioning';
 const REMOTE_STATE_KEY = 'current';
+const PROVISIONING_STATE_FIELDS = new Set([
+  'tenantDid',
+  'contractId',
+  'contractVersion',
+  'numericContractId',
+  'updatedAt',
+]);
 const MAX_CARD_VERIFY_ATTEMPTS = 4;
 
 export interface RuntimeProvisioningState {
@@ -193,7 +200,10 @@ export function provisioningStateMatches(
 
 export function parseProvisioningState(raw: string): RuntimeProvisioningState | null {
   try {
-    const parsed = JSON.parse(raw) as Partial<RuntimeProvisioningState>;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const keys = Object.keys(parsed);
+    if (keys.length !== PROVISIONING_STATE_FIELDS.size || keys.some((key) => !PROVISIONING_STATE_FIELDS.has(key))) return null;
     if (
       typeof parsed.tenantDid !== 'string'
       || !parsed.tenantDid.trim()
@@ -207,7 +217,13 @@ export function parseProvisioningState(raw: string): RuntimeProvisioningState | 
       || typeof parsed.updatedAt !== 'string'
       || !parsed.updatedAt.trim()
     ) return null;
-    return parsed as RuntimeProvisioningState;
+    return {
+      tenantDid: parsed.tenantDid,
+      contractId: parsed.contractId,
+      contractVersion: parsed.contractVersion,
+      numericContractId: parsed.numericContractId,
+      updatedAt: parsed.updatedAt,
+    };
   } catch {
     return null;
   }
