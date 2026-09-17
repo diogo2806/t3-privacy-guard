@@ -3,7 +3,7 @@
 
 extern crate alloc;
 
-pub const CONTRACT_VERSION: &str = "0.4.3";
+pub const CONTRACT_VERSION: &str = "0.4.4";
 
 wit_bindgen::generate!({
     world: "privacy-guard",
