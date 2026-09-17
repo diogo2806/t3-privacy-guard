@@ -1,8 +1,13 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import type { TenantClient } from '@terminal3/t3n-sdk';
 import type { DelegationStatus } from '../agent/delegation-service.js';
 import type { OperationalPolicyDocument } from '../policy/policy-document.js';
-import { evaluateEnterpriseIntegrationReadiness, unknownEnterpriseIntegrationReadiness } from './enterprise-integration-readiness.js';
+import {
+  evaluateEnterpriseIntegrationReadiness,
+  readEnterprisePrivateConfigurationFromTenant,
+  unknownEnterpriseIntegrationReadiness,
+} from './enterprise-integration-readiness.js';
 
 const checkedAt = '2026-09-13T21:00:00.000Z';
 
@@ -72,6 +77,62 @@ function evaluate(overrides: Partial<Parameters<typeof evaluateEnterpriseIntegra
 }
 
 describe('enterprise integration readiness', () => {
+  it('reads existing policy and secrets through the authenticated tenant map owner surface', async () => {
+    const secret = 'do-not-return-this-secret';
+    const entries = new Map<string, string>([
+      ['privacy-guard-policy:current', JSON.stringify(policy())],
+      ['secrets:security_api_url', 'https://security.company.example/private/remediate'],
+      ['secrets:security_verification_url', 'https://verify.company.example/private/read-back'],
+      ['secrets:security_api_key', secret],
+    ]);
+    const reads: string[] = [];
+    const tenant = {
+      maps: {
+        entryGet: async (tail: string, key: string) => {
+          reads.push(`${tail}:${key}`);
+          return entries.get(`${tail}:${key}`) ?? null;
+        },
+      },
+      executeControl: async () => {
+        throw new Error('raw map-entry-get must not be used for readiness');
+      },
+    } as unknown as TenantClient;
+
+    const result = await readEnterprisePrivateConfigurationFromTenant(tenant);
+
+    assert.equal(result.executionUrl, 'https://security.company.example/private/remediate');
+    assert.equal(result.verificationUrl, 'https://verify.company.example/private/read-back');
+    assert.equal(result.credentialConfigured, true);
+    assert.equal(result.policy.version, '2026-09-13.1');
+    assert.deepEqual(reads.sort(), [
+      'privacy-guard-policy:current',
+      'secrets:security_api_key',
+      'secrets:security_api_url',
+      'secrets:security_verification_url',
+    ]);
+    assert.equal(JSON.stringify(result).includes(secret), false);
+  });
+
+  it('keeps a policy read failure fail-closed and sanitized', async () => {
+    const tenant = {
+      maps: {
+        entryGet: async () => {
+          throw new Error('AccessDenied secret raw platform details');
+        },
+      },
+    } as unknown as TenantClient;
+
+    await assert.rejects(
+      () => readEnterprisePrivateConfigurationFromTenant(tenant),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.equal(error.message, 'POLICY_UNAVAILABLE');
+        assert.equal(error.message.includes('secret'), false);
+        return true;
+      },
+    );
+  });
+
   it('reports READY only when config, both executable policy rules, delegation and verification contracts align', () => {
     const result = evaluate();
     assert.equal(result.state, 'READY');
