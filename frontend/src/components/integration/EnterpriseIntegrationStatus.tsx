@@ -17,6 +17,7 @@ const DIAGNOSTIC_COPY: Record<Exclude<EnterpriseIntegrationDiagnosticCode, 'NONE
   PRIVATE_CONFIGURATION_UNAVAILABLE: 'The protected execution configuration could not be read from T3N.',
   ENDPOINT_CONFIGURATION_INVALID: 'A protected execution endpoint is invalid or is not an HTTPS endpoint.',
   DELEGATION_UNAVAILABLE: 'Protected Executor delegation could not be confirmed.',
+  INSUFFICIENT_CREDIT: 'The authenticated T3N account does not have enough credit for the required control-plane operation. Replenish T3N account credits and retry provisioning.',
   T3N_CONTROL_PLANE_UNAVAILABLE: 'T3N control-plane readiness could not be confirmed.',
 };
 
