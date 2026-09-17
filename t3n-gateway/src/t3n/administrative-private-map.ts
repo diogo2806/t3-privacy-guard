@@ -15,6 +15,33 @@ export function administrativePrivateMapAcl(numericContractId: number): Administ
   };
 }
 
+export async function readAdministrativePrivateMapEntry(
+  tenant: TenantClient,
+  tail: string,
+  key: string,
+): Promise<string | null> {
+  try {
+    return await tenant.maps.entryGet(tail, key);
+  } catch {
+    throw new Error(`Unable to read ${tail} private map entry administratively`);
+  }
+}
+
+export async function writeAndVerifyAdministrativePrivateMapEntry(
+  tenant: TenantClient,
+  tail: string,
+  key: string,
+  value: string,
+): Promise<void> {
+  try {
+    await tenant.maps.entrySet(tail, key, value);
+    const readBack = await tenant.maps.entryGet(tail, key);
+    if (readBack !== value) throw new Error('read-back mismatch');
+  } catch {
+    throw new Error(`Unable to write and verify ${tail} private map entry administratively`);
+  }
+}
+
 export async function ensureAdministrativePrivateMap(
   tenant: TenantClient,
   tail: string,
