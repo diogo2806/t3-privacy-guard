@@ -64,3 +64,25 @@ test('existing administrative private maps are re-ACLed idempotently before cont
     },
   ]);
 });
+
+test('ACL reconciliation sanitizes raw T3N access-denied details', async () => {
+  const tenant = {
+    canonicalName: (tail: string) => `z:tenant:${tail}`,
+    maps: {
+      create: async () => { throw new Error('Map already exists'); },
+      update: async () => {
+        throw new Error('StorageRouterOnBehalfOf(Contract(tee:tenant/contracts)) cannot write map');
+      },
+    },
+  } as unknown as TenantClient;
+
+  await assert.rejects(
+    () => ensureAdministrativePrivateMap(tenant, 'privacy-guard-policy', 1059),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal(error.message, 'Unable to reconcile privacy-guard-policy private map ACL safely');
+      assert.equal(error.message.includes('StorageRouterOnBehalfOf'), false);
+      return true;
+    },
+  );
+});
