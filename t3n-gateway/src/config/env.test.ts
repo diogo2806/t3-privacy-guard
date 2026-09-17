@@ -49,7 +49,7 @@ test('defaults to testnet, disabled AI, versioned remediation key, no public A2A
   assert.equal(config.agentApiKey, null);
   assert.equal(config.executorApiKey, null);
   assert.equal(config.orgDid, null);
-  assert.equal(config.contractVersion, '0.4.2');
+  assert.equal(config.contractVersion, '0.4.3');
   assert.equal(config.remediationAuthorizationPublicKeySpki, publicKeySpki);
   assert.equal(config.remediationAuthorizationKeyId, 'primary');
   assert.equal(config.remediationReplayStorePath, '/data/remediation-capability-nonces.json');
@@ -60,14 +60,15 @@ test('defaults to testnet, disabled AI, versioned remediation key, no public A2A
   assert.equal(config.a2aPublicUrl, null);
 });
 
-test('normalizes legacy 0.4.0 and 0.4.1 deployment settings to packaged contract 0.4.2', () => {
-  assert.equal(readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '0.4.0' }).contractVersion, '0.4.2');
-  assert.equal(readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '0.4.1' }).contractVersion, '0.4.2');
-  assert.equal(readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '0.4.2' }).contractVersion, '0.4.2');
+test('normalizes legacy 0.4.0, 0.4.1 and 0.4.2 deployment settings to packaged contract 0.4.3', () => {
+  assert.equal(readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '0.4.0' }).contractVersion, '0.4.3');
+  assert.equal(readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '0.4.1' }).contractVersion, '0.4.3');
+  assert.equal(readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '0.4.2' }).contractVersion, '0.4.3');
+  assert.equal(readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '0.4.3' }).contractVersion, '0.4.3');
 });
 
 test('rejects contract versions that do not match the packaged artifact or supported legacy migration', () => {
-  assert.throws(() => readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '0.4.3' }), ConfigurationError);
+  assert.throws(() => readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '0.4.4' }), ConfigurationError);
   assert.throws(() => readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '0.5.0' }), ConfigurationError);
   assert.throws(() => readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: 'invalid' }), ConfigurationError);
 });

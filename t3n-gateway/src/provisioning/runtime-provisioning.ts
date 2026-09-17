@@ -64,6 +64,11 @@ export interface RuntimeProvisioningDependencies {
   readonly sleep?: (milliseconds: number) => Promise<void>;
   readonly readRemoteProvisioningState?: () => Promise<RuntimeProvisioningState | null>;
   readonly persistRemoteProvisioningState?: (state: RuntimeProvisioningState) => Promise<void>;
+  readonly registerContract?: (request: {
+    readonly tail: string;
+    readonly version: string;
+    readonly wasm: Uint8Array;
+  }) => Promise<{ readonly contract_id: number }>;
 }
 
 export interface ContractResolution {
@@ -372,7 +377,7 @@ export async function resolveOrRegisterContract(
   tenantSession: T3nSession,
   contractService: PrivacyGuardContractService,
   env: NodeJS.ProcessEnv,
-  dependencies: Pick<RuntimeProvisioningDependencies, 'readRemoteProvisioningState' | 'persistRemoteProvisioningState'> = {},
+  dependencies: Pick<RuntimeProvisioningDependencies, 'readRemoteProvisioningState' | 'persistRemoteProvisioningState' | 'registerContract'> = {},
 ): Promise<ContractResolution> {
   const tenantDid = tenantSession.getTenantDid();
   const canonicalContractId = await contractService.canonicalContractId();
@@ -429,10 +434,17 @@ export async function resolveOrRegisterContract(
     };
   }
 
-  const tenant = await tenantClientForProvisioning(tenantSession);
   const wasmPath = resolve(env.T3N_CONTRACT_WASM_PATH?.trim() || DEFAULT_WASM_PATH);
   const wasm = await readFile(wasmPath);
-  const registration = await tenant.contracts.register({
+  const registerContract = dependencies.registerContract ?? (async (request: {
+    readonly tail: string;
+    readonly version: string;
+    readonly wasm: Uint8Array;
+  }) => {
+    const tenant = await tenantClientForProvisioning(tenantSession);
+    return tenant.contracts.register(request);
+  });
+  const registration = await registerContract({
     tail: config.contractTail,
     version: config.contractVersion,
     wasm,
@@ -441,25 +453,26 @@ export async function resolveOrRegisterContract(
     throw new Error('T3N contract registration returned an invalid numeric contract id');
   }
 
+  const state: RuntimeProvisioningState = {
+    tenantDid,
+    contractId: canonicalContractId,
+    contractVersion: config.contractVersion,
+    numericContractId: registration.contract_id,
+    updatedAt: new Date().toISOString(),
+  };
+  await persistProvisioningState(statePath, state);
+
   const verified = await contractService.identity();
   if (verified.contractId !== canonicalContractId || verified.contractVersion !== config.contractVersion) {
     throw new Error('T3N contract identity did not match the just-registered contract');
   }
 
-  const state: RuntimeProvisioningState = {
-    tenantDid,
-    contractId: verified.contractId,
-    contractVersion: verified.contractVersion,
-    numericContractId: registration.contract_id,
-    updatedAt: new Date().toISOString(),
-  };
-  await persistProvisioningState(statePath, state);
   const persistRemote = dependencies.persistRemoteProvisioningState
     ?? ((value: RuntimeProvisioningState) => persistRemoteProvisioningState(tenantSession, value));
   await persistRemote(state);
   return {
-    contractId: verified.contractId,
-    contractVersion: verified.contractVersion,
+    contractId: canonicalContractId,
+    contractVersion: config.contractVersion,
     numericContractId: registration.contract_id,
     registered: true,
   };
