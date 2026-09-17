@@ -42,7 +42,7 @@ EVIDENCE_RUNTIME_DIR=/data/evidence
 EVIDENCE_SOURCE_REVISION_FILE=/app/runtime/source-revision.json
 ```
 
-`/data` continua sendo o volume persistente e o processo continua executando como usuário `node`, não-root. Nenhum segredo é incorporado à imagem.
+O processo continua executando como usuário `node`, não-root. `/data` mantém caches e artefatos locais quando o provedor preserva o volume, mas o numeric contract id necessário ao provisionamento não depende mais exclusivamente desse filesystem: o runtime mantém também um state mínimo no mapa privado T3N `privacy-guard-runtime`. Nenhum segredo é incorporado à imagem ou a esse state de provisionamento.
 
 ## Configuração-base do runtime
 
@@ -64,7 +64,7 @@ T3N_TRUST_FLOOR_STORE_PATH
 
 `readGatewayConfig()` valida esses formatos antes de qualquer tentativa de conexão. `T3N_API_KEY` aceita somente `0x` seguido por exatamente 64 caracteres hexadecimais; `T3N_AGENT_API_KEY` e `T3N_EXECUTOR_API_KEY`, quando presentes, aceitam somente esse mesmo formato secp256k1 ou `t3n_key_<key-id>.<secret>`. Formato desconhecido ou malformado encerra a inicialização sem incluir o valor da credencial na mensagem de erro.
 
-A versão do contrato é propriedade do artefato empacotado. O container atual carrega `privacy-guard` `0.4.1`. `T3N_CONTRACT_VERSION=0.4.0` é aceito somente como valor legado do deploy anterior e é normalizado para `0.4.1`, permitindo a migração automática; valores diferentes de `0.4.0` e `0.4.1` são recusados para impedir que uma variável de ambiente force um contrato diferente do WASM empacotado.
+A versão do contrato é propriedade do artefato empacotado. O container atual carrega `privacy-guard` `0.4.2`. `T3N_CONTRACT_VERSION=0.4.0` e `T3N_CONTRACT_VERSION=0.4.1` são aceitos somente como valores legados e são normalizados para `0.4.2`, permitindo a migração automática; outros valores são recusados para impedir que uma variável de ambiente force um contrato diferente do WASM empacotado.
 
 Os valores opcionais podem continuar usando os defaults já definidos pelo runtime. Credenciais reais devem existir somente no secret store/ambiente do serviço. Os requisitos abaixo são adicionais ou específicos de cada etapa e não substituem essa configuração-base.
 
@@ -86,9 +86,15 @@ autenticar Tenant + Proposal Agent + Protected Executor
       v
 resolver contrato canônico
       |
-      +--> ausente ou versão < 0.4.1: registrar WASM 0.4.1 e persistir numericContractId em /data
-      +--> versão = 0.4.1: reutilizar contrato atual
-      +--> versão > 0.4.1: falhar fechado; nunca fazer downgrade
+      +--> ausente ou versão < 0.4.2: registrar WASM 0.4.2 e receber numericContractId oficial
+      +--> versão = 0.4.2: recuperar numericContractId por override -> cache local -> state privado T3N
+      +--> versão > 0.4.2: falhar fechado; nunca fazer downgrade
+      |
+      v
+criar/re-ACL privacy-guard-runtime e gravar/read-back state mínimo sem secrets
+      |
+      v
+rehidratar cache local em /data quando possível
       |
       v
 criar mapa privado ausente ou reparar ACL de mapa existente para o numericContractId atual
@@ -116,9 +122,11 @@ aplicar delegação mínima do Protected Executor
 verificar e, quando permitido, reparar/publicar Agent Card
 ```
 
-O arquivo `T3N_RUNTIME_PROVISIONING_STATE_PATH` contém somente `tenantDid`, contract id, contract version, numeric contract id e timestamp. Ele nunca contém chaves T3N, credenciais de integração, tokens, chaves privadas ou valores de profile. Um numeric id persistido só é reutilizado quando Tenant DID, contract id e versão coincidem exatamente com a sessão autenticada atual.
+`T3N_RUNTIME_PROVISIONING_STATE_PATH` é apenas o cache local do state. Tanto ele quanto a entrada `provisioning` do mapa privado T3N `privacy-guard-runtime` contêm somente `tenantDid`, contract id, contract version, numeric contract id e timestamp. Nenhum dos dois contém chaves T3N, credenciais de integração, tokens, chaves privadas, URLs privadas ou valores de profile. Um numeric id só é reutilizado quando Tenant DID, contract id e versão coincidem exatamente com a sessão autenticada atual e o id é inteiro positivo.
 
-`T3N_CONTRACT_NUMERIC_ID` continua aceito como override explícito para contratos já existentes. Para contratos registrados ou atualizados pela própria reconciliação, o numeric id retornado pela T3N é persistido automaticamente em `/data`. A migração `0.4.0 -> 0.4.1` existe justamente para recuperar um `contract_id` oficial quando o contrato antigo já existe mas o id numérico não ficou persistido localmente. O runtime nunca deriva nem inventa esse id.
+`T3N_CONTRACT_NUMERIC_ID` continua aceito como override explícito. Para contratos registrados ou atualizados pela própria reconciliação, o numeric id retornado pela T3N é persistido no state privado T3N e, como cache secundário, em `/data`. A migração `0.4.1 -> 0.4.2` recupera agora um `contract_id` oficial para ambientes que já haviam perdido o cache local. A partir de `0.4.2`, substituir o container sem preservar `/data/t3n-runtime-provisioning.json` não exige novo bump: o Tenant relê o state privado, valida identidade/versão e reidrata o cache. O runtime nunca deriva nem inventa esse id.
+
+Se a T3N já estiver exatamente na versão empacotada e nenhum override, cache local ou state privado válido estiver disponível, a reconciliação falha fechada. Ela não tenta registrar novamente a mesma versão nem adivinhar o id, porque o registro T3N é monotônico e o numeric id não é exposto pela listagem de contratos.
 
 Quando um numeric id real está disponível, os scripts administrativos criam mapas ausentes com `readers/writers.only=[numericContractId]` e, se o mapa já existir, chamam `tenant.maps.update(...)` para reparar o ACL ao contrato atual antes de gravar policy ou configuração protegida. ACL ampla não é usada como mecanismo de recuperação.
 
@@ -159,7 +167,7 @@ Em `NODE_ENV=production`, o bundle principal é persistido no volume do gateway:
 /data/evidence/human-proof-testnet.json
 ```
 
-`evidence:live` reutiliza o contrato já reconciliado. O `numericContractId` vem de `T3N_CONTRACT_NUMERIC_ID` quando explicitamente configurado ou de `/data/t3n-runtime-provisioning.json` somente quando Tenant DID, contract id e versão coincidem. O comando não inventa um numeric id nem consulta estado externo para inferi-lo.
+`evidence:live` reutiliza o contrato já reconciliado. Antes desse comando, a reconciliação de startup já recupera o `numericContractId` de `T3N_CONTRACT_NUMERIC_ID`, do cache local válido ou do state privado T3N e reidrata `/data/t3n-runtime-provisioning.json` quando possível. O fluxo de evidência continua sem inventar numeric id.
 
 A proveniência de código vem, nesta ordem, de:
 
@@ -181,7 +189,7 @@ O backend não compartilha filesystem com o gateway. O gateway expõe o último 
 409 -> bundle parcial, ilegível ou inválido estruturalmente no storage
 ```
 
-O backend consulta esse endpoint e aplica novamente a validação semântica completa antes de responder `GET /api/evidence/latest`. Assim, reiniciar containers preserva o último bundle em `/data`, ausência nunca vira PASS e arquivos parciais continuam fail-closed.
+O backend consulta esse endpoint e aplica novamente a validação semântica completa antes de responder `GET /api/evidence/latest`. Assim, reiniciar containers preserva o último bundle somente quando o storage de `/data/evidence` é preservado; ausência nunca vira PASS e arquivos parciais continuam fail-closed. Essa persistência de evidence é separada da recuperação do numeric contract id, que possui state remoto T3N próprio.
 
 Os comandos `evidence:testnet`, `evidence:human-proof` e `evidence:profile-placeholder` da imagem também usam `node dist/...` e caminhos persistentes de `/data/evidence`. Para desenvolvimento com TypeScript/checkout local, use os comandos `*:dev`.
 
@@ -215,7 +223,7 @@ T3N_CONTRACT_TAIL
 T3N_CONTRACT_VERSION
 ```
 
-O artefato atual é `0.4.1`. Em um ambiente ainda publicado em `0.4.0`, prefira a reconciliação automática do container `0.4.1`, que registra a nova versão, recebe o novo numeric id e repara os ACLs de mapas. O comando manual abaixo também registra o WASM empacotado e exige que a versão seja superior à versão já publicada na T3N.
+O artefato atual é `0.4.2`. Em um ambiente ainda publicado em `0.4.0` ou `0.4.1`, prefira a reconciliação automática do container `0.4.2`, que registra a nova versão, recebe o novo numeric id, persiste o state mínimo na T3N e repara os ACLs de mapas. O comando manual abaixo também registra o WASM empacotado e exige que a versão seja superior à versão já publicada na T3N.
 
 Execute:
 
@@ -229,7 +237,7 @@ O comando usa o WASM empacotado na imagem e retorna `numericContractId`. No flux
 T3N_CONTRACT_NUMERIC_ID=<numericContractId retornado pela T3N>
 ```
 
-Nunca invente ou antecipe esse valor. Reinicie/reimplante o serviço com o valor real antes das etapas seguintes quando algum mapa privado precisar ser criado ou ter o ACL reparado. Quando a reconciliação automática registra ou atualiza o contrato, esse valor é persistido em `/data` e não precisa ser copiado manualmente.
+Nunca invente ou antecipe esse valor. Reinicie/reimplante o serviço com o valor real antes das etapas seguintes quando algum mapa privado precisar ser criado ou ter o ACL reparado. Quando a reconciliação automática registra ou atualiza o contrato, esse valor é persistido no mapa privado `privacy-guard-runtime` e cacheado em `/data`; não precisa ser copiado manualmente.
 
 ### 2. Publicar a policy operacional
 
@@ -255,7 +263,7 @@ SECURITY_API_URL
 SECURITY_VERIFICATION_URL
 ```
 
-`T3N_CONTRACT_NUMERIC_ID` também é necessário para criar `secrets`/`privacy-guard-execution-nonces` ou reparar seus ACLs. Com id real, mapa existente é repontado ao contrato atual por `tenant.maps.update(...)`. Se os mapas já estão corretamente acessíveis, as entradas continuam reconciliáveis sem um numeric id local.
+`T3N_CONTRACT_NUMERIC_ID` também é necessário para criar `secrets`/`privacy-guard-execution-nonces` ou reparar seus ACLs. Com id real, mapa existente é repontado ao contrato atual por `tenant.maps.update(...)`. Se os mapas já estão corretamente acessíveis, as entradas continuam reconciliáveis sem um numeric id local. Quando um mapa estiver ausente e nenhum id estiver disponível, o script retorna erro explícito de pré-condição em vez de deixar um `map not found` bruto do SDK como diagnóstico operacional.
 
 Para o adapter first-party no deploy atual:
 
@@ -365,9 +373,12 @@ A sequência operacional completa é:
 ```text
 resolve current contract
       |
-      +--> absent/older: register packaged 0.4.1 and persist numeric id
-      +--> current: reuse
+      +--> absent/older: register packaged 0.4.2 and persist numeric id remotely
+      +--> current: recover numeric id from override/local cache/remote T3N state and reuse
       +--> newer: fail closed
+      |
+      v
+create/re-ACL private provisioning-state map and verify read-back
       |
       v
 create/re-ACL private maps with current numeric id
@@ -449,11 +460,15 @@ For `privacy.evaluate_action`, send `request_id`, `action`, `resource`, `purpose
 
 Os comandos administrativos e o runtime falham fechados quando os artefatos, credenciais ou variáveis obrigatórios não existem. Em particular:
 
-- a reconciliação automática registra `0.4.1` quando o contrato está ausente ou em versão anterior e persiste somente o numeric id real retornado pela T3N;
+- a reconciliação automática registra `0.4.2` quando o contrato está ausente ou em versão anterior e persiste somente o numeric id real retornado pela T3N;
+- o state mínimo de provisionamento é gravado/read-back em `privacy-guard-runtime` e não contém secrets; `/data/t3n-runtime-provisioning.json` é apenas cache local;
+- quando a versão já é a empacotada e o cache local desapareceu, o runtime recupera o numeric id apenas de state remoto que corresponda exatamente ao Tenant, contract id e versão atuais;
+- se nenhuma fonte confiável de numeric id existir para a versão atual, a reconciliação falha fechada em vez de re-registrar a mesma versão ou inventar id;
 - uma versão T3N superior ao artefato empacotado falha fechada; o runtime nunca faz downgrade automático;
 - ao receber um numeric id real, mapas privados existentes têm `readers/writers.only` reparados para o contrato atual antes da publicação de policy/secrets;
 - `contract:setup-policy` e `contract:setup-remediation` nunca inventam numeric id nem usam ACL ampla; sem id local, somente entradas de mapas já acessíveis podem ser reconciliadas;
-- a reconciliação automática não persiste credenciais; o arquivo de state contém somente metadados públicos de provisionamento;
+- `contract:setup-remediation` transforma `map not found` em uma pré-condição explícita quando falta numeric id, sem expor secrets;
+- a reconciliação automática não persiste credenciais; os states local/remoto contêm somente metadados públicos de provisionamento;
 - `agent:card:publish` recusa execução sem `T3N_AGENT_API_KEY` ou `T3N_ORG_DID` canônico;
 - `agent:card:verify` recusa execução sem `T3N_AGENT_API_KEY`;
 - a reparação automática do Agent Card só ocorre quando a organização e o Proposal Agent estão explicitamente configurados;
