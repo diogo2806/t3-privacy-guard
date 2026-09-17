@@ -1,4 +1,4 @@
-package z:privacy-guard@0.4.1;
+package z:privacy-guard@0.4.2;
 
 world privacy-guard {
     import host:tenant/tenant-context@1.0.0;
