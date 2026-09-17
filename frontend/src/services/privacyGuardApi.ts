@@ -12,6 +12,7 @@ export type EnterpriseIntegrationDiagnosticCode =
   | 'PRIVATE_CONFIGURATION_UNAVAILABLE'
   | 'ENDPOINT_CONFIGURATION_INVALID'
   | 'DELEGATION_UNAVAILABLE'
+  | 'INSUFFICIENT_CREDIT'
   | 'T3N_CONTROL_PLANE_UNAVAILABLE';
 export type EvidenceScenarioStatus = 'PASS' | 'FAIL' | 'NOT_RUN';
 export type RemediationState = 'EXECUTING' | 'PENDING_VERIFICATION' | 'COMPLETED' | 'UNVERIFIED' | 'FAILED';

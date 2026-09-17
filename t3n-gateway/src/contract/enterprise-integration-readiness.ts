@@ -1,7 +1,10 @@
 import { TenantClient, getNodeUrl } from '@terminal3/t3n-sdk';
 import type { DelegationService, DelegationStatus } from '../agent/delegation-service.js';
 import { canonicalizeOperationalPolicy, type OperationalPolicyDocument } from '../policy/policy-document.js';
-import { readAdministrativePrivateMapEntry } from '../t3n/administrative-private-map.js';
+import {
+  AdministrativePrivateMapError,
+  readAdministrativePrivateMapEntry,
+} from '../t3n/administrative-private-map.js';
 import type { T3nSession } from '../t3n/session.js';
 import type { PrivacyGuardContractService } from './privacy-guard-contract.js';
 
@@ -13,6 +16,7 @@ export type EnterpriseIntegrationDiagnosticCode =
   | 'PRIVATE_CONFIGURATION_UNAVAILABLE'
   | 'ENDPOINT_CONFIGURATION_INVALID'
   | 'DELEGATION_UNAVAILABLE'
+  | 'INSUFFICIENT_CREDIT'
   | 'T3N_CONTROL_PLANE_UNAVAILABLE';
 
 export interface EnterpriseVerificationContract {
@@ -88,6 +92,16 @@ function allSupportedRulesAllowHost(rules: readonly OperationalPolicyDocument['a
 
 function isDemoHost(host: string | null): boolean {
   return host != null && (DEMO_HOSTS.has(host) || host === 'example.invalid' || host.endsWith('.invalid'));
+}
+
+function rethrowReadinessMapDiagnostic(
+  error: unknown,
+  fallbackCode: EnterpriseIntegrationDiagnosticCode,
+): never {
+  if (error instanceof AdministrativePrivateMapError && error.diagnosticCode === 'INSUFFICIENT_CREDIT') {
+    throw new ReadinessDiagnosticError('INSUFFICIENT_CREDIT');
+  }
+  throw new ReadinessDiagnosticError(fallbackCode);
 }
 
 export function unknownEnterpriseIntegrationReadiness(
@@ -193,8 +207,8 @@ export async function readEnterprisePrivateConfigurationFromTenant(
   let policyRaw: string | null;
   try {
     policyRaw = await readEntry('privacy-guard-policy', 'current');
-  } catch {
-    throw new ReadinessDiagnosticError('POLICY_UNAVAILABLE');
+  } catch (error) {
+    rethrowReadinessMapDiagnostic(error, 'POLICY_UNAVAILABLE');
   }
   if (!policyRaw) throw new ReadinessDiagnosticError('POLICY_UNAVAILABLE');
 
@@ -214,8 +228,8 @@ export async function readEnterprisePrivateConfigurationFromTenant(
       readEntry('secrets', 'security_verification_url'),
       readEntry('secrets', 'security_api_key'),
     ]);
-  } catch {
-    throw new ReadinessDiagnosticError('PRIVATE_CONFIGURATION_UNAVAILABLE');
+  } catch (error) {
+    rethrowReadinessMapDiagnostic(error, 'PRIVATE_CONFIGURATION_UNAVAILABLE');
   }
 
   return {

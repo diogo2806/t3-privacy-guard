@@ -11,6 +11,7 @@ import {
 } from '../policy/policy-map-bootstrap.js';
 import { TrustManifestFloorStore } from '../security/trust-manifest-floor-store.js';
 import {
+  AdministrativePrivateMapError,
   ensureAdministrativePrivateMap,
   readAdministrativePrivateMapEntry,
   writeAndVerifyAdministrativePrivateMapEntry,
@@ -32,13 +33,8 @@ await tenant.tenant.me();
 const mapTail = 'privacy-guard-policy';
 const mapName = tenant.canonicalName(mapTail);
 const getEntry = async (key: string): Promise<string | null> => readAdministrativePrivateMapEntry(tenant, mapTail, key);
-const setEntry = async (key: string, value: string): Promise<void> => {
-  try {
-    await writeAndVerifyAdministrativePrivateMapEntry(tenant, mapTail, key, value);
-  } catch {
-    throw new Error('Unable to write and verify operational policy entry');
-  }
-};
+const setEntry = async (key: string, value: string): Promise<void> =>
+  writeAndVerifyAdministrativePrivateMapEntry(tenant, mapTail, key, value);
 
 let currentEntry: string | null;
 if (numericContractId !== null) {
@@ -47,7 +43,8 @@ if (numericContractId !== null) {
 } else {
   try {
     currentEntry = await getEntry('current');
-  } catch {
+  } catch (error) {
+    if (error instanceof AdministrativePrivateMapError && error.diagnosticCode !== 'UNKNOWN') throw error;
     throw new Error('privacy-guard-policy is unavailable; T3N_CONTRACT_NUMERIC_ID is required to create the private policy map safely');
   }
 }
