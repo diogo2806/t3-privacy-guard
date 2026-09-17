@@ -11,6 +11,7 @@ import {
 } from '../policy/policy-map-bootstrap.js';
 import { TrustManifestFloorStore } from '../security/trust-manifest-floor-store.js';
 import {
+  AdministrativePrivateMapError,
   ensureAdministrativePrivateMap,
   readAdministrativePrivateMapEntry,
   writeAndVerifyAdministrativePrivateMapEntry,
@@ -43,7 +44,7 @@ if (numericContractId !== null) {
   try {
     currentEntry = await getEntry('current');
   } catch (error) {
-    if (error instanceof Error && error.name === 'AdministrativePrivateMapError') throw error;
+    if (error instanceof AdministrativePrivateMapError) throw error;
     throw new Error('privacy-guard-policy is unavailable; T3N_CONTRACT_NUMERIC_ID is required to create the private policy map safely');
   }
 }
