@@ -57,6 +57,21 @@ class SystemStatusUnknownReadinessTest {
     }
 
     @Test
+    void preservesInsufficientCreditDiagnosticWithoutChangingFailClosedFacts() {
+        when(gateway.enterpriseIntegrationReadiness()).thenReturn(Optional.of(unknownIntegration("INSUFFICIENT_CREDIT")));
+        when(gateway.delegationStatus(CONTRACT_ID)).thenReturn(Optional.of(activeDelegation()));
+        when(gateway.executorDelegationStatus(CONTRACT_ID)).thenReturn(Optional.of(activeDelegation()));
+
+        var result = service.status();
+
+        assertThat(result.enterpriseIntegrationState()).isEqualTo("UNKNOWN");
+        assertThat(result.enterpriseIntegrationDiagnosticCode()).isEqualTo("INSUFFICIENT_CREDIT");
+        assertThat(result.enterpriseIntegrationReady()).isFalse();
+        assertThat(result.enterpriseExecutionConfigured()).isNull();
+        assertThat(result.enterpriseCredentialConfigured()).isNull();
+    }
+
+    @Test
     void missingEnterpriseReadinessAlsoRemainsUnknownAndFailClosed() {
         when(gateway.enterpriseIntegrationReadiness()).thenReturn(Optional.empty());
         when(gateway.delegationStatus(CONTRACT_ID)).thenReturn(Optional.of(activeDelegation()));
@@ -96,9 +111,13 @@ class SystemStatusUnknownReadinessTest {
     }
 
     private static EnterpriseIntegrationReadiness unknownIntegration() {
+        return unknownIntegration("T3N_CONTROL_PLANE_UNAVAILABLE");
+    }
+
+    private static EnterpriseIntegrationReadiness unknownIntegration(String diagnosticCode) {
         return new EnterpriseIntegrationReadiness(
             "UNKNOWN",
-            "T3N_CONTROL_PLANE_UNAVAILABLE",
+            diagnosticCode,
             null,
             null,
             null,
