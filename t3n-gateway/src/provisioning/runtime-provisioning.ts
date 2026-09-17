@@ -8,7 +8,10 @@ import {
   buildAgentCardForSession,
   serializeAgentCard,
 } from '../agent/agent-card.js';
-import { publishAgentCardToOrganization } from '../agent/agent-card-publisher.js';
+import {
+  publishAgentCardToOrganization,
+  type AgentCardPublicationRequest,
+} from '../agent/agent-card-publisher.js';
 import type { AgentSession } from '../agent/agent-session.js';
 import {
   EXECUTOR_DELEGATION_REQUIREMENTS,
@@ -302,21 +305,25 @@ async function resolveOrRegisterContract(
   };
 }
 
-async function reconcileAgentCard(
+type AgentCardPublisher = (request: AgentCardPublicationRequest) => Promise<void>;
+
+export async function reconcileAgentCard(
   config: GatewayConfig,
   tenantSession: T3nSession,
   agentSession: AgentSession,
   registry: AgentCardRegistry,
   sleep: (milliseconds: number) => Promise<void>,
+  publish: AgentCardPublisher = publishAgentCardToOrganization,
 ): Promise<string> {
   let registration = await registry.verify();
   if (registration.state === 'REGISTERED') return registration.state;
   if (!config.orgDid || !config.agentApiKey) return registration.state;
 
   const card = serializeAgentCard(buildAgentCardForSession(agentSession, config.a2aPublicUrl));
-  await publishAgentCardToOrganization({
+  await publish({
     ownerDid: config.orgDid,
     agentDid: agentSession.getAgentDid(),
+    adminDid: tenantSession.getTenantDid(),
     card,
     adminClient: tenantSession.getClient(),
     secrets: [config.apiKey, config.agentApiKey],

@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import type { AgentCardPublicationRequest } from '../agent/agent-card-publisher.js';
 import {
   buildAdminProvisioningPlan,
   configuredEnterpriseHosts,
   contractVersionAction,
   executorDelegationGrantRequest,
   provisioningStateMatches,
+  reconcileAgentCard,
   reconcileAgentCardIndependently,
   runtimeProvisioningEnabled,
   type RuntimeProvisioningState,
@@ -48,6 +50,46 @@ test('Agent Card registered state is preserved when reconciliation succeeds', as
     async () => 'MISMATCH',
   );
   assert.equal(state, 'REGISTERED');
+});
+
+test('runtime Agent Card reconciliation forwards the authenticated Tenant/Admin DID to the shared publisher', async () => {
+  const adminDid = 'did:t3n:tenant-admin-real';
+  const agentDid = 'did:t3n:proposal-agent-real';
+  const adminClient = { kind: 'tenant-admin-client' };
+  const config = {
+    orgDid: 'did:t3n:organization123',
+    agentApiKey: 't3n_key_proposal.test-secret',
+    apiKey: `0x${'a'.repeat(64)}`,
+    a2aPublicUrl: 'https://gateway.example.com/a2a',
+  } as unknown as Parameters<typeof reconcileAgentCard>[0];
+  const tenantSession = {
+    getTenantDid: () => adminDid,
+    getClient: () => adminClient,
+  } as unknown as Parameters<typeof reconcileAgentCard>[1];
+  const agentSession = {
+    getAgentDid: () => agentDid,
+  } as unknown as Parameters<typeof reconcileAgentCard>[2];
+  let verifyCalls = 0;
+  const registry = {
+    verify: async () => ({ state: verifyCalls++ === 0 ? 'MISMATCH' : 'REGISTERED' }),
+  } as unknown as Parameters<typeof reconcileAgentCard>[3];
+  let capturedRequest: AgentCardPublicationRequest | undefined;
+
+  const state = await reconcileAgentCard(
+    config,
+    tenantSession,
+    agentSession,
+    registry,
+    async () => undefined,
+    async (request) => { capturedRequest = request; },
+  );
+
+  assert.equal(state, 'REGISTERED');
+  assert.ok(capturedRequest);
+  assert.equal(capturedRequest.adminDid, adminDid);
+  assert.equal(capturedRequest.ownerDid, config.orgDid);
+  assert.equal(capturedRequest.agentDid, agentDid);
+  assert.equal(capturedRequest.adminClient, adminClient);
 });
 
 test('contract version migration registers absent or older versions and reuses the packaged version', () => {
