@@ -7,6 +7,7 @@ import { T3nSession } from '../t3n/session.js';
 
 const KEY_ID_PATTERN = /^[A-Za-z0-9._-]{1,32}$/;
 const MAX_PREVIOUS_KEY_GRACE_SECONDS = 300;
+const MAP_PROBE_KEY = '__privacy_guard_map_probe__';
 
 const configuredNumericContractId = Number(process.env.T3N_CONTRACT_NUMERIC_ID);
 const numericContractId = Number.isInteger(configuredNumericContractId) && configuredNumericContractId > 0
@@ -62,6 +63,19 @@ function readPreviousVerificationKey(): PreviousVerificationKey | null {
   };
 }
 
+function errorText(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).toLowerCase();
+}
+
+function isMapNotFound(error: unknown): boolean {
+  const message = errorText(error);
+  return message.includes('map not found') || message.includes('map_not_found') || message.includes('map does not exist');
+}
+
+function missingMapError(tail: string): Error {
+  return new Error(`${tail} private map is unavailable; T3N_CONTRACT_NUMERIC_ID is required to create or repair it safely`);
+}
+
 const previousVerificationKey = readPreviousVerificationKey();
 const trustFloorStore = new TrustManifestFloorStore(config.trustManifestFloorStorePath);
 const session = new T3nSession(config, trustFloorStore);
@@ -72,7 +86,18 @@ const executeControl = tenant.executeControl.bind(tenant) as (name: string, inpu
 
 async function ensurePrivateContractMap(tail: string): Promise<string> {
   const mapName = tenant.canonicalName(tail);
-  if (numericContractId === null) return mapName;
+  if (numericContractId === null) {
+    try {
+      await executeControl('map-entry-get', { map_name: mapName, key: MAP_PROBE_KEY });
+    } catch (error) {
+      if (isMapNotFound(error)) throw missingMapError(tail);
+      const message = errorText(error);
+      if (!message.includes('not found') && !message.includes('missing')) {
+        throw new Error(`Unable to confirm existing ${tail} private map without T3N_CONTRACT_NUMERIC_ID`);
+      }
+    }
+    return mapName;
+  }
 
   const restrictedAcl = {
     writers: { only: [numericContractId] },
@@ -88,23 +113,34 @@ async function ensurePrivateContractMap(tail: string): Promise<string> {
   return mapName;
 }
 
+async function setProtectedEntry(mapName: string, mapTail: string, key: string, value: string): Promise<void> {
+  try {
+    await executeControl('map-entry-set', { map_name: mapName, key, value });
+  } catch (error) {
+    if (isMapNotFound(error) && numericContractId === null) throw missingMapError(mapTail);
+    throw new Error(`Unable to seed protected ${mapTail} configuration`);
+  }
+}
+
 const secretsMapName = await ensurePrivateContractMap('secrets');
 const replayMapName = await ensurePrivateContractMap('privacy-guard-execution-nonces');
 
-await executeControl('map-entry-set', { map_name: secretsMapName, key: 'security_api_key', value: securityApiKey });
-await executeControl('map-entry-set', { map_name: secretsMapName, key: 'security_api_url', value: securityApiUrl });
-await executeControl('map-entry-set', { map_name: secretsMapName, key: 'security_verification_url', value: securityVerificationUrl });
-await executeControl('map-entry-set', {
-  map_name: secretsMapName,
-  key: 'remediation_auth_active_key_id',
-  value: config.remediationAuthorizationKeyId,
-});
+await setProtectedEntry(secretsMapName, 'secrets', 'security_api_key', securityApiKey);
+await setProtectedEntry(secretsMapName, 'secrets', 'security_api_url', securityApiUrl);
+await setProtectedEntry(secretsMapName, 'secrets', 'security_verification_url', securityVerificationUrl);
+await setProtectedEntry(
+  secretsMapName,
+  'secrets',
+  'remediation_auth_active_key_id',
+  config.remediationAuthorizationKeyId,
+);
 const verificationKeyEntry = `remediation_auth_public_key_spki:${config.remediationAuthorizationKeyId}`;
-await executeControl('map-entry-set', {
-  map_name: secretsMapName,
-  key: verificationKeyEntry,
-  value: config.remediationAuthorizationPublicKeySpki,
-});
+await setProtectedEntry(
+  secretsMapName,
+  'secrets',
+  verificationKeyEntry,
+  config.remediationAuthorizationPublicKeySpki,
+);
 
 const seededKeys = [
   'security_api_key',
@@ -117,16 +153,18 @@ const seededKeys = [
 if (previousVerificationKey) {
   const previousKeyEntry = `remediation_auth_public_key_spki:${previousVerificationKey.keyId}`;
   const previousExpiryEntry = `remediation_auth_key_valid_until:${previousVerificationKey.keyId}`;
-  await executeControl('map-entry-set', {
-    map_name: secretsMapName,
-    key: previousKeyEntry,
-    value: previousVerificationKey.publicKeySpki,
-  });
-  await executeControl('map-entry-set', {
-    map_name: secretsMapName,
-    key: previousExpiryEntry,
-    value: String(previousVerificationKey.validUntilMs),
-  });
+  await setProtectedEntry(
+    secretsMapName,
+    'secrets',
+    previousKeyEntry,
+    previousVerificationKey.publicKeySpki,
+  );
+  await setProtectedEntry(
+    secretsMapName,
+    'secrets',
+    previousExpiryEntry,
+    String(previousVerificationKey.validUntilMs),
+  );
   seededKeys.push(previousKeyEntry, previousExpiryEntry);
 }
 
