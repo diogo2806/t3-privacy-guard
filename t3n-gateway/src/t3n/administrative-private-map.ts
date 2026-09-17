@@ -29,8 +29,14 @@ export async function ensureAdministrativePrivateMap(
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (!message.toLowerCase().includes('already')) throw error;
-    await tenant.maps.update(tail, acl);
+    if (!message.toLowerCase().includes('already')) {
+      throw new Error(`Unable to create ${tail} private map safely`);
+    }
+    try {
+      await tenant.maps.update(tail, acl);
+    } catch {
+      throw new Error(`Unable to reconcile ${tail} private map ACL safely`);
+    }
   }
   return tenant.canonicalName(tail);
 }
