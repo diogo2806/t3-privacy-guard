@@ -90,6 +90,20 @@ describe('EnterpriseIntegrationStatus', () => {
     expect(screen.getByText(/active protected policy could not be read from T3N/i)).toBeInTheDocument();
   });
 
+  it('shows insufficient T3N credit as an actionable external provisioning condition without exposing balances or secrets', () => {
+    const { container } = render(
+      <EnterpriseIntegrationStatus status={status('UNKNOWN', true, 'INSUFFICIENT_CREDIT')} loading={false} />,
+    );
+
+    expect(screen.getByText('INSUFFICIENT_CREDIT')).toBeInTheDocument();
+    expect(screen.getByText(/does not have enough credit/i)).toBeInTheDocument();
+    expect(screen.getByText(/replenish T3N account credits and retry provisioning/i)).toBeInTheDocument();
+    expect(screen.getByText('Operational protected workflow').parentElement).toHaveTextContent('NOT READY');
+    expect(container.textContent).not.toContain('available=');
+    expect(container.textContent).not.toContain('required=');
+    expect(container.textContent).not.toContain('SECURITY_API_KEY');
+  });
+
   it('falls back to a safe control-plane diagnostic for an older backend response', () => {
     const olderStatus = status('UNKNOWN');
     delete olderStatus.enterpriseIntegrationDiagnosticCode;
