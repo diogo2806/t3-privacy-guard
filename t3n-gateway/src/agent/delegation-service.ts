@@ -247,19 +247,27 @@ export class DelegationService {
     }
 
     const byFunction = new Map<string, GrantRecord>();
+    const requiredFunctions = new Set(this.requirements.grants.map((grant) => grant.function));
     let malformed = false;
     grants.forEach((grant, index) => {
       const grantFunctions = asStrings(grant.functions).map((value) => value.trim()).filter(Boolean);
       const parsed = parsedScopeEntries[index];
-      if (grantFunctions.length !== 1 || grantFunctions[0] === '*' || !parsed.valid) {
+      const functionName = grantFunctions[0];
+      if (
+        grantFunctions.length !== 1
+        || !functionName
+        || functionName === '*'
+        || !requiredFunctions.has(functionName)
+        || !parsed.valid
+      ) {
         malformed = true;
         return;
       }
-      if (byFunction.has(grantFunctions[0])) {
+      if (byFunction.has(functionName)) {
         malformed = true;
         return;
       }
-      byFunction.set(grantFunctions[0], grant);
+      byFunction.set(functionName, grant);
     });
 
     if (malformed) {
