@@ -49,7 +49,7 @@ test('defaults to testnet, disabled AI, versioned remediation key, no public A2A
   assert.equal(config.agentApiKey, null);
   assert.equal(config.executorApiKey, null);
   assert.equal(config.orgDid, null);
-  assert.equal(config.contractVersion, '0.4.5');
+  assert.equal(config.contractVersion, '1.0.0');
   assert.equal(config.remediationAuthorizationPublicKeySpki, publicKeySpki);
   assert.equal(config.remediationAuthorizationKeyId, 'primary');
   assert.equal(config.remediationReplayStorePath, '/data/remediation-capability-nonces.json');
@@ -60,18 +60,20 @@ test('defaults to testnet, disabled AI, versioned remediation key, no public A2A
   assert.equal(config.a2aPublicUrl, null);
 });
 
-test('normalizes legacy 0.4.0 through 0.4.4 deployment settings to packaged contract 0.4.5', () => {
-  assert.equal(readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '0.4.0' }).contractVersion, '0.4.5');
-  assert.equal(readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '0.4.1' }).contractVersion, '0.4.5');
-  assert.equal(readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '0.4.2' }).contractVersion, '0.4.5');
-  assert.equal(readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '0.4.3' }).contractVersion, '0.4.5');
-  assert.equal(readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '0.4.4' }).contractVersion, '0.4.5');
-  assert.equal(readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '0.4.5' }).contractVersion, '0.4.5');
+test('normalizes legacy 0.4.0 through 0.4.5 deployment settings to packaged contract 1.0.0', () => {
+  assert.equal(readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '0.4.0' }).contractVersion, '1.0.0');
+  assert.equal(readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '0.4.1' }).contractVersion, '1.0.0');
+  assert.equal(readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '0.4.2' }).contractVersion, '1.0.0');
+  assert.equal(readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '0.4.3' }).contractVersion, '1.0.0');
+  assert.equal(readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '0.4.4' }).contractVersion, '1.0.0');
+  assert.equal(readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '0.4.5' }).contractVersion, '1.0.0');
+  assert.equal(readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '1.0.0' }).contractVersion, '1.0.0');
 });
 
 test('rejects contract versions that do not match the packaged artifact or supported legacy migration', () => {
   assert.throws(() => readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '0.4.6' }), ConfigurationError);
   assert.throws(() => readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '0.5.0' }), ConfigurationError);
+  assert.throws(() => readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: '1.0.1' }), ConfigurationError);
   assert.throws(() => readGatewayConfig({ ...baseEnv, T3N_CONTRACT_VERSION: 'invalid' }), ConfigurationError);
 });
 
