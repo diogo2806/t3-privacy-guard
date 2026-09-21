@@ -96,7 +96,7 @@ test('grant writes exactly one function and never sends the removed read_scopes 
 
   await service.grant({
     contractId: 'z:tenant:privacy-guard',
-    versionReq: '1.0.0',
+    versionReq: '0.4.5',
     function: 'evaluate-action',
     scopes: ['incident_id', 'credential_id', 'reason'],
     allowedHosts: [],
@@ -106,7 +106,7 @@ test('grant writes exactly one function and never sends the removed read_scopes 
   assert.deepEqual(fake.updates[0], {
     grantee: 'did:t3n:agent-test',
     contract_id: 'z:tenant:privacy-guard',
-    version_req: '1.0.0',
+    version_req: '0.4.5',
     functions: ['evaluate-action'],
     scopes: ['incident_id', 'credential_id', 'reason'],
     allowed_hosts: [],
