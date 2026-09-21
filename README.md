@@ -729,7 +729,7 @@ Any incompatible Terminal 3 host upgrade requires a WASM rebuild, a **major** `C
 - Vite: `8.2.2`
 - `@vitejs/plugin-react`: `6.1.1`
 - TypeScript: `5.9.2`
-- T3N SDK: **`5.2.0`**
+- T3N SDK: **`5.12.0`**
 - Express: `5.1.0`
 - Maven image: `3.9.16-eclipse-temurin-21`
 - Java runtime: `eclipse-temurin:21.0.12_8-jre`
