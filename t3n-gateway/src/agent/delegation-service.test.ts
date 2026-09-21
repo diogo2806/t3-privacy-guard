@@ -264,23 +264,28 @@ test('structured scopes require both path and access and are aggregated by path'
   assert.deepEqual(result.scopes, ['incident_id', 'credential_id', 'reason']);
 });
 
-test('structured scope without access fails closed', async () => {
-  const fake = fakeSessions({
-    grants: [{
-      ...proposalGrant(),
-      scopes: [
-        { path: 'incident_id', access: 'read' },
-        { path: 'credential_id' },
-        { path: 'reason', access: 'read' },
-      ],
-    }],
-  }, { authorised: true });
+test('structured scope without read access fails closed before checkDelegation', async () => {
+  for (const invalidAccess of [undefined, '', 'write', 'unknown']) {
+    const credentialScope = invalidAccess === undefined
+      ? { path: 'credential_id' }
+      : { path: 'credential_id', access: invalidAccess };
+    const fake = fakeSessions({
+      grants: [{
+        ...proposalGrant(),
+        scopes: [
+          { path: 'incident_id', access: 'read' },
+          credentialScope,
+          { path: 'reason', access: 'read' },
+        ],
+      }],
+    }, { authorised: true });
 
-  const result = await new DelegationService(fake.tenant, fake.agent, PROPOSAL_DELEGATION_REQUIREMENTS)
-    .status('z:tenant:privacy-guard');
-  assert.equal(result.memberState, 'UNKNOWN');
-  assert.equal(result.effectiveState, 'UNKNOWN');
-  assert.equal(fake.checks.length, 0);
+    const result = await new DelegationService(fake.tenant, fake.agent, PROPOSAL_DELEGATION_REQUIREMENTS)
+      .status('z:tenant:privacy-guard');
+    assert.equal(result.memberState, 'UNKNOWN');
+    assert.equal(result.effectiveState, 'UNKNOWN');
+    assert.equal(fake.checks.length, 0);
+  }
 });
 
 test('overbroad or incomplete function scopes fail closed before checkDelegation', async () => {

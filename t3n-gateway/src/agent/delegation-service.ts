@@ -117,7 +117,12 @@ function parseScopes(value: unknown): ParsedScopes {
   for (const item of value) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return { paths: [], valid: false };
     const scope = item as Record<string, unknown>;
-    if (typeof scope.path !== 'string' || !scope.path.trim() || typeof scope.access !== 'string' || !scope.access.trim()) {
+    if (
+      typeof scope.path !== 'string'
+      || !scope.path.trim()
+      || typeof scope.access !== 'string'
+      || scope.access.trim().toLowerCase() !== 'read'
+    ) {
       return { paths: [], valid: false };
     }
     paths.push(scope.path.trim());
