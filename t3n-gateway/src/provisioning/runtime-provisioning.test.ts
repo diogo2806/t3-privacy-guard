@@ -131,17 +131,17 @@ test('enterprise hosts use only real HTTPS endpoints and are deduplicated', () =
 });
 
 test('executor grants are keyed independently per function when enterprise integration is absent', () => {
-  assert.deepEqual(executorDelegationGrantRequests('z:tenant:privacy-guard', '1.0.0', {}), [
+  assert.deepEqual(executorDelegationGrantRequests('z:tenant:privacy-guard', '0.4.5', {}), [
     {
       contractId: 'z:tenant:privacy-guard',
-      versionReq: '1.0.0',
+      versionReq: '0.4.5',
       function: 'execute-remediation',
       scopes: ['incident_id', 'credential_id', 'reason', 'verified_contacts.email.value'],
       allowedHosts: [],
     },
     {
       contractId: 'z:tenant:privacy-guard',
-      versionReq: '1.0.0',
+      versionReq: '0.4.5',
       function: 'verify-remediation',
       scopes: ['incident_id', 'credential_id', 'reason'],
       allowedHosts: [],
@@ -150,7 +150,7 @@ test('executor grants are keyed independently per function when enterprise integ
 });
 
 test('executor grants bind each function only to the HTTPS host it actually uses', () => {
-  const grants = executorDelegationGrantRequests('z:tenant:privacy-guard', '1.0.0', {
+  const grants = executorDelegationGrantRequests('z:tenant:privacy-guard', '0.4.5', {
     SECURITY_API_URL: 'https://security.example.com/private/remediate',
     SECURITY_VERIFICATION_URL: 'https://verify.example.com/private/read-back',
   });
