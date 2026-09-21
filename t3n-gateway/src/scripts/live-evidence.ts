@@ -48,9 +48,13 @@ interface ProvisioningState {
   readonly numericContractId?: unknown;
 }
 
-function configuredEgressHosts(): string[] {
-  const candidates = [process.env.SECURITY_API_URL, process.env.SECURITY_VERIFICATION_URL];
-  if (process.env.EVIDENCE_RUN_DESTINATION_BINDING === 'true') candidates.push(process.env.EVIDENCE_DESTINATION_B_URL);
+function configuredEgressHostsForFunction(functionName: string): string[] {
+  const candidates = functionName === 'execute-remediation'
+    ? [process.env.SECURITY_API_URL]
+    : [process.env.SECURITY_VERIFICATION_URL];
+  if (functionName === 'execute-remediation' && process.env.EVIDENCE_RUN_DESTINATION_BINDING === 'true') {
+    candidates.push(process.env.EVIDENCE_DESTINATION_B_URL);
+  }
   const configured = candidates
     .map((value) => value?.trim())
     .filter((value): value is string => Boolean(value));
@@ -177,7 +181,7 @@ runNpmScript('contract:setup-policy', {
 
 const manifest: DeploymentManifest = {
   source: 'T3N_TESTNET', generatedAt: new Date().toISOString(), sourceCommitSha: sourceRevision.sourceCommitSha,
-  sourceTreeClean: sourceRevision.sourceTreeClean, network: config.network, sdkVersion: '5.2.0', tenantDid, agentDid, executorDid,
+  sourceTreeClean: sourceRevision.sourceTreeClean, network: config.network, sdkVersion: '5.12.0', tenantDid, agentDid, executorDid,
   agentRegistrationState: agentRegistration.state, agentCardUri: agentRegistration.cardUri, agentCardSha256: agentRegistration.cardSha256,
   agentCardVerifiedAt: agentRegistration.verifiedAt, agentCardServices: agentRegistration.services, contractId, numericContractId,
   contractVersion, wasmSha256, policyVersion: policy.document.version, policyHash: policy.hash, trustAnchorVerified: true,
@@ -198,8 +202,24 @@ if (process.env.EVIDENCE_PREPARE_EGRESS === 'true') {
   runNpmScript('contract:setup-remediation', { T3N_CONTRACT_NUMERIC_ID: String(numericContractId) });
 }
 
-await proposalDelegation.grant({ contractId, versionReq: contractVersion, functions: [...PROPOSAL_DELEGATION_REQUIREMENTS.functions], scopes: [...PROPOSAL_DELEGATION_REQUIREMENTS.scopes], allowedHosts: [] });
-await executorDelegation.grant({ contractId, versionReq: contractVersion, functions: [...EXECUTOR_DELEGATION_REQUIREMENTS.functions], scopes: [...EXECUTOR_DELEGATION_REQUIREMENTS.scopes], allowedHosts: configuredEgressHosts() });
+for (const required of PROPOSAL_DELEGATION_REQUIREMENTS.grants) {
+  await proposalDelegation.grant({
+    contractId,
+    versionReq: contractVersion,
+    function: required.function,
+    scopes: [...required.scopes],
+    allowedHosts: [],
+  });
+}
+for (const required of EXECUTOR_DELEGATION_REQUIREMENTS.grants) {
+  await executorDelegation.grant({
+    contractId,
+    versionReq: contractVersion,
+    function: required.function,
+    scopes: [...required.scopes],
+    allowedHosts: configuredEgressHostsForFunction(required.function),
+  });
+}
 
 const proposalEffectiveStatus = await proposalDelegation.status(contractId);
 const executorEffectiveStatus = await executorDelegation.status(contractId);

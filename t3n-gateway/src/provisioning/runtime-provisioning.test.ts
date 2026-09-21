@@ -8,7 +8,7 @@ import {
   buildAdminProvisioningPlan,
   configuredEnterpriseHosts,
   contractVersionAction,
-  executorDelegationGrantRequest,
+  executorDelegationGrantRequests,
   parseProvisioningState,
   provisioningStateMatches,
   reconcileAgentCard,
@@ -130,21 +130,32 @@ test('enterprise hosts use only real HTTPS endpoints and are deduplicated', () =
   }), ['security.example.com']);
 });
 
-test('executor grant keeps T3N least privilege even when enterprise integration is absent', () => {
-  assert.deepEqual(executorDelegationGrantRequest('z:tenant:privacy-guard', '0.4.3', {}), {
-    contractId: 'z:tenant:privacy-guard',
-    versionReq: '0.4.3',
-    functions: ['execute-remediation', 'verify-remediation'],
-    scopes: ['incident_id', 'credential_id', 'reason', 'verified_contacts.email.value'],
-    allowedHosts: [],
-  });
+test('executor grants are keyed independently per function when enterprise integration is absent', () => {
+  assert.deepEqual(executorDelegationGrantRequests('z:tenant:privacy-guard', '0.4.5', {}), [
+    {
+      contractId: 'z:tenant:privacy-guard',
+      versionReq: '0.4.5',
+      function: 'execute-remediation',
+      scopes: ['incident_id', 'credential_id', 'reason', 'verified_contacts.email.value'],
+      allowedHosts: [],
+    },
+    {
+      contractId: 'z:tenant:privacy-guard',
+      versionReq: '0.4.5',
+      function: 'verify-remediation',
+      scopes: ['incident_id', 'credential_id', 'reason'],
+      allowedHosts: [],
+    },
+  ]);
 });
 
-test('executor grant adds only canonical real HTTPS enterprise hosts when configured', () => {
-  assert.deepEqual(executorDelegationGrantRequest('z:tenant:privacy-guard', '0.4.3', {
+test('executor grants bind each function only to the HTTPS host it actually uses', () => {
+  const grants = executorDelegationGrantRequests('z:tenant:privacy-guard', '0.4.5', {
     SECURITY_API_URL: 'https://security.example.com/private/remediate',
     SECURITY_VERIFICATION_URL: 'https://verify.example.com/private/read-back',
-  }).allowedHosts, ['security.example.com', 'verify.example.com']);
+  });
+  assert.deepEqual(grants[0]?.allowedHosts, ['security.example.com']);
+  assert.deepEqual(grants[1]?.allowedHosts, ['verify.example.com']);
 });
 
 test('admin provisioning reconciles existing maps even when no numeric contract id is locally available', () => {

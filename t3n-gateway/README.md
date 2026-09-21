@@ -104,6 +104,12 @@ O rebuild do WASM é obrigatório mesmo quando o código do contrato não chama 
 
 Ao encontrar grants antigos no formato multi-função, scopes sem `path/access` ou qualquer incompatibilidade entre contrato, WIT, SDK e runtime, a operação deve permanecer fail-closed até a reconciliação com o modelo vigente da Terminal 3.
 
+### Estado da migração
+
+O gateway já usa SDK `5.12.0` e o control plane foi ajustado para gravar e verificar grants individualmente por função. O Proposal Agent recebe somente `evaluate-action`; o Protected Executor recebe grants separados para `execute-remediation` e `verify-remediation`, com hosts e scopes mínimos por função. `read_scopes` não é mais emitido pelo gateway, e grants legados multi-função, wildcards ou scopes estruturados incompletos impedem readiness positivo.
+
+O WASM empacotado continua deliberadamente em `0.4.5` e ainda importa `host:tenant/tenant-context@1.0.0`. A comunicação da Terminal 3 informa que o host antigo da mudança incompatível deixará de responder, mas não fornece no aviso o identificador exato do pacote WIT substituto. Portanto, o major bump, a troca do import WIT, o rebuild e o re-upload permanecem bloqueados até obter a definição oficial da nova ABI. Não use `1.2.0` como destino: o próprio aviso informa que nada responderá a `host:tenant@1.2.0` após a atualização.
+
 Os valores opcionais podem continuar usando os defaults já definidos pelo runtime. Credenciais reais devem existir somente no secret store/ambiente do serviço. Os requisitos abaixo são adicionais ou específicos de cada etapa e não substituem essa configuração-base.
 
 ## Reconciliação automática no container publicado

@@ -11,7 +11,7 @@ import {
 
 interface FakeOptions {
   readonly authorised?: boolean;
-  readonly checkResult?: unknown;
+  readonly checkResults?: readonly unknown[];
   readonly checkError?: Error;
   readonly principalDid?: string;
 }
@@ -19,6 +19,7 @@ interface FakeOptions {
 function fakeSessions(policy: unknown, options: FakeOptions = {}) {
   const updates: unknown[] = [];
   const checks: unknown[] = [];
+  let checkIndex = 0;
   let tenantCheckCalled = false;
   const tenant = {
     connect: async () => undefined,
@@ -26,7 +27,10 @@ function fakeSessions(policy: unknown, options: FakeOptions = {}) {
     getClient: () => ({
       getMemberDelegation: async () => policy,
       updateMemberDelegation: async (value: unknown) => { updates.push(value); },
-      checkDelegation: async () => { tenantCheckCalled = true; throw new Error('Tenant client must not perform delegated principal checks'); },
+      checkDelegation: async () => {
+        tenantCheckCalled = true;
+        throw new Error('Tenant client must not perform delegated principal checks');
+      },
     }),
   } as unknown as T3nSession;
   const agent = {
@@ -36,7 +40,7 @@ function fakeSessions(policy: unknown, options: FakeOptions = {}) {
       checkDelegation: async (value: unknown) => {
         checks.push(value);
         if (options.checkError) throw options.checkError;
-        if ('checkResult' in options) return options.checkResult;
+        if (options.checkResults) return options.checkResults[checkIndex++];
         return { authorised: options.authorised ?? true, satisfied: [], missing: [] };
       },
     }),
@@ -44,16 +48,33 @@ function fakeSessions(policy: unknown, options: FakeOptions = {}) {
   return { tenant, agent, updates, checks, tenantCheckCalled: () => tenantCheckCalled };
 }
 
-function activeGrant(grantee = 'did:t3n:agent-test') {
+function proposalGrant(grantee = 'did:t3n:agent-test') {
   return {
-    grants: [{
+    grantee,
+    contract_id: 'z:tenant:privacy-guard',
+    functions: ['evaluate-action'],
+    scopes: ['incident_id', 'credential_id', 'reason'],
+    allowed_hosts: [],
+  };
+}
+
+function executorGrants(grantee = 'did:t3n:executor') {
+  return [
+    {
       grantee,
       contract_id: 'z:tenant:privacy-guard',
-      functions: ['evaluate-action'],
+      functions: ['execute-remediation'],
+      scopes: ['incident_id', 'credential_id', 'reason', 'verified_contacts.email.value'],
+      allowed_hosts: ['security.example'],
+    },
+    {
+      grantee,
+      contract_id: 'z:tenant:privacy-guard',
+      functions: ['verify-remediation'],
       scopes: ['incident_id', 'credential_id', 'reason'],
-      allowed_hosts: [],
-    }],
-  };
+      allowed_hosts: ['verify.example'],
+    },
+  ];
 }
 
 test('interprets delegation validity window fail-closed at exact temporal boundaries', () => {
@@ -69,8 +90,33 @@ test('interprets delegation validity window fail-closed at exact temporal bounda
   assert.equal(interpretDelegationWindow('invalid', now), 'UNKNOWN');
 });
 
-test('confirms effective access only when ACTIVE member grant and principal check both succeed', async () => {
-  const fake = fakeSessions(activeGrant(), { authorised: true });
+test('grant writes exactly one function and never sends the removed read_scopes field', async () => {
+  const fake = fakeSessions({ grants: [] });
+  const service = new DelegationService(fake.tenant, fake.agent, PROPOSAL_DELEGATION_REQUIREMENTS);
+
+  await service.grant({
+    contractId: 'z:tenant:privacy-guard',
+    versionReq: '0.4.5',
+    function: 'evaluate-action',
+    scopes: ['incident_id', 'credential_id', 'reason'],
+    allowedHosts: [],
+  });
+
+  assert.equal(fake.updates.length, 1);
+  assert.deepEqual(fake.updates[0], {
+    grantee: 'did:t3n:agent-test',
+    contract_id: 'z:tenant:privacy-guard',
+    version_req: '0.4.5',
+    functions: ['evaluate-action'],
+    scopes: ['incident_id', 'credential_id', 'reason'],
+    allowed_hosts: [],
+    window: undefined,
+  });
+  assert.equal('read_scopes' in (fake.updates[0] as Record<string, unknown>), false);
+});
+
+test('proposal status confirms the exact single-function grant with the delegated principal', async () => {
+  const fake = fakeSessions({ grants: [proposalGrant()] }, { authorised: true });
   const service = new DelegationService(fake.tenant, fake.agent, PROPOSAL_DELEGATION_REQUIREMENTS);
   const result = await service.status('z:tenant:privacy-guard');
 
@@ -89,135 +135,245 @@ test('confirms effective access only when ACTIVE member grant and principal chec
   assert.equal(fake.tenantCheckCalled(), false);
 });
 
-test('reports DENIED when the authenticated principal check returns authorised=false', async () => {
-  const fake = fakeSessions(activeGrant(), { authorised: false });
-  const result = await new DelegationService(fake.tenant, fake.agent, PROPOSAL_DELEGATION_REQUIREMENTS).status('z:tenant:privacy-guard');
+test('executor status verifies each function independently under per-function keying', async () => {
+  const fake = fakeSessions(
+    { grants: executorGrants() },
+    { authorised: true, principalDid: 'did:t3n:executor' },
+  );
+  const result = await new DelegationService(
+    fake.tenant,
+    fake.agent,
+    EXECUTOR_DELEGATION_REQUIREMENTS,
+  ).status('z:tenant:privacy-guard');
+
   assert.equal(result.memberState, 'ACTIVE');
-  assert.equal(result.effectiveState, 'DENIED');
-  assert.equal(fake.checks.length, 1);
+  assert.equal(result.effectiveState, 'ACTIVE');
+  assert.deepEqual(result.functions, ['execute-remediation', 'verify-remediation']);
+  assert.deepEqual(fake.checks, [
+    {
+      contract: 'z:tenant:privacy-guard',
+      pii_did: 'did:t3n:tenant-test',
+      functions: ['execute-remediation'],
+      scopes: ['incident_id', 'credential_id', 'reason', 'verified_contacts.email.value'],
+    },
+    {
+      contract: 'z:tenant:privacy-guard',
+      pii_did: 'did:t3n:tenant-test',
+      functions: ['verify-remediation'],
+      scopes: ['incident_id', 'credential_id', 'reason'],
+    },
+  ]);
 });
 
-test('reports UNKNOWN when checkDelegation fails or returns an inconclusive payload', async () => {
-  for (const options of [{ checkError: new Error('timeout') }, { checkResult: {} }]) {
-    const fake = fakeSessions(activeGrant(), options);
-    const result = await new DelegationService(fake.tenant, fake.agent, PROPOSAL_DELEGATION_REQUIREMENTS).status('z:tenant:privacy-guard');
-    assert.equal(result.memberState, 'ACTIVE');
+test('one denied function makes aggregate effective access DENIED', async () => {
+  const fake = fakeSessions(
+    { grants: executorGrants() },
+    {
+      principalDid: 'did:t3n:executor',
+      checkResults: [{ authorised: true }, { authorised: false }],
+    },
+  );
+  const result = await new DelegationService(fake.tenant, fake.agent, EXECUTOR_DELEGATION_REQUIREMENTS)
+    .status('z:tenant:privacy-guard');
+  assert.equal(result.memberState, 'ACTIVE');
+  assert.equal(result.effectiveState, 'DENIED');
+  assert.equal(fake.checks.length, 2);
+});
+
+test('missing one required per-function grant is NOT_GRANTED and skips platform checks', async () => {
+  const [executeGrant] = executorGrants();
+  const fake = fakeSessions(
+    { grants: [executeGrant] },
+    { principalDid: 'did:t3n:executor', authorised: true },
+  );
+  const result = await new DelegationService(fake.tenant, fake.agent, EXECUTOR_DELEGATION_REQUIREMENTS)
+    .status('z:tenant:privacy-guard');
+  assert.equal(result.memberState, 'NOT_GRANTED');
+  assert.equal(result.effectiveState, 'DENIED');
+  assert.equal(fake.checks.length, 0);
+});
+
+test('legacy multi-function grants remain fail-closed instead of being accepted as current state', async () => {
+  const fake = fakeSessions({
+    grants: [{
+      grantee: 'did:t3n:executor',
+      contract_id: 'z:tenant:privacy-guard',
+      functions: ['execute-remediation', 'verify-remediation'],
+      scopes: ['incident_id', 'credential_id', 'reason', 'verified_contacts.email.value'],
+      allowed_hosts: ['security.example', 'verify.example'],
+    }],
+  }, { principalDid: 'did:t3n:executor', authorised: true });
+
+  const result = await new DelegationService(fake.tenant, fake.agent, EXECUTOR_DELEGATION_REQUIREMENTS)
+    .status('z:tenant:privacy-guard');
+  assert.equal(result.memberState, 'UNKNOWN');
+  assert.equal(result.effectiveState, 'UNKNOWN');
+  assert.equal(fake.checks.length, 0);
+});
+
+test('extra separately-granted function fails closed instead of widening least privilege', async () => {
+  const fake = fakeSessions({
+    grants: [
+      proposalGrant(),
+      {
+        ...proposalGrant(),
+        functions: ['execute-remediation'],
+      },
+    ],
+  }, { authorised: true });
+
+  const result = await new DelegationService(fake.tenant, fake.agent, PROPOSAL_DELEGATION_REQUIREMENTS)
+    .status('z:tenant:privacy-guard');
+  assert.equal(result.memberState, 'UNKNOWN');
+  assert.equal(result.effectiveState, 'UNKNOWN');
+  assert.equal(fake.checks.length, 0);
+});
+
+test('wildcard function is recognized on read but is never accepted as least-privilege readiness', async () => {
+  const fake = fakeSessions({
+    grants: [{
+      ...proposalGrant(),
+      functions: ['*'],
+    }],
+  }, { authorised: true });
+
+  const result = await new DelegationService(fake.tenant, fake.agent, PROPOSAL_DELEGATION_REQUIREMENTS)
+    .status('z:tenant:privacy-guard');
+  assert.deepEqual(result.functions, ['*']);
+  assert.equal(result.memberState, 'UNKNOWN');
+  assert.equal(result.effectiveState, 'UNKNOWN');
+  assert.equal(fake.checks.length, 0);
+});
+
+test('structured scopes require both path and access and are aggregated by path', async () => {
+  const fake = fakeSessions({
+    grants: [{
+      ...proposalGrant(),
+      scopes: [
+        { path: 'incident_id', access: 'read' },
+        { path: 'credential_id', access: 'read' },
+        { path: 'reason', access: 'read' },
+      ],
+    }],
+  }, { authorised: true });
+
+  const result = await new DelegationService(fake.tenant, fake.agent, PROPOSAL_DELEGATION_REQUIREMENTS)
+    .status('z:tenant:privacy-guard');
+  assert.equal(result.memberState, 'ACTIVE');
+  assert.equal(result.effectiveState, 'ACTIVE');
+  assert.deepEqual(result.scopes, ['incident_id', 'credential_id', 'reason']);
+});
+
+test('structured scope without access fails closed', async () => {
+  const fake = fakeSessions({
+    grants: [{
+      ...proposalGrant(),
+      scopes: [
+        { path: 'incident_id', access: 'read' },
+        { path: 'credential_id' },
+        { path: 'reason', access: 'read' },
+      ],
+    }],
+  }, { authorised: true });
+
+  const result = await new DelegationService(fake.tenant, fake.agent, PROPOSAL_DELEGATION_REQUIREMENTS)
+    .status('z:tenant:privacy-guard');
+  assert.equal(result.memberState, 'UNKNOWN');
+  assert.equal(result.effectiveState, 'UNKNOWN');
+  assert.equal(fake.checks.length, 0);
+});
+
+test('overbroad or incomplete function scopes fail closed before checkDelegation', async () => {
+  for (const scopes of [
+    ['incident_id', 'credential_id'],
+    ['incident_id', 'credential_id', 'reason', 'extra'],
+  ]) {
+    const fake = fakeSessions({ grants: [{ ...proposalGrant(), scopes }] }, { authorised: true });
+    const result = await new DelegationService(fake.tenant, fake.agent, PROPOSAL_DELEGATION_REQUIREMENTS)
+      .status('z:tenant:privacy-guard');
+    assert.equal(result.memberState, 'UNKNOWN');
     assert.equal(result.effectiveState, 'UNKNOWN');
-    assert.equal(fake.checks.length, 1);
+    assert.equal(fake.checks.length, 0);
   }
 });
 
-test('reports NOT_GRANTED without issuing a positive delegated-principal check', async () => {
-  const fake = fakeSessions({ grants: [] }, { authorised: true });
-  const result = await new DelegationService(fake.tenant, fake.agent, PROPOSAL_DELEGATION_REQUIREMENTS).status('z:tenant:privacy-guard');
-  assert.equal(result.memberState, 'NOT_GRANTED');
-  assert.equal(result.effectiveState, 'DENIED');
-  assert.deepEqual(result.checkedFunctions, []);
-  assert.deepEqual(result.checkedScopes, []);
-  assert.equal(fake.checks.length, 0);
-});
-
-test('reports SCHEDULED without issuing checkDelegation before the grant is active', async () => {
+test('known non-active grant states skip potentially misleading positive platform checks', async () => {
   const now = Math.floor(Date.now() / 1000);
-  const fake = fakeSessions({ grants: [{
-    grantee: 'did:t3n:agent-test', contract_id: 'z:tenant:privacy-guard', functions: ['evaluate-action'], scopes: ['incident_id'],
-    window: { valid_from_secs: now + 300, valid_until_secs: now + 600 },
-  }] }, { authorised: true });
-  const result = await new DelegationService(fake.tenant, fake.agent, PROPOSAL_DELEGATION_REQUIREMENTS).status('z:tenant:privacy-guard');
-  assert.equal(result.memberState, 'SCHEDULED');
-  assert.equal(result.effectiveState, 'DENIED');
-  assert.deepEqual(result.checkedFunctions, []);
-  assert.deepEqual(result.checkedScopes, []);
-  assert.equal(fake.checks.length, 0);
+  for (const [window, expected] of [
+    [{ valid_from_secs: now + 300, valid_until_secs: now + 600 }, 'SCHEDULED'],
+    [{ valid_until_secs: now - 1 }, 'REVOKED'],
+  ] as const) {
+    const fake = fakeSessions({ grants: [{ ...proposalGrant(), window }] }, { authorised: true });
+    const result = await new DelegationService(fake.tenant, fake.agent, PROPOSAL_DELEGATION_REQUIREMENTS)
+      .status('z:tenant:privacy-guard');
+    assert.equal(result.memberState, expected);
+    assert.equal(result.effectiveState, 'DENIED');
+    assert.equal(fake.checks.length, 0);
+  }
 });
 
-test('reports REVOKED without issuing checkDelegation after the Member grant expired', async () => {
-  const now = Math.floor(Date.now() / 1000);
-  const fake = fakeSessions({ grants: [{
-    grantee: 'did:t3n:agent-test', contract_id: 'z:tenant:privacy-guard', functions: ['evaluate-action'], scopes: ['incident_id'],
-    window: { valid_until_secs: now - 1 },
-  }] }, { authorised: true });
-  const result = await new DelegationService(fake.tenant, fake.agent, PROPOSAL_DELEGATION_REQUIREMENTS).status('z:tenant:privacy-guard');
-  assert.equal(result.memberState, 'REVOKED');
-  assert.equal(result.effectiveState, 'DENIED');
-  assert.deepEqual(result.checkedFunctions, []);
-  assert.deepEqual(result.checkedScopes, []);
-  assert.equal(fake.checks.length, 0);
+test('inconclusive delegated-principal verdict remains UNKNOWN', async () => {
+  for (const options of [
+    { checkError: new Error('timeout') },
+    { checkResults: [{}] },
+  ]) {
+    const fake = fakeSessions({ grants: [proposalGrant()] }, options);
+    const result = await new DelegationService(fake.tenant, fake.agent, PROPOSAL_DELEGATION_REQUIREMENTS)
+      .status('z:tenant:privacy-guard');
+    assert.equal(result.memberState, 'ACTIVE');
+    assert.equal(result.effectiveState, 'UNKNOWN');
+  }
 });
 
-test('reports UNKNOWN for unreadable grant without issuing a potentially misleading platform check', async () => {
-  const now = Math.floor(Date.now() / 1000);
-  const fake = fakeSessions({ grants: [{
-    grantee: 'did:t3n:agent-test', contract_id: 'z:tenant:privacy-guard', functions: ['evaluate-action'], scopes: ['incident_id'],
-    window: { valid_from_secs: now + 600, valid_until_secs: now + 300 },
-  }] }, { authorised: true });
-  const result = await new DelegationService(fake.tenant, fake.agent, PROPOSAL_DELEGATION_REQUIREMENTS).status('z:tenant:privacy-guard');
-  assert.equal(result.memberState, 'UNKNOWN');
-  assert.equal(result.effectiveState, 'UNKNOWN');
-  assert.deepEqual(result.checkedFunctions, []);
-  assert.deepEqual(result.checkedScopes, []);
-  assert.equal(fake.checks.length, 0);
-});
-
-test('proposal and executor checks use independent principal clients and exact least-privilege requirements', async () => {
-  const proposal = fakeSessions(activeGrant('did:t3n:proposal'), { authorised: true, principalDid: 'did:t3n:proposal' });
-  const executor = fakeSessions({ grants: [{
-    grantee: 'did:t3n:executor', contract_id: 'z:tenant:privacy-guard',
-    functions: ['execute-remediation', 'verify-remediation'],
-    scopes: ['incident_id', 'credential_id', 'reason', 'verified_contacts.email.value'],
-    allowed_hosts: ['security.example'],
-  }] }, { authorised: true, principalDid: 'did:t3n:executor' });
-
-  const proposalResult = await new DelegationService(proposal.tenant, proposal.agent, PROPOSAL_DELEGATION_REQUIREMENTS).status('z:tenant:privacy-guard');
-  const executorResult = await new DelegationService(executor.tenant, executor.agent, EXECUTOR_DELEGATION_REQUIREMENTS).status('z:tenant:privacy-guard');
-
-  assert.equal(proposalResult.effectiveState, 'ACTIVE');
-  assert.equal(executorResult.effectiveState, 'ACTIVE');
-  assert.deepEqual(proposal.checks[0], {
-    contract: 'z:tenant:privacy-guard', pii_did: 'did:t3n:tenant-test', functions: ['evaluate-action'], scopes: ['incident_id', 'credential_id', 'reason'],
-  });
-  assert.deepEqual(executor.checks[0], {
-    contract: 'z:tenant:privacy-guard', pii_did: 'did:t3n:tenant-test', functions: ['execute-remediation', 'verify-remediation'],
-    scopes: ['incident_id', 'credential_id', 'reason', 'verified_contacts.email.value'],
-  });
-  assert.equal(PROPOSAL_DELEGATION_REQUIREMENTS.scopes.includes('verified_contacts.email.value'), false);
-  assert.equal(EXECUTOR_DELEGATION_REQUIREMENTS.scopes.includes('verified_contacts.email.value'), true);
-});
-
-test('constructor rejects wildcard requirements', () => {
+test('constructor and grant reject wildcard provisioning', async () => {
   const fake = fakeSessions({ grants: [] });
-  assert.throws(() => new DelegationService(fake.tenant, fake.agent, { functions: ['*'], scopes: ['incident_id'] }), /wildcard/);
-  assert.throws(() => new DelegationService(fake.tenant, fake.agent, { functions: ['evaluate-action'], scopes: ['*'] }), /wildcard/);
+  assert.throws(
+    () => new DelegationService(fake.tenant, fake.agent, {
+      grants: [{ function: '*', scopes: ['incident_id'] }],
+      functions: ['*'],
+      scopes: ['incident_id'],
+    }),
+    /wildcard/,
+  );
+
+  const service = new DelegationService(fake.tenant, fake.agent, PROPOSAL_DELEGATION_REQUIREMENTS);
+  await assert.rejects(
+    () => service.grant({
+      contractId: 'z:tenant:privacy-guard',
+      function: '*',
+      scopes: ['incident_id'],
+    }),
+    /wildcard/,
+  );
 });
 
-test('revoke returns NOT_GRANTED without writing a replacement policy when grant is absent', async () => {
-  const fake = fakeSessions({ grants: [] });
-  const service = new DelegationService(fake.tenant, fake.agent, PROPOSAL_DELEGATION_REQUIREMENTS);
-  assert.equal(await service.revoke('z:tenant:privacy-guard'), 'NOT_GRANTED');
-  assert.equal(fake.updates.length, 0);
-});
+test('revoke expires every matching single-function grant independently without read_scopes', async () => {
+  const fake = fakeSessions(
+    { grants: executorGrants() },
+    { principalDid: 'did:t3n:executor' },
+  );
+  const service = new DelegationService(fake.tenant, fake.agent, EXECUTOR_DELEGATION_REQUIREMENTS);
 
-test('revoke expires only the matching grant and preserves its original restrictions', async () => {
-  const fake = fakeSessions({ grants: [{
-    grantee: 'did:t3n:agent-test', contract_id: 'z:tenant:privacy-guard', version_req: '0.4.0',
-    functions: ['evaluate-action'], scopes: ['incident_id', 'credential_id', 'reason'], allowed_hosts: [], read_scopes: ['incident_id'],
-  }] });
-  const service = new DelegationService(fake.tenant, fake.agent, PROPOSAL_DELEGATION_REQUIREMENTS);
   assert.equal(await service.revoke('z:tenant:privacy-guard'), 'REVOKED');
-  assert.equal(fake.updates.length, 1);
-  const update = fake.updates[0] as Record<string, unknown>;
-  assert.deepEqual(update.functions, ['evaluate-action']);
-  assert.deepEqual(update.scopes, ['incident_id', 'credential_id', 'reason']);
-  assert.deepEqual(update.allowed_hosts, []);
-  assert.ok((update.window as { valid_until_secs: number }).valid_until_secs < Math.floor(Date.now() / 1000));
+  assert.equal(fake.updates.length, 2);
+  for (const update of fake.updates as Array<Record<string, unknown>>) {
+    assert.equal(Array.isArray(update.functions), true);
+    assert.equal((update.functions as string[]).length, 1);
+    assert.equal('read_scopes' in update, false);
+    assert.deepEqual(update.window && Object.keys(update.window as object), ['valid_until_secs']);
+  }
 });
 
-test('grant forwards only the declared function, scope and host restrictions', async () => {
-  const fake = fakeSessions({ grants: [] });
-  const service = new DelegationService(fake.tenant, fake.agent, PROPOSAL_DELEGATION_REQUIREMENTS);
-  await service.grant({ contractId: 'z:tenant:privacy-guard', versionReq: '0.4.0', functions: ['evaluate-action'], scopes: ['incident_id'], allowedHosts: [] });
-  assert.equal(fake.updates.length, 1);
-  assert.deepEqual(fake.updates[0], {
-    grantee: 'did:t3n:agent-test', contract_id: 'z:tenant:privacy-guard', version_req: '0.4.0', functions: ['evaluate-action'], scopes: ['incident_id'], read_scopes: undefined, allowed_hosts: [], window: undefined,
+test('revoke refuses legacy multi-function grant because it cannot be safely keyed', async () => {
+  const fake = fakeSessions({
+    grants: [{
+      grantee: 'did:t3n:agent-test',
+      contract_id: 'z:tenant:privacy-guard',
+      functions: ['evaluate-action', 'verify-remediation'],
+      scopes: ['incident_id', 'credential_id', 'reason'],
+    }],
   });
+  const service = new DelegationService(fake.tenant, fake.agent, PROPOSAL_DELEGATION_REQUIREMENTS);
+  await assert.rejects(() => service.revoke('z:tenant:privacy-guard'), /function-scoped grant/);
+  assert.equal(fake.updates.length, 0);
 });

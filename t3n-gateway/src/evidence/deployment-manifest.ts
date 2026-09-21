@@ -8,7 +8,7 @@ export interface DeploymentManifest {
   sourceCommitSha: string;
   sourceTreeClean: boolean;
   network: string;
-  sdkVersion: '5.2.0';
+  sdkVersion: '5.12.0';
   tenantDid: string;
   agentDid: string;
   executorDid: string;
