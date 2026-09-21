@@ -74,7 +74,7 @@ T3N_TRUST_FLOOR_STORE_PATH
 
 `readGatewayConfig()` valida esses formatos antes de qualquer tentativa de conexão. `T3N_API_KEY` aceita somente `0x` seguido por exatamente 64 caracteres hexadecimais; `T3N_AGENT_API_KEY` e `T3N_EXECUTOR_API_KEY`, quando presentes, aceitam somente esse mesmo formato secp256k1 ou `t3n_key_<key-id>.<secret>`. Formato desconhecido ou malformado encerra a inicialização sem incluir o valor da credencial na mensagem de erro.
 
-A versão do contrato é propriedade do artefato empacotado. O container atual carrega `privacy-guard` `0.4.5`; no EasyPanel, deixe `T3N_CONTRACT_VERSION` ausente. Valores legados `0.4.0`, `0.4.1`, `0.4.2`, `0.4.3` e `0.4.4` continuam aceitos somente para normalizar deploys antigos para `0.4.5`. Qualquer outro valor é recusado para impedir que uma variável de ambiente force um contrato diferente do WASM empacotado.
+A versão do contrato é propriedade do artefato empacotado. O container atual carrega `privacy-guard` `1.0.0`; no EasyPanel, deixe `T3N_CONTRACT_VERSION` ausente. Valores legados `0.4.0`, `0.4.1`, `0.4.2`, `0.4.3`, `0.4.4` e `0.4.5` continuam aceitos somente para normalizar deploys antigos para `1.0.0`. Qualquer outro valor é recusado para impedir que uma variável de ambiente force um contrato diferente do WASM empacotado.
 
 
 ## Compatibilidade da ABI T3N e grants por função
@@ -108,7 +108,7 @@ Ao encontrar grants antigos no formato multi-função, scopes sem `path/access` 
 
 O gateway já usa SDK `5.12.0` e o control plane foi ajustado para gravar e verificar grants individualmente por função. O Proposal Agent recebe somente `evaluate-action`; o Protected Executor recebe grants separados para `execute-remediation` e `verify-remediation`, com hosts e scopes mínimos por função. `read_scopes` não é mais emitido pelo gateway, e grants legados multi-função, wildcards ou scopes estruturados incompletos impedem readiness positivo.
 
-O WASM empacotado continua deliberadamente em `0.4.5` e ainda importa `host:tenant/tenant-context@1.0.0`. A comunicação da Terminal 3 informa que o host antigo da mudança incompatível deixará de responder, mas não fornece no aviso o identificador exato do pacote WIT substituto. Portanto, o major bump, a troca do import WIT, o rebuild e o re-upload permanecem bloqueados até obter a definição oficial da nova ABI. Não use `1.2.0` como destino: o próprio aviso informa que nada responderá a `host:tenant@1.2.0` após a atualização.
+O WASM empacotado foi major-bumped para `1.0.0` e é reconstruído pelo Dockerfile para `wasm32-wasip2`, conforme o aviso da Terminal 3 de 2026-09-20. O contrato Rust não chama `delegated-scopes()`, `delegated-read-scopes()` nem `delegated-functions()`; portanto, a condição "only if your contract code calls these accessors" do aviso não exige alteração desses accessors no contrato. O source WIT mantém `host:tenant/tenant-context@1.0.0`, que é a definição publicada usada pelo projeto, sem inventar um package/version substituto não informado no aviso. O rebuild continua obrigatório mesmo assim; após o deploy, o reconciler registra `1.0.0` no slot Tenant existente e revalida os grants por função. Qualquer rejeição de ABI/instanciação permanece fail-closed e não é mascarada como readiness positivo.
 
 Os valores opcionais podem continuar usando os defaults já definidos pelo runtime. Credenciais reais devem existir somente no secret store/ambiente do serviço. Os requisitos abaixo são adicionais ou específicos de cada etapa e não substituem essa configuração-base.
 
@@ -130,7 +130,7 @@ autenticar Tenant + Proposal Agent + Protected Executor
       v
 resolver contrato canônico
       |
-      +--> ausente ou versão < 0.4.5: registrar WASM 0.4.5 pelo transporte autenticado
+      +--> ausente ou versão < 1.0.0: registrar WASM 1.0.0 pelo transporte autenticado
       |                              tee:tenant/contracts::contract-register
       |                              via T3nClient.executeWithBlob
       |       |
@@ -139,8 +139,8 @@ resolver contrato canônico
       |       +--> verificar identidade canônica/version por leitura fresh após a persistência local
       |       +--> persistir + read-back do state remoto T3N somente após a verificação
       |
-      +--> versão = 0.4.5: reutilizar contrato atual e recuperar numericContractId por env -> cache /data -> state T3N
-      +--> versão > 0.4.5: falhar fechado; nunca fazer downgrade
+      +--> versão = 1.0.0: reutilizar contrato atual e recuperar numericContractId por env -> cache /data -> state T3N
+      +--> versão > 1.0.0: falhar fechado; nunca fazer downgrade
       |
       v
 criar/re-ACL + read-back do mapa privado privacy-guard-runtime-provisioning
@@ -176,11 +176,11 @@ verificar e, quando permitido, reparar/publicar Agent Card
 
 `T3N_RUNTIME_PROVISIONING_STATE_PATH` contém somente `tenantDid`, contract id, contract version, numeric contract id e timestamp. Esse arquivo é cache local e nunca contém chaves T3N, credenciais de integração, tokens, chaves privadas ou valores de profile. Em um registro/upgrade bem-sucedido, o runtime obtém a resposta do `contract-register` pelo transporte T3N de baixo nível, valida o `contract_id` e grava o cache imediatamente antes de qualquer nova verificação de rede. Isso reduz a dependência do wrapper `TenantClient.contracts.register()` na mutação crítica e fecha a janela observada em que a nova versão podia aparecer remotamente sem que o caller mantivesse um numeric id utilizável. Depois da verificação da identidade canônica, a mesma estrutura mínima é armazenada sob `current` no mapa privado T3N `privacy-guard-runtime-provisioning`. O mapa usa o mesmo ACL administrativo dos demais mapas privados: `readers.only=[numericContractId]` mantém a leitura de negócio restrita ao contrato e `writers.only=[]` impede escrita de negócio pelo contrato. Esses ACLs restringem principals de contrato, não retiram do Tenant proprietário a superfície administrativa autenticada do mapa. A manutenção é feita pelo Tenant autenticado via `TenantClient.maps.entrySet(...)`, e cada gravação é confirmada por `TenantClient.maps.entryGet(...)`; o runtime só prossegue se Tenant DID, contract id, contract version, numeric id e timestamp coincidirem.
 
-A leitura de versão tem duas semânticas deliberadas. As chamadas estáveis de execução (`evaluate`, `remediate` e `verifyRemediation`) continuam usando `getContractVersion()` e podem aproveitar o cache interno do SDK. Já `PrivacyGuardContractService.identity()` é observabilidade/readiness e sempre consulta a versão em um Worker isolado, com cache de módulo próprio e descartável. Como `resolveOrRegisterContract()` reutiliza `identity()` imediatamente após `contract-register`, a validação pós-mutação não reutiliza um `contractVersionCache` preenchido antes do registro. O endpoint `/internal/contracts/privacy-guard/identity` usa a mesma leitura fresh por requisição. Assim, um processo que tenha observado `0.4.4` antes de registrar `0.4.5` consegue confirmar `0.4.5` sem reinício, sem bump artificial e sem exigir `T3N_CONTRACT_VERSION` no EasyPanel. Falhas dessa leitura são convertidas em erro sanitizado pelo gateway; nenhum erro bruto do SDK é exposto.
+A leitura de versão tem duas semânticas deliberadas. As chamadas estáveis de execução (`evaluate`, `remediate` e `verifyRemediation`) continuam usando `getContractVersion()` e podem aproveitar o cache interno do SDK. Já `PrivacyGuardContractService.identity()` é observabilidade/readiness e sempre consulta a versão em um Worker isolado, com cache de módulo próprio e descartável. Como `resolveOrRegisterContract()` reutiliza `identity()` imediatamente após `contract-register`, a validação pós-mutação não reutiliza um `contractVersionCache` preenchido antes do registro. O endpoint `/internal/contracts/privacy-guard/identity` usa a mesma leitura fresh por requisição. Assim, um processo que tenha observado `0.4.5` antes de registrar `1.0.0` consegue confirmar `1.0.0` sem reinício, sem bump artificial adicional e sem exigir `T3N_CONTRACT_VERSION` no EasyPanel. Falhas dessa leitura são convertidas em erro sanitizado pelo gateway; nenhum erro bruto do SDK é exposto.
 
 Na reutilização da mesma versão, a precedência é deliberada: `T3N_CONTRACT_NUMERIC_ID` explícito, depois cache local válido em `/data`, depois state remoto T3N válido. Cache ou state só são aceitos quando Tenant DID, contract id e versão coincidem exatamente com a sessão autenticada e o numeric id é inteiro positivo. Se nenhuma fonte válida existir, o runtime falha fechado em vez de inventar o identificador ou tentar registrar novamente a mesma versão.
 
-`T3N_CONTRACT_NUMERIC_ID` continua aceito como override explícito para contratos já existentes. Para contratos registrados ou atualizados pela própria reconciliação, o numeric id retornado pela T3N é persistido primeiro no cache `/data`, antes da verificação pós-registro, e depois no state remoto após a identidade publicada ser confirmada. A migração `0.4.4 -> 0.4.5` é a recuperação única do ambiente que consumiu `0.4.4` antes de existir uma montagem persistente administrada pelo EasyPanel. Agora que `/data` está persistente, o `0.4.5` obtém um novo `contract_id` oficial e a ordem `contract-register -> validar id -> cache local -> verify -> state remoto` usa o adapter compartilhado `registerContractWithDurableId`. Depois de o state remoto ser estabelecido, perder/recriar o container não depende exclusivamente do arquivo local. O runtime nunca deriva nem inventa esse id. Operação normal não exige novos bumps de versão para recuperar state.
+`T3N_CONTRACT_NUMERIC_ID` continua aceito como override explícito para contratos já existentes. Para contratos registrados ou atualizados pela própria reconciliação, o numeric id retornado pela T3N é persistido primeiro no cache `/data`, antes da verificação pós-registro, e depois no state remoto após a identidade publicada ser confirmada. O mecanismo de recuperação durável estabelecido nas migrações anteriores continua valendo para o upgrade incompatível `0.4.5 -> 1.0.0`: o novo registro obtém o `contract_id` oficial e segue `contract-register -> validar id -> cache local -> verify -> state remoto` pelo adapter compartilhado `registerContractWithDurableId`. Depois de o state remoto ser estabelecido, perder/recriar o container não depende exclusivamente do arquivo local. O runtime nunca deriva nem inventa esse id. Operação normal não exige novos bumps de versão para recuperar state.
 
 Quando um numeric id real está disponível, os scripts administrativos criam ou reparam mapas privados por um helper único com `readers.only=[numericContractId]` e `writers.only=[]`. O contrato continua sendo o único reader de negócio necessário, mas não recebe permissão de escrita de negócio. Bootstrap, rotação, reconciliação e readiness usam a superfície administrativa autenticada do Tenant: `TenantClient.maps.entrySet(...)` para escrita e `TenantClient.maps.entryGet(...)` para read-back/leitura administrativa. Mapas existentes são re-ACLados idempotentemente antes da primeira escrita e as gravações de policy, secrets/configuração protegida e runtime state exigem read-back compatível. ACL pública, world-readable, world-writable, wildcards ou principals adicionais não são usados como mecanismo de recuperação.
 
@@ -278,7 +278,7 @@ T3N_NETWORK
 T3N_CONTRACT_TAIL
 ```
 
-O artefato atual é `0.4.5`. Em um ambiente ainda publicado em `0.4.0`, `0.4.1`, `0.4.2`, `0.4.3` ou `0.4.4`, prefira a reconciliação automática do container `0.4.5`. Ela registra a nova versão pelo mesmo adapter de baixo nível usado pelo comando administrativo, recebe o novo numeric id, persiste o cache local imediatamente no volume nomeado `/data`, verifica a identidade publicada, persiste o state remoto e repara os ACLs de mapas. `T3N_CONTRACT_VERSION` deve permanecer ausente no EasyPanel.
+O artefato atual é `1.0.0`. Em um ambiente ainda publicado em `0.4.0`, `0.4.1`, `0.4.2`, `0.4.3`, `0.4.4` ou `0.4.5`, prefira a reconciliação automática do container `1.0.0`. Ela registra a nova versão pelo mesmo adapter de baixo nível usado pelo comando administrativo, recebe o novo numeric id, persiste o cache local imediatamente no volume nomeado `/data`, verifica a identidade publicada, persiste o state remoto e repara os ACLs de mapas. `T3N_CONTRACT_VERSION` deve permanecer ausente no EasyPanel.
 
 Execute:
 
@@ -428,7 +428,7 @@ A sequência operacional completa é:
 ```text
 resolve current contract
       |
-      +--> absent/older: register packaged 0.4.5 through shared low-level registrar and obtain official numeric id
+      +--> absent/older: register packaged 1.0.0 through shared low-level registrar and obtain official numeric id
       |       |
       |       +--> persist numeric id to local cache immediately
       |       +--> verify canonical published identity/version through a fresh isolated lookup
@@ -518,7 +518,7 @@ For `privacy.evaluate_action`, send `request_id`, `action`, `resource`, `purpose
 
 Os comandos administrativos e o runtime falham fechados quando os artefatos, credenciais ou variáveis obrigatórios não existem. Em particular:
 
-- a reconciliação automática registra `0.4.5` quando o contrato está ausente ou em versão anterior, usando o adapter compartilhado de baixo nível, valida o numeric id real retornado pela T3N e o persiste imediatamente no cache local antes da verificação pós-registro;
+- a reconciliação automática registra `1.0.0` quando o contrato está ausente ou em versão anterior, usando o adapter compartilhado de baixo nível, valida o numeric id real retornado pela T3N e o persiste imediatamente no cache local antes da verificação pós-registro;
 - a verificação pós-registro e os endpoints de identity/readiness consultam a versão por leitura fresh isolada, sem reutilizar o `contractVersionCache` do SDK preenchido antes da mutação;
 - uma falha depois de `contract-register` não apaga o cache local já confirmado; o próximo startup pode reutilizar o numeric id da mesma versão sem tentar registrá-la novamente, mas readiness continua fechado até concluir as etapas restantes;
 - na mesma versão, o reconciler reutiliza somente numeric id explícito ou state local/remoto que coincida exatamente com Tenant DID, contract id e versão; ausência de todas as fontes falha fechada e não tenta registrar novamente a mesma versão;
