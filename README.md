@@ -722,6 +722,8 @@ Terminal 3 contract-host compatibility is treated as a breaking runtime contract
 
 Any incompatible Terminal 3 host upgrade requires a WASM rebuild, a **major** `CONTRACT_VERSION` bump, synchronized Cargo/WIT/gateway version metadata, upload of the rebuilt WASM to the existing Tenant contract slot, a compatible SDK/CLI, and re-validation of previously provisioned grants. Rebuilding remains mandatory even when the contract does not directly call the changed accessors, because a WASM artifact linked to a removed host can fail to instantiate with `500 internal_error`. Until the contract artifact, gateway and grants are reconciled to the current ABI, the deployment must not be represented as ready or as positive live evidence.
 
+The gateway control plane is prepared for the new function-scoped model: it writes one function per Member grant, performs one effective `checkDelegation` per function, no longer writes `read_scopes`, and uses T3N SDK `5.12.0`. The packaged WASM remains `0.4.5` on the existing `host:tenant/tenant-context@1.0.0` import until Terminal 3's exact replacement host package/version for the breaking ABI is available. Do not invent or infer that WIT version: the contract major bump, rebuild and re-upload must be performed only against the published replacement host definition.
+
 ## Pinned toolchain
 
 - Node: `22.20.0-alpine3.22`
