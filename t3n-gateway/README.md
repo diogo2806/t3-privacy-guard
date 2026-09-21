@@ -93,7 +93,7 @@ Para uma atualização incompatível do host T3N, a sequência operacional é:
 O modelo novo de autorização deve preservar estas semânticas:
 
 - cada grant representa uma função do contrato;
-- `delegated-scopes()` retorna scopes estruturados como `{ path, access }`, não apenas strings de path;
+- `delegated-scopes()` retorna scopes estruturados como `{ path, access }`, não apenas strings de path; para os requisitos de leitura do Privacy Guard, `access` deve ser explicitamente `read`, e qualquer valor ausente, desconhecido ou somente escrita falha fechado;
 - `delegated-read-scopes()` não deve ser usado, porque a permissão de leitura passa a ser expressa em `access`;
 - `delegated-functions()` deve ser interpretado no modelo de uma função por grant;
 - o marcador literal `"*"` significa todas as funções, mas não deve ser provisionado pelo Privacy Guard em fluxos normais de menor privilégio;
