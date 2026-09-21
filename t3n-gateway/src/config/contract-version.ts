@@ -1,7 +1,7 @@
 const SEMVER_PATTERN = /^\d+\.\d+\.\d+$/;
 
-export const PACKAGED_CONTRACT_VERSION = '0.4.5';
-export const LEGACY_DEPLOYMENT_CONTRACT_VERSIONS = Object.freeze(['0.4.0', '0.4.1', '0.4.2', '0.4.3', '0.4.4'] as const);
+export const PACKAGED_CONTRACT_VERSION = '1.0.0';
+export const LEGACY_DEPLOYMENT_CONTRACT_VERSIONS = Object.freeze(['0.4.0', '0.4.1', '0.4.2', '0.4.3', '0.4.4', '0.4.5'] as const);
 
 function parseVersion(value: string): readonly [number, number, number] {
   if (!SEMVER_PATTERN.test(value)) throw new Error('Contract version must be semantic version MAJOR.MINOR.PATCH');

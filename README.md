@@ -629,7 +629,7 @@ EVIDENCE_NOTIFICATION_AUTHORIZATION_PROOF
 
 `T3N_API_KEY` authenticates the Tenant/Admin session used for organization-owned Agent Card publication and other administrative T3N operations. `T3N_ORG_DID` is the canonical public DID of the organization that owns the Proposal Agent; it is explicit configuration and must never be derived from a credential, Ethereum address or other secret. `T3N_AGENT_API_KEY` authenticates the Proposal Agent and must remain separate from the administrative credential.
 
-`T3N_CONTRACT_VERSION` follows the packaged contract artifact; the current packaged contract is `0.4.5`, and EasyPanel should leave this variable unset unless the documented migration procedure explicitly requires otherwise. `T3N_POLICY_FILE` points to the local source document used by the explicit policy provisioning script; the active runtime policy is loaded from private T3N KV.
+`T3N_CONTRACT_VERSION` follows the packaged contract artifact; the current packaged contract is `1.0.0`, and EasyPanel should leave this variable unset unless the documented migration procedure explicitly requires otherwise. `T3N_POLICY_FILE` points to the local source document used by the explicit policy provisioning script; the active runtime policy is loaded from private T3N KV.
 
 `T3N_AGENT_API_KEY` authenticates the Proposal Agent and must not be granted protected remediation functions. `T3N_EXECUTOR_API_KEY` authenticates the separate Protected Executor and must receive only the execution/verification functions and hosts/scopes it needs. The Executor's fixed effective check includes `verified_contacts.email.value` for the protected notification branch; the Proposal Agent remains limited to `evaluate-action`.
 
@@ -722,7 +722,7 @@ Terminal 3 contract-host compatibility is treated as a breaking runtime contract
 
 Any incompatible Terminal 3 host upgrade requires a WASM rebuild, a **major** `CONTRACT_VERSION` bump, synchronized Cargo/WIT/gateway version metadata, upload of the rebuilt WASM to the existing Tenant contract slot, a compatible SDK/CLI, and re-validation of previously provisioned grants. Rebuilding remains mandatory even when the contract does not directly call the changed accessors, because a WASM artifact linked to a removed host can fail to instantiate with `500 internal_error`. Until the contract artifact, gateway and grants are reconciled to the current ABI, the deployment must not be represented as ready or as positive live evidence.
 
-The gateway control plane is prepared for the new function-scoped model: it writes one function per Member grant, performs one effective `checkDelegation` per function, no longer writes `read_scopes`, and uses T3N SDK `5.12.0`. The packaged WASM remains `0.4.5` on the existing `host:tenant/tenant-context@1.0.0` import until Terminal 3's exact replacement host package/version for the breaking ABI is available. Do not invent or infer that WIT version: the contract major bump, rebuild and re-upload must be performed only against the published replacement host definition.
+The gateway control plane is prepared for the new function-scoped model: it writes one function per Member grant, performs one effective `checkDelegation` per function, no longer writes `read_scopes`, and uses T3N SDK `5.12.0`. Following Terminal 3's 2026-09-20 upgrade notice, the packaged contract is major-bumped and rebuilt as `1.0.0`. The Rust contract does not call `delegated-scopes()`, `delegated-read-scopes()` or `delegated-functions()`, so the notice does not require accessor code changes in the contract itself. The source keeps the published `host:tenant/tenant-context@1.0.0` WIT import instead of inventing an undocumented replacement; the rebuilt WASM is re-registered into the existing Tenant contract slot and all grants are reconciled per function.
 
 ## Pinned toolchain
 
@@ -736,7 +736,7 @@ The gateway control plane is prepared for the new function-scoped model: it writ
 - Maven image: `3.9.16-eclipse-temurin-21`
 - Java runtime: `eclipse-temurin:21.0.12_8-jre`
 - Nginx: `1.27.5-alpine3.21-slim`
-- Rust contract: `0.4.5`, target `wasm32-wasip2`; the Alpine Docker contract builder installs `build-base` and `musl-dev` so host procedural macros can link before the WASI artifact is produced
+- Rust contract: `1.0.0`, target `wasm32-wasip2`; the Alpine Docker contract builder installs `build-base` and `musl-dev` so host procedural macros can link before the WASI artifact is produced
 
 ## Local builds
 

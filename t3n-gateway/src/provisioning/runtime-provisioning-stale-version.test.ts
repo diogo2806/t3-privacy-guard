@@ -12,8 +12,8 @@ test('post-registration verification observes the fresh contract version without
   const tenantDid = 'did:t3n:tenant123';
   const contractId = 'z:tenant123:privacy-guard';
   const identities = [
-    { contractId, contractVersion: '0.4.4' },
     { contractId, contractVersion: '0.4.5' },
+    { contractId, contractVersion: '1.0.0' },
   ];
   const persistedRemote: RuntimeProvisioningState[] = [];
   let registerCalls = 0;
@@ -21,7 +21,7 @@ test('post-registration verification observes the fresh contract version without
   try {
     await writeFile(wasmPath, new Uint8Array([0, 97, 115, 109]));
     const result = await resolveOrRegisterContract(
-      { contractTail: 'privacy-guard', contractVersion: '0.4.5' } as unknown as Parameters<typeof resolveOrRegisterContract>[0],
+      { contractTail: 'privacy-guard', contractVersion: '1.0.0' } as unknown as Parameters<typeof resolveOrRegisterContract>[0],
       { getTenantDid: () => tenantDid } as unknown as Parameters<typeof resolveOrRegisterContract>[1],
       {
         canonicalContractId: async () => contractId,
@@ -38,7 +38,7 @@ test('post-registration verification observes the fresh contract version without
       {
         registerContract: async (request) => {
           registerCalls += 1;
-          assert.equal(request.version, '0.4.5');
+          assert.equal(request.version, '1.0.0');
           return { contract_id: 1059 };
         },
         persistRemoteProvisioningState: async (state) => { persistedRemote.push(state); },
@@ -47,9 +47,9 @@ test('post-registration verification observes the fresh contract version without
 
     assert.equal(registerCalls, 1);
     assert.equal(result.registered, true);
-    assert.equal(result.contractVersion, '0.4.5');
+    assert.equal(result.contractVersion, '1.0.0');
     assert.equal(result.numericContractId, 1059);
-    assert.equal(persistedRemote[0]?.contractVersion, '0.4.5');
+    assert.equal(persistedRemote[0]?.contractVersion, '1.0.0');
     assert.equal(persistedRemote[0]?.numericContractId, 1059);
   } finally {
     await rm(directory, { recursive: true, force: true });
