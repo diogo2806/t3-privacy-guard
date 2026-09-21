@@ -9,7 +9,7 @@ function manifest(): DeploymentManifest {
     sourceCommitSha: '1'.repeat(40),
     sourceTreeClean: true,
     network: 'testnet',
-    sdkVersion: '5.2.0',
+    sdkVersion: '5.12.0',
     tenantDid: 'did:t3n:tenant',
     agentDid: 'did:t3n:0123456789abcdef0123456789abcdef01234567',
     executorDid: 'did:t3n:protected-executor-0123456789abcdef',
