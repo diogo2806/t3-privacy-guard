@@ -28,7 +28,7 @@ interface DelegationEvidence {
   checkedScopes: string[];
 }
 interface EvidenceBundle {
-  generatedAt: string; network: string; sdkVersion: '5.2.0'; tenantDid: string; agentDid: string; executorDid: string;
+  generatedAt: string; network: string; sdkVersion: '5.12.0'; tenantDid: string; agentDid: string; executorDid: string;
   contractId: string; contractVersion: string; wasmSha256: string | null;
   policyVersion: string | null; policyHash: string | null;
   delegation: { proposal: DelegationEvidence; executor: DelegationEvidence };
@@ -60,9 +60,13 @@ function executionHost(): string {
   return configured ? httpsHost(configured, 'SECURITY_API_URL') : 'postman-echo.com';
 }
 
-function configuredEgressHosts(): string[] {
-  const candidates = [process.env.SECURITY_API_URL, process.env.SECURITY_VERIFICATION_URL];
-  if (process.env.EVIDENCE_RUN_DESTINATION_BINDING === 'true') candidates.push(process.env.EVIDENCE_DESTINATION_B_URL);
+function configuredEgressHostsForFunction(functionName: string): string[] {
+  const candidates = functionName === 'execute-remediation'
+    ? [process.env.SECURITY_API_URL]
+    : [process.env.SECURITY_VERIFICATION_URL];
+  if (functionName === 'execute-remediation' && process.env.EVIDENCE_RUN_DESTINATION_BINDING === 'true') {
+    candidates.push(process.env.EVIDENCE_DESTINATION_B_URL);
+  }
   const configured = candidates
     .map((value) => value?.trim())
     .filter((value): value is string => Boolean(value));
@@ -128,20 +132,24 @@ async function wasmHash(): Promise<string | null> {
   try { return createHash('sha256').update(await readFile(wasmPath)).digest('hex'); } catch { return null; }
 }
 async function grantLeastPrivilege(contractId: string, version: string): Promise<void> {
-  await proposalDelegation.grant({
-    contractId,
-    versionReq: version,
-    functions: [...PROPOSAL_DELEGATION_REQUIREMENTS.functions],
-    scopes: [...PROPOSAL_DELEGATION_REQUIREMENTS.scopes],
-    allowedHosts: [],
-  });
-  await executorDelegation.grant({
-    contractId,
-    versionReq: version,
-    functions: [...EXECUTOR_DELEGATION_REQUIREMENTS.functions],
-    scopes: [...EXECUTOR_DELEGATION_REQUIREMENTS.scopes],
-    allowedHosts: configuredEgressHosts(),
-  });
+  for (const required of PROPOSAL_DELEGATION_REQUIREMENTS.grants) {
+    await proposalDelegation.grant({
+      contractId,
+      versionReq: version,
+      function: required.function,
+      scopes: [...required.scopes],
+      allowedHosts: [],
+    });
+  }
+  for (const required of EXECUTOR_DELEGATION_REQUIREMENTS.grants) {
+    await executorDelegation.grant({
+      contractId,
+      versionReq: version,
+      function: required.function,
+      scopes: [...required.scopes],
+      allowedHosts: configuredEgressHostsForFunction(required.function),
+    });
+  }
 }
 async function decisionScenario(id: string, expected: 'ALLOW' | 'REDACT' | 'DENY', input: Parameters<PrivacyGuardContractService['evaluate']>[0]): Promise<void> {
   try {
@@ -268,40 +276,48 @@ async function expectExecutorRevocationRejected(id: string, expected: string, re
 }
 async function expectRevokedProposalCheckDenied(contractId: string, tenantDid: string): Promise<void> {
   try {
-    const result = await agentSession.getClient().checkDelegation({
-      contract: contractId,
-      pii_did: tenantDid,
-      functions: [...PROPOSAL_DELEGATION_REQUIREMENTS.functions],
-      scopes: [...PROPOSAL_DELEGATION_REQUIREMENTS.scopes],
-    }) as unknown;
-    const authorised = authorisedVerdict(result);
+    const verdicts: Array<boolean | null> = [];
+    for (const required of PROPOSAL_DELEGATION_REQUIREMENTS.grants) {
+      const result = await agentSession.getClient().checkDelegation({
+        contract: contractId,
+        pii_did: tenantDid,
+        functions: [required.function],
+        scopes: [...required.scopes],
+      }) as unknown;
+      verdicts.push(authorisedVerdict(result));
+    }
+    const denied = verdicts.length > 0 && verdicts.every((value) => value === false);
     record(
       'LIVE-REVOKED-PROPOSAL-CHECK',
-      'Proposal checkDelegation returns authorised=false after Proposal Member Delegation revocation',
-      authorised === null ? 'INCONCLUSIVE' : `authorised=${authorised}`,
-      authorised === false ? 'PASS' : 'FAIL',
+      'Proposal checkDelegation returns authorised=false for every function after Proposal Member Delegation revocation',
+      verdicts.some((value) => value === null) ? 'INCONCLUSIVE' : `authorised=${verdicts.join(',')}`,
+      denied ? 'PASS' : 'FAIL',
     );
   } catch (error) {
-    record('LIVE-REVOKED-PROPOSAL-CHECK', 'Proposal checkDelegation returns authorised=false after Proposal Member Delegation revocation', null, 'FAIL', sanitizeEvidenceError(error));
+    record('LIVE-REVOKED-PROPOSAL-CHECK', 'Proposal checkDelegation returns authorised=false for every function after Proposal Member Delegation revocation', null, 'FAIL', sanitizeEvidenceError(error));
   }
 }
 async function expectRevokedExecutorCheckDenied(contractId: string, tenantDid: string): Promise<void> {
   try {
-    const result = await executorSession.getClient().checkDelegation({
-      contract: contractId,
-      pii_did: tenantDid,
-      functions: [...EXECUTOR_DELEGATION_REQUIREMENTS.functions],
-      scopes: [...EXECUTOR_DELEGATION_REQUIREMENTS.scopes],
-    }) as unknown;
-    const authorised = authorisedVerdict(result);
+    const verdicts: Array<boolean | null> = [];
+    for (const required of EXECUTOR_DELEGATION_REQUIREMENTS.grants) {
+      const result = await executorSession.getClient().checkDelegation({
+        contract: contractId,
+        pii_did: tenantDid,
+        functions: [required.function],
+        scopes: [...required.scopes],
+      }) as unknown;
+      verdicts.push(authorisedVerdict(result));
+    }
+    const denied = verdicts.length > 0 && verdicts.every((value) => value === false);
     record(
       'LIVE-REVOKED-EXECUTOR-CHECK',
-      'Executor checkDelegation returns authorised=false after Executor Member Delegation revocation',
-      authorised === null ? 'INCONCLUSIVE' : `authorised=${authorised}`,
-      authorised === false ? 'PASS' : 'FAIL',
+      'Executor checkDelegation returns authorised=false for every function after Executor Member Delegation revocation',
+      verdicts.some((value) => value === null) ? 'INCONCLUSIVE' : `authorised=${verdicts.join(',')}`,
+      denied ? 'PASS' : 'FAIL',
     );
   } catch (error) {
-    record('LIVE-REVOKED-EXECUTOR-CHECK', 'Executor checkDelegation returns authorised=false after Executor Member Delegation revocation', null, 'FAIL', sanitizeEvidenceError(error));
+    record('LIVE-REVOKED-EXECUTOR-CHECK', 'Executor checkDelegation returns authorised=false for every function after Executor Member Delegation revocation', null, 'FAIL', sanitizeEvidenceError(error));
   }
 }
 
@@ -597,7 +613,7 @@ if (process.env.EVIDENCE_RUN_REMEDIATION === 'true') {
 }
 
 const evidence: EvidenceBundle = {
-  generatedAt: new Date().toISOString(), network: config.network, sdkVersion: '5.2.0', tenantDid, agentDid, executorDid,
+  generatedAt: new Date().toISOString(), network: config.network, sdkVersion: '5.12.0', tenantDid, agentDid, executorDid,
   contractId: identity.contractId, contractVersion: identity.contractVersion, wasmSha256: await wasmHash(),
   policyVersion: observedPolicyVersion, policyHash: observedPolicyHash,
   delegation: {
