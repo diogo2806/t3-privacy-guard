@@ -1,7 +1,7 @@
-package z:privacy-guard@1.0.0;
+package z:privacy-guard@0.4.5;
 
 world privacy-guard {
-    import host:tenant/tenant-context@1.0.0;
+    import host:tenant/tenant-context@0.4.5;
     import host:interfaces/logging@2.1.0;
     import host:interfaces/kv-store@2.1.0;
     import host:interfaces/http-with-placeholders@2.1.0;
