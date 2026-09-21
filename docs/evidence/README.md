@@ -517,7 +517,7 @@ The `limit` is server-validated between 1 and 200. The same response keeps `inte
 - full source commit SHA (`sourceCommitSha`);
 - explicit source-tree state (`sourceTreeClean`);
 - network;
-- SDK `5.2.0`;
+- SDK `5.12.0`;
 - canonical Tenant, Proposal Agent and Protected Executor DIDs;
 - observed Agent Card registration state;
 - Agent Card public URI/SHA-256/verification timestamp/service names when a card was resolved;
