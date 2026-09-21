@@ -76,6 +76,34 @@ T3N_TRUST_FLOOR_STORE_PATH
 
 A versão do contrato é propriedade do artefato empacotado. O container atual carrega `privacy-guard` `0.4.5`; no EasyPanel, deixe `T3N_CONTRACT_VERSION` ausente. Valores legados `0.4.0`, `0.4.1`, `0.4.2`, `0.4.3` e `0.4.4` continuam aceitos somente para normalizar deploys antigos para `0.4.5`. Qualquer outro valor é recusado para impedir que uma variável de ambiente force um contrato diferente do WASM empacotado.
 
+
+## Compatibilidade da ABI T3N e grants por função
+
+Uma atualização incompatível da Terminal 3 no runtime de contratos exige tratar grants de Tenant por função, e não mais como autorização única para todo o contrato. Esta regra é obrigatória para qualquer build publicado depois da mudança da ABI.
+
+Para uma atualização incompatível do host T3N, a sequência operacional é:
+
+1. recompilar o alvo WASM do contrato contra a ABI/host oficialmente suportada;
+2. aplicar **major bump** em `CONTRACT_VERSION`; patch ou minor bump não substituem essa exigência;
+3. manter `Cargo.toml`, package WIT, `CONTRACT_VERSION`, `PACKAGED_CONTRACT_VERSION` e o espelho `t3n-gateway/contract-source` sincronizados;
+4. reenviar o novo WASM para o slot já existente do contrato Tenant na T3N;
+5. atualizar SDK/CLI para versões explicitamente compatíveis com a nova ABI, sem presumir número de versão;
+6. reconciliar novamente todos os grants e confirmar o acesso efetivo de cada principal antes de considerar readiness/evidence positivos.
+
+O modelo novo de autorização deve preservar estas semânticas:
+
+- cada grant representa uma função do contrato;
+- `delegated-scopes()` retorna scopes estruturados como `{ path, access }`, não apenas strings de path;
+- `delegated-read-scopes()` não deve ser usado, porque a permissão de leitura passa a ser expressa em `access`;
+- `delegated-functions()` deve ser interpretado no modelo de uma função por grant;
+- o marcador literal `"*"` significa todas as funções, mas não deve ser provisionado pelo Privacy Guard em fluxos normais de menor privilégio;
+- Proposal Agent continua restrito a `evaluate-action`;
+- Protected Executor deve ter autorizações independentes para `execute-remediation` e `verify-remediation`, com scopes e hosts mínimos adequados a cada função.
+
+O rebuild do WASM é obrigatório mesmo quando o código do contrato não chama diretamente os accessors alterados. Um artefato compilado para um host removido pode falhar na instanciação com `500 internal_error`; esse estado nunca deve ser interpretado como contrato pronto, delegação válida ou evidência positiva.
+
+Ao encontrar grants antigos no formato multi-função, scopes sem `path/access` ou qualquer incompatibilidade entre contrato, WIT, SDK e runtime, a operação deve permanecer fail-closed até a reconciliação com o modelo vigente da Terminal 3.
+
 Os valores opcionais podem continuar usando os defaults já definidos pelo runtime. Credenciais reais devem existir somente no secret store/ambiente do serviço. Os requisitos abaixo são adicionais ou específicos de cada etapa e não substituem essa configuração-base.
 
 ## Reconciliação automática no container publicado
