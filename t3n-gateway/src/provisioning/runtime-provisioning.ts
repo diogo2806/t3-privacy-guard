@@ -153,18 +153,25 @@ export function configuredEnterpriseHosts(env: NodeJS.ProcessEnv = process.env):
   return [...new Set(hosts)].sort();
 }
 
-export function executorDelegationGrantRequest(
+function configuredHost(value: string | undefined): string[] {
+  if (!isSafeHttpsEndpoint(value)) return [];
+  return [new URL(value.trim()).hostname.toLowerCase().replace(/\.$/, '')];
+}
+
+export function executorDelegationGrantRequests(
   contractId: string,
   contractVersion: string,
   env: NodeJS.ProcessEnv = process.env,
-): DelegationGrantRequest {
-  return {
+): DelegationGrantRequest[] {
+  return EXECUTOR_DELEGATION_REQUIREMENTS.grants.map((required) => ({
     contractId,
     versionReq: contractVersion,
-    functions: [...EXECUTOR_DELEGATION_REQUIREMENTS.functions],
-    scopes: [...EXECUTOR_DELEGATION_REQUIREMENTS.scopes],
-    allowedHosts: configuredEnterpriseHosts(env),
-  };
+    function: required.function,
+    scopes: [...required.scopes],
+    allowedHosts: required.function === 'execute-remediation'
+      ? configuredHost(env.SECURITY_API_URL)
+      : configuredHost(env.SECURITY_VERIFICATION_URL),
+  }));
 }
 
 function remediationConfigurationReady(env: NodeJS.ProcessEnv): boolean {
@@ -516,18 +523,22 @@ export async function reconcileRuntimeProvisioning(
   }
 
   if (config.agentApiKey) {
-    await proposalDelegation.grant({
-      contractId: contract.contractId,
-      versionReq: contract.contractVersion,
-      functions: [...PROPOSAL_DELEGATION_REQUIREMENTS.functions],
-      scopes: [...PROPOSAL_DELEGATION_REQUIREMENTS.scopes],
-      allowedHosts: [],
-    });
+    for (const required of PROPOSAL_DELEGATION_REQUIREMENTS.grants) {
+      await proposalDelegation.grant({
+        contractId: contract.contractId,
+        versionReq: contract.contractVersion,
+        function: required.function,
+        scopes: [...required.scopes],
+        allowedHosts: [],
+      });
+    }
     proposalDelegationReconciled = true;
   }
 
   if (config.executorApiKey) {
-    await executorDelegation.grant(executorDelegationGrantRequest(contract.contractId, contract.contractVersion, env));
+    for (const request of executorDelegationGrantRequests(contract.contractId, contract.contractVersion, env)) {
+      await executorDelegation.grant(request);
+    }
     executorDelegationReconciled = true;
   }
 
