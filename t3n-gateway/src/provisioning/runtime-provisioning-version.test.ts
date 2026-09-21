@@ -3,15 +3,15 @@ import test from 'node:test';
 import { PACKAGED_CONTRACT_VERSION } from '../config/contract-version.js';
 import { contractVersionAction } from './runtime-provisioning.js';
 
-test('packaged 0.4.5 recovery registers 0.4.4 and reuses 0.4.5', () => {
-  assert.equal(PACKAGED_CONTRACT_VERSION, '0.4.5');
-  assert.equal(contractVersionAction('0.4.4', PACKAGED_CONTRACT_VERSION), 'REGISTER');
-  assert.equal(contractVersionAction('0.4.5', PACKAGED_CONTRACT_VERSION), 'REUSE');
+test('packaged 1.0.0 migration registers 0.4.5 and reuses 1.0.0', () => {
+  assert.equal(PACKAGED_CONTRACT_VERSION, '1.0.0');
+  assert.equal(contractVersionAction('0.4.5', PACKAGED_CONTRACT_VERSION), 'REGISTER');
+  assert.equal(contractVersionAction('1.0.0', PACKAGED_CONTRACT_VERSION), 'REUSE');
 });
 
-test('packaged 0.4.5 recovery fails closed when T3N is newer', () => {
+test('packaged 1.0.0 migration fails closed when T3N is newer', () => {
   assert.throws(
-    () => contractVersionAction('0.4.6', PACKAGED_CONTRACT_VERSION),
+    () => contractVersionAction('1.0.1', PACKAGED_CONTRACT_VERSION),
     /newer than packaged/,
   );
 });
