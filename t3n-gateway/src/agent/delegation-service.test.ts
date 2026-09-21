@@ -211,6 +211,24 @@ test('legacy multi-function grants remain fail-closed instead of being accepted 
   assert.equal(fake.checks.length, 0);
 });
 
+test('extra separately-granted function fails closed instead of widening least privilege', async () => {
+  const fake = fakeSessions({
+    grants: [
+      proposalGrant(),
+      {
+        ...proposalGrant(),
+        functions: ['execute-remediation'],
+      },
+    ],
+  }, { authorised: true });
+
+  const result = await new DelegationService(fake.tenant, fake.agent, PROPOSAL_DELEGATION_REQUIREMENTS)
+    .status('z:tenant:privacy-guard');
+  assert.equal(result.memberState, 'UNKNOWN');
+  assert.equal(result.effectiveState, 'UNKNOWN');
+  assert.equal(fake.checks.length, 0);
+});
+
 test('wildcard function is recognized on read but is never accepted as least-privilege readiness', async () => {
   const fake = fakeSessions({
     grants: [{
