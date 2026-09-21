@@ -629,7 +629,7 @@ EVIDENCE_NOTIFICATION_AUTHORIZATION_PROOF
 
 `T3N_API_KEY` authenticates the Tenant/Admin session used for organization-owned Agent Card publication and other administrative T3N operations. `T3N_ORG_DID` is the canonical public DID of the organization that owns the Proposal Agent; it is explicit configuration and must never be derived from a credential, Ethereum address or other secret. `T3N_AGENT_API_KEY` authenticates the Proposal Agent and must remain separate from the administrative credential.
 
-`T3N_CONTRACT_VERSION` is `0.4.0` for the versioned-policy contract. `T3N_POLICY_FILE` points to the local source document used by the explicit policy provisioning script; the active runtime policy is loaded from private T3N KV.
+`T3N_CONTRACT_VERSION` follows the packaged contract artifact; the current packaged contract is `0.4.5`, and EasyPanel should leave this variable unset unless the documented migration procedure explicitly requires otherwise. `T3N_POLICY_FILE` points to the local source document used by the explicit policy provisioning script; the active runtime policy is loaded from private T3N KV.
 
 `T3N_AGENT_API_KEY` authenticates the Proposal Agent and must not be granted protected remediation functions. `T3N_EXECUTOR_API_KEY` authenticates the separate Protected Executor and must receive only the execution/verification functions and hosts/scopes it needs. The Executor's fixed effective check includes `verified_contacts.email.value` for the protected notification branch; the Proposal Agent remains limited to `evaluate-action`.
 
@@ -718,6 +718,10 @@ The submission capture harness rejects AI/T3N/operator/service/capability/audit-
 
 The submission guide records the concrete `scopes` documentation inconsistency, the delegated `pii_did` authorization-subject requirement, the difference between Member Delegation read-back and effective `checkDelegation`, exact approved-destination binding and value-level normal-payload minimization. This project always sends explicit minimum scopes, derives `pii_did` from the authenticated tenant session and requires the delegated principal itself to perform the effective check.
 
+Terminal 3 contract-host compatibility is treated as a breaking runtime contract. After the function-scoped grant ABI change, each Tenant grant represents one contract function; `delegated-scopes()` exposes structured `{ path, access }` records; `delegated-read-scopes()` is removed; and the literal `"*"` is the all-functions marker. Privacy Guard must not provision that wildcard in its normal least-privilege flow.
+
+Any incompatible Terminal 3 host upgrade requires a WASM rebuild, a **major** `CONTRACT_VERSION` bump, synchronized Cargo/WIT/gateway version metadata, upload of the rebuilt WASM to the existing Tenant contract slot, a compatible SDK/CLI, and re-validation of previously provisioned grants. Rebuilding remains mandatory even when the contract does not directly call the changed accessors, because a WASM artifact linked to a removed host can fail to instantiate with `500 internal_error`. Until the contract artifact, gateway and grants are reconciled to the current ABI, the deployment must not be represented as ready or as positive live evidence.
+
 ## Pinned toolchain
 
 - Node: `22.20.0-alpine3.22`
@@ -730,7 +734,7 @@ The submission guide records the concrete `scopes` documentation inconsistency, 
 - Maven image: `3.9.16-eclipse-temurin-21`
 - Java runtime: `eclipse-temurin:21.0.12_8-jre`
 - Nginx: `1.27.5-alpine3.21-slim`
-- Rust contract: `0.4.0`, target `wasm32-wasip2`; the Alpine Docker contract builder installs `build-base` and `musl-dev` so host procedural macros can link before the WASI artifact is produced
+- Rust contract: `0.4.5`, target `wasm32-wasip2`; the Alpine Docker contract builder installs `build-base` and `musl-dev` so host procedural macros can link before the WASI artifact is produced
 
 ## Local builds
 
