@@ -70,11 +70,6 @@ public class RuntimeStatusClient {
         });
     }
 
-    /** Public agent registries (Agent Cards) do not exist for a self-hosted runtime. */
-    public Optional<AgentRegistrationStatus> agentRegistration() {
-        return Optional.empty();
-    }
-
     public Optional<ContractIdentity> contractIdentity() {
         return readiness()
             .map(readiness -> new ContractIdentity(readiness.path("contract_id").asText(null), readiness.path("contract_version").asText(null)))
@@ -196,17 +191,6 @@ public class RuntimeStatusClient {
     public record TenantStatus(boolean connected, boolean ready, String tenantDid, String network) {}
     public record AgentStatus(boolean configured, boolean connected, boolean ready, String agentDid, String network) {}
     public record ExecutorStatus(boolean configured, boolean connected, boolean ready, String executorDid, String network) {}
-    public record AgentRegistrationStatus(
-        String agentDid,
-        String state,
-        String cardUri,
-        String cardSha256,
-        String verifiedAt,
-        List<String> services,
-        boolean a2aConfigured,
-        String a2aPublicUrl,
-        String a2aConfigurationCheckedAt
-    ) {}
     public record ContractIdentity(String contractId, String contractVersion) {}
     public record DelegationStatus(
         String memberState,

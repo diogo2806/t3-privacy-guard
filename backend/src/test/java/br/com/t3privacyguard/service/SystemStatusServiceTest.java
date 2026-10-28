@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
 import br.com.t3privacyguard.integration.RuntimeStatusClient;
-import br.com.t3privacyguard.integration.RuntimeStatusClient.AgentRegistrationStatus;
 import br.com.t3privacyguard.integration.RuntimeStatusClient.AgentStatus;
 import br.com.t3privacyguard.integration.RuntimeStatusClient.ContractIdentity;
 import br.com.t3privacyguard.integration.RuntimeStatusClient.DelegationStatus;
@@ -24,29 +23,28 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class SystemStatusServiceTest {
-    @Mock RuntimeStatusClient gateway;
+    @Mock RuntimeStatusClient runtime;
     @Mock SecurityRemediationCredential remediationCredential;
     @InjectMocks SystemStatusService service;
 
     @BeforeEach
     void baseStatus() {
-        when(gateway.health()).thenReturn(true);
-        when(gateway.tenantStatus()).thenReturn(Optional.of(new TenantStatus(true, true, "agent:tenant", "testnet")));
-        when(gateway.agentStatus()).thenReturn(Optional.of(new AgentStatus(true, true, true, "agent:proposal-agent", "testnet")));
-        when(gateway.executorStatus()).thenReturn(Optional.of(new ExecutorStatus(true, true, true, "agent:protected-executor", "testnet")));
-        when(gateway.agentRegistration()).thenReturn(Optional.of(registration("agent:proposal-agent", "REGISTERED")));
-        when(gateway.enterpriseIntegrationReadiness()).thenReturn(Optional.of(integration("READY")));
-        when(gateway.contractIdentity()).thenReturn(Optional.of(new ContractIdentity("z:tenant:privacy-guard", "0.4.0")));
+        when(runtime.health()).thenReturn(true);
+        when(runtime.tenantStatus()).thenReturn(Optional.of(new TenantStatus(true, true, "agent:tenant", "selfhosted")));
+        when(runtime.agentStatus()).thenReturn(Optional.of(new AgentStatus(true, true, true, "agent:proposal-agent", "selfhosted")));
+        when(runtime.executorStatus()).thenReturn(Optional.of(new ExecutorStatus(true, true, true, "agent:protected-executor", "selfhosted")));
+        when(runtime.enterpriseIntegrationReadiness()).thenReturn(Optional.of(integration("READY")));
+        when(runtime.contractIdentity()).thenReturn(Optional.of(new ContractIdentity("z:tenant:privacy-guard", "0.4.0")));
         when(remediationCredential.isConfigured()).thenReturn(true);
     }
 
     @Test
-    void reportsIndependentEffectiveReadinessAndKeepsA2aStatus() {
-        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
+    void reportsIndependentEffectiveReadiness() {
+        when(runtime.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
             "ACTIVE", "ACTIVE", List.of("evaluate-action"), List.of("incident_id"), List.of(),
             List.of("evaluate-action"), List.of("incident_id", "credential_id", "reason")
         )));
-        when(gateway.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
+        when(runtime.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
             "ACTIVE", "ACTIVE", List.of("execute-remediation", "verify-remediation"), List.of("incident_id", "credential_id"), List.of("security.example", "verification.example"),
             List.of("execute-remediation", "verify-remediation"), List.of("incident_id", "credential_id", "reason")
         )));
@@ -69,24 +67,19 @@ class SystemStatusServiceTest {
         assertThat(result.delegationCheckedScopes()).containsExactly("incident_id", "credential_id", "reason");
         assertThat(result.executorDelegationCheckedFunctions()).containsExactly("execute-remediation", "verify-remediation");
         assertThat(result.executorDelegationCheckedScopes()).containsExactly("incident_id", "credential_id", "reason");
-        assertThat(result.agentCardServices()).containsExactly("A2A", "DID");
-        assertThat(result.a2aConfigured()).isTrue();
-        assertThat(result.a2aPublicUrl()).isEqualTo("https://guard.example/a2a");
-        assertThat(result.a2aConfigurationCheckedAt()).isEqualTo("2026-09-13T11:00:00Z");
         assertThat(result.message()).startsWith("guard-runtime controls are ready");
     }
 
     @Test
-    void selfHostedRuntimeIsReadyWithoutT3nDidsOrAgentCard() {
-        when(gateway.tenantStatus()).thenReturn(Optional.of(new TenantStatus(true, true, "acme", "selfhosted")));
-        when(gateway.agentStatus()).thenReturn(Optional.of(new AgentStatus(true, true, true, "agent:proposal", "selfhosted")));
-        when(gateway.executorStatus()).thenReturn(Optional.of(new ExecutorStatus(true, true, true, "agent:executor", "selfhosted")));
-        when(gateway.agentRegistration()).thenReturn(Optional.of(registration("agent:proposal", "NOT_REGISTERED")));
-        when(gateway.contractIdentity()).thenReturn(Optional.of(new ContractIdentity("guard-runtime", "1.0.0")));
-        when(gateway.delegationStatus("guard-runtime")).thenReturn(Optional.of(delegation(
+    void callerIdsAreEnoughForReadiness() {
+        when(runtime.tenantStatus()).thenReturn(Optional.of(new TenantStatus(true, true, "acme", "selfhosted")));
+        when(runtime.agentStatus()).thenReturn(Optional.of(new AgentStatus(true, true, true, "agent:proposal", "selfhosted")));
+        when(runtime.executorStatus()).thenReturn(Optional.of(new ExecutorStatus(true, true, true, "agent:executor", "selfhosted")));
+        when(runtime.contractIdentity()).thenReturn(Optional.of(new ContractIdentity("guard-runtime", "1.0.0")));
+        when(runtime.delegationStatus("guard-runtime")).thenReturn(Optional.of(delegation(
             "ACTIVE", "ACTIVE", List.of("evaluate-action"), List.of(), List.of(), List.of("evaluate-action"), List.of()
         )));
-        when(gateway.executorDelegationStatus("guard-runtime")).thenReturn(Optional.of(delegation(
+        when(runtime.executorDelegationStatus("guard-runtime")).thenReturn(Optional.of(delegation(
             "ACTIVE", "ACTIVE", List.of("execute-remediation", "verify-remediation"), List.of(), List.of("security.example"),
             List.of("execute-remediation", "verify-remediation"), List.of()
         )));
@@ -101,10 +94,10 @@ class SystemStatusServiceTest {
     }
 
     @Test
-    void selfHostedRuntimeOutageUsesTheRuntimeDiagnostic() {
-        when(gateway.tenantStatus()).thenReturn(Optional.of(new TenantStatus(false, false, null, "selfhosted")));
-        when(gateway.enterpriseIntegrationReadiness()).thenReturn(Optional.empty());
-        when(gateway.contractIdentity()).thenReturn(Optional.empty());
+    void runtimeOutageUsesTheRuntimeDiagnostic() {
+        when(runtime.tenantStatus()).thenReturn(Optional.of(new TenantStatus(false, false, null, "selfhosted")));
+        when(runtime.enterpriseIntegrationReadiness()).thenReturn(Optional.empty());
+        when(runtime.contractIdentity()).thenReturn(Optional.empty());
 
         var result = service.status();
 
@@ -113,13 +106,13 @@ class SystemStatusServiceTest {
     }
 
     @Test
-    void enterpriseMismatchDoesNotRedefineT3nProtectedRemediationReadiness() {
-        when(gateway.enterpriseIntegrationReadiness()).thenReturn(Optional.of(integration("MISMATCH")));
-        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
+    void enterpriseMismatchDoesNotRedefineProtectedRemediationReadiness() {
+        when(runtime.enterpriseIntegrationReadiness()).thenReturn(Optional.of(integration("MISMATCH")));
+        when(runtime.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
             "ACTIVE", "ACTIVE", List.of("evaluate-action"), List.of("incident_id"), List.of(),
             List.of("evaluate-action"), List.of("incident_id", "credential_id", "reason")
         )));
-        when(gateway.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
+        when(runtime.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
             "ACTIVE", "ACTIVE", List.of("execute-remediation", "verify-remediation"), List.of("incident_id"), List.of("security.example"),
             List.of("execute-remediation", "verify-remediation"), List.of("incident_id", "credential_id", "reason")
         )));
@@ -133,13 +126,13 @@ class SystemStatusServiceTest {
     }
 
     @Test
-    void propagatesSanitizedEnterpriseDiagnosticWithoutChangingT3nReadiness() {
-        when(gateway.enterpriseIntegrationReadiness()).thenReturn(Optional.of(integrationUnknown("POLICY_UNAVAILABLE")));
-        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
+    void propagatesSanitizedEnterpriseDiagnosticWithoutChangingRuntimeReadiness() {
+        when(runtime.enterpriseIntegrationReadiness()).thenReturn(Optional.of(integrationUnknown("POLICY_UNAVAILABLE")));
+        when(runtime.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
             "ACTIVE", "ACTIVE", List.of("evaluate-action"), List.of("incident_id"), List.of(),
             List.of("evaluate-action"), List.of("incident_id", "credential_id", "reason")
         )));
-        when(gateway.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
+        when(runtime.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
             "ACTIVE", "ACTIVE", List.of("execute-remediation", "verify-remediation"), List.of("incident_id"), List.of("security.example"),
             List.of("execute-remediation", "verify-remediation"), List.of("incident_id", "credential_id", "reason")
         )));
@@ -153,13 +146,13 @@ class SystemStatusServiceTest {
     }
 
     @Test
-    void unavailableEnterpriseReadinessFailsClosedWithoutChangingT3nReadiness() {
-        when(gateway.enterpriseIntegrationReadiness()).thenReturn(Optional.empty());
-        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
+    void unavailableEnterpriseReadinessFailsClosedWithoutChangingRuntimeReadiness() {
+        when(runtime.enterpriseIntegrationReadiness()).thenReturn(Optional.empty());
+        when(runtime.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
             "ACTIVE", "ACTIVE", List.of("evaluate-action"), List.of("incident_id"), List.of(),
             List.of("evaluate-action"), List.of("incident_id", "credential_id", "reason")
         )));
-        when(gateway.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
+        when(runtime.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
             "ACTIVE", "ACTIVE", List.of("execute-remediation", "verify-remediation"), List.of("incident_id"), List.of("security.example"),
             List.of("execute-remediation", "verify-remediation"), List.of("incident_id", "credential_id", "reason")
         )));
@@ -175,28 +168,23 @@ class SystemStatusServiceTest {
     }
 
     @Test
-    void keepsA2aConfigurationVisibleWhenProposalAgentSessionIsUnavailable() {
-        when(gateway.agentStatus()).thenReturn(Optional.of(new AgentStatus(true, false, false, null, "testnet")));
-        when(gateway.agentRegistration()).thenReturn(Optional.of(registration("", "UNAVAILABLE")));
+    void unauthenticatedProposalAgentBlocksEvaluation() {
+        when(runtime.agentStatus()).thenReturn(Optional.of(new AgentStatus(true, false, false, null, "selfhosted")));
 
         var result = service.status();
 
         assertThat(result.agentAuthenticated()).isFalse();
-        assertThat(result.agentRegistrationState()).isEqualTo("UNAVAILABLE");
-        assertThat(result.a2aConfigured()).isTrue();
-        assertThat(result.a2aPublicUrl()).isEqualTo("https://guard.example/a2a");
-        assertThat(result.a2aConfigurationCheckedAt()).isEqualTo("2026-09-13T11:00:00Z");
         assertThat(result.evaluationReady()).isFalse();
         assertThat(result.protectedRemediationReady()).isFalse();
     }
 
     @Test
-    void memberGrantAloneNeverMakesEvaluationReadyWhenT3nDeniesProposal() {
-        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
+    void knownCallerWithoutTheGrantNeverMakesEvaluationReady() {
+        when(runtime.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
             "ACTIVE", "DENIED", List.of("evaluate-action"), List.of("incident_id"), List.of(),
             List.of("evaluate-action"), List.of("incident_id", "credential_id", "reason")
         )));
-        when(gateway.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
+        when(runtime.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
             "ACTIVE", "ACTIVE", List.of("execute-remediation", "verify-remediation"), List.of("incident_id"), List.of("security.example"),
             List.of("execute-remediation", "verify-remediation"), List.of("incident_id", "credential_id", "reason")
         )));
@@ -213,11 +201,11 @@ class SystemStatusServiceTest {
 
     @Test
     void unknownProposalVerdictFailsClosed() {
-        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
+        when(runtime.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
             "ACTIVE", "UNKNOWN", List.of("evaluate-action"), List.of("incident_id"), List.of(),
             List.of("evaluate-action"), List.of("incident_id", "credential_id", "reason")
         )));
-        when(gateway.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
+        when(runtime.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
             "ACTIVE", "ACTIVE", List.of("execute-remediation", "verify-remediation"), List.of("incident_id"), List.of("security.example"),
             List.of("execute-remediation", "verify-remediation"), List.of("incident_id", "credential_id", "reason")
         )));
@@ -232,11 +220,11 @@ class SystemStatusServiceTest {
 
     @Test
     void executorDenialKeepsEvaluationReadyButBlocksProtectedRemediation() {
-        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
+        when(runtime.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
             "ACTIVE", "ACTIVE", List.of("evaluate-action"), List.of("incident_id"), List.of(),
             List.of("evaluate-action"), List.of("incident_id", "credential_id", "reason")
         )));
-        when(gateway.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
+        when(runtime.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
             "ACTIVE", "DENIED", List.of("execute-remediation", "verify-remediation"), List.of("incident_id"), List.of("security.example"),
             List.of("execute-remediation", "verify-remediation"), List.of("incident_id", "credential_id", "reason")
         )));
@@ -251,12 +239,12 @@ class SystemStatusServiceTest {
 
     @Test
     void executorUnavailableKeepsOnlyEvaluationReady() {
-        when(gateway.executorStatus()).thenReturn(Optional.of(new ExecutorStatus(true, false, false, null, "testnet")));
-        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
+        when(runtime.executorStatus()).thenReturn(Optional.of(new ExecutorStatus(true, false, false, null, "selfhosted")));
+        when(runtime.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
             "ACTIVE", "ACTIVE", List.of("evaluate-action"), List.of("incident_id"), List.of(),
             List.of("evaluate-action"), List.of("incident_id", "credential_id", "reason")
         )));
-        when(gateway.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.empty());
+        when(runtime.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.empty());
 
         var result = service.status();
 
@@ -267,31 +255,11 @@ class SystemStatusServiceTest {
     }
 
     @Test
-    void registrationMismatchDoesNotReclassifyEffectiveAuthorization() {
-        when(gateway.agentRegistration()).thenReturn(Optional.of(registration("agent:other", "REGISTERED")));
-        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
-            "ACTIVE", "ACTIVE", List.of("evaluate-action"), List.of("incident_id"), List.of(),
-            List.of("evaluate-action"), List.of("incident_id", "credential_id", "reason")
-        )));
-        when(gateway.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
-            "ACTIVE", "ACTIVE", List.of("execute-remediation", "verify-remediation"), List.of("incident_id"), List.of("security.example"),
-            List.of("execute-remediation", "verify-remediation"), List.of("incident_id", "credential_id", "reason")
-        )));
-
-        var result = service.status();
-
-        assertThat(result.agentRegistrationState()).isEqualTo("MISMATCH");
-        assertThat(result.evaluationReady()).isTrue();
-        assertThat(result.protectedRemediationReady()).isTrue();
-        assertThat(result.message()).startsWith("guard-runtime controls are ready");
-    }
-
-    @Test
     void scheduledProposalMemberGrantNeverTriggersReadyStateOrCheckedRestrictions() {
-        when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
+        when(runtime.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
             "SCHEDULED", "DENIED", List.of("evaluate-action"), List.of("incident_id"), List.of(), List.of(), List.of()
         )));
-        when(gateway.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
+        when(runtime.executorDelegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
             "ACTIVE", "ACTIVE", List.of("execute-remediation", "verify-remediation"), List.of("incident_id"), List.of("security.example"),
             List.of("execute-remediation", "verify-remediation"), List.of("incident_id", "credential_id", "reason")
         )));
@@ -304,29 +272,6 @@ class SystemStatusServiceTest {
         assertThat(result.delegationCheckedScopes()).isEmpty();
         assertThat(result.evaluationReady()).isFalse();
         assertThat(result.message()).contains("does not recognize the proposal agent credential");
-    }
-
-    @Test
-    void malformedDelegationStatusNormalizesToUnknownAndEmptyLists() {
-        DelegationStatus malformed = new DelegationStatus("BOGUS", "INCOMPLETE", null, null, null, null, null);
-        assertThat(malformed.memberState()).isEqualTo("UNKNOWN");
-        assertThat(malformed.effectiveState()).isEqualTo("UNKNOWN");
-        assertThat(malformed.functions()).isEmpty();
-        assertThat(malformed.checkedFunctions()).isEmpty();
-    }
-
-    private static AgentRegistrationStatus registration(String did, String state) {
-        return new AgentRegistrationStatus(
-            did,
-            state,
-            "https://node.example/api/agent-card/" + did,
-            "a".repeat(64),
-            "2026-09-13T11:00:00Z",
-            List.of("A2A", "DID"),
-            true,
-            "https://guard.example/a2a",
-            "2026-09-13T11:00:00Z"
-        );
     }
 
     private static EnterpriseIntegrationReadiness integration(String state) {

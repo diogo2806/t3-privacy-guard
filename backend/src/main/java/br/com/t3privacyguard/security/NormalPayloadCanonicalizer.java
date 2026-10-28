@@ -2,6 +2,7 @@ package br.com.t3privacyguard.security;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.Map;
 import java.util.TreeMap;
@@ -37,10 +38,11 @@ public final class NormalPayloadCanonicalizer {
     }
 
     public static String sha256(Map<String, String> payload) {
+        // Invalid payloads stay IllegalArgumentException; only a missing digest algorithm is an internal failure.
+        byte[] canonical = canonical(payload).getBytes(StandardCharsets.UTF_8);
         try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                .digest(canonical(payload).getBytes(StandardCharsets.UTF_8)));
-        } catch (Exception ex) {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(canonical));
+        } catch (NoSuchAlgorithmException ex) {
             throw new IllegalStateException("Unable to hash normal remediation payload", ex);
         }
     }

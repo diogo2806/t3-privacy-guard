@@ -33,6 +33,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -97,7 +98,8 @@ public class IncidentService {
 
     @Transactional
     public IncidentResponse createIncident(CreateIncidentRequest request) {
-        Instant now = Instant.now();
+        // Database precision, so the creation response carries the same timestamps a later read returns.
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         var minimized = minimizer.minimize(request.title(), request.summary(), request.source());
         Instant expiresAt = now.plus(retentionProperties.retention());
         IncidentEntity entity = incidents.save(new IncidentEntity(

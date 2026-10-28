@@ -155,7 +155,6 @@ class GuardRuntimeClientsTest {
         assertThat(readiness.state()).isEqualTo("READY");
         assertThat(readiness.evaluationOnlyActions()).containsExactly("create-incident");
         assertThat(status.activity(0, 10, 50).orElseThrow().events()).extracting(RuntimeStatusClient.ActivityEvent::function).containsExactly("evaluate-action");
-        assertThat(status.agentRegistration()).isEmpty();
     }
 
     @Test

@@ -16,7 +16,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 
 @SpringBootTest(properties = {
-    "spring.datasource.url=jdbc:h2:file:./target/incident-retention-persistent-it;AUTO_SERVER=TRUE;DB_CLOSE_ON_EXIT=FALSE",
+    "spring.datasource.url=jdbc:h2:file:./target/incident-retention-persistent-it;DB_CLOSE_ON_EXIT=FALSE",
     "spring.jpa.hibernate.ddl-auto=create-drop",
     "privacy-guard.incident-retention.days=7",
     "privacy-guard.incident-retention.purge-initial-delay-ms=86400000",

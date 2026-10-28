@@ -21,7 +21,7 @@ public class IncidentDataMinimizer {
     private static final Pattern CNPJ = Pattern.compile("(?<!\\d)\\d{2}\\.?\\d{3}\\.?\\d{3}\\/?\\d{4}-?\\d{2}(?!\\d)");
     private static final Pattern E164_PHONE = Pattern.compile("(?<![\\w+])\\+[1-9]\\d{7,14}(?!\\d)");
     private static final Pattern LABELED_PHONE = Pattern.compile(
-        "\\b(?:phone|mobile|telefone|celular)\\s*[:=]\\s*(\\+?\\d[\\d(). -]{6,}\\d)",
+        "\\b(?:phone|mobile|telefone|celular)\\s*[:=]\\s*(\\+?\\(?\\d[\\d(). -]{6,}\\d)",
         Pattern.CASE_INSENSITIVE
     );
     private static final Pattern LABELED_IP = Pattern.compile(

@@ -1,7 +1,6 @@
 package br.com.t3privacyguard.service;
 
 import br.com.t3privacyguard.integration.RuntimeStatusClient;
-import br.com.t3privacyguard.integration.RuntimeStatusClient.AgentRegistrationStatus;
 import br.com.t3privacyguard.integration.RuntimeStatusClient.AgentStatus;
 import br.com.t3privacyguard.integration.RuntimeStatusClient.ContractIdentity;
 import br.com.t3privacyguard.integration.RuntimeStatusClient.DelegationStatus;
@@ -16,7 +15,6 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class SystemStatusService {
-    private static final List<String> REGISTRATION_STATES = List.of("REGISTERED", "NOT_REGISTERED", "MISMATCH", "UNAVAILABLE");
     private final RuntimeStatusClient runtime;
     private final SecurityRemediationCredential remediationCredential;
 
@@ -30,7 +28,6 @@ public class SystemStatusService {
         Optional<TenantStatus> tenant = runtime.tenantStatus();
         Optional<AgentStatus> agent = runtime.agentStatus();
         Optional<ExecutorStatus> executor = runtime.executorStatus();
-        Optional<AgentRegistrationStatus> registration = runtimeReachable ? runtime.agentRegistration() : Optional.empty();
         Optional<EnterpriseIntegrationReadiness> enterpriseIntegration = runtimeReachable ? runtime.enterpriseIntegrationReadiness() : Optional.empty();
         Optional<ContractIdentity> contract = runtime.contractIdentity();
         Optional<DelegationStatus> proposalDelegation = contract.flatMap(value -> runtime.delegationStatus(value.contractId()));
@@ -41,7 +38,6 @@ public class SystemStatusService {
         boolean executorAuthenticated = executor.map(ExecutorStatus::ready).orElse(false);
         String authenticatedAgentDid = agent.map(AgentStatus::agentDid).orElse(null);
         String authenticatedExecutorDid = executor.map(ExecutorStatus::executorDid).orElse(null);
-        String registrationState = registrationState(registration, authenticatedAgentDid);
         boolean contractResolved = contract.isPresent();
         String delegationMemberState = proposalDelegation.map(DelegationStatus::memberState).orElse("UNKNOWN");
         String delegationEffectiveState = proposalDelegation.map(DelegationStatus::effectiveState).orElse("UNKNOWN");
@@ -84,14 +80,6 @@ public class SystemStatusService {
             executor.map(ExecutorStatus::configured).orElse(false),
             executorAuthenticated,
             authenticatedExecutorDid,
-            registrationState,
-            registration.map(AgentRegistrationStatus::cardUri).orElse(null),
-            registration.map(AgentRegistrationStatus::cardSha256).orElse(null),
-            registration.map(AgentRegistrationStatus::verifiedAt).orElse(null),
-            registration.map(AgentRegistrationStatus::services).map(SystemStatusService::safeList).orElse(List.of()),
-            registration.map(AgentRegistrationStatus::a2aConfigured).orElse(false),
-            registration.map(AgentRegistrationStatus::a2aPublicUrl).orElse(null),
-            registration.map(AgentRegistrationStatus::a2aConfigurationCheckedAt).orElse(null),
             contractResolved,
             contract.map(ContractIdentity::contractId).orElse(null),
             contract.map(ContractIdentity::contractVersion).orElse(null),
@@ -165,14 +153,6 @@ public class SystemStatusService {
         return "guard-runtime is online, but one or more identity, policy or grant checks are not confirmed as ready.";
     }
 
-    private static String registrationState(Optional<AgentRegistrationStatus> registration, String authenticatedAgentDid) {
-        if (registration.isEmpty()) return "UNAVAILABLE";
-        AgentRegistrationStatus value = registration.get();
-        if (authenticatedAgentDid == null || authenticatedAgentDid.isBlank()) return "UNAVAILABLE";
-        if (value.agentDid() == null || !authenticatedAgentDid.equals(value.agentDid())) return "MISMATCH";
-        return REGISTRATION_STATES.contains(value.state()) ? value.state() : "UNAVAILABLE";
-    }
-
     private static List<String> safeList(List<String> values) {
         return values == null ? List.of() : List.copyOf(values);
     }
@@ -192,14 +172,6 @@ public class SystemStatusService {
         boolean executorConfigured,
         boolean executorAuthenticated,
         String executorDid,
-        String agentRegistrationState,
-        String agentCardUri,
-        String agentCardSha256,
-        String agentCardVerifiedAt,
-        List<String> agentCardServices,
-        boolean a2aConfigured,
-        String a2aPublicUrl,
-        String a2aConfigurationCheckedAt,
         boolean contractResolved,
         String contractId,
         String contractVersion,

@@ -24,24 +24,24 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class SystemStatusUnknownReadinessTest {
     private static final String CONTRACT_ID = "z:tenant:privacy-guard";
 
-    @Mock RuntimeStatusClient gateway;
+    @Mock RuntimeStatusClient runtime;
     @Mock SecurityRemediationCredential remediationCredential;
     @InjectMocks SystemStatusService service;
 
     @BeforeEach
     void baseStatus() {
-        when(gateway.health()).thenReturn(true);
-        when(gateway.tenantStatus()).thenReturn(Optional.of(new TenantStatus(true, true, "agent:tenant", "testnet")));
-        when(gateway.agentStatus()).thenReturn(Optional.of(new AgentStatus(true, true, true, "agent:proposal-agent", "testnet")));
-        when(gateway.executorStatus()).thenReturn(Optional.of(new ExecutorStatus(true, true, true, "agent:executor", "testnet")));
-        when(gateway.contractIdentity()).thenReturn(Optional.of(new ContractIdentity(CONTRACT_ID, "0.4.1")));
+        when(runtime.health()).thenReturn(true);
+        when(runtime.tenantStatus()).thenReturn(Optional.of(new TenantStatus(true, true, "agent:tenant", "selfhosted")));
+        when(runtime.agentStatus()).thenReturn(Optional.of(new AgentStatus(true, true, true, "agent:proposal-agent", "selfhosted")));
+        when(runtime.executorStatus()).thenReturn(Optional.of(new ExecutorStatus(true, true, true, "agent:executor", "selfhosted")));
+        when(runtime.contractIdentity()).thenReturn(Optional.of(new ContractIdentity(CONTRACT_ID, "0.4.1")));
     }
 
     @Test
     void preservesUnknownEnterpriseFactsInsteadOfConvertingThemToFalse() {
-        when(gateway.enterpriseIntegrationReadiness()).thenReturn(Optional.of(unknownIntegration()));
-        when(gateway.delegationStatus(CONTRACT_ID)).thenReturn(Optional.of(activeDelegation()));
-        when(gateway.executorDelegationStatus(CONTRACT_ID)).thenReturn(Optional.of(activeDelegation()));
+        when(runtime.enterpriseIntegrationReadiness()).thenReturn(Optional.of(unknownIntegration()));
+        when(runtime.delegationStatus(CONTRACT_ID)).thenReturn(Optional.of(activeDelegation()));
+        when(runtime.executorDelegationStatus(CONTRACT_ID)).thenReturn(Optional.of(activeDelegation()));
 
         var result = service.status();
 
@@ -58,9 +58,9 @@ class SystemStatusUnknownReadinessTest {
 
     @Test
     void diagnosticCodesFromOtherRuntimesNormalizeToRuntimeUnavailable() {
-        when(gateway.enterpriseIntegrationReadiness()).thenReturn(Optional.of(unknownIntegration("INSUFFICIENT_CREDIT")));
-        when(gateway.delegationStatus(CONTRACT_ID)).thenReturn(Optional.of(activeDelegation()));
-        when(gateway.executorDelegationStatus(CONTRACT_ID)).thenReturn(Optional.of(activeDelegation()));
+        when(runtime.enterpriseIntegrationReadiness()).thenReturn(Optional.of(unknownIntegration("INSUFFICIENT_CREDIT")));
+        when(runtime.delegationStatus(CONTRACT_ID)).thenReturn(Optional.of(activeDelegation()));
+        when(runtime.executorDelegationStatus(CONTRACT_ID)).thenReturn(Optional.of(activeDelegation()));
 
         var result = service.status();
 
@@ -73,9 +73,9 @@ class SystemStatusUnknownReadinessTest {
 
     @Test
     void missingEnterpriseReadinessAlsoRemainsUnknownAndFailClosed() {
-        when(gateway.enterpriseIntegrationReadiness()).thenReturn(Optional.empty());
-        when(gateway.delegationStatus(CONTRACT_ID)).thenReturn(Optional.of(activeDelegation()));
-        when(gateway.executorDelegationStatus(CONTRACT_ID)).thenReturn(Optional.of(activeDelegation()));
+        when(runtime.enterpriseIntegrationReadiness()).thenReturn(Optional.empty());
+        when(runtime.delegationStatus(CONTRACT_ID)).thenReturn(Optional.of(activeDelegation()));
+        when(runtime.executorDelegationStatus(CONTRACT_ID)).thenReturn(Optional.of(activeDelegation()));
 
         var result = service.status();
 
@@ -87,9 +87,9 @@ class SystemStatusUnknownReadinessTest {
 
     @Test
     void unknownProposalMemberStateUsesInconclusiveCopyAndFailsClosed() {
-        when(gateway.enterpriseIntegrationReadiness()).thenReturn(Optional.of(unknownIntegration()));
-        when(gateway.delegationStatus(CONTRACT_ID)).thenReturn(Optional.of(delegation("UNKNOWN", "UNKNOWN")));
-        when(gateway.executorDelegationStatus(CONTRACT_ID)).thenReturn(Optional.of(activeDelegation()));
+        when(runtime.enterpriseIntegrationReadiness()).thenReturn(Optional.of(unknownIntegration()));
+        when(runtime.delegationStatus(CONTRACT_ID)).thenReturn(Optional.of(delegation("UNKNOWN", "UNKNOWN")));
+        when(runtime.executorDelegationStatus(CONTRACT_ID)).thenReturn(Optional.of(activeDelegation()));
 
         var result = service.status();
 
@@ -100,13 +100,13 @@ class SystemStatusUnknownReadinessTest {
 
     @Test
     void notGrantedAndRevokedProposalStatesRemainExplicit() {
-        when(gateway.enterpriseIntegrationReadiness()).thenReturn(Optional.of(unknownIntegration()));
-        when(gateway.executorDelegationStatus(CONTRACT_ID)).thenReturn(Optional.of(activeDelegation()));
+        when(runtime.enterpriseIntegrationReadiness()).thenReturn(Optional.of(unknownIntegration()));
+        when(runtime.executorDelegationStatus(CONTRACT_ID)).thenReturn(Optional.of(activeDelegation()));
 
-        when(gateway.delegationStatus(CONTRACT_ID)).thenReturn(Optional.of(delegation("NOT_GRANTED", "UNKNOWN")));
+        when(runtime.delegationStatus(CONTRACT_ID)).thenReturn(Optional.of(delegation("NOT_GRANTED", "UNKNOWN")));
         assertThat(service.status().message()).isEqualTo("guard-runtime does not recognize the proposal agent credential; policy evaluation is not ready.");
 
-        when(gateway.delegationStatus(CONTRACT_ID)).thenReturn(Optional.of(delegation("REVOKED", "UNKNOWN")));
+        when(runtime.delegationStatus(CONTRACT_ID)).thenReturn(Optional.of(delegation("REVOKED", "UNKNOWN")));
         assertThat(service.status().message()).isEqualTo("guard-runtime does not recognize the proposal agent credential; policy evaluation is not ready.");
     }
 
