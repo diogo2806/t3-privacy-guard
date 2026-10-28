@@ -247,6 +247,9 @@ class RemediationRulesTest {
     void plainHttpEgressOnlyWhenExplicitlyAllowed() {
         assertRejected(() -> RemediationRules.extractEgressHost("http://security-api.internal/execute", false), "must use https");
         assertThat(RemediationRules.extractEgressHost("http://security-api.internal/execute", true)).isEqualTo("security-api.internal");
+        // Explicit ports are a local-development convenience only; production keeps the contract's strict rule.
+        assertThat(RemediationRules.extractEgressHost("http://localhost:8080/execute", true)).isEqualTo("localhost");
+        assertRejected(() -> RemediationRules.extractEgressHost("https://localhost:8443/execute", false), "invalid host");
     }
 
     private static RemediationRules.MinimizedEgress build(Request request) {

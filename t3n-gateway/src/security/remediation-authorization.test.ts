@@ -97,6 +97,19 @@ test('invalid human provenance or time ordering fails closed', () => {
   assert.throws(() => current.verifyAndConsume(token(), { ...body, operator_principal_hash: 'invalid' }), /CAPABILITY_INVALID/);
 });
 
+test('self-hosted executor caller ids are accepted while unsafe executor identities fail closed', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 't3pg-cap-')), 'nonces.json');
+  const current = verifier(path);
+  const selfHosted = { ...body, executor_did: 'agent:executor' };
+  assert.equal(current.verifyAndConsume(token({ executorDid: 'agent:executor', nonce: 'nonce-selfhosted-1' }), selfHosted).executorDid, 'agent:executor');
+  for (const unsafe of ['', 'agent executor', ':executor', 'agent/executor']) {
+    assert.throws(
+      () => current.verifyAndConsume(token({ executorDid: unsafe, nonce: `nonce-unsafe-${unsafe.length}` }), { ...body, executor_did: unsafe }),
+      /CAPABILITY_INVALID/,
+    );
+  }
+});
+
 test('approved destination must be an exact canonical hostname', () => {
   assert.equal(canonicalizeApprovedHost('security-a.example'), 'security-a.example');
   for (const invalid of ['Security-A.Example', 'https://security-a.example/remediate', 'security-a.example:443', 'user@security-a.example', '-bad.example']) {

@@ -7,6 +7,8 @@ const MAX_TOKEN_LENGTH = 8_192;
 const MAX_CAPABILITY_LIFETIME_MS = 300_000;
 const CLOCK_SKEW_MS = 5_000;
 const KEY_ID = /^[A-Za-z0-9._-]{1,32}$/;
+// A did:t3n: DID on Terminal 3 or a guard-runtime caller id such as agent:executor.
+const PROTECTED_EXECUTOR_IDENTITY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 
 export interface RemediationBody {
   incident_id: string;
@@ -157,7 +159,7 @@ export class RemediationAuthorizationVerifier {
     if (claims.issuedAt > currentTime + CLOCK_SKEW_MS) throw new Error('CAPABILITY_INVALID');
     if (!/^[A-Za-z0-9._:-]{8,128}$/.test(claims.nonce ?? '')) throw new Error('CAPABILITY_INVALID');
     if (!claims.policyVersion || !/^[a-f0-9]{64}$/.test(claims.policyHash ?? '')) throw new Error('CAPABILITY_INVALID');
-    if (!claims.executorDid?.startsWith('did:t3n:')) throw new Error('CAPABILITY_INVALID');
+    if (!PROTECTED_EXECUTOR_IDENTITY.test(claims.executorDid ?? '')) throw new Error('CAPABILITY_INVALID');
     if (!/^[a-f0-9]{64}$/.test(claims.fieldsHash ?? '')
       || !/^[a-f0-9]{64}$/.test(claims.normalPayloadHash ?? '')
       || !/^[a-f0-9]{64}$/.test(claims.privateRefsHash ?? '')

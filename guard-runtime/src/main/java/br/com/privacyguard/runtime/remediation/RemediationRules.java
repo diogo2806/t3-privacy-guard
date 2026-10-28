@@ -33,6 +33,7 @@ public final class RemediationRules {
     private static final int MAX_AUTHORIZATION_PROOF_BYTES = 8_192;
     private static final Pattern NORMAL_KEY = Pattern.compile("[a-z][a-z0-9_]{0,79}");
     private static final Pattern OPERATION_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9_-]{0,127}");
+    private static final Pattern DEV_PORT_SUFFIX = Pattern.compile(":[0-9]{1,5}$");
     private static final Set<String> FORBIDDEN_NORMAL_PAYLOAD_KEYS = Set.of(
         "api_key", "card_number", "credential", "cpf", "password", "private_key", "secret", "ssn", "token"
     );
@@ -155,7 +156,10 @@ public final class RemediationRules {
         return Hostnames.canonicalize(value, DESTINATION_ERROR);
     }
 
-    /** extract_https_host; plain http only when the runtime is explicitly configured for local development. */
+    /**
+     * extract_https_host. Local development mode (allowInsecureHttp) also accepts http:// and an explicit port, so a
+     * service on localhost:8080 can be the destination; the approved-destination binding still compares hostnames.
+     */
     public static String extractEgressHost(String url, boolean allowInsecureHttp) {
         String rest;
         if (url.startsWith("https://")) rest = url.substring("https://".length());
@@ -163,6 +167,7 @@ public final class RemediationRules {
         else throw new ContractRejectedException("security endpoint must use https");
         int slash = rest.indexOf('/');
         String host = slash < 0 ? rest : rest.substring(0, slash);
+        if (allowInsecureHttp) host = DEV_PORT_SUFFIX.matcher(host).replaceFirst("");
         try {
             return Hostnames.canonicalize(host, "security endpoint contains an invalid host");
         } catch (ContractRejectedException ex) {
