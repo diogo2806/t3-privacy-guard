@@ -11,7 +11,7 @@ It runs as its own process with its own credentials, apart from the app that tal
 | `policy/` | `evaluate-action`: action, purpose, fields, destination and private references against the policy |
 | `authorization/` | v2 Ed25519 capability: signature, expiry, exact binding to the approved request, key rotation window, nonce replay buckets |
 | `remediation/` | `execute-remediation` (destination binding, policy re-check, minimized payload) and `verify-remediation` (independent read-back) |
-| `store/` | Policy file (re-read on every call), private configuration from the environment, replay store, private profile |
+| `store/` | Policy (a file, or immutable versions with a hash-chained history), private configuration from the environment, replay store, private profile |
 | `egress/` | Protected HTTP call; the only place where `verified_email` becomes a real address |
 | `caller/` | Bearer-token callers with explicit function grants |
 | `activity/` | Append-only, hash-chained activity log |
@@ -43,16 +43,23 @@ All endpoints need `Authorization: Bearer <caller token>`.
 | `GET /v1/caller` | any | Caller id and granted functions |
 | `GET /v1/readiness` | any | Policy, endpoint hostnames and which private settings are present |
 | `GET /v1/activity?beforeSeq&fromMs&toMs&limit` | any | Activity log, newest first |
+| `GET /v1/policy` | `manage-policy` | Active version, hash and canonical document; `managed` says whether versions can be published |
+| `GET /v1/policy/history?limit` | `manage-policy` | Seeds, publications and rollbacks, newest first, with caller and requester |
+| `GET /v1/policy/versions/{version}` | `manage-policy` | A published version |
+| `POST /v1/policy/validate` | `manage-policy` | `{"document":{...}}` returns `valid` with version and hash, or the rule it breaks |
+| `POST /v1/policy/publish` | `manage-policy` | `{"document":{...},"expected_current_hash":"...","requested_by":"..."}` |
+| `POST /v1/policy/rollback` | `manage-policy` | `{"version":"...","expected_current_hash":"...","requested_by":"..."}` |
 
-Function responses carry `X-Activity-Sequence` and `X-Activity-Hash`. Errors: `401 UNAUTHENTICATED`, `403 FUNCTION_NOT_GRANTED`, `400 INVALID_INPUT`, `413 INPUT_TOO_LARGE`, `422 CONTRACT_REJECTED` with a `reason` code.
+Function responses carry `X-Activity-Sequence` and `X-Activity-Hash`; so do publish and rollback, which are logged as `manage-policy`. Policy errors: `422 POLICY_INVALID` with the rule it breaks, `409 POLICY_CHANGED` (the expected hash is not the active one), `409 VERSION_EXISTS` (versions are immutable), `404 VERSION_NOT_FOUND`, `409 POLICY_MANAGEMENT_DISABLED` without a policy directory. Errors: `401 UNAUTHENTICATED`, `403 FUNCTION_NOT_GRANTED`, `400 INVALID_INPUT`, `413 INPUT_TOO_LARGE`, `422 CONTRACT_REJECTED` with a `reason` code.
 
 ## Configuration
 
 | Variable | Meaning |
 |---|---|
 | `GUARD_RUNTIME_PORT` | HTTP port (default `3101`) |
-| `GUARD_RUNTIME_POLICY_FILE` | Policy JSON. Missing → `POLICY_UNAVAILABLE`, invalid → `POLICY_INVALID` |
-| `GUARD_RUNTIME_CALLERS_JSON` | `[{"id":"agent:proposal","token":"<32-512 chars>","functions":["evaluate-action"]}, …]` |
+| `GUARD_RUNTIME_POLICY_FILE` | Policy JSON. Missing → `POLICY_UNAVAILABLE`, invalid → `POLICY_INVALID`. With a policy directory it only seeds versions not published yet |
+| `GUARD_RUNTIME_POLICY_DIR` | Optional. Versions (written once) and `history.jsonl` (hash-chained; a broken chain or an altered active version stops startup). Enables `/v1/policy` writes |
+| `GUARD_RUNTIME_CALLERS_JSON` | `[{"id":"agent:proposal","token":"<32-512 chars>","functions":["evaluate-action"]}, …]`; grants are `evaluate-action`, `execute-remediation`, `verify-remediation` and `manage-policy` |
 | `GUARD_RUNTIME_REPLAY_FILE` | Capability nonce store |
 | `GUARD_RUNTIME_ACTIVITY_FILE` | Activity log (JSON lines). A broken hash chain stops startup |
 | `GUARD_RUNTIME_TENANT_ID` | Reported as the tenant / `onBehalfOfDid` (default `default`) |
@@ -76,7 +83,7 @@ mvn -f guard-runtime/pom.xml package
 
 ## Known limits
 
-- One runtime instance: the replay store and activity log are local files guarded by an in-process lock. Several instances need a shared transactional store.
+- One runtime instance: the replay store, activity log and policy versions are local files guarded by an in-process lock. Several instances need a shared transactional store.
 - Single tenant per runtime.
 - Caller authentication uses static bearer tokens; mTLS or OIDC workload identity is the next step.
 - One private value (`verified_email`) and one security API per runtime.

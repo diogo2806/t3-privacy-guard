@@ -12,13 +12,16 @@ services:
   guard-runtime:
     build: ../../guard-runtime
     environment:
+      # Versions published from the dashboard live in the data volume; policy.json only seeds versions not seen yet.
       GUARD_RUNTIME_POLICY_FILE: /config/policy.json
+      GUARD_RUNTIME_POLICY_DIR: /data/policy
       GUARD_RUNTIME_REPLAY_FILE: /data/replay/execution-nonces.json
       GUARD_RUNTIME_ACTIVITY_FILE: /data/activity/activity.jsonl
       GUARD_RUNTIME_TENANT_ID: ${GUARD_RUNTIME_TENANT_ID:-local}
       GUARD_RUNTIME_CALLERS_JSON: >-
         [{"id":"agent:proposal","token":"${GUARD_RUNTIME_PROPOSAL_TOKEN:?run ./init-env.sh first}","functions":["evaluate-action"]},
-        {"id":"agent:executor","token":"${GUARD_RUNTIME_EXECUTOR_TOKEN:?run ./init-env.sh first}","functions":["execute-remediation","verify-remediation"]}]
+        {"id":"agent:executor","token":"${GUARD_RUNTIME_EXECUTOR_TOKEN:?run ./init-env.sh first}","functions":["execute-remediation","verify-remediation"]},
+        {"id":"agent:policy-admin","token":"${GUARD_RUNTIME_POLICY_ADMIN_TOKEN:?run ./init-env.sh first}","functions":["manage-policy"]}]
       GUARD_RUNTIME_VERIFIED_EMAIL: ${GUARD_RUNTIME_VERIFIED_EMAIL:-soc@example.test}
       GUARD_RUNTIME_ALLOW_INSECURE_HTTP: "true"
       SECURITY_API_URL: http://app:8080/api/security/remediation/execute
@@ -39,6 +42,7 @@ services:
       GUARD_RUNTIME_URL: http://guard-runtime:3101
       GUARD_RUNTIME_PROPOSAL_TOKEN: ${GUARD_RUNTIME_PROPOSAL_TOKEN:?run ./init-env.sh first}
       GUARD_RUNTIME_EXECUTOR_TOKEN: ${GUARD_RUNTIME_EXECUTOR_TOKEN:?run ./init-env.sh first}
+      GUARD_RUNTIME_POLICY_ADMIN_TOKEN: ${GUARD_RUNTIME_POLICY_ADMIN_TOKEN:?run ./init-env.sh first}
       SECURITY_API_KEY: ${SECURITY_API_KEY:?run ./init-env.sh first}
       REMEDIATION_AUTH_PRIVATE_KEY_PKCS8: ${REMEDIATION_AUTH_PRIVATE_KEY_PKCS8:?run ./init-env.sh first}
       REMEDIATION_AUTH_KEY_ID: primary

@@ -104,7 +104,18 @@ Upstream responses are reduced to bounded metadata; an `operation_id` must be an
 
 ## Policy
 
-The policy is a JSON document read by guard-runtime on every call (example: [`deploy/local/policy.json`](deploy/local/policy.json)). Each action declares its purpose, allowed fields, allowed hosts, allowed private references, whether a host is required and whether human authorization is required. Every decision carries `policyVersion` and `policyHash`, and the capability binds them, so an approval cannot be reused after the policy changes.
+The policy is a JSON document enforced by guard-runtime (example: [`deploy/local/policy.json`](deploy/local/policy.json)). Each action declares its purpose, allowed fields, allowed hosts, allowed private references, whether a host is required and whether human authorization is required. Every decision carries `policyVersion` and `policyHash`, and the capability binds them, so an approval cannot be reused after the policy changes: guard-runtime refuses it before any external call and the remediation ends as `FAILED` with `POLICY_CHANGED_AFTER_AUTHORIZATION`.
+
+### Policy editor
+
+With `GUARD_RUNTIME_POLICY_DIR` set, guard-runtime keeps the policy as immutable versions plus a hash-chained history (checked at startup), and the dashboard's **Policy** tab becomes an editor:
+
+- edit the rules per action, see the changes against the active version, ask guard-runtime to validate the draft, then publish it under a new version name;
+- publishing sends the hash of the version being edited, so two administrators cannot overwrite each other's change;
+- any earlier version can be made active again with a rollback;
+- the history records each change, the human who requested it (as reported by the app) and the guard-runtime caller that made it.
+
+The app reaches these functions with a third guard-runtime caller granted only `manage-policy` (`GUARD_RUNTIME_POLICY_ADMIN_TOKEN`). Without a policy directory, the file is the policy and the tab is read-only; with one, the file only seeds a version that was never published, so keeping policy in Git and restarting still works.
 
 Some rules cannot be relaxed by the document: secret fields (`api_key`, passwords, tokens, private keys) are always denied, unknown actions, purposes, hosts and references fail closed, and sizes are bounded.
 
@@ -119,7 +130,7 @@ Current vocabulary:
 
 ## Human governance
 
-Four application roles: `ANALYST` (incidents, agent analysis, proposals), `APPROVER` (authorizes remediation), `EXECUTOR` (executes and verifies), `AUDITOR` (read-only). With `ENTERPRISE_SOD_ENABLED=true` each role is a distinct account and the account that authorized a remediation can never execute or verify it. Without it, a single operator account holds all four roles; the dashboard labels that mode as local/demo.
+Five application roles: `ANALYST` (incidents, agent analysis, proposals), `APPROVER` (authorizes remediation), `EXECUTOR` (executes and verifies), `AUDITOR` (read-only, including the policy) and `POLICY_ADMIN` (publishes and rolls back policy versions). With `ENTERPRISE_SOD_ENABLED=true` each role is a distinct account (the policy administrator is optional) and the account that authorized a remediation can never execute or verify it. Without it, a single operator account holds all roles; the dashboard labels that mode as local/demo.
 
 ## Audit
 
@@ -164,6 +175,7 @@ All settings, with comments, are in [`.env.example`](.env.example).
 | `/api/agent/analyze` | `ANALYST` | Ask the AI agent for a proposal |
 | `/api/system/status` | operators | Runtime reachability, caller grants, policy and integration readiness |
 | `/api/business-impact`, `/api/incident-workspace` | operators | Measured outcomes and the incident queue |
+| `/api/policy/**` | `POLICY_ADMIN` (`AUDITOR` reads) | Active policy, history, validate, publish, roll back |
 | `/api/integrations/incidents` | intake token | Machine-to-machine incident intake (off by default) |
 | `/api/security/remediation/{execute,verify}` | `SECURITY_API_KEY` | Built-in security adapter used by the local stack |
 | `/mcp` | `MCP_TOKEN` | MCP endpoint for external agents |
@@ -194,10 +206,9 @@ npm --prefix frontend run typecheck
 
 ## Limits
 
-- One guard-runtime instance per tenant; its replay store and activity log are local files. Horizontal scaling needs a shared transactional store.
+- One guard-runtime instance per tenant; its replay store, activity log and policy versions are local files. Horizontal scaling needs a shared transactional store.
 - Callers authenticate with static bearer tokens; mTLS or workload identity is the next step.
 - One private value (`verified_email`) and one security API per runtime; real deployments need connectors for their own tooling (IdP, ticketing, messaging).
-- The policy is edited as a file; there is no policy editor in the dashboard.
 - Without confidential computing, trust rests on process, credential and operator separation.
 - An idempotency key is sent with every protected call, but exactly-once delivery depends on the target system honouring it.
 
