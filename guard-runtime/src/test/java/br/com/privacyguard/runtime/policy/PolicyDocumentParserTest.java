@@ -19,19 +19,19 @@ class PolicyDocumentParserTest {
         {"purpose":"incident-remediation","allowed_fields":["incident_id","credential_id","reason"],"allowed_hosts":["postman-echo.com"],"allowed_private_refs":[],"requires_host":true,"requires_human_authorization":true}""";
 
     /*
-     * Golden hashes come from canonicalizeOperationalPolicy in t3n-gateway/src/policy/policy-document.ts, the tool
-     * that publishes policies to T3N. For these documents its output is byte-identical to the Rust contract's.
+     * Golden hashes were computed by the original TypeScript policy canonicalizer, whose output for these documents
+     * was byte-identical to the Rust contract this runtime replaces (both are kept under the dual-runtime git tag).
      */
     @Test
-    void repositoryPolicyHashMatchesTheGatewayCanonicalizer() throws Exception {
-        byte[] bytes = Files.readAllBytes(Path.of("../t3n-gateway/policy/privacy-guard-policy.json"));
+    void repositoryPolicyHashMatchesTheOriginalCanonicalizer() throws Exception {
+        byte[] bytes = Files.readAllBytes(Path.of("policy/privacy-guard-policy.json"));
         AppliedPolicy applied = PolicyDocumentParser.parse(bytes);
         assertThat(applied.version()).isEqualTo("2026-09-16.1");
         assertThat(applied.hash()).isEqualTo("b0bbf68eb05dcb056076b3957ab512f31729cc0869a9d5162deaf11f034c42da");
     }
 
     @Test
-    void rustTestBaselineHashMatchesTheGatewayCanonicalizer() {
+    void rustTestBaselineHashMatchesTheOriginalCanonicalizer() {
         assertThat(policy(BASELINE_POLICY).hash()).isEqualTo("dde59f46121923b8c7c3a75c1857307714c4078f1e46ee029d14b683a1d81531");
     }
 

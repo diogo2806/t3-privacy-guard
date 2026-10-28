@@ -15,18 +15,6 @@ guard-runtime/target/
 frontend/node_modules/
 frontend/dist/
 *.tsbuildinfo
-t3n-gateway/node_modules/
-t3n-gateway/dist/
-t3n-gateway/agent-card.json
-
-# Rust
-contracts/**/target/
-
-# Generated local evidence logs (review live JSON before committing it)
-docs/evidence/runtime/
-
-# Generated submission capture artifacts
-artifacts/submission-capture/
 
 # IDE / OS
 .idea/

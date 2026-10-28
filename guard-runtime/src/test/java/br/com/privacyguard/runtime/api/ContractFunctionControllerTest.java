@@ -219,7 +219,7 @@ class ContractFunctionControllerTest {
             Path directory = Files.createTempDirectory("guard-runtime-policy");
             directory.toFile().deleteOnExit();
             Path target = directory.resolve("current.json");
-            Files.copy(Path.of("../t3n-gateway/policy/privacy-guard-policy.json"), target);
+            Files.copy(Path.of("policy/privacy-guard-policy.json"), target);
             target.toFile().deleteOnExit();
             return target;
         } catch (IOException ex) {

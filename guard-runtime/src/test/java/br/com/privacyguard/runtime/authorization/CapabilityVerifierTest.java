@@ -26,8 +26,8 @@ class CapabilityVerifierTest {
     }
 
     @Test
-    void hashesMatchTheBackendAndGatewayVectors() {
-        // Same vector as t3n-gateway/src/security/remediation-authorization.test.ts and the backend signer.
+    void hashesMatchTheBackendSignerVectors() {
+        // Same vector the backend signer uses (and the original TypeScript verifier did).
         assertThat(CapabilityHashes.normalPayloadHash(request().normalPayload()))
             .isEqualTo("39ba6c4944b8e22ae8bb5bb1ebc7d98839593f17d51acd5d5aff31c81ebaa8ae");
         // JSON.stringify([...values].map(trim).sort()) hashed with SHA-256, as the gateway computes it.
