@@ -32,6 +32,11 @@ class DashboardServingTest {
     }
 
     @Test
+    void missingStaticFileIsNotFoundRatherThanAServerError() throws Exception {
+        mvc.perform(get("/assets/missing-chunk.js")).andExpect(status().isNotFound());
+    }
+
+    @Test
     void apiStillRequiresAnOperatorSession() throws Exception {
         mvc.perform(get("/api/system/status")).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/incidents")).andExpect(status().isUnauthorized());

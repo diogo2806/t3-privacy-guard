@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
-# End-to-end check of the self-hosted stack without Docker and without Terminal 3:
-# guard-runtime (Java) + gateway (TRUST_RUNTIME=selfhosted) + backend, driven through the backend API exactly as
-# the dashboard drives it: login, incident, action, policy evaluation, human authorization, protected execution
-# and independent read-back. Every secret is generated for this run and discarded afterwards.
+# End-to-end check of the two services without Docker: guard-runtime (Java) + app (backend serving the dashboard),
+# driven through the backend API exactly as the dashboard drives it: login, incident, action, policy evaluation,
+# human authorization, protected execution and independent read-back, plus the MCP endpoint. Every secret is
+# generated for this run and discarded afterwards.
 #
-# Requirements: Java 21, Maven, Node 22+, curl. Ports default to 3101 (guard-runtime), 3001 (gateway) and 8080
-# (backend); override with RUNTIME_PORT, GATEWAY_PORT and BACKEND_PORT.
-# Usage: scripts/selfhosted-e2e.sh            (builds the jars first)
+# Requirements: Java 21, Maven, Node 22+, curl. Ports default to 3101 (guard-runtime) and 8080 (app); override with
+# RUNTIME_PORT and BACKEND_PORT.
+# Usage: scripts/selfhosted-e2e.sh            (builds dashboard and jars first)
 #        SKIP_BUILD=1 scripts/selfhosted-e2e.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNTIME_PORT="${RUNTIME_PORT:-3101}"
-GATEWAY_PORT="${GATEWAY_PORT:-3001}"
 BACKEND_PORT="${BACKEND_PORT:-8080}"
 WORK="$(mktemp -d)"
 PIDS=()
@@ -30,15 +29,15 @@ wait_for() { curl -s -o /dev/null --retry 90 --retry-connrefused --retry-delay 1
 step() { printf '\n== %s\n' "$1"; }
 
 if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
-  step "Building guard-runtime and backend"
+  step "Building dashboard, guard-runtime and app"
+  (cd "$ROOT/frontend" && { [[ -d node_modules ]] || npm install --no-package-lock --no-audit --no-fund; } && npm run build && rm -f tsconfig.tsbuildinfo)
   mvn -B -q -f "$ROOT/guard-runtime/pom.xml" package -DskipTests
   mvn -B -q -f "$ROOT/backend/pom.xml" package -DskipTests
 fi
-[[ -d "$ROOT/t3n-gateway/node_modules" ]] || (cd "$ROOT/t3n-gateway" && npm install --no-package-lock --no-audit --no-fund)
 
-GATEWAY_TOKEN="$(random_secret)"
 PROPOSAL_TOKEN="$(random_secret)"
 EXECUTOR_TOKEN="$(random_secret)"
+MCP_TOKEN="$(random_secret)"
 SECURITY_API_KEY="$(random_secret)"
 AUDIT_KEY="$(random_secret)"
 OPERATOR_PASSWORD="$(random_secret)"
@@ -65,52 +64,55 @@ env GUARD_RUNTIME_PORT="$RUNTIME_PORT" \
   java -jar "$ROOT/guard-runtime/target/guard-runtime-0.1.0.jar" > "$WORK/guard-runtime.log" 2>&1 &
 PIDS+=($!)
 
-step "Starting gateway on :$GATEWAY_PORT (TRUST_RUNTIME=selfhosted, no T3N_* settings)"
-# exec makes the background PID the node process itself, so cleanup really stops it.
-(cd "$ROOT/t3n-gateway" && exec env -u T3N_API_KEY -u T3N_AGENT_API_KEY -u T3N_EXECUTOR_API_KEY \
-  TRUST_RUNTIME=selfhosted \
-  T3N_GATEWAY_PORT="$GATEWAY_PORT" \
-  GATEWAY_SERVICE_TOKEN="$GATEWAY_TOKEN" \
-  REMEDIATION_AUTH_PUBLIC_KEY_SPKI="$CAPABILITY_PUBLIC_KEY" \
-  REMEDIATION_REPLAY_STORE_PATH="$WORK/gateway/replay.json" \
+step "Starting app (backend + dashboard) on :$BACKEND_PORT"
+DASHBOARD_ENV=()
+if [[ -f "$ROOT/frontend/dist/index.html" ]]; then
+  # Serve the freshly built dashboard from disk; the Docker image packages it inside the jar instead.
+  DIST="$ROOT/frontend/dist"
+  if command -v cygpath > /dev/null; then DIST="$(cygpath -m "$DIST")"; fi # Git Bash: /c/... -> C:/... for Java
+  DASHBOARD_ENV=(SPRING_WEB_RESOURCES_STATIC_LOCATIONS="file:$DIST/")
+fi
+env "${DASHBOARD_ENV[@]}" SERVER_PORT="$BACKEND_PORT" \
+  DATABASE_URL="jdbc:h2:file:$WORK/backend/privacyguard" \
   GUARD_RUNTIME_URL="http://localhost:$RUNTIME_PORT" \
   GUARD_RUNTIME_PROPOSAL_TOKEN="$PROPOSAL_TOKEN" \
   GUARD_RUNTIME_EXECUTOR_TOKEN="$EXECUTOR_TOKEN" \
-  node --import tsx src/index.ts > "$WORK/gateway.log" 2>&1) &
-PIDS+=($!)
-
-step "Starting backend on :$BACKEND_PORT"
-env SERVER_PORT="$BACKEND_PORT" \
-  DATABASE_URL="jdbc:h2:file:$WORK/backend/privacyguard" \
-  T3N_GATEWAY_URL="http://localhost:$GATEWAY_PORT" \
-  GATEWAY_SERVICE_TOKEN="$GATEWAY_TOKEN" \
+  MCP_TOKEN="$MCP_TOKEN" \
   SECURITY_API_KEY="$SECURITY_API_KEY" \
   REMEDIATION_AUTH_PRIVATE_KEY_PKCS8="$CAPABILITY_PRIVATE_KEY" \
   REMEDIATION_AUTH_KEY_ID=primary \
   AUDIT_INTEGRITY_KEY="$AUDIT_KEY" \
   OPERATOR_USERNAME=operator \
   OPERATOR_PASSWORD="$OPERATOR_PASSWORD" \
-  EVIDENCE_MANIFEST_PATH="$WORK/none-manifest.json" \
-  EVIDENCE_TESTNET_PATH="$WORK/none-testnet.json" \
   java -jar "$ROOT/backend/target/backend-0.1.0.jar" > "$WORK/backend.log" 2>&1 &
 PIDS+=($!)
 
 wait_for "http://localhost:$RUNTIME_PORT/actuator/health"
-wait_for "http://localhost:$GATEWAY_PORT/health"
 wait_for "http://localhost:$BACKEND_PORT/actuator/health"
 
-API="http://localhost:$BACKEND_PORT/api"
+APP="http://localhost:$BACKEND_PORT"
+API="$APP/api"
 JAR="$WORK/cookies.txt"
 csrf() { curl -s -c "$JAR" -b "$JAR" "$API/auth/csrf" | json token; }
 post() { curl -s -c "$JAR" -b "$JAR" -H "Content-Type: application/json" -H "X-XSRF-TOKEN: $(csrf)" -X POST "$API$1" -d "${2:-{\}}"; }
 get() { curl -s -c "$JAR" -b "$JAR" "$API$1"; }
+mcp() { curl -s -H "Authorization: Bearer $MCP_TOKEN" -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" -X POST "$APP/mcp" -d "$1"; }
+
+step "Dashboard served by the app"
+if [[ ${#DASHBOARD_ENV[@]} -gt 0 ]]; then
+  DASHBOARD_STATUS="$(curl -s -o "$WORK/index.html" -w '%{http_code}' "$APP/")"
+  echo "GET / -> HTTP $DASHBOARD_STATUS, $(grep -c '<div id="root">' "$WORK/index.html") root element(s), CSP: $(curl -sI "$APP/" | grep -ci '^content-security-policy')"
+else
+  DASHBOARD_STATUS=skipped
+  echo "frontend/dist not built; skipped"
+fi
 
 step "Operator login"
 post /auth/login "{\"username\":\"operator\",\"password\":\"$OPERATOR_PASSWORD\"}" | json authenticated
 
 step "System status as the dashboard sees it"
 STATUS="$(get /system/status)"
-echo "network=$(json network <<<"$STATUS") evaluationReady=$(json evaluationReady <<<"$STATUS") protectedRemediationReady=$(json protectedRemediationReady <<<"$STATUS") enterpriseIntegration=$(json enterpriseIntegrationState <<<"$STATUS")"
+echo "evaluationReady=$(json evaluationReady <<<"$STATUS") protectedRemediationReady=$(json protectedRemediationReady <<<"$STATUS") enterpriseIntegration=$(json enterpriseIntegrationState <<<"$STATUS")"
 echo "message: $(json message <<<"$STATUS")"
 
 step "Incident and AI-proposed action asking for one field too many"
@@ -125,7 +127,7 @@ echo "decision=$(json decision <<<"$DECISION") reason=$(json reasonCode <<<"$DEC
 step "Human authorization"
 post "/incidents/$INCIDENT_ID/actions/$ACTION_ID/authorize-remediation" | json state
 
-step "Protected execution (capability -> gateway -> guard-runtime -> security API)"
+step "Protected execution (capability -> guard-runtime -> security API)"
 EXECUTION="$(post "/incidents/$INCIDENT_ID/actions/$ACTION_ID/execute-remediation")"
 echo "state=$(json state <<<"$EXECUTION")"
 
@@ -145,32 +147,38 @@ post "/incidents/$INCIDENT_ID/actions/$NOTIFY_ID/authorize-remediation" > /dev/n
 post "/incidents/$INCIDENT_ID/actions/$NOTIFY_ID/execute-remediation" > /dev/null
 NOTIFY_STATE="$(json state <<<"$(post "/incidents/$INCIDENT_ID/actions/$NOTIFY_ID/verify-remediation")")"
 echo "state=$NOTIFY_STATE"
-if grep -q "soc@example.test" "$WORK/backend.log" "$WORK/gateway.log"; then EMAIL_SEEN=yes; else EMAIL_SEEN=no; fi
-echo "verified email in backend or gateway logs: $EMAIL_SEEN"
+if grep -q "soc@example.test" "$WORK/backend.log"; then EMAIL_SEEN=yes; else EMAIL_SEEN=no; fi
+echo "verified email in backend logs: $EMAIL_SEEN"
 
 step "Audit evidence: local HMAC chain reconciled with guard-runtime's activity log"
 AUDIT="$(get "/incidents/$INCIDENT_ID/audit-evidence")"
-echo "integrity=$(json integrity.state <<<"$AUDIT") runtimeAvailable=$(json provenance.t3nAvailable <<<"$AUDIT") matched=$(json provenance.matched <<<"$AUDIT") unmatched=$(json provenance.unmatched <<<"$AUDIT") localOnly=$(json provenance.localOnly <<<"$AUDIT") runtimeOnly=$(json provenance.t3nOnly <<<"$AUDIT")"
-echo "message: $(json provenance.message <<<"$AUDIT")"
+echo "integrity=$(json integrity.state <<<"$AUDIT") matched=$(json provenance.matched <<<"$AUDIT") unmatched=$(json provenance.unmatched <<<"$AUDIT") localOnly=$(json provenance.localOnly <<<"$AUDIT") runtimeOnly=$(json provenance.t3nOnly <<<"$AUDIT")"
+
+step "MCP: an external agent asks the guard before acting"
+echo "initialize: $(mcp '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"e2e","version":"1"}}}' | json result.serverInfo.name)"
+echo "tools: $(mcp '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).result.tools.map(t=>t.name).join(', ')))")"
+MCP_DECISION="$(mcp '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"privacy.evaluate_action","arguments":{"request_id":"mcp-001","action":"revoke-credential","resource":"credential:cred-42","purpose":"incident-remediation","host":"localhost","fields":["incident_id","api_key"]}}}' | json result.content.0.text | json decision)"
+echo "evaluate with api_key -> $MCP_DECISION"
+MCP_UNAUTHORIZED="$(curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' -X POST "$APP/mcp" -d '{"jsonrpc":"2.0","id":1,"method":"ping"}')"
+echo "without token -> HTTP $MCP_UNAUTHORIZED"
 
 step "guard-runtime activity log"
 if [[ -s "$WORK/runtime/activity.jsonl" ]]; then
   node -e "for(const l of require('fs').readFileSync(process.argv[1],'utf8').trim().split('\n')){const e=JSON.parse(l);console.log('  #'+e.sequence+' '+e.actorDid+' '+e.function+' '+e.outcome)}" "$WORK/runtime/activity.jsonl"
-else
-  echo "  (empty)"
 fi
 
 step "Secrets never logged"
 LEAKS=0
-for secret in "$GATEWAY_TOKEN" "$PROPOSAL_TOKEN" "$EXECUTOR_TOKEN" "$SECURITY_API_KEY" "$OPERATOR_PASSWORD"; do
+for secret in "$PROPOSAL_TOKEN" "$EXECUTOR_TOKEN" "$MCP_TOKEN" "$SECURITY_API_KEY" "$OPERATOR_PASSWORD"; do
   if grep -q -- "$secret" "$WORK"/*.log; then LEAKS=$((LEAKS + 1)); fi
 done
 echo "secrets found in logs: $LEAKS"
 
-if [[ "$FINAL_STATE" == "COMPLETED" && "$NOTIFY_STATE" == "COMPLETED" && "$LEAKS" == "0" && "$EMAIL_SEEN" == "no" ]]; then
-  printf '\nPASS: both remediations independently verified and COMPLETED without Terminal 3.\n'
+if [[ "$FINAL_STATE" == "COMPLETED" && "$NOTIFY_STATE" == "COMPLETED" && "$LEAKS" == "0" && "$EMAIL_SEEN" == "no" \
+  && "$MCP_DECISION" == "DENY" && "$MCP_UNAUTHORIZED" == "401" && "$DASHBOARD_STATUS" =~ ^(200|skipped)$ ]]; then
+  printf '\nPASS: both remediations independently verified and COMPLETED; MCP and dashboard served by the app.\n'
 else
-  printf '\nFAIL: revoke %s, notify %s, secrets in logs %s, email seen %s. Re-run with KEEP_WORK=1 to inspect logs.\n' \
-    "$FINAL_STATE" "$NOTIFY_STATE" "$LEAKS" "$EMAIL_SEEN"
+  printf '\nFAIL: revoke %s, notify %s, secrets in logs %s, email seen %s, MCP %s/%s, dashboard %s. Re-run with KEEP_WORK=1 to inspect logs.\n' \
+    "$FINAL_STATE" "$NOTIFY_STATE" "$LEAKS" "$EMAIL_SEEN" "$MCP_DECISION" "$MCP_UNAUTHORIZED" "$DASHBOARD_STATUS"
   exit 1
 fi

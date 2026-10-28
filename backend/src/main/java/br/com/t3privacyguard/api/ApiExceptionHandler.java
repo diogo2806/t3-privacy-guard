@@ -11,6 +11,7 @@ import br.com.t3privacyguard.service.*;
 import java.net.URI;
 import org.springframework.http.*;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.*;
 
@@ -74,7 +75,14 @@ public class ApiExceptionHandler {
     ResponseEntity<ProblemDetail> validation(MethodArgumentNotValidException ex) { return problem(HttpStatus.BAD_REQUEST, "Invalid request", "One or more request fields are invalid."); }
 
     @ExceptionHandler(Exception.class)
-    ResponseEntity<ProblemDetail> unexpected(Exception ex) { return problem(HttpStatus.INTERNAL_SERVER_ERROR, "Unexpected error", "The request could not be completed safely."); }
+    ResponseEntity<ProblemDetail> unexpected(Exception ex) {
+        // Spring MVC's own errors (missing static file, wrong method or media type) keep their 4xx status.
+        if (ex instanceof ErrorResponse framework) {
+            HttpStatus status = HttpStatus.resolve(framework.getStatusCode().value());
+            if (status != null && status.is4xxClientError()) return problem(status, status.getReasonPhrase(), "The request could not be completed.");
+        }
+        return problem(HttpStatus.INTERNAL_SERVER_ERROR, "Unexpected error", "The request could not be completed safely.");
+    }
 
     private ResponseEntity<ProblemDetail> problem(HttpStatus status, String title, String detail) {
         return ResponseEntity.status(status).body(problemBody(status, title, detail));
