@@ -6,14 +6,12 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Component;
 
-@Component
+/** The policy is a file the operator maintains; the runtime only reads it (no versions, no publishing). */
 public class FilePolicyStore implements PolicyStore {
     private final Path file;
 
-    public FilePolicyStore(@Value("${guard-runtime.policy-file:}") String file) {
+    public FilePolicyStore(String file) {
         if (file == null || file.isBlank()) throw new IllegalStateException("guard-runtime.policy-file is required");
         this.file = Path.of(file.trim()).toAbsolutePath().normalize();
     }

@@ -46,7 +46,7 @@ public final class PolicyDocumentParser {
         }
         RawDocument parsed = readShape(bytes);
         String version = ContractText.trim(parsed.version());
-        if (!validVersion(version)) throw new PolicyDocumentException("policy version is missing or invalid");
+        if (!isValidVersion(version)) throw new PolicyDocumentException("policy version is missing or invalid");
         if (parsed.actions().isEmpty() || parsed.actions().size() > MAX_ACTIONS) {
             throw new PolicyDocumentException("policy action count is invalid");
         }
@@ -128,8 +128,9 @@ public final class PolicyDocumentParser {
             && !ContractText.containsWhitespace(host);
     }
 
-    private static boolean validVersion(String version) {
-        if (version.isEmpty() || ContractText.utf8Length(version) > MAX_VERSION_LEN) return false;
+    /** Canonical version string: 1-64 ASCII letters, digits, ".", "-", "_" or ":". */
+    public static boolean isValidVersion(String version) {
+        if (version == null || version.isEmpty() || ContractText.utf8Length(version) > MAX_VERSION_LEN) return false;
         for (int i = 0; i < version.length(); i++) {
             char current = version.charAt(i);
             boolean asciiAlphanumeric = (current >= 'a' && current <= 'z') || (current >= 'A' && current <= 'Z') || (current >= '0' && current <= '9');

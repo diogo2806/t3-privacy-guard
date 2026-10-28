@@ -4,13 +4,14 @@ import java.util.Arrays;
 import java.util.Optional;
 
 /**
- * Grant vocabulary: the three functions the former contract exported. Only evaluate-action has an endpoint so far;
- * the other two can already be granted so caller configuration does not change when they are ported.
+ * Grant vocabulary: the three functions the former contract exported, plus manage-policy for publishing and rolling
+ * back policy versions. Each caller gets only what its role needs.
  */
 public enum GuardFunction {
     EVALUATE_ACTION("evaluate-action"),
     EXECUTE_REMEDIATION("execute-remediation"),
-    VERIFY_REMEDIATION("verify-remediation");
+    VERIFY_REMEDIATION("verify-remediation"),
+    MANAGE_POLICY("manage-policy");
 
     private final String wireName;
 

@@ -92,20 +92,20 @@ public class ContractFunctionController {
         if (authenticated.isEmpty()) return error(HttpStatus.UNAUTHORIZED, "UNAUTHENTICATED");
         Caller caller = authenticated.get();
         if (!caller.mayCall(function)) {
-            return recorded(caller, function, Outcome.DENIED, error(HttpStatus.FORBIDDEN, "FUNCTION_NOT_GRANTED"));
+            return recorded(activity, caller, function, Outcome.DENIED, error(HttpStatus.FORBIDDEN, "FUNCTION_NOT_GRANTED"));
         }
 
         byte[] input = request.getInputStream().readNBytes(MAX_INPUT_BYTES + 1);
         if (input.length > MAX_INPUT_BYTES) {
-            return recorded(caller, function, Outcome.ERROR, error(HttpStatus.PAYLOAD_TOO_LARGE, "INPUT_TOO_LARGE"));
+            return recorded(activity, caller, function, Outcome.ERROR, error(HttpStatus.PAYLOAD_TOO_LARGE, "INPUT_TOO_LARGE"));
         }
 
         try {
-            return recorded(caller, function, Outcome.SUCCESS, ResponseEntity.ok(handler.apply(caller, input)));
+            return recorded(activity, caller, function, Outcome.SUCCESS, ResponseEntity.ok(handler.apply(caller, input)));
         } catch (InvalidContractInputException ex) {
-            return recorded(caller, function, Outcome.ERROR, error(HttpStatus.BAD_REQUEST, "INVALID_INPUT"));
+            return recorded(activity, caller, function, Outcome.ERROR, error(HttpStatus.BAD_REQUEST, "INVALID_INPUT"));
         } catch (ContractRejectedException ex) {
-            return recorded(caller, function, Outcome.ERROR,
+            return recorded(activity, caller, function, Outcome.ERROR,
                 ResponseEntity.unprocessableEntity().body(Map.of("error", "CONTRACT_REJECTED", "reason", ex.getMessage())));
         }
     }
@@ -114,7 +114,7 @@ public class ContractFunctionController {
      * An audit write failure must not hide the result of a side effect that already happened; the missing entry
      * shows up in the backend's reconciliation as a local-only event instead.
      */
-    private ResponseEntity<?> recorded(Caller caller, GuardFunction function, Outcome outcome, ResponseEntity<?> response) {
+    static ResponseEntity<?> recorded(ActivityLog activity, Caller caller, GuardFunction function, Outcome outcome, ResponseEntity<?> response) {
         ActivityEvent event;
         try {
             event = activity.append(caller, function, outcome);

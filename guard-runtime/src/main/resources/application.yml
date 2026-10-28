@@ -10,6 +10,9 @@ management:
         include: health
 guard-runtime:
   policy-file: ${GUARD_RUNTIME_POLICY_FILE:/data/policy/current.json}
+  # With a directory, policy is versioned and can be published or rolled back through /v1/policy; the file above
+  # then only seeds versions not published yet. Without it the file is the policy and the API is read-only.
+  policy-dir: ${GUARD_RUNTIME_POLICY_DIR:}
   replay-file: ${GUARD_RUNTIME_REPLAY_FILE:/data/replay/execution-nonces.json}
   activity-file: ${GUARD_RUNTIME_ACTIVITY_FILE:/data/activity/activity.jsonl}
   tenant-id: ${GUARD_RUNTIME_TENANT_ID:default}
