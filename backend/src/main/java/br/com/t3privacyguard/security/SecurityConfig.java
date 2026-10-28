@@ -27,6 +27,8 @@ import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
+import org.springframework.security.web.header.writers.StaticHeadersWriter;
 
 @Configuration
 public class SecurityConfig {
@@ -34,6 +36,9 @@ public class SecurityConfig {
     static final String APPROVER = "APPROVER";
     static final String EXECUTOR = "EXECUTOR";
     static final String AUDITOR = "AUDITOR";
+    // Same policy the dashboard had behind nginx: everything same-origin, no inline script or style.
+    private static final String DASHBOARD_CONTENT_SECURITY_POLICY = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; "
+        + "form-action 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; manifest-src 'self'";
 
     @Bean
     PasswordEncoder passwordEncoder() {
@@ -234,6 +239,8 @@ public class SecurityConfig {
                     "/actuator/health",
                     "/actuator/health/**"
                 ).permitAll()
+                // The dashboard's static build; every data request still goes through /api with a session.
+                .requestMatchers(HttpMethod.GET, "/", "/index.html", "/assets/**", "/favicon.ico").permitAll()
                 .requestMatchers(HttpMethod.POST,
                     "/api/incidents",
                     "/api/agent/analyze",
@@ -247,6 +254,10 @@ public class SecurityConfig {
                     "/api/incidents/*/actions/*/verify-remediation"
                 ).hasRole(EXECUTOR)
                 .anyRequest().hasAnyRole(ANALYST, APPROVER, EXECUTOR, AUDITOR))
+            .headers(headers -> headers
+                .contentSecurityPolicy(csp -> csp.policyDirectives(DASHBOARD_CONTENT_SECURITY_POLICY))
+                .referrerPolicy(referrer -> referrer.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
+                .addHeaderWriter(new StaticHeadersWriter("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")))
             .formLogin(AbstractHttpConfigurer::disable)
             .httpBasic(AbstractHttpConfigurer::disable)
             .logout(AbstractHttpConfigurer::disable)

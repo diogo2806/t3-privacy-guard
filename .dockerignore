@@ -1,0 +1,9 @@
+.git
+**/node_modules
+**/target
+**/dist
+**/*.tsbuildinfo
+backend/src/main/resources/static
+deploy/local/.env
+**/.env
+**/.env.*

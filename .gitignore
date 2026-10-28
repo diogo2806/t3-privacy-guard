@@ -7,6 +7,8 @@
 
 # Java
 backend/target/
+# Dashboard build copied in for packaging (see the root Dockerfile)
+backend/src/main/resources/static/
 guard-runtime/target/
 
 # Node
