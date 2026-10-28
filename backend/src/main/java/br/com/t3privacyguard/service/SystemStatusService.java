@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class SystemStatusService {
     private static final List<String> REGISTRATION_STATES = List.of("REGISTERED", "NOT_REGISTERED", "MISMATCH", "UNAVAILABLE");
+    private static final String SELF_HOSTED_NETWORK = "selfhosted";
     private final GatewaySystemClient gateway;
     private final SecurityRemediationCredential remediationCredential;
 
@@ -36,6 +37,8 @@ public class SystemStatusService {
         Optional<DelegationStatus> proposalDelegation = contract.flatMap(value -> gateway.delegationStatus(value.contractId()));
         Optional<DelegationStatus> executorDelegation = contract.flatMap(value -> gateway.executorDelegationStatus(value.contractId()));
 
+        // The self-hosted gateway reports network "selfhosted"; everything else is Terminal 3.
+        boolean selfHosted = tenant.map(TenantStatus::network).map(SELF_HOSTED_NETWORK::equals).orElse(false);
         boolean tenantAuthenticated = tenant.map(TenantStatus::ready).orElse(false);
         boolean agentAuthenticated = agent.map(AgentStatus::ready).orElse(false);
         boolean executorAuthenticated = executor.map(ExecutorStatus::ready).orElse(false);
@@ -50,7 +53,7 @@ public class SystemStatusService {
         String enterpriseIntegrationState = enterpriseIntegration.map(EnterpriseIntegrationReadiness::state).orElse("UNKNOWN");
         String enterpriseIntegrationDiagnosticCode = enterpriseIntegration
             .map(EnterpriseIntegrationReadiness::diagnosticCode)
-            .orElse("T3N_CONTROL_PLANE_UNAVAILABLE");
+            .orElse(selfHosted ? "TRUST_RUNTIME_UNAVAILABLE" : "T3N_CONTROL_PLANE_UNAVAILABLE");
         boolean enterpriseIntegrationReady = "READY".equals(enterpriseIntegrationState);
 
         boolean evaluationReady = tenantAuthenticated
@@ -71,7 +74,8 @@ public class SystemStatusService {
             executorDelegationEffectiveState,
             evaluationReady,
             protectedRemediationReady,
-            registrationState
+            registrationState,
+            selfHosted
         );
 
         return new SystemStatusResponse(
@@ -142,9 +146,11 @@ public class SystemStatusService {
         String executorEffectiveState,
         boolean evaluationReady,
         boolean protectedRemediationReady,
-        String registrationState
+        String registrationState,
+        boolean selfHosted
     ) {
-        if (!gatewayReachable) return "T3N gateway is unreachable.";
+        String runtime = selfHosted ? "guard-runtime" : "T3N";
+        if (!gatewayReachable) return selfHosted ? "Gateway is unreachable." : "T3N gateway is unreachable.";
         if ("UNKNOWN".equals(proposalMemberState)) {
             return "Proposal Member grant could not be confirmed; policy evaluation remains unavailable.";
         }
@@ -155,8 +161,8 @@ public class SystemStatusService {
         if ("NOT_GRANTED".equals(proposalMemberState)) return "Proposal Member grant has not been granted; policy evaluation is not ready.";
         if ("REVOKED".equals(proposalMemberState)) return "Proposal Member grant has been revoked; policy evaluation is not ready.";
         if (!"ACTIVE".equals(proposalMemberState)) return "Proposal Member grant is not active; policy evaluation is not ready.";
-        if ("DENIED".equals(proposalEffectiveState)) return "Proposal Member grant is active, but effective T3N access is denied for the required evaluation function/scopes.";
-        if (!"ACTIVE".equals(proposalEffectiveState)) return "Proposal Member grant is active, but effective T3N access could not be confirmed for policy evaluation.";
+        if ("DENIED".equals(proposalEffectiveState)) return "Proposal Member grant is active, but effective " + runtime + " access is denied for the required evaluation function/scopes.";
+        if (!"ACTIVE".equals(proposalEffectiveState)) return "Proposal Member grant is active, but effective " + runtime + " access could not be confirmed for policy evaluation.";
         if (evaluationReady && "UNKNOWN".equals(executorMemberState)) {
             return "Policy evaluation is ready, but the Executor Member grant could not be confirmed; protected remediation remains unavailable.";
         }
@@ -164,13 +170,16 @@ public class SystemStatusService {
         if (evaluationReady && "NOT_GRANTED".equals(executorMemberState)) return "Policy evaluation is ready, but the Executor Member grant has not been granted; protected remediation remains unavailable.";
         if (evaluationReady && "REVOKED".equals(executorMemberState)) return "Policy evaluation is ready, but the Executor Member grant has been revoked; protected remediation remains unavailable.";
         if (evaluationReady && !"ACTIVE".equals(executorMemberState)) return "Policy evaluation is ready, but the Executor Member grant is not active; protected remediation remains unavailable.";
-        if (evaluationReady && "DENIED".equals(executorEffectiveState)) return "Policy evaluation is ready, but effective T3N access is denied for the Protected Executor.";
-        if (evaluationReady && !"ACTIVE".equals(executorEffectiveState)) return "Policy evaluation is ready, but effective T3N access could not be confirmed for the Protected Executor.";
+        if (evaluationReady && "DENIED".equals(executorEffectiveState)) return "Policy evaluation is ready, but effective " + runtime + " access is denied for the Protected Executor.";
+        if (evaluationReady && !"ACTIVE".equals(executorEffectiveState)) return "Policy evaluation is ready, but effective " + runtime + " access could not be confirmed for the Protected Executor.";
+        if (protectedRemediationReady && selfHosted) {
+            return "guard-runtime controls are ready: effective Proposal and Protected Executor access is confirmed for the exact functions each role needs.";
+        }
         if (protectedRemediationReady && "REGISTERED".equals(registrationState)) {
             return "T3N controls are ready: effective Proposal and Protected Executor access is confirmed for exact least-privilege functions/scopes, and the public Agent Card is registered.";
         }
         if (protectedRemediationReady) return "T3N controls are ready with effective Proposal and Protected Executor access confirmed, but public Agent onboarding is not confirmed as REGISTERED.";
-        return "Gateway is online, but one or more T3N identity, contract, Member grant, or effective-access checks are not confirmed as ready.";
+        return "Gateway is online, but one or more " + runtime + " identity, contract, Member grant, or effective-access checks are not confirmed as ready.";
     }
 
     private static String registrationState(Optional<AgentRegistrationStatus> registration, String authenticatedAgentDid) {

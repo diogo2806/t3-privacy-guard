@@ -162,11 +162,11 @@ public class IncidentService {
                 readList(action.getFieldsJson()), readList(action.getPrivateRefsJson())
             ));
         } catch (GatewayUnavailableException ex) {
-            traces.recordFailure(action, "T3N_TEE_EVALUATION", "UNAVAILABLE", "T3N_GATEWAY_UNAVAILABLE", elapsedMillis(startedAt));
+            traces.recordFailure(action, "POLICY_EVALUATION", "UNAVAILABLE", "GATEWAY_UNAVAILABLE", elapsedMillis(startedAt));
             throw ex;
         }
         if (!action.getRequestId().equals(gatewayDecision.requestId())) {
-            traces.recordFailure(action, "T3N_TEE_EVALUATION", "FAILED", "REQUEST_ID_MISMATCH", elapsedMillis(startedAt));
+            traces.recordFailure(action, "POLICY_EVALUATION", "FAILED", "REQUEST_ID_MISMATCH", elapsedMillis(startedAt));
             throw new IllegalStateException("Policy decision request id mismatch");
         }
         validatePolicyMetadata(gatewayDecision);
@@ -191,7 +191,7 @@ public class IncidentService {
             gatewayDecision.activityHash(),
             "evaluate-action"
         );
-        traces.record(action, "T3N_TEE_EVALUATION", decisionTraceState(entity.getDecision()), entity.getReasonCode(), elapsedMillis(startedAt));
+        traces.record(action, "POLICY_EVALUATION", decisionTraceState(entity.getDecision()), entity.getReasonCode(), elapsedMillis(startedAt));
         return decisionResponse(entity);
     }
 

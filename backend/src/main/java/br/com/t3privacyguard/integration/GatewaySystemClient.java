@@ -30,7 +30,8 @@ public class GatewaySystemClient {
         "ENDPOINT_CONFIGURATION_INVALID",
         "DELEGATION_UNAVAILABLE",
         "INSUFFICIENT_CREDIT",
-        "T3N_CONTROL_PLANE_UNAVAILABLE"
+        "T3N_CONTROL_PLANE_UNAVAILABLE",
+        "TRUST_RUNTIME_UNAVAILABLE"
     );
 
     private final HttpClient httpClient;

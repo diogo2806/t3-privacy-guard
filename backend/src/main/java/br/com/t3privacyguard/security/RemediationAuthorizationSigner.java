@@ -84,8 +84,8 @@ public class RemediationAuthorizationSigner {
         }
         String canonicalApprovedHost = canonicalizeHost(approvedHost);
         String executorDid = executorDidSupplier.get();
-        if (executorDid == null || !executorDid.startsWith("did:t3n:")) {
-            throw new IllegalStateException("Authenticated protected executor DID is required for remediation authorization");
+        if (!ProtectedExecutorIdentity.isValid(executorDid)) {
+            throw new IllegalStateException("Authenticated protected executor identity is required for remediation authorization");
         }
         String operatorPrincipalHash = operatorPrincipalHash(remediationAuthorizedBy);
         if (remediationAuthorizedAt == null) {

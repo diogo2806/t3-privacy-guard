@@ -77,6 +77,42 @@ class SystemStatusServiceTest {
     }
 
     @Test
+    void selfHostedRuntimeIsReadyWithoutT3nDidsOrAgentCard() {
+        when(gateway.tenantStatus()).thenReturn(Optional.of(new TenantStatus(true, true, "acme", "selfhosted")));
+        when(gateway.agentStatus()).thenReturn(Optional.of(new AgentStatus(true, true, true, "agent:proposal", "selfhosted")));
+        when(gateway.executorStatus()).thenReturn(Optional.of(new ExecutorStatus(true, true, true, "agent:executor", "selfhosted")));
+        when(gateway.agentRegistration()).thenReturn(Optional.of(registration("agent:proposal", "NOT_REGISTERED")));
+        when(gateway.contractIdentity()).thenReturn(Optional.of(new ContractIdentity("guard-runtime", "1.0.0")));
+        when(gateway.delegationStatus("guard-runtime")).thenReturn(Optional.of(delegation(
+            "ACTIVE", "ACTIVE", List.of("evaluate-action"), List.of(), List.of(), List.of("evaluate-action"), List.of()
+        )));
+        when(gateway.executorDelegationStatus("guard-runtime")).thenReturn(Optional.of(delegation(
+            "ACTIVE", "ACTIVE", List.of("execute-remediation", "verify-remediation"), List.of(), List.of("security.example"),
+            List.of("execute-remediation", "verify-remediation"), List.of()
+        )));
+
+        var result = service.status();
+
+        assertThat(result.network()).isEqualTo("selfhosted");
+        assertThat(result.evaluationReady()).isTrue();
+        assertThat(result.protectedRemediationReady()).isTrue();
+        assertThat(result.executorDid()).isEqualTo("agent:executor");
+        assertThat(result.message()).startsWith("guard-runtime controls are ready").doesNotContain("T3N");
+    }
+
+    @Test
+    void selfHostedRuntimeOutageUsesTheRuntimeDiagnostic() {
+        when(gateway.tenantStatus()).thenReturn(Optional.of(new TenantStatus(false, false, null, "selfhosted")));
+        when(gateway.enterpriseIntegrationReadiness()).thenReturn(Optional.empty());
+        when(gateway.contractIdentity()).thenReturn(Optional.empty());
+
+        var result = service.status();
+
+        assertThat(result.enterpriseIntegrationDiagnosticCode()).isEqualTo("TRUST_RUNTIME_UNAVAILABLE");
+        assertThat(result.message()).doesNotContain("T3N");
+    }
+
+    @Test
     void enterpriseMismatchDoesNotRedefineT3nProtectedRemediationReadiness() {
         when(gateway.enterpriseIntegrationReadiness()).thenReturn(Optional.of(integration("MISMATCH")));
         when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(

@@ -1,6 +1,7 @@
 package br.com.t3privacyguard.integration;
 
 import br.com.t3privacyguard.observability.TraceContext;
+import br.com.t3privacyguard.security.ProtectedExecutorIdentity;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 import java.util.Map;
@@ -33,7 +34,7 @@ public class GatewayRemediationClient {
                 .header(TraceContext.HEADER, TraceContext.currentOrGenerate())
                 .retrieve()
                 .body(ExecutorStatus.class);
-            if (result == null || !result.ready() || result.executorDid() == null || !result.executorDid().startsWith("did:t3n:")) {
+            if (result == null || !result.ready() || !ProtectedExecutorIdentity.isValid(result.executorDid())) {
                 throw new GatewayUnavailableException("Protected executor is not authenticated and ready");
             }
             return result.executorDid();

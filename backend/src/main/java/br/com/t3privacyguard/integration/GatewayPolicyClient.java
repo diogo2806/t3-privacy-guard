@@ -37,7 +37,7 @@ public class GatewayPolicyClient {
             if (decision == null) throw new GatewayUnavailableException("Gateway returned an empty policy decision");
             return decision;
         } catch (RestClientException ex) {
-            throw new GatewayUnavailableException("T3N policy evaluation is unavailable", ex);
+            throw new GatewayUnavailableException("Policy evaluation is unavailable", ex);
         }
     }
 
