@@ -151,6 +151,27 @@ public class SecurityConfig {
     }
 
     @Bean
+    @Order(0)
+    SecurityFilterChain mcpSecurityFilterChain(HttpSecurity http, McpCredential mcpCredential) throws Exception {
+        http
+            .securityMatcher("/mcp")
+            .csrf(AbstractHttpConfigurer::disable)
+            .authorizeHttpRequests(auth -> auth.anyRequest().hasAuthority(McpAuthenticationFilter.MCP_AUTHORITY))
+            .formLogin(AbstractHttpConfigurer::disable)
+            .httpBasic(AbstractHttpConfigurer::disable)
+            .logout(AbstractHttpConfigurer::disable)
+            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .addFilterBefore(new McpAuthenticationFilter(mcpCredential), UsernamePasswordAuthenticationFilter.class)
+            .exceptionHandling(errors -> errors
+                .authenticationEntryPoint((request, response, exception) -> {
+                    response.setHeader("WWW-Authenticate", "Bearer realm=\"privacy-guard-mcp\"");
+                    response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+                })
+                .accessDeniedHandler((request, response, exception) -> response.sendError(HttpServletResponse.SC_FORBIDDEN)));
+        return http.build();
+    }
+
+    @Bean
     @Order(2)
     SecurityFilterChain incidentIntakeSecurityFilterChain(
         HttpSecurity http,
