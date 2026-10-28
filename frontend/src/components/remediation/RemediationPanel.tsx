@@ -1,5 +1,6 @@
 import { CheckCircle2, CircleAlert, Clock3, LockKeyhole, PlayCircle, RefreshCw, ShieldCheck } from 'lucide-react';
 import { privacyGuardApi, type ActionProposal, type PolicyDecision, type RemediationExecution } from '../../services/privacyGuardApi';
+import { useTrustRuntime } from '../../services/trustRuntime';
 
 interface Props {
   action: ActionProposal | null;
@@ -52,6 +53,7 @@ function authorizationTimestamp(value: string): string {
 }
 
 export function RemediationPanel({ action, decision, execution, busy, onAuthorize, onExecute, onVerify }: Props) {
+  const runtimeName = useTrustRuntime().name;
   const session = privacyGuardApi.currentSession();
   const authorities = session?.authorities ?? [];
   const roleBoundaryKnown = Boolean(session?.authenticated && authorities.length > 0);
@@ -104,9 +106,9 @@ export function RemediationPanel({ action, decision, execution, busy, onAuthoriz
   return (
     <section className="card remediation-card" aria-labelledby="remediation-title">
       <div className="card-heading compact"><div className="section-icon section-icon-success"><LockKeyhole aria-hidden="true" /></div><div><p className="eyebrow">Secretless remediation</p><h2 id="remediation-title">Protected execution</h2></div></div>
-      <p className="card-copy">The model selects field names only. Synthetic operational values are created and persisted by the trusted backend, then the T3N policy removes unnecessary fields before protected egress. Approved private profile data remains a logical reference until T3N resolves it for egress.</p>
-      {isPrivateNotification && <p className="inline-notice">The application carries only the logical reference <strong>verified_email</strong>. T3N resolves the private recipient inside protected execution and returns only sanitized delivery metadata; the plaintext recipient is not returned to the browser, Java backend or gateway response.</p>}
-      {action && !hasVerifiedExecutor && <p className="inline-notice">This action can be evaluated by the T3N policy, but this demo does not claim a protected executor or independent completion verifier for it. Protected execution is implemented only for credential revocation and private security notification.</p>}
+      <p className="card-copy">The model selects field names only. Synthetic operational values are created and persisted by the trusted backend, then the {runtimeName} policy removes unnecessary fields before protected egress. Approved private profile data remains a logical reference until {runtimeName} resolves it for egress.</p>
+      {isPrivateNotification && <p className="inline-notice">The application carries only the logical reference <strong>verified_email</strong>. {runtimeName} resolves the private recipient inside protected execution and returns only sanitized delivery metadata; the plaintext recipient is not returned to the browser, Java backend or gateway response.</p>}
+      {action && !hasVerifiedExecutor && <p className="inline-notice">This action can be evaluated by the {runtimeName} policy, but this demo does not claim a protected executor or independent completion verifier for it. Protected execution is implemented only for credential revocation and private security notification.</p>}
       {hasVerifiedExecutor && decision?.decision === 'DENY' && <p className="inline-notice">A DENY decision cannot enter protected remediation.</p>}
       {hasVerifiedExecutor && decision && decision.decision !== 'DENY' && !decisionCanExecute && <p className="inline-notice">Execution is blocked because the policy-minimized result no longer satisfies all required fields or the action-specific private-reference contract.</p>}
       {roleBoundaryKnown && baseCanAuthorize && !hasApproverAuthority && <p className="inline-notice">You can review this decision, but your human authority cannot approve remediation. An APPROVER must authorize it.</p>}
@@ -114,7 +116,7 @@ export function RemediationPanel({ action, decision, execution, busy, onAuthoriz
       {samePrincipalAsApprover && (baseCanExecute || baseCanVerify) && <div className="feedback feedback-error remediation-status-message" role="alert"><CircleAlert aria-hidden="true" /><span>Enterprise separation of duties blocks this account because the same principal authorized the remediation. Sign in with a different EXECUTOR principal.</span></div>}
 
       {action && decision && (
-        <div role="region" aria-label="T3N payload minimization">
+        <div role="region" aria-label={`${runtimeName} payload minimization`}>
           <div className="field-list"><span>Requested fields</span>{action.fields.map((field) => <code key={field}>{field}</code>)}</div>
           {decision.allowedFields.length > 0 && <div className="field-list"><span>Allowed for egress</span>{decision.allowedFields.map((field) => <code key={field}>{field}</code>)}</div>}
           {decision.redactedFields.length > 0 && <div className="field-list"><span>Removed before egress</span>{decision.redactedFields.map((field) => <code key={field}>{field}</code>)}</div>}
@@ -134,11 +136,11 @@ export function RemediationPanel({ action, decision, execution, busy, onAuthoriz
           {execution?.executionPrincipal && <div><span>Execution principal</span><strong>{execution.executionPrincipal}</strong></div>}
           <div><span>Separation of duties</span><strong>{separationState}</strong></div>
           <div><span>One-time authorization proof</span><strong>{proofState}</strong></div>
-          <div><span>T3N execution proof check</span><strong>{t3nProofState}</strong></div>
+          <div><span>{runtimeName} execution proof check</span><strong>{t3nProofState}</strong></div>
           <div><span>Protected Executor identity</span><strong>{executorBindingState}</strong></div>
           {isPrivateNotification && <>
             <div><span>Logical private reference</span><strong>{requestedPrivateReference}</strong></div>
-            <div><span>Resolution boundary</span><strong>T3N PROTECTED EXECUTION</strong></div>
+            <div><span>Resolution boundary</span><strong>{runtimeName.toUpperCase()} PROTECTED EXECUTION</strong></div>
             <div><span>Plaintext visible to app</span><strong>NO</strong></div>
             <div><span>Delivery verification</span><strong>{execution?.state === 'COMPLETED' ? 'DELIVERED + RESOLUTION VERIFIED' : state.verification}</strong></div>
           </>}
@@ -163,11 +165,11 @@ export function RemediationPanel({ action, decision, execution, busy, onAuthoriz
         </div>
       )}
 
-      {hasVerifiedExecutor && execution?.state === 'PENDING_VERIFICATION' && <div className="inline-notice remediation-status-message"><Clock3 aria-hidden="true" /><span>The one-time proof passed the protected T3N execution boundary and the side effect was accepted, but completion still depends on independent verification of {expectedState}.</span></div>}
+      {hasVerifiedExecutor && execution?.state === 'PENDING_VERIFICATION' && <div className="inline-notice remediation-status-message"><Clock3 aria-hidden="true" /><span>The one-time proof passed the protected {runtimeName} execution boundary and the side effect was accepted, but completion still depends on independent verification of {expectedState}.</span></div>}
       {hasVerifiedExecutor && execution?.state === 'UNVERIFIED' && <div className="inline-notice remediation-status-message"><CircleAlert aria-hidden="true" /><span>The outcome is ambiguous or the expected external state was not confirmed. The system will not send the side effect again automatically.</span></div>}
       {hasVerifiedExecutor && destinationChanged && <div className="feedback feedback-error remediation-status-message" role="alert"><CircleAlert aria-hidden="true" /><span>Destination changed. The protected configuration no longer matches the destination that was approved. Create a new action, evaluate the intended destination, and authorize it before executing again.</span></div>}
       {hasVerifiedExecutor && execution?.state === 'FAILED' && !destinationChanged && <div className="feedback feedback-error remediation-status-message"><CircleAlert aria-hidden="true" /><span>Execution failed before a verified completion state. Review the audit trail before any new action.</span></div>}
-      {hasVerifiedExecutor && execution?.state === 'COMPLETED' && <div className="success-state"><CheckCircle2 aria-hidden="true" /><span>{isPrivateNotification ? 'Independent read-back verified DELIVERED and confirmed private-recipient resolution inside T3N. The plaintext recipient was not returned to the application.' : 'Independent read-back verified REVOKED. This remediation is now COMPLETED.'}</span></div>}
+      {hasVerifiedExecutor && execution?.state === 'COMPLETED' && <div className="success-state"><CheckCircle2 aria-hidden="true" /><span>{isPrivateNotification ? `Independent read-back verified DELIVERED and confirmed private-recipient resolution inside ${runtimeName}. The plaintext recipient was not returned to the application.` : 'Independent read-back verified REVOKED. This remediation is now COMPLETED.'}</span></div>}
 
       {canVerify && <button className="button button-secondary" type="button" onClick={onVerify} disabled={busy}><RefreshCw aria-hidden="true" />Verify external state</button>}
       {hasVerifiedExecutor && execution && <p className="remediation-meta">Verification attempts: {execution.verificationAttempts}{execution.failureCode ? ` · Last state: ${execution.failureCode}` : ''}</p>}

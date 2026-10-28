@@ -1,5 +1,6 @@
 import { BriefcaseBusiness, CheckCircle2, CircleAlert, Clock3, ShieldCheck } from 'lucide-react';
 import type { ActionProposal, AgentAnalysis, Incident, PolicyDecision, RemediationExecution } from '../../services/privacyGuardApi';
+import { useTrustRuntime } from '../../services/trustRuntime';
 import type { EnterpriseScenarioDefinition } from '../scenarios/scenarioDefinitions';
 import { SectionHeader } from '../ui/SectionHeader';
 import { Surface } from '../ui/Surface';
@@ -108,6 +109,7 @@ function currentResult(
   responseAction: ActionProposal | null,
   responseDecision: PolicyDecision | null,
   execution: RemediationExecution | null,
+  runtimeName: string,
 ): string {
   if (execution?.state === 'COMPLETED') {
     return responseAction?.action === 'notify-security'
@@ -121,13 +123,13 @@ function currentResult(
   if (isAuthorized(responseAction)) return 'Authorized. Protected execution has not started.';
   if (executableProtectedDecision(responseAction, responseDecision)) {
     return responseDecision?.decision === 'REDACT'
-      ? 'T3N minimized the request to an executable minimum. Human authorization is still required.'
+      ? `${runtimeName} minimized the request to an executable minimum. Human authorization is still required.`
       : 'Policy allows the action. Human authorization is still required.';
   }
-  if (responseDecision?.decision === 'REDACT') return 'T3N requires a smaller data scope before execution.';
-  if (responseDecision?.decision === 'DENY') return 'T3N blocked the proposed action before protected egress.';
-  if (threatDecision?.decision === 'DENY') return 'T3N blocked the proposed action before protected egress.';
-  if (threatDecision?.decision === 'REDACT') return 'T3N requires a smaller data scope before execution.';
+  if (responseDecision?.decision === 'REDACT') return `${runtimeName} requires a smaller data scope before execution.`;
+  if (responseDecision?.decision === 'DENY') return `${runtimeName} blocked the proposed action before protected egress.`;
+  if (threatDecision?.decision === 'DENY') return `${runtimeName} blocked the proposed action before protected egress.`;
+  if (threatDecision?.decision === 'REDACT') return `${runtimeName} requires a smaller data scope before execution.`;
   if (threatDecision?.decision === 'ALLOW') return 'Policy allows the proposal to continue, but that is not authorization or execution.';
   return 'No threat has been analyzed yet.';
 }
@@ -150,6 +152,7 @@ function completedTitle(action: ActionProposal | null): string {
 }
 
 export function BusinessOutcomeSummary({ scenario, incident, selectedAction, decision, remediationExecution, agentAnalysis }: Props) {
+  const runtimeName = useTrustRuntime().name;
   const threatAction = agentAnalysis?.action ?? selectedAction;
   const threatDecision = agentAnalysis?.decision ?? decision;
   const policyDecisionTime = formatObservedDuration(elapsedMs(threatAction?.createdAt, threatDecision?.evaluatedAt));
@@ -159,7 +162,7 @@ export function BusinessOutcomeSummary({ scenario, incident, selectedAction, dec
   const verifiedOutcomeTime = remediationExecution?.state === 'COMPLETED' && remediationExecution.completedAt && verifiedOutcomeMs !== null
     ? formatObservedDuration(verifiedOutcomeMs)
     : NOT_VERIFIED;
-  const outcomeText = currentResult(threatDecision, selectedAction, decision, remediationExecution);
+  const outcomeText = currentResult(threatDecision, selectedAction, decision, remediationExecution, runtimeName);
   const successful = remediationExecution?.state === 'COMPLETED';
   const unresolved = remediationExecution?.state === 'FAILED' || remediationExecution?.state === 'UNVERIFIED';
 
@@ -199,7 +202,7 @@ export function BusinessOutcomeSummary({ scenario, incident, selectedAction, dec
         </section>
 
         <section className="business-outcome-section" aria-labelledby="t3n-control-title">
-          <div className="business-outcome-section-heading"><ShieldCheck aria-hidden="true" /><h3 id="t3n-control-title">T3N control outcome</h3></div>
+          <div className="business-outcome-section-heading"><ShieldCheck aria-hidden="true" /><h3 id="t3n-control-title">{runtimeName} control outcome</h3></div>
           <dl className="business-outcome-grid">
             <div><dt>Policy decision</dt><dd>{threatDecision?.decision ?? NOT_OBSERVED}</dd></div>
             <div><dt>Reason code</dt><dd>{threatDecision?.reasonCode ?? NOT_OBSERVED}</dd></div>

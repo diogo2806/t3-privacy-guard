@@ -10,7 +10,7 @@ export function AppHeader() {
           <p className="eyebrow">Built on T3 Network</p>
           <h1>T3 Privacy Guard</h1>
           <p className="header-subtitle"><strong>Keep authority outside the model.</strong></p>
-          <p className="header-supporting-copy">AI proposes. T3N policy decides. Humans authorize. Independent verification proves completion.</p>
+          <p className="header-supporting-copy">AI proposes. Policy decides. Humans authorize. Independent verification proves completion.</p>
         </div>
       </div>
       <ScreenManualDialog />

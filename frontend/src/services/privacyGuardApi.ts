@@ -13,7 +13,8 @@ export type EnterpriseIntegrationDiagnosticCode =
   | 'ENDPOINT_CONFIGURATION_INVALID'
   | 'DELEGATION_UNAVAILABLE'
   | 'INSUFFICIENT_CREDIT'
-  | 'T3N_CONTROL_PLANE_UNAVAILABLE';
+  | 'T3N_CONTROL_PLANE_UNAVAILABLE'
+  | 'TRUST_RUNTIME_UNAVAILABLE';
 export type EvidenceScenarioStatus = 'PASS' | 'FAIL' | 'NOT_RUN';
 export type RemediationState = 'EXECUTING' | 'PENDING_VERIFICATION' | 'COMPLETED' | 'UNVERIFIED' | 'FAILED';
 export type AuditReconciliationStatus = 'LOCAL_ONLY' | 'T3N_ONLY' | 'MATCHED' | 'UNMATCHED';

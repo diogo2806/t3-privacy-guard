@@ -4,6 +4,7 @@ import type {
   EnterpriseIntegrationState,
   SystemStatus,
 } from '../../services/privacyGuardApi';
+import { trustRuntimeOf } from '../../services/trustRuntime';
 import { StatusPill, type PillState } from '../status/StatusPill';
 
 interface Props {
@@ -11,15 +12,19 @@ interface Props {
   loading: boolean;
 }
 
-const DIAGNOSTIC_COPY: Record<Exclude<EnterpriseIntegrationDiagnosticCode, 'NONE'>, string> = {
-  POLICY_UNAVAILABLE: 'The active protected policy could not be read from T3N.',
-  POLICY_INVALID: 'The active protected policy could not be validated.',
-  PRIVATE_CONFIGURATION_UNAVAILABLE: 'The protected execution configuration could not be read from T3N.',
-  ENDPOINT_CONFIGURATION_INVALID: 'A protected execution endpoint is invalid or is not an HTTPS endpoint.',
-  DELEGATION_UNAVAILABLE: 'Protected Executor delegation could not be confirmed.',
-  INSUFFICIENT_CREDIT: 'The authenticated T3N account does not have enough credit for the required control-plane operation. Replenish T3N account credits and retry provisioning.',
-  T3N_CONTROL_PLANE_UNAVAILABLE: 'T3N control-plane readiness could not be confirmed.',
-};
+function diagnosticCopy(runtimeName: string): Record<Exclude<EnterpriseIntegrationDiagnosticCode, 'NONE'>, string> {
+  return {
+    POLICY_UNAVAILABLE: `The active protected policy could not be read from ${runtimeName}.`,
+    POLICY_INVALID: 'The active protected policy could not be validated.',
+    PRIVATE_CONFIGURATION_UNAVAILABLE: `The protected execution configuration could not be read from ${runtimeName}.`,
+    ENDPOINT_CONFIGURATION_INVALID: 'A protected execution endpoint is invalid or is not an HTTPS endpoint.',
+    DELEGATION_UNAVAILABLE: 'Protected Executor delegation could not be confirmed.',
+    // Account credit exists only on T3N, so this copy names T3N in every mode.
+    INSUFFICIENT_CREDIT: 'The authenticated T3N account does not have enough credit for the required control-plane operation. Replenish T3N account credits and retry provisioning.',
+    T3N_CONTROL_PLANE_UNAVAILABLE: `${runtimeName} control-plane readiness could not be confirmed.`,
+    TRUST_RUNTIME_UNAVAILABLE: 'The self-hosted guard-runtime could not be reached, so readiness could not be confirmed.',
+  };
+}
 
 function integrationPillState(state?: EnterpriseIntegrationState): PillState {
   if (state === 'READY') return 'ok';
@@ -45,9 +50,10 @@ function observedHost(host: string | null | undefined, state: EnterpriseIntegrat
 }
 
 export function EnterpriseIntegrationStatus({ status, loading }: Props) {
+  const runtime = trustRuntimeOf(status);
   const integrationState = status?.enterpriseIntegrationState ?? 'UNKNOWN';
   const diagnosticCode: EnterpriseIntegrationDiagnosticCode = status?.enterpriseIntegrationDiagnosticCode
-    ?? (integrationState === 'UNKNOWN' ? 'T3N_CONTROL_PLANE_UNAVAILABLE' : 'NONE');
+    ?? (integrationState === 'UNKNOWN' ? (runtime.selfHosted ? 'TRUST_RUNTIME_UNAVAILABLE' : 'T3N_CONTROL_PLANE_UNAVAILABLE') : 'NONE');
   const operational = Boolean(
     status?.protectedRemediationReady
     && status.enterpriseIntegrationReady
@@ -102,9 +108,9 @@ export function EnterpriseIntegrationStatus({ status, loading }: Props) {
 
       <div className="status-footer">
         {!loading && diagnosticCode !== 'NONE' && (
-          <p role="status"><strong>Readiness diagnostic:</strong> <code>{diagnosticCode}</code>. {DIAGNOSTIC_COPY[diagnosticCode]}</p>
+          <p role="status"><strong>Readiness diagnostic:</strong> <code>{diagnosticCode}</code>. {diagnosticCopy(runtime.name)[diagnosticCode]}</p>
         )}
-        <p>The first-party adapter is controlled by Privacy Guard and is reported separately from T3N authorization. Only canonical hostnames are shown; secrets, private paths, query strings and fragments remain inside the protected configuration boundary.</p>
+        <p>The first-party adapter is controlled by Privacy Guard and is reported separately from {runtime.name} authorization. Only canonical hostnames are shown; secrets, private paths, query strings and fragments remain inside the protected configuration boundary.</p>
       </div>
     </section>
   );

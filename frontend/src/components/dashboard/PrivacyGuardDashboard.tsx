@@ -17,6 +17,7 @@ import {
   type RemediationExecution,
   type SystemStatus,
 } from '../../services/privacyGuardApi';
+import { T3N_RUNTIME, TrustRuntimeContext, trustRuntimeOf, type TrustRuntimeInfo } from '../../services/trustRuntime';
 import { ActionProposalPanel } from '../actions/ActionProposalPanel';
 import { AgentPromptPanel } from '../agent/AgentPromptPanel';
 import { AgentProposalPanel } from '../agent/AgentProposalPanel';
@@ -46,6 +47,8 @@ export function PrivacyGuardDashboard() {
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authRetryAfterSeconds, setAuthRetryAfterSeconds] = useState(0);
+  // The header sits outside the authenticated tree, so it shows the last runtime the dashboard observed (T3N until then).
+  const [trustRuntime, setTrustRuntime] = useState<TrustRuntimeInfo>(T3N_RUNTIME);
 
   useEffect(() => {
     void privacyGuardApi.session().then(setSession).catch(() => setSession({ authenticated: false })).finally(() => setSessionLoading(false));
@@ -79,15 +82,17 @@ export function PrivacyGuardDashboard() {
   }, []);
 
   return (
-    <div className="app-shell">
-      <AppHeader />
-      <OperatorSessionGate session={session} loading={sessionLoading} busy={authBusy} error={authError} retryAfterSeconds={authRetryAfterSeconds} onLogin={login} onLogout={logout} />
-      {session?.authenticated && <AuthenticatedDashboard onSessionExpired={expireSession} />}
-    </div>
+    <TrustRuntimeContext.Provider value={trustRuntime}>
+      <div className="app-shell">
+        <AppHeader />
+        <OperatorSessionGate session={session} loading={sessionLoading} busy={authBusy} error={authError} retryAfterSeconds={authRetryAfterSeconds} onLogin={login} onLogout={logout} />
+        {session?.authenticated && <AuthenticatedDashboard onSessionExpired={expireSession} onTrustRuntimeChange={setTrustRuntime} />}
+      </div>
+    </TrustRuntimeContext.Provider>
   );
 }
 
-function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => void }) {
+function AuthenticatedDashboard({ onSessionExpired, onTrustRuntimeChange }: { onSessionExpired: () => void; onTrustRuntimeChange: (runtime: TrustRuntimeInfo) => void }) {
   const [view, setView] = useState<DashboardView>('demo');
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [selectedScenarioId, setSelectedScenarioId] = useState(DEFAULT_ENTERPRISE_SCENARIO.id);
@@ -119,6 +124,9 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const selectionGeneration = useRef(0);
+  const trustRuntime = trustRuntimeOf(systemStatus);
+
+  useEffect(() => { onTrustRuntimeChange(trustRuntime); }, [onTrustRuntimeChange, trustRuntime]);
 
   const selectedScenario = ENTERPRISE_SCENARIOS.find((scenario) => scenario.id === selectedScenarioId) ?? DEFAULT_ENTERPRISE_SCENARIO;
   const incidentScenario = incidentScenarioId ? (ENTERPRISE_SCENARIOS.find((scenario) => scenario.id === incidentScenarioId) ?? null) : null;
@@ -308,9 +316,9 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
     setAgentAnalysis(result); setRemediationExecution(null); setIncident(result.incident); setSelectedAction(result.action); setDecision(result.decision);
     await Promise.all([refreshIncident(result.incident, result.action.id, generation), refreshBusinessImpact(), refreshWorkspace()]);
     if (!isCurrentSelection(generation)) return;
-    if (result.decision.decision === 'DENY') setNotice('The independent T3N policy blocked the agent proposal before protected egress.');
-    else if (result.decision.decision === 'REDACT') setNotice('T3N requires data minimization before the proposal can continue.');
-    else setNotice('T3N policy allowed the proposal to continue. ALLOW is not authorization or execution.');
+    if (result.decision.decision === 'DENY') setNotice(`The independent ${trustRuntime.name} policy blocked the agent proposal before protected egress.`);
+    else if (result.decision.decision === 'REDACT') setNotice(`${trustRuntime.name} requires data minimization before the proposal can continue.`);
+    else setNotice(`${trustRuntime.name} policy allowed the proposal to continue. ALLOW is not authorization or execution.`);
   });
 
   const selectScenario = (scenario: EnterpriseScenarioDefinition) => {
@@ -343,13 +351,13 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
     if (!isCurrentSelection(generation)) return;
 
     if (result.decision.decision === 'DENY') {
-      setNotice('The agent produced a new remediation proposal, but T3N denied it. No fallback action was created.');
+      setNotice(`The agent produced a new remediation proposal, but ${trustRuntime.name} denied it. No fallback action was created.`);
     } else if (result.decision.decision === 'REDACT') {
-      setNotice('The agent produced a new remediation proposal, but T3N requires further minimization. No fallback action was created.');
+      setNotice(`The agent produced a new remediation proposal, but ${trustRuntime.name} requires further minimization. No fallback action was created.`);
     } else if (result.action.action !== 'revoke-credential') {
-      setNotice(`T3N allowed the agent proposal for ${result.action.action}, but protected execution in this demo exists only for revoke-credential. No fallback action was created.`);
+      setNotice(`${trustRuntime.name} allowed the agent proposal for ${result.action.action}, but protected execution in this demo exists only for revoke-credential. No fallback action was created.`);
     } else {
-      setNotice('The agent proposed a credential revocation and T3N allowed it. Human authorization is still required before protected execution.');
+      setNotice(`The agent proposed a credential revocation and ${trustRuntime.name} allowed it. Human authorization is still required before protected execution.`);
     }
   });
 
@@ -418,7 +426,7 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
   const showSafePath = Boolean(incidentScenario?.remediationPrompt) && decision?.decision === 'DENY' && Boolean(incident);
 
   return (
-    <>
+    <TrustRuntimeContext.Provider value={trustRuntime}>
       <DashboardTabs active={view} onChange={setView} />
       {error && <div className="feedback feedback-error" role="alert">{error}</div>}
       {notice && <div className="feedback feedback-success" role="status">{notice}</div>}
@@ -504,6 +512,6 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
       {view === 'evidence' && (
         <EvidenceCenter evidence={evidence} loading={evidenceLoading} error={evidenceError} onRefresh={() => void refreshEvidence()} />
       )}
-    </>
+    </TrustRuntimeContext.Provider>
   );
 }

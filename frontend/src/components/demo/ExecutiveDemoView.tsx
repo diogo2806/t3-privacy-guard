@@ -18,6 +18,7 @@ import type {
   RemediationExecution,
   SystemStatus,
 } from '../../services/privacyGuardApi';
+import { trustRuntimeOf } from '../../services/trustRuntime';
 import { PrivacyGuardMark } from '../brand/PrivacyGuardMark';
 import { formatObservedDuration } from '../business/BusinessOutcomeSummary';
 import { ControlImpactSummary } from '../business/ControlImpactSummary';
@@ -46,6 +47,8 @@ interface Props {
 type Tone = 'pending' | 'info' | 'success' | 'warning' | 'danger';
 
 interface TrustStep {
+  // Stable key and test id; the label follows the active trust runtime.
+  id: string;
   label: string;
   state: string;
   detail: string;
@@ -78,10 +81,10 @@ function validEvidence(evidence: EvidenceBundle | null): evidence is EvidenceBun
   );
 }
 
-function readiness(status: SystemStatus | null, statusLoading: boolean, evidence: EvidenceBundle | null, evidenceLoading: boolean) {
+function readiness(status: SystemStatus | null, statusLoading: boolean, evidence: EvidenceBundle | null, evidenceLoading: boolean, runtimeName: string) {
   if (statusLoading || evidenceLoading) return { label: 'CHECKING RUNTIME', tone: 'pending' as const };
   if (status?.protectedRemediationReady && status.enterpriseIntegrationReady && validEvidence(evidence) && evidence.totals.fail === 0) {
-    return { label: 'T3N LIVE / READY', tone: 'success' as const };
+    return { label: `${runtimeName.toUpperCase()} LIVE / READY`, tone: 'success' as const };
   }
   if (status?.evaluationReady || status || evidence) return { label: 'INCOMPLETE', tone: 'warning' as const };
   return { label: 'NOT READY', tone: 'danger' as const };
@@ -100,7 +103,7 @@ function observedOutcome(action: ActionProposal | null, decision: PolicyDecision
   return NOT_OBSERVED;
 }
 
-function trustPath(action: ActionProposal | null, decision: PolicyDecision | null, execution: RemediationExecution | null): TrustStep[] {
+function trustPath(action: ActionProposal | null, decision: PolicyDecision | null, execution: RemediationExecution | null, runtimeName: string): TrustStep[] {
   const authorized = isHumanAuthorized(action);
   const proposalDetail = action
     ? `${action.action}${action.host ? ` → ${action.host}` : ' → no outbound host'}`
@@ -132,11 +135,11 @@ function trustPath(action: ActionProposal | null, decision: PolicyDecision | nul
   if (execution?.state === 'UNVERIFIED' || execution?.state === 'FAILED') { verifyState = 'UNVERIFIED'; verifyTone = 'danger'; }
 
   return [
-    { label: 'AI proposal', state: action ? 'RECEIVED' : 'WAITING', detail: proposalDetail, tone: action ? 'info' : 'pending', icon: BrainCircuit },
-    { label: 'T3N policy', state: decision?.decision ?? 'WAITING', detail: decision ? decision.reasonCode : 'No T3N decision observed yet.', tone: policyTone, icon: ShieldCheck },
-    { label: 'Human', state: humanState, detail: humanState === 'REQUIRED' ? 'Human authorization required before protected execution.' : humanState === 'AUTHORIZED' ? 'Authorization is recorded for this action.' : 'No authorization is inferred.', tone: humanTone, icon: UserCheck },
-    { label: 'Executor', state: executorState, detail: executorState === 'NOT EXECUTED' ? 'Protected egress did not run.' : executorState === 'NOT STARTED' ? 'Authorized, but protected execution has not started.' : 'State comes from the remediation execution record.', tone: executorTone, icon: ServerCog },
-    { label: 'Verify', state: verifyState, detail: verifyState === 'VERIFIED' ? 'Independent read-back confirmed the expected external state.' : verifyState === 'NOT VERIFIED YET' ? 'Authorization exists, but no independently verified completion has been observed.' : 'No verified completion is claimed unless read-back succeeds.', tone: verifyTone, icon: BadgeCheck },
+    { id: 'ai-proposal', label: 'AI proposal', state: action ? 'RECEIVED' : 'WAITING', detail: proposalDetail, tone: action ? 'info' : 'pending', icon: BrainCircuit },
+    { id: 't3n-policy', label: `${runtimeName} policy`, state: decision?.decision ?? 'WAITING', detail: decision ? decision.reasonCode : `No ${runtimeName} decision observed yet.`, tone: policyTone, icon: ShieldCheck },
+    { id: 'human', label: 'Human', state: humanState, detail: humanState === 'REQUIRED' ? 'Human authorization required before protected execution.' : humanState === 'AUTHORIZED' ? 'Authorization is recorded for this action.' : 'No authorization is inferred.', tone: humanTone, icon: UserCheck },
+    { id: 'executor', label: 'Executor', state: executorState, detail: executorState === 'NOT EXECUTED' ? 'Protected egress did not run.' : executorState === 'NOT STARTED' ? 'Authorized, but protected execution has not started.' : 'State comes from the remediation execution record.', tone: executorTone, icon: ServerCog },
+    { id: 'verify', label: 'Verify', state: verifyState, detail: verifyState === 'VERIFIED' ? 'Independent read-back confirmed the expected external state.' : verifyState === 'NOT VERIFIED YET' ? 'Authorization exists, but no independently verified completion has been observed.' : 'No verified completion is claimed unless read-back succeeds.', tone: verifyTone, icon: BadgeCheck },
   ];
 }
 
@@ -175,9 +178,10 @@ export function ExecutiveDemoView({
 }: Props) {
   const action = selectedAction ?? agentAnalysis?.action ?? null;
   const policyDecision = selectedAction ? decision : (agentAnalysis?.decision ?? decision);
-  const currentReadiness = readiness(systemStatus, statusLoading, evidence, evidenceLoading);
+  const runtimeName = trustRuntimeOf(systemStatus).name;
+  const currentReadiness = readiness(systemStatus, statusLoading, evidence, evidenceLoading, runtimeName);
   const outcome = observedOutcome(action, policyDecision, remediationExecution);
-  const steps = trustPath(action, policyDecision, remediationExecution);
+  const steps = trustPath(action, policyDecision, remediationExecution, runtimeName);
   const decisionTime = formatObservedDuration(elapsedMs(action?.createdAt, policyDecision?.evaluatedAt));
   const proofAvailable = validEvidence(evidence);
   const proposalDid = proofAvailable ? evidence.metadata.agentDid : systemStatus?.agentDid;
@@ -240,13 +244,13 @@ export function ExecutiveDemoView({
         <div className="executive-demo-section-heading">
           <p className="eyebrow">How the control works</p>
           <h2 id="executive-trust-title">Trust path</h2>
-          <p className="executive-demo-mechanism">AI can propose. Policy decides. Humans authorize. T3N executes.</p>
+          <p className="executive-demo-mechanism">AI can propose. Policy decides. Humans authorize. {runtimeName} executes.</p>
         </div>
         <ol className="executive-demo-trust-steps">
           {steps.map((step, index) => {
             const Icon = step.icon;
             return (
-              <li key={step.label} className={`executive-demo-step executive-tone-${step.tone}`} data-testid={`executive-step-${step.label.toLowerCase().replaceAll(' ', '-')}`}>
+              <li key={step.id} className={`executive-demo-step executive-tone-${step.tone}`} data-testid={`executive-step-${step.id}`}>
                 <div className="executive-demo-step-heading"><Icon aria-hidden="true" /><span>{step.label}</span></div>
                 <strong>{step.state}</strong>
                 <small title={step.detail}>{step.detail}</small>
