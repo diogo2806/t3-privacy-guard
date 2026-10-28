@@ -20,13 +20,17 @@ public final class AuditIntegrityKeyring {
         @Value("${privacy-guard.audit-integrity.key}") String currentKey,
         @Value("${privacy-guard.audit-integrity.key-id:primary}") String currentKeyId,
         @Value("${privacy-guard.audit-integrity.previous-keys:}") String previousKeys,
-        @Value("${privacy-guard.gateway.service-token:}") String gatewayServiceToken,
+        @Value("${privacy-guard.guard-runtime.proposal-token:}") String runtimeProposalToken,
+        @Value("${privacy-guard.guard-runtime.executor-token:}") String runtimeExecutorToken,
+        @Value("${privacy-guard.mcp.token:}") String mcpToken,
         @Value("${privacy-guard.remediation-capability.private-key-pkcs8:}") String remediationAuthorizationPrivateKey,
         @Value("${privacy-guard.operator.password:}") String operatorPassword
     ) {
         validateKeyId(currentKeyId, "AUDIT_INTEGRITY_KEY_ID");
         validateSecret(currentKey, "AUDIT_INTEGRITY_KEY");
-        rejectReuse(currentKey, gatewayServiceToken, "GATEWAY_SERVICE_TOKEN");
+        rejectReuse(currentKey, runtimeProposalToken, "GUARD_RUNTIME_PROPOSAL_TOKEN");
+        rejectReuse(currentKey, runtimeExecutorToken, "GUARD_RUNTIME_EXECUTOR_TOKEN");
+        rejectReuse(currentKey, mcpToken, "MCP_TOKEN");
         rejectReuse(currentKey, remediationAuthorizationPrivateKey, "REMEDIATION_AUTH_PRIVATE_KEY_PKCS8");
         rejectReuse(currentKey, operatorPassword, "OPERATOR_PASSWORD");
 

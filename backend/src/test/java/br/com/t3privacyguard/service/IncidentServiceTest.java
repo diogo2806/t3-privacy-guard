@@ -13,13 +13,13 @@ import br.com.t3privacyguard.api.ApiModels.CreateActionRequest;
 import br.com.t3privacyguard.api.ApiModels.CreateIncidentRequest;
 import br.com.t3privacyguard.domain.DecisionType;
 import br.com.t3privacyguard.domain.Severity;
-import br.com.t3privacyguard.integration.GatewayPolicyClient;
-import br.com.t3privacyguard.integration.GatewayPolicyClient.GatewayDecision;
-import br.com.t3privacyguard.integration.GatewayRemediationClient;
-import br.com.t3privacyguard.integration.GatewayRemediationClient.RemediationRequest;
-import br.com.t3privacyguard.integration.GatewayRemediationClient.RemediationResult;
-import br.com.t3privacyguard.integration.GatewayRemediationClient.VerificationResult;
-import br.com.t3privacyguard.integration.GatewayUnavailableException;
+import br.com.t3privacyguard.integration.RuntimePolicyClient;
+import br.com.t3privacyguard.integration.RuntimePolicyClient.RuntimeDecision;
+import br.com.t3privacyguard.integration.RuntimeRemediationClient;
+import br.com.t3privacyguard.integration.RuntimeRemediationClient.RemediationRequest;
+import br.com.t3privacyguard.integration.RuntimeRemediationClient.RemediationResult;
+import br.com.t3privacyguard.integration.RuntimeRemediationClient.VerificationResult;
+import br.com.t3privacyguard.integration.TrustRuntimeUnavailableException;
 import br.com.t3privacyguard.persistence.ActionProposalRepository;
 import br.com.t3privacyguard.persistence.AuditEventRepository;
 import br.com.t3privacyguard.persistence.IncidentRepository;
@@ -51,8 +51,8 @@ class IncidentServiceTest {
     @Autowired AuditEventRepository audits;
     @Autowired RemediationExecutionRepository remediations;
     @Autowired JdbcTemplate jdbc;
-    @MockitoBean GatewayPolicyClient gateway;
-    @MockitoBean GatewayRemediationClient remediationGateway;
+    @MockitoBean RuntimePolicyClient gateway;
+    @MockitoBean RuntimeRemediationClient remediationGateway;
 
     @BeforeEach
     void clear() {
@@ -182,7 +182,7 @@ class IncidentServiceTest {
         for (CreateActionRequest input : unsupported) {
             var incident = createIncident("Policy-only " + input.action());
             var action = service.addAction(incident.id(), input);
-            when(gateway.evaluate(any())).thenReturn(new GatewayDecision(
+            when(gateway.evaluate(any())).thenReturn(new RuntimeDecision(
                 input.requestId(), DecisionType.ALLOW, "POLICY_ALLOW", "Allowed",
                 input.fields(), List.of(), input.privateRefs(), List.of(), POLICY_VERSION, POLICY_HASH, true
             ));
@@ -243,7 +243,7 @@ class IncidentServiceTest {
     @Test void notifySecurityMissingAllowedPrivateReferenceCannotAuthorize() {
         var incident = createIncident("Private reference removed");
         var action = service.addAction(incident.id(), notifyAction("req-notify-private-deny"));
-        when(gateway.evaluate(any())).thenReturn(new GatewayDecision(
+        when(gateway.evaluate(any())).thenReturn(new RuntimeDecision(
             "req-notify-private-deny", DecisionType.ALLOW, "POLICY_ALLOW", "Allowed",
             List.of("incident_id", "severity", "summary"), List.of(), List.of(), List.of("verified_email"),
             POLICY_VERSION, POLICY_HASH, true
@@ -330,7 +330,7 @@ class IncidentServiceTest {
 
     @Test void ambiguousExecutionOutcomeIsPersistedAndNeverAutomaticallyRetried() {
         var context = authorizedAction("req-timeout");
-        when(remediationGateway.execute(any(), anyString())).thenThrow(new GatewayUnavailableException("timeout after send"));
+        when(remediationGateway.execute(any(), anyString())).thenThrow(new TrustRuntimeUnavailableException("timeout after send"));
 
         var first = service.executeRemediation(context.incidentId(), context.actionId());
         var second = service.executeRemediation(context.incidentId(), context.actionId());
@@ -345,7 +345,7 @@ class IncidentServiceTest {
         var context = authorizedAction("req-verification-outage");
         when(remediationGateway.execute(any(), anyString())).thenReturn(remediation("req-verification-outage", 202, "op-outage"));
         when(remediationGateway.verify("req-verification-outage", "op-outage"))
-            .thenThrow(new GatewayUnavailableException("verification offline"))
+            .thenThrow(new TrustRuntimeUnavailableException("verification offline"))
             .thenReturn(new VerificationResult("req-verification-outage", "VERIFIED", "REVOKED"));
 
         var first = service.executeRemediation(context.incidentId(), context.actionId());
@@ -360,8 +360,8 @@ class IncidentServiceTest {
 
     @Test void gatewayUnavailableFailsClosedWithoutPersistingDecision() {
         var incident = createIncident("Gateway failure"); var action = service.addAction(incident.id(), safeAction("req-5"));
-        when(gateway.evaluate(any())).thenThrow(new GatewayUnavailableException("gateway unavailable"));
-        assertThatThrownBy(() -> service.evaluate(incident.id(), action.id())).isInstanceOf(GatewayUnavailableException.class);
+        when(gateway.evaluate(any())).thenThrow(new TrustRuntimeUnavailableException("gateway unavailable"));
+        assertThatThrownBy(() -> service.evaluate(incident.id(), action.id())).isInstanceOf(TrustRuntimeUnavailableException.class);
         assertThat(decisions.count()).isZero();
         assertThatThrownBy(() -> service.authorizeRemediation(incident.id(), action.id(), OPERATOR)).isInstanceOf(ConflictException.class);
     }
@@ -412,15 +412,15 @@ class IncidentServiceTest {
             List.of("incident_id", "severity", "summary"), List.of("verified_email"));
     }
 
-    private GatewayDecision decision(String requestId, DecisionType type, String code, List<String> allowed, List<String> redacted) {
-        return new GatewayDecision(
+    private RuntimeDecision decision(String requestId, DecisionType type, String code, List<String> allowed, List<String> redacted) {
+        return new RuntimeDecision(
             requestId, type, code, type == DecisionType.ALLOW ? "Allowed" : "Denied", allowed, redacted, List.of(), List.of(),
             POLICY_VERSION, POLICY_HASH, true
         );
     }
 
-    private GatewayDecision notifyDecision(String requestId) {
-        return new GatewayDecision(
+    private RuntimeDecision notifyDecision(String requestId) {
+        return new RuntimeDecision(
             requestId, DecisionType.ALLOW, "POLICY_ALLOW", "Allowed",
             List.of("incident_id", "severity", "summary"), List.of(), List.of("verified_email"), List.of(),
             POLICY_VERSION, POLICY_HASH, true

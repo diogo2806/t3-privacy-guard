@@ -1,14 +1,14 @@
 package br.com.t3privacyguard.service;
 
-import br.com.t3privacyguard.integration.GatewaySystemClient;
-import br.com.t3privacyguard.integration.GatewaySystemClient.AgentRegistrationStatus;
-import br.com.t3privacyguard.integration.GatewaySystemClient.AgentStatus;
-import br.com.t3privacyguard.integration.GatewaySystemClient.ContractIdentity;
-import br.com.t3privacyguard.integration.GatewaySystemClient.DelegationStatus;
-import br.com.t3privacyguard.integration.GatewaySystemClient.EnterpriseIntegrationReadiness;
-import br.com.t3privacyguard.integration.GatewaySystemClient.EnterpriseVerificationContract;
-import br.com.t3privacyguard.integration.GatewaySystemClient.ExecutorStatus;
-import br.com.t3privacyguard.integration.GatewaySystemClient.TenantStatus;
+import br.com.t3privacyguard.integration.RuntimeStatusClient;
+import br.com.t3privacyguard.integration.RuntimeStatusClient.AgentRegistrationStatus;
+import br.com.t3privacyguard.integration.RuntimeStatusClient.AgentStatus;
+import br.com.t3privacyguard.integration.RuntimeStatusClient.ContractIdentity;
+import br.com.t3privacyguard.integration.RuntimeStatusClient.DelegationStatus;
+import br.com.t3privacyguard.integration.RuntimeStatusClient.EnterpriseIntegrationReadiness;
+import br.com.t3privacyguard.integration.RuntimeStatusClient.EnterpriseVerificationContract;
+import br.com.t3privacyguard.integration.RuntimeStatusClient.ExecutorStatus;
+import br.com.t3privacyguard.integration.RuntimeStatusClient.TenantStatus;
 import br.com.t3privacyguard.security.SecurityRemediationCredential;
 import java.util.List;
 import java.util.Optional;
@@ -17,28 +17,25 @@ import org.springframework.stereotype.Service;
 @Service
 public class SystemStatusService {
     private static final List<String> REGISTRATION_STATES = List.of("REGISTERED", "NOT_REGISTERED", "MISMATCH", "UNAVAILABLE");
-    private static final String SELF_HOSTED_NETWORK = "selfhosted";
-    private final GatewaySystemClient gateway;
+    private final RuntimeStatusClient runtime;
     private final SecurityRemediationCredential remediationCredential;
 
-    public SystemStatusService(GatewaySystemClient gateway, SecurityRemediationCredential remediationCredential) {
-        this.gateway = gateway;
+    public SystemStatusService(RuntimeStatusClient runtime, SecurityRemediationCredential remediationCredential) {
+        this.runtime = runtime;
         this.remediationCredential = remediationCredential;
     }
 
     public SystemStatusResponse status() {
-        boolean gatewayReachable = gateway.health();
-        Optional<TenantStatus> tenant = gateway.tenantStatus();
-        Optional<AgentStatus> agent = gateway.agentStatus();
-        Optional<ExecutorStatus> executor = gateway.executorStatus();
-        Optional<AgentRegistrationStatus> registration = gatewayReachable ? gateway.agentRegistration() : Optional.empty();
-        Optional<EnterpriseIntegrationReadiness> enterpriseIntegration = gatewayReachable ? gateway.enterpriseIntegrationReadiness() : Optional.empty();
-        Optional<ContractIdentity> contract = gateway.contractIdentity();
-        Optional<DelegationStatus> proposalDelegation = contract.flatMap(value -> gateway.delegationStatus(value.contractId()));
-        Optional<DelegationStatus> executorDelegation = contract.flatMap(value -> gateway.executorDelegationStatus(value.contractId()));
+        boolean runtimeReachable = runtime.health();
+        Optional<TenantStatus> tenant = runtime.tenantStatus();
+        Optional<AgentStatus> agent = runtime.agentStatus();
+        Optional<ExecutorStatus> executor = runtime.executorStatus();
+        Optional<AgentRegistrationStatus> registration = runtimeReachable ? runtime.agentRegistration() : Optional.empty();
+        Optional<EnterpriseIntegrationReadiness> enterpriseIntegration = runtimeReachable ? runtime.enterpriseIntegrationReadiness() : Optional.empty();
+        Optional<ContractIdentity> contract = runtime.contractIdentity();
+        Optional<DelegationStatus> proposalDelegation = contract.flatMap(value -> runtime.delegationStatus(value.contractId()));
+        Optional<DelegationStatus> executorDelegation = contract.flatMap(value -> runtime.executorDelegationStatus(value.contractId()));
 
-        // The self-hosted gateway reports network "selfhosted"; everything else is Terminal 3.
-        boolean selfHosted = tenant.map(TenantStatus::network).map(SELF_HOSTED_NETWORK::equals).orElse(false);
         boolean tenantAuthenticated = tenant.map(TenantStatus::ready).orElse(false);
         boolean agentAuthenticated = agent.map(AgentStatus::ready).orElse(false);
         boolean executorAuthenticated = executor.map(ExecutorStatus::ready).orElse(false);
@@ -53,7 +50,7 @@ public class SystemStatusService {
         String enterpriseIntegrationState = enterpriseIntegration.map(EnterpriseIntegrationReadiness::state).orElse("UNKNOWN");
         String enterpriseIntegrationDiagnosticCode = enterpriseIntegration
             .map(EnterpriseIntegrationReadiness::diagnosticCode)
-            .orElse(selfHosted ? "TRUST_RUNTIME_UNAVAILABLE" : "T3N_CONTROL_PLANE_UNAVAILABLE");
+            .orElse("TRUST_RUNTIME_UNAVAILABLE");
         boolean enterpriseIntegrationReady = "READY".equals(enterpriseIntegrationState);
 
         boolean evaluationReady = tenantAuthenticated
@@ -67,19 +64,17 @@ public class SystemStatusService {
             && "ACTIVE".equals(executorDelegationEffectiveState);
 
         String message = statusMessage(
-            gatewayReachable,
+            runtimeReachable,
             delegationMemberState,
             delegationEffectiveState,
             executorDelegationMemberState,
             executorDelegationEffectiveState,
             evaluationReady,
-            protectedRemediationReady,
-            registrationState,
-            selfHosted
+            protectedRemediationReady
         );
 
         return new SystemStatusResponse(
-            gatewayReachable,
+            runtimeReachable,
             tenantAuthenticated,
             tenant.map(TenantStatus::network).orElse(null),
             tenant.map(TenantStatus::tenantDid).orElse(null),
@@ -139,47 +134,35 @@ public class SystemStatusService {
     }
 
     private static String statusMessage(
-        boolean gatewayReachable,
+        boolean runtimeReachable,
         String proposalMemberState,
         String proposalEffectiveState,
         String executorMemberState,
         String executorEffectiveState,
         boolean evaluationReady,
-        boolean protectedRemediationReady,
-        String registrationState,
-        boolean selfHosted
+        boolean protectedRemediationReady
     ) {
-        String runtime = selfHosted ? "guard-runtime" : "T3N";
-        if (!gatewayReachable) return selfHosted ? "Gateway is unreachable." : "T3N gateway is unreachable.";
-        if ("UNKNOWN".equals(proposalMemberState)) {
-            return "Proposal Member grant could not be confirmed; policy evaluation remains unavailable.";
-        }
-        if ("SCHEDULED".equals(proposalMemberState) && "SCHEDULED".equals(executorMemberState)) {
-            return "Proposal and Executor Member grants exist, but their authorization windows have not begun.";
-        }
-        if ("SCHEDULED".equals(proposalMemberState)) return "Proposal Member grant exists, but its authorization window has not begun.";
-        if ("NOT_GRANTED".equals(proposalMemberState)) return "Proposal Member grant has not been granted; policy evaluation is not ready.";
-        if ("REVOKED".equals(proposalMemberState)) return "Proposal Member grant has been revoked; policy evaluation is not ready.";
-        if (!"ACTIVE".equals(proposalMemberState)) return "Proposal Member grant is not active; policy evaluation is not ready.";
-        if ("DENIED".equals(proposalEffectiveState)) return "Proposal Member grant is active, but effective " + runtime + " access is denied for the required evaluation function/scopes.";
-        if (!"ACTIVE".equals(proposalEffectiveState)) return "Proposal Member grant is active, but effective " + runtime + " access could not be confirmed for policy evaluation.";
+        if (!runtimeReachable) return "guard-runtime is unreachable; evaluation and remediation fail closed.";
+        if ("UNKNOWN".equals(proposalMemberState)) return "The proposal agent's grant could not be confirmed; policy evaluation remains unavailable.";
+        if (!"ACTIVE".equals(proposalMemberState)) return "guard-runtime does not recognize the proposal agent credential; policy evaluation is not ready.";
+        if ("DENIED".equals(proposalEffectiveState)) return "The proposal agent is known to guard-runtime but is not granted evaluate-action.";
+        if (!"ACTIVE".equals(proposalEffectiveState)) return "The proposal agent's effective access could not be confirmed; policy evaluation remains unavailable.";
         if (evaluationReady && "UNKNOWN".equals(executorMemberState)) {
-            return "Policy evaluation is ready, but the Executor Member grant could not be confirmed; protected remediation remains unavailable.";
+            return "Policy evaluation is ready, but the protected executor's grant could not be confirmed; protected remediation remains unavailable.";
         }
-        if ("SCHEDULED".equals(executorMemberState) && evaluationReady) return "Policy evaluation is ready, but the Executor Member grant window has not begun; protected remediation remains unavailable.";
-        if (evaluationReady && "NOT_GRANTED".equals(executorMemberState)) return "Policy evaluation is ready, but the Executor Member grant has not been granted; protected remediation remains unavailable.";
-        if (evaluationReady && "REVOKED".equals(executorMemberState)) return "Policy evaluation is ready, but the Executor Member grant has been revoked; protected remediation remains unavailable.";
-        if (evaluationReady && !"ACTIVE".equals(executorMemberState)) return "Policy evaluation is ready, but the Executor Member grant is not active; protected remediation remains unavailable.";
-        if (evaluationReady && "DENIED".equals(executorEffectiveState)) return "Policy evaluation is ready, but effective " + runtime + " access is denied for the Protected Executor.";
-        if (evaluationReady && !"ACTIVE".equals(executorEffectiveState)) return "Policy evaluation is ready, but effective " + runtime + " access could not be confirmed for the Protected Executor.";
-        if (protectedRemediationReady && selfHosted) {
+        if (evaluationReady && !"ACTIVE".equals(executorMemberState)) {
+            return "Policy evaluation is ready, but guard-runtime does not recognize the protected executor credential; protected remediation remains unavailable.";
+        }
+        if (evaluationReady && "DENIED".equals(executorEffectiveState)) {
+            return "Policy evaluation is ready, but the protected executor is not granted execute-remediation and verify-remediation.";
+        }
+        if (evaluationReady && !"ACTIVE".equals(executorEffectiveState)) {
+            return "Policy evaluation is ready, but the protected executor's effective access could not be confirmed.";
+        }
+        if (protectedRemediationReady) {
             return "guard-runtime controls are ready: effective Proposal and Protected Executor access is confirmed for the exact functions each role needs.";
         }
-        if (protectedRemediationReady && "REGISTERED".equals(registrationState)) {
-            return "T3N controls are ready: effective Proposal and Protected Executor access is confirmed for exact least-privilege functions/scopes, and the public Agent Card is registered.";
-        }
-        if (protectedRemediationReady) return "T3N controls are ready with effective Proposal and Protected Executor access confirmed, but public Agent onboarding is not confirmed as REGISTERED.";
-        return "Gateway is online, but one or more " + runtime + " identity, contract, Member grant, or effective-access checks are not confirmed as ready.";
+        return "guard-runtime is online, but one or more identity, policy or grant checks are not confirmed as ready.";
     }
 
     private static String registrationState(Optional<AgentRegistrationStatus> registration, String authenticatedAgentDid) {

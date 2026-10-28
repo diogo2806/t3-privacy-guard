@@ -28,9 +28,22 @@ management:
       probes:
         enabled: true
 privacy-guard:
-  gateway:
-    base-url: ${T3N_GATEWAY_URL:http://t3n-gateway:3001}
-    service-token: ${GATEWAY_SERVICE_TOKEN:}
+  guard-runtime:
+    url: ${GUARD_RUNTIME_URL:http://guard-runtime:3101}
+    proposal-agent-id: ${GUARD_RUNTIME_PROPOSAL_AGENT_ID:agent:proposal}
+    proposal-token: ${GUARD_RUNTIME_PROPOSAL_TOKEN:}
+    executor-id: ${GUARD_RUNTIME_EXECUTOR_ID:agent:executor}
+    executor-token: ${GUARD_RUNTIME_EXECUTOR_TOKEN:}
+    timeout-ms: ${GUARD_RUNTIME_TIMEOUT_MS:15000}
+  ai:
+    provider: ${AI_PROVIDER:disabled}
+    api-url: ${AI_API_URL:https://api.openai.com/v1/chat/completions}
+    api-key: ${AI_API_KEY:}
+    model: ${AI_MODEL:}
+    allow-insecure-http: ${AI_ALLOW_INSECURE_HTTP:false}
+  mcp:
+    # Bearer token for /mcp. Empty disables the MCP endpoint.
+    token: ${MCP_TOKEN:}
   security-remediation:
     api-key: ${SECURITY_API_KEY:}
   remediation-capability:
@@ -68,6 +81,3 @@ privacy-guard:
     days: ${INCIDENT_RETENTION_DAYS:7}
     purge-initial-delay-ms: ${INCIDENT_PURGE_INITIAL_DELAY_MS:60000}
     purge-interval-ms: ${INCIDENT_PURGE_INTERVAL_MS:900000}
-  evidence:
-    manifest-path: ${EVIDENCE_MANIFEST_PATH:../docs/evidence/deployment-manifest.json}
-    testnet-path: ${EVIDENCE_TESTNET_PATH:../docs/evidence/testnet-run.json}

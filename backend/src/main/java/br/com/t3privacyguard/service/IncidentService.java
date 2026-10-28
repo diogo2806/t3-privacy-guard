@@ -13,11 +13,11 @@ import br.com.t3privacyguard.audit.AuditIntegrityService;
 import br.com.t3privacyguard.domain.DecisionType;
 import br.com.t3privacyguard.domain.ProposalStatus;
 import br.com.t3privacyguard.domain.RemediationStatus;
-import br.com.t3privacyguard.integration.GatewayPolicyClient;
-import br.com.t3privacyguard.integration.GatewayPolicyClient.GatewayEvaluationRequest;
-import br.com.t3privacyguard.integration.GatewayRemediationClient;
-import br.com.t3privacyguard.integration.GatewayRemediationClient.RemediationRequest;
-import br.com.t3privacyguard.integration.GatewayUnavailableException;
+import br.com.t3privacyguard.integration.RuntimePolicyClient;
+import br.com.t3privacyguard.integration.RuntimePolicyClient.EvaluationRequest;
+import br.com.t3privacyguard.integration.RuntimeRemediationClient;
+import br.com.t3privacyguard.integration.RuntimeRemediationClient.RemediationRequest;
+import br.com.t3privacyguard.integration.TrustRuntimeUnavailableException;
 import br.com.t3privacyguard.integration.RemediationDestinationChangedException;
 import br.com.t3privacyguard.persistence.ActionProposalEntity;
 import br.com.t3privacyguard.persistence.ActionProposalRepository;
@@ -55,8 +55,8 @@ public class IncidentService {
     private final ActionProposalRepository actions;
     private final PolicyDecisionRepository decisions;
     private final AuditIntegrityService auditIntegrity;
-    private final GatewayPolicyClient gateway;
-    private final GatewayRemediationClient remediationGateway;
+    private final RuntimePolicyClient gateway;
+    private final RuntimeRemediationClient remediationGateway;
     private final RemediationAuthorizationSigner remediationAuthorizationSigner;
     private final RemediationExecutionCoordinator executionCoordinator;
     private final ExecutionTraceService traces;
@@ -70,8 +70,8 @@ public class IncidentService {
         ActionProposalRepository actions,
         PolicyDecisionRepository decisions,
         AuditIntegrityService auditIntegrity,
-        GatewayPolicyClient gateway,
-        GatewayRemediationClient remediationGateway,
+        RuntimePolicyClient gateway,
+        RuntimeRemediationClient remediationGateway,
         RemediationAuthorizationSigner remediationAuthorizationSigner,
         RemediationExecutionCoordinator executionCoordinator,
         ExecutionTraceService traces,
@@ -155,13 +155,13 @@ public class IncidentService {
         }
 
         long startedAt = System.nanoTime();
-        GatewayPolicyClient.GatewayDecision gatewayDecision;
+        RuntimePolicyClient.RuntimeDecision gatewayDecision;
         try {
-            gatewayDecision = gateway.evaluate(new GatewayEvaluationRequest(
+            gatewayDecision = gateway.evaluate(new EvaluationRequest(
                 action.getRequestId(), action.getAction(), action.getResource(), action.getPurpose(), action.getHost(),
                 readList(action.getFieldsJson()), readList(action.getPrivateRefsJson())
             ));
-        } catch (GatewayUnavailableException ex) {
+        } catch (TrustRuntimeUnavailableException ex) {
             traces.recordFailure(action, "POLICY_EVALUATION", "UNAVAILABLE", "GATEWAY_UNAVAILABLE", elapsedMillis(startedAt));
             throw ex;
         }
@@ -316,7 +316,7 @@ public class IncidentService {
             );
             traces.record(action, "PROTECTED_EGRESS", "DENIED", "EXECUTION_DESTINATION_CHANGED", elapsedMillis(startedAt));
             return remediationResponse(incidentId, actionId, state);
-        } catch (GatewayUnavailableException ex) {
+        } catch (TrustRuntimeUnavailableException ex) {
             RemediationExecutionEntity state = executionCoordinator.markUnverified(actionId, "EXECUTION_RESULT_UNKNOWN");
             audit(
                 incidentId,
@@ -413,7 +413,7 @@ public class IncidentService {
             );
             traces.record(action, "EXTERNAL_VERIFICATION", "FAILED", "EXTERNAL_STATE_NOT_VERIFIED", elapsedMillis(startedAt));
             return remediationResponse(incidentId, action.getId(), state);
-        } catch (GatewayUnavailableException ex) {
+        } catch (TrustRuntimeUnavailableException ex) {
             RemediationExecutionEntity state = executionCoordinator.markUnverified(action.getId(), "VERIFICATION_UNAVAILABLE");
             audit(
                 incidentId,
@@ -531,7 +531,7 @@ public class IncidentService {
         }
     }
 
-    private void validatePolicyMetadata(GatewayPolicyClient.GatewayDecision decision) {
+    private void validatePolicyMetadata(RuntimePolicyClient.RuntimeDecision decision) {
         boolean failClosedWithoutPolicy = decision.decision() == DecisionType.DENY
             && ("POLICY_UNAVAILABLE".equals(decision.reasonCode()) || "POLICY_INVALID".equals(decision.reasonCode()));
         if (decision.policyVersion() == null || decision.policyHash() == null) {

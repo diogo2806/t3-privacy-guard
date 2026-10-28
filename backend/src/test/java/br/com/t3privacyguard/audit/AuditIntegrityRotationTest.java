@@ -22,7 +22,7 @@ class AuditIntegrityRotationTest {
     private static final String OLD_KEY = "old-audit-integrity-secret-123456789012345";
     private static final String NEW_KEY = "new-audit-integrity-secret-123456789012345";
     private static final String WRONG_KEY = "wrong-audit-integrity-secret-1234567890123";
-    private static final String GATEWAY_KEY = "gateway-test-secret-123456789012345678901";
+    private static final String RUNTIME_PROPOSAL_TOKEN = "runtime-proposal-secret-123456789012345678901";
     private static final String REMEDIATION_KEY = "remediation-test-secret-12345678901234567";
     private static final String OPERATOR_PASSWORD = "operator-test-password-12345678901234567";
 
@@ -74,14 +74,16 @@ class AuditIntegrityRotationTest {
     @Test
     void currentAuditKeyCannotReuseOtherBackendSecrets() {
         assertThatThrownBy(() -> new AuditIntegrityKeyring(
-            GATEWAY_KEY,
+            RUNTIME_PROPOSAL_TOKEN,
             "audit",
             "",
-            GATEWAY_KEY,
+            RUNTIME_PROPOSAL_TOKEN,
+            "runtime-executor-token-0123456789abcdef",
+            "",
             REMEDIATION_KEY,
             OPERATOR_PASSWORD
         )).isInstanceOf(IllegalStateException.class)
-          .hasMessageContaining("GATEWAY_SERVICE_TOKEN");
+          .hasMessageContaining("GUARD_RUNTIME_PROPOSAL_TOKEN");
     }
 
     private AuditIntegrityService service(String key, String keyId, String previousKeys) {
@@ -89,7 +91,9 @@ class AuditIntegrityRotationTest {
             key,
             keyId,
             previousKeys,
-            GATEWAY_KEY,
+            RUNTIME_PROPOSAL_TOKEN,
+            "runtime-executor-token-0123456789abcdef",
+            "",
             REMEDIATION_KEY,
             OPERATOR_PASSWORD
         );

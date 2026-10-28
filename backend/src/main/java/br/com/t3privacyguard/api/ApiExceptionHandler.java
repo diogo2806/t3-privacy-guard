@@ -1,8 +1,10 @@
 package br.com.t3privacyguard.api;
 
 import br.com.t3privacyguard.audit.AuditIntegrityException;
-import br.com.t3privacyguard.integration.GatewayUnavailableException;
+import br.com.t3privacyguard.integration.AiProviderUnavailableException;
+import br.com.t3privacyguard.integration.InvalidAgentProposalException;
 import br.com.t3privacyguard.integration.SensitivePromptRejectedException;
+import br.com.t3privacyguard.integration.TrustRuntimeUnavailableException;
 import br.com.t3privacyguard.privacy.UnsafeIncidentContentException;
 import br.com.t3privacyguard.security.TooManyLoginAttemptsException;
 import br.com.t3privacyguard.service.*;
@@ -16,9 +18,6 @@ import org.springframework.web.bind.annotation.*;
 public class ApiExceptionHandler {
     @ExceptionHandler(IncidentNotFoundException.class)
     ResponseEntity<ProblemDetail> notFound(IncidentNotFoundException ex) { return problem(HttpStatus.NOT_FOUND, "Resource not found", ex.getMessage()); }
-
-    @ExceptionHandler(EvidenceNotFoundException.class)
-    ResponseEntity<ProblemDetail> evidenceNotFound(EvidenceNotFoundException ex) { return problem(HttpStatus.NOT_FOUND, "Evidence not available", ex.getMessage()); }
 
     @ExceptionHandler(ConflictException.class)
     ResponseEntity<ProblemDetail> conflict(ConflictException ex) { return problem(HttpStatus.CONFLICT, "Request conflict", ex.getMessage()); }
@@ -57,8 +56,14 @@ public class ApiExceptionHandler {
         return problem(HttpStatus.UNPROCESSABLE_ENTITY, "Incident content rejected", "This content could not be stored safely. Remove literal personal data, credentials, tokens or secrets and retry with operational metadata only.");
     }
 
-    @ExceptionHandler(GatewayUnavailableException.class)
-    ResponseEntity<ProblemDetail> gateway(GatewayUnavailableException ex) { return problem(HttpStatus.SERVICE_UNAVAILABLE, "T3N policy service unavailable", "The action was not authorized because policy evaluation could not be completed."); }
+    @ExceptionHandler(TrustRuntimeUnavailableException.class)
+    ResponseEntity<ProblemDetail> trustRuntime(TrustRuntimeUnavailableException ex) { return problem(HttpStatus.SERVICE_UNAVAILABLE, "Trust runtime unavailable", "The action was not authorized because guard-runtime could not complete the check."); }
+
+    @ExceptionHandler(AiProviderUnavailableException.class)
+    ResponseEntity<ProblemDetail> aiProvider(AiProviderUnavailableException ex) { return problem(HttpStatus.SERVICE_UNAVAILABLE, "AI agent unavailable", "The AI agent provider is not configured or did not answer. No action was proposed."); }
+
+    @ExceptionHandler(InvalidAgentProposalException.class)
+    ResponseEntity<ProblemDetail> invalidProposal(InvalidAgentProposalException ex) { return problem(HttpStatus.UNPROCESSABLE_ENTITY, "Invalid agent proposal", "The AI agent returned an invalid or unsafe structured proposal. Nothing was stored or evaluated."); }
 
     @ExceptionHandler(InvalidBusinessImpactWindowException.class)
     ResponseEntity<ProblemDetail> invalidBusinessImpactWindow(InvalidBusinessImpactWindowException ex) {

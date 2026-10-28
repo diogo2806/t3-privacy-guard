@@ -65,7 +65,9 @@ class RuntimeSecretPolicyTest {
             "replace-with-distinct-at-least-32-random-characters",
             "primary",
             "",
-            "gateway-runtime-token-12345678901234567890",
+            "runtime-proposal-token-12345678901234567890",
+            "runtime-executor-token-12345678901234567890",
+            "",
             "runtime-remediation-private-key",
             "runtime-operator-password"
         ))
@@ -79,7 +81,9 @@ class RuntimeSecretPolicyTest {
             "audit-runtime-key-123456789012345678901234567890",
             "primary",
             "",
-            "gateway-runtime-token-12345678901234567890",
+            "runtime-proposal-token-12345678901234567890",
+            "runtime-executor-token-12345678901234567890",
+            "",
             "runtime-remediation-private-key",
             "runtime-operator-password"
         );

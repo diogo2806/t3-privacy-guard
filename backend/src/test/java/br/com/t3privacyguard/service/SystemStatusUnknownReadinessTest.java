@@ -3,13 +3,13 @@ package br.com.t3privacyguard.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
-import br.com.t3privacyguard.integration.GatewaySystemClient;
-import br.com.t3privacyguard.integration.GatewaySystemClient.AgentStatus;
-import br.com.t3privacyguard.integration.GatewaySystemClient.ContractIdentity;
-import br.com.t3privacyguard.integration.GatewaySystemClient.DelegationStatus;
-import br.com.t3privacyguard.integration.GatewaySystemClient.EnterpriseIntegrationReadiness;
-import br.com.t3privacyguard.integration.GatewaySystemClient.ExecutorStatus;
-import br.com.t3privacyguard.integration.GatewaySystemClient.TenantStatus;
+import br.com.t3privacyguard.integration.RuntimeStatusClient;
+import br.com.t3privacyguard.integration.RuntimeStatusClient.AgentStatus;
+import br.com.t3privacyguard.integration.RuntimeStatusClient.ContractIdentity;
+import br.com.t3privacyguard.integration.RuntimeStatusClient.DelegationStatus;
+import br.com.t3privacyguard.integration.RuntimeStatusClient.EnterpriseIntegrationReadiness;
+import br.com.t3privacyguard.integration.RuntimeStatusClient.ExecutorStatus;
+import br.com.t3privacyguard.integration.RuntimeStatusClient.TenantStatus;
 import br.com.t3privacyguard.security.SecurityRemediationCredential;
 import java.util.List;
 import java.util.Optional;
@@ -24,7 +24,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class SystemStatusUnknownReadinessTest {
     private static final String CONTRACT_ID = "z:tenant:privacy-guard";
 
-    @Mock GatewaySystemClient gateway;
+    @Mock RuntimeStatusClient gateway;
     @Mock SecurityRemediationCredential remediationCredential;
     @InjectMocks SystemStatusService service;
 
@@ -57,7 +57,7 @@ class SystemStatusUnknownReadinessTest {
     }
 
     @Test
-    void preservesInsufficientCreditDiagnosticWithoutChangingFailClosedFacts() {
+    void diagnosticCodesFromOtherRuntimesNormalizeToRuntimeUnavailable() {
         when(gateway.enterpriseIntegrationReadiness()).thenReturn(Optional.of(unknownIntegration("INSUFFICIENT_CREDIT")));
         when(gateway.delegationStatus(CONTRACT_ID)).thenReturn(Optional.of(activeDelegation()));
         when(gateway.executorDelegationStatus(CONTRACT_ID)).thenReturn(Optional.of(activeDelegation()));
@@ -65,7 +65,7 @@ class SystemStatusUnknownReadinessTest {
         var result = service.status();
 
         assertThat(result.enterpriseIntegrationState()).isEqualTo("UNKNOWN");
-        assertThat(result.enterpriseIntegrationDiagnosticCode()).isEqualTo("INSUFFICIENT_CREDIT");
+        assertThat(result.enterpriseIntegrationDiagnosticCode()).isEqualTo("TRUST_RUNTIME_UNAVAILABLE");
         assertThat(result.enterpriseIntegrationReady()).isFalse();
         assertThat(result.enterpriseExecutionConfigured()).isNull();
         assertThat(result.enterpriseCredentialConfigured()).isNull();
@@ -80,7 +80,7 @@ class SystemStatusUnknownReadinessTest {
         var result = service.status();
 
         assertThat(result.enterpriseIntegrationState()).isEqualTo("UNKNOWN");
-        assertThat(result.enterpriseIntegrationDiagnosticCode()).isEqualTo("T3N_CONTROL_PLANE_UNAVAILABLE");
+        assertThat(result.enterpriseIntegrationDiagnosticCode()).isEqualTo("TRUST_RUNTIME_UNAVAILABLE");
         assertThat(result.enterpriseExecutionConfigured()).isNull();
         assertThat(result.enterprisePolicyAllowsExecutionHost()).isNull();
     }
@@ -95,7 +95,7 @@ class SystemStatusUnknownReadinessTest {
 
         assertThat(result.evaluationReady()).isFalse();
         assertThat(result.protectedRemediationReady()).isFalse();
-        assertThat(result.message()).isEqualTo("Proposal Member grant could not be confirmed; policy evaluation remains unavailable.");
+        assertThat(result.message()).isEqualTo("The proposal agent's grant could not be confirmed; policy evaluation remains unavailable.");
     }
 
     @Test
@@ -104,14 +104,14 @@ class SystemStatusUnknownReadinessTest {
         when(gateway.executorDelegationStatus(CONTRACT_ID)).thenReturn(Optional.of(activeDelegation()));
 
         when(gateway.delegationStatus(CONTRACT_ID)).thenReturn(Optional.of(delegation("NOT_GRANTED", "UNKNOWN")));
-        assertThat(service.status().message()).isEqualTo("Proposal Member grant has not been granted; policy evaluation is not ready.");
+        assertThat(service.status().message()).isEqualTo("guard-runtime does not recognize the proposal agent credential; policy evaluation is not ready.");
 
         when(gateway.delegationStatus(CONTRACT_ID)).thenReturn(Optional.of(delegation("REVOKED", "UNKNOWN")));
-        assertThat(service.status().message()).isEqualTo("Proposal Member grant has been revoked; policy evaluation is not ready.");
+        assertThat(service.status().message()).isEqualTo("guard-runtime does not recognize the proposal agent credential; policy evaluation is not ready.");
     }
 
     private static EnterpriseIntegrationReadiness unknownIntegration() {
-        return unknownIntegration("T3N_CONTROL_PLANE_UNAVAILABLE");
+        return unknownIntegration("TRUST_RUNTIME_UNAVAILABLE");
     }
 
     private static EnterpriseIntegrationReadiness unknownIntegration(String diagnosticCode) {

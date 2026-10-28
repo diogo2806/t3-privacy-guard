@@ -16,9 +16,12 @@ server:
         same-site: strict
         secure: false
 privacy-guard:
-  gateway:
-    base-url: http://localhost:3001
-    service-token: test-gateway-service-token-1234567890
+  guard-runtime:
+    url: http://localhost:3101
+    proposal-token: test-runtime-proposal-token-1234567890
+    executor-token: test-runtime-executor-token-1234567890
+  mcp:
+    token: test-mcp-token-123456789012345678901234
   remediation-capability:
     private-key-pkcs8: MC4CAQAwBQYDK2VwBCIEIAv4OIfbF/R/i9uL6wgRalq2gperSKNx+Ig9BuS9L4qS
     ttl-seconds: 60

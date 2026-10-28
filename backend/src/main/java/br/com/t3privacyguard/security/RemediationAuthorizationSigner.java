@@ -1,6 +1,6 @@
 package br.com.t3privacyguard.security;
 
-import br.com.t3privacyguard.integration.GatewayRemediationClient;
+import br.com.t3privacyguard.integration.RuntimeRemediationClient;
 import br.com.t3privacyguard.persistence.ActionProposalEntity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.IDN;
@@ -44,7 +44,7 @@ public class RemediationAuthorizationSigner {
     @Autowired
     public RemediationAuthorizationSigner(
         ObjectMapper mapper,
-        GatewayRemediationClient gateway,
+        RuntimeRemediationClient gateway,
         @Value("${privacy-guard.remediation-capability.private-key-pkcs8}") String privateKeyPkcs8,
         @Value("${privacy-guard.remediation-capability.key-id:primary}") String keyId,
         @Value("${privacy-guard.remediation-capability.ttl-seconds:60}") long ttlSeconds

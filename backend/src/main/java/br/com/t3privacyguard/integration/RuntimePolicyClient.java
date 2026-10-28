@@ -1,47 +1,46 @@
 package br.com.t3privacyguard.integration;
 
 import br.com.t3privacyguard.domain.DecisionType;
-import br.com.t3privacyguard.observability.TraceContext;
+import br.com.t3privacyguard.integration.GuardRuntimeClient.Caller;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.List;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
 
+/** evaluate-action on guard-runtime, always as the proposal agent; the backend never lets a caller choose agent_did. */
 @Component
-public class GatewayPolicyClient {
-    private static final String SERVICE_TOKEN_HEADER = "X-Gateway-Service-Token";
+public class RuntimePolicyClient {
+    private final GuardRuntimeClient runtime;
+    private final ObjectMapper mapper;
 
-    private final RestClient restClient;
-
-    public GatewayPolicyClient(
-        RestClient.Builder builder,
-        @Value("${privacy-guard.gateway.base-url}") String baseUrl,
-        @Value("${privacy-guard.gateway.service-token}") String serviceToken
-    ) {
-        this.restClient = builder
-            .baseUrl(baseUrl)
-            .defaultHeader(SERVICE_TOKEN_HEADER, serviceToken)
-            .build();
+    public RuntimePolicyClient(GuardRuntimeClient runtime, ObjectMapper mapper) {
+        this.runtime = runtime;
+        this.mapper = mapper;
     }
 
-    public GatewayDecision evaluate(GatewayEvaluationRequest request) {
-        try {
-            GatewayDecision decision = restClient.post()
-                .uri("/internal/contracts/privacy-guard/evaluate")
-                .header(TraceContext.HEADER, TraceContext.currentOrGenerate())
-                .body(request)
-                .retrieve()
-                .body(GatewayDecision.class);
-            if (decision == null) throw new GatewayUnavailableException("Gateway returned an empty policy decision");
-            return decision;
-        } catch (RestClientException ex) {
-            throw new GatewayUnavailableException("Policy evaluation is unavailable", ex);
+    public RuntimeDecision evaluate(EvaluationRequest request) {
+        ObjectNode body = mapper.valueToTree(request);
+        body.put("agent_did", runtime.proposalAgentId());
+        GuardRuntimeClient.Response response = runtime.post("/v1/functions/evaluate-action", Caller.PROPOSAL, body);
+        if (!response.ok() || response.body() == null) {
+            throw new TrustRuntimeUnavailableException("Policy evaluation is unavailable (guard-runtime HTTP " + response.status() + ")");
         }
+        RuntimeDecision decision;
+        try {
+            decision = mapper.treeToValue(response.body(), RuntimeDecision.class);
+        } catch (JsonProcessingException | IllegalArgumentException ex) {
+            throw new TrustRuntimeUnavailableException("guard-runtime returned an invalid policy decision", ex);
+        }
+        if (decision == null || decision.decision() == null || decision.requestId() == null) {
+            throw new TrustRuntimeUnavailableException("guard-runtime returned an incomplete policy decision");
+        }
+        return decision.withActivity(response.activitySequence(), response.activityHash());
     }
 
-    public record GatewayEvaluationRequest(
+    public record EvaluationRequest(
         @JsonProperty("request_id") String requestId,
         String action,
         String resource,
@@ -51,7 +50,8 @@ public class GatewayPolicyClient {
         @JsonProperty("private_refs") List<String> privateRefs
     ) {}
 
-    public record GatewayDecision(
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record RuntimeDecision(
         @JsonProperty("request_id") String requestId,
         DecisionType decision,
         @JsonProperty("reason_code") String reasonCode,
@@ -66,7 +66,7 @@ public class GatewayPolicyClient {
         @JsonProperty("activity_sequence") Long activitySequence,
         @JsonProperty("activity_hash") String activityHash
     ) {
-        public GatewayDecision(
+        public RuntimeDecision(
             String requestId,
             DecisionType decision,
             String reasonCode,
@@ -79,7 +79,7 @@ public class GatewayPolicyClient {
             this(requestId, decision, reasonCode, reason, allowedFields, redactedFields, allowedPrivateRefs, redactedPrivateRefs, null, null, null, null, null);
         }
 
-        public GatewayDecision(
+        public RuntimeDecision(
             String requestId,
             DecisionType decision,
             String reasonCode,
@@ -94,6 +94,11 @@ public class GatewayPolicyClient {
         ) {
             this(requestId, decision, reasonCode, reason, allowedFields, redactedFields, allowedPrivateRefs, redactedPrivateRefs,
                 policyVersion, policyHash, requiresHumanAuthorization, null, null);
+        }
+
+        RuntimeDecision withActivity(Long sequence, String hash) {
+            return new RuntimeDecision(requestId, decision, reasonCode, reason, allowedFields, redactedFields, allowedPrivateRefs,
+                redactedPrivateRefs, policyVersion, policyHash, requiresHumanAuthorization, sequence, hash);
         }
     }
 }

@@ -3,15 +3,15 @@ package br.com.t3privacyguard.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
-import br.com.t3privacyguard.integration.GatewaySystemClient;
-import br.com.t3privacyguard.integration.GatewaySystemClient.AgentRegistrationStatus;
-import br.com.t3privacyguard.integration.GatewaySystemClient.AgentStatus;
-import br.com.t3privacyguard.integration.GatewaySystemClient.ContractIdentity;
-import br.com.t3privacyguard.integration.GatewaySystemClient.DelegationStatus;
-import br.com.t3privacyguard.integration.GatewaySystemClient.EnterpriseIntegrationReadiness;
-import br.com.t3privacyguard.integration.GatewaySystemClient.EnterpriseVerificationContract;
-import br.com.t3privacyguard.integration.GatewaySystemClient.ExecutorStatus;
-import br.com.t3privacyguard.integration.GatewaySystemClient.TenantStatus;
+import br.com.t3privacyguard.integration.RuntimeStatusClient;
+import br.com.t3privacyguard.integration.RuntimeStatusClient.AgentRegistrationStatus;
+import br.com.t3privacyguard.integration.RuntimeStatusClient.AgentStatus;
+import br.com.t3privacyguard.integration.RuntimeStatusClient.ContractIdentity;
+import br.com.t3privacyguard.integration.RuntimeStatusClient.DelegationStatus;
+import br.com.t3privacyguard.integration.RuntimeStatusClient.EnterpriseIntegrationReadiness;
+import br.com.t3privacyguard.integration.RuntimeStatusClient.EnterpriseVerificationContract;
+import br.com.t3privacyguard.integration.RuntimeStatusClient.ExecutorStatus;
+import br.com.t3privacyguard.integration.RuntimeStatusClient.TenantStatus;
 import br.com.t3privacyguard.security.SecurityRemediationCredential;
 import java.util.List;
 import java.util.Optional;
@@ -24,7 +24,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class SystemStatusServiceTest {
-    @Mock GatewaySystemClient gateway;
+    @Mock RuntimeStatusClient gateway;
     @Mock SecurityRemediationCredential remediationCredential;
     @InjectMocks SystemStatusService service;
 
@@ -73,7 +73,7 @@ class SystemStatusServiceTest {
         assertThat(result.a2aConfigured()).isTrue();
         assertThat(result.a2aPublicUrl()).isEqualTo("https://guard.example/a2a");
         assertThat(result.a2aConfigurationCheckedAt()).isEqualTo("2026-09-13T11:00:00Z");
-        assertThat(result.message()).contains("exact least-privilege functions/scopes");
+        assertThat(result.message()).startsWith("guard-runtime controls are ready");
     }
 
     @Test
@@ -168,7 +168,7 @@ class SystemStatusServiceTest {
 
         assertThat(result.protectedRemediationReady()).isTrue();
         assertThat(result.enterpriseIntegrationState()).isEqualTo("UNKNOWN");
-        assertThat(result.enterpriseIntegrationDiagnosticCode()).isEqualTo("T3N_CONTROL_PLANE_UNAVAILABLE");
+        assertThat(result.enterpriseIntegrationDiagnosticCode()).isEqualTo("TRUST_RUNTIME_UNAVAILABLE");
         assertThat(result.enterpriseIntegrationReady()).isFalse();
         assertThat(result.enterpriseExecutionHost()).isNull();
         assertThat(result.enterpriseSupportedVerifiedActions()).isEmpty();
@@ -207,7 +207,7 @@ class SystemStatusServiceTest {
         assertThat(result.delegationEffectiveState()).isEqualTo("DENIED");
         assertThat(result.evaluationReady()).isFalse();
         assertThat(result.protectedRemediationReady()).isFalse();
-        assertThat(result.message()).contains("effective T3N access is denied");
+        assertThat(result.message()).contains("not granted evaluate-action");
         assertThat(result.message()).doesNotContain("controls are ready");
     }
 
@@ -246,7 +246,7 @@ class SystemStatusServiceTest {
         assertThat(result.evaluationReady()).isTrue();
         assertThat(result.protectedRemediationReady()).isFalse();
         assertThat(result.executorDelegationEffectiveState()).isEqualTo("DENIED");
-        assertThat(result.message()).contains("Policy evaluation is ready").contains("denied for the Protected Executor");
+        assertThat(result.message()).contains("Policy evaluation is ready").contains("protected executor is not granted");
     }
 
     @Test
@@ -283,7 +283,7 @@ class SystemStatusServiceTest {
         assertThat(result.agentRegistrationState()).isEqualTo("MISMATCH");
         assertThat(result.evaluationReady()).isTrue();
         assertThat(result.protectedRemediationReady()).isTrue();
-        assertThat(result.message()).contains("onboarding is not confirmed");
+        assertThat(result.message()).startsWith("guard-runtime controls are ready");
     }
 
     @Test
@@ -303,7 +303,7 @@ class SystemStatusServiceTest {
         assertThat(result.delegationCheckedFunctions()).isEmpty();
         assertThat(result.delegationCheckedScopes()).isEmpty();
         assertThat(result.evaluationReady()).isFalse();
-        assertThat(result.message()).contains("authorization window has not begun");
+        assertThat(result.message()).contains("does not recognize the proposal agent credential");
     }
 
     @Test

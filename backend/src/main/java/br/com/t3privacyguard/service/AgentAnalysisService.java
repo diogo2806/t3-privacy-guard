@@ -6,8 +6,8 @@ import br.com.t3privacyguard.api.ApiModels.CreateIncidentRequest;
 import br.com.t3privacyguard.api.ApiModels.IncidentResponse;
 import br.com.t3privacyguard.audit.AuditIntegrityService;
 import br.com.t3privacyguard.domain.Severity;
-import br.com.t3privacyguard.integration.GatewayAgentClient;
-import br.com.t3privacyguard.integration.GatewayAgentClient.AgentProposalResult;
+import br.com.t3privacyguard.integration.AiAgentClient;
+import br.com.t3privacyguard.integration.AiAgentClient.AgentProposalResult;
 import br.com.t3privacyguard.privacy.IncidentDataMinimizer;
 import java.util.List;
 import java.util.UUID;
@@ -15,13 +15,13 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class AgentAnalysisService {
-    private final GatewayAgentClient agentGateway;
+    private final AiAgentClient agentGateway;
     private final IncidentService incidents;
     private final AuditIntegrityService auditIntegrity;
     private final IncidentDataMinimizer minimizer;
 
     public AgentAnalysisService(
-        GatewayAgentClient agentGateway,
+        AiAgentClient agentGateway,
         IncidentService incidents,
         AuditIntegrityService auditIntegrity,
         IncidentDataMinimizer minimizer

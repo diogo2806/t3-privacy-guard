@@ -66,7 +66,8 @@ public class IncidentDataMinimizer {
         return limit(normalized, MAX_AUDIT_LENGTH);
     }
 
-    boolean containsSensitiveLiteral(String value) {
+    /** High-confidence literal detector shared by incident persistence and the AI prompt guard. */
+    public boolean containsSensitiveLiteral(String value) {
         String normalized = normalize(value);
         return EMAIL.matcher(normalized).find()
             || containsValidCpf(normalized)

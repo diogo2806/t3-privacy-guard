@@ -7,9 +7,9 @@ import br.com.t3privacyguard.api.ApiModels.LocalAuditEvidence;
 import br.com.t3privacyguard.api.ApiModels.T3nActivityEvidence;
 import br.com.t3privacyguard.audit.AuditIntegrityService;
 import br.com.t3privacyguard.domain.AuditReconciliationStatus;
-import br.com.t3privacyguard.integration.GatewaySystemClient;
-import br.com.t3privacyguard.integration.GatewaySystemClient.ActivityEvent;
-import br.com.t3privacyguard.integration.GatewaySystemClient.ActivityPage;
+import br.com.t3privacyguard.integration.RuntimeStatusClient;
+import br.com.t3privacyguard.integration.RuntimeStatusClient.ActivityEvent;
+import br.com.t3privacyguard.integration.RuntimeStatusClient.ActivityPage;
 import br.com.t3privacyguard.persistence.AuditEventEntity;
 import br.com.t3privacyguard.persistence.IncidentEntity;
 import br.com.t3privacyguard.persistence.IncidentRepository;
@@ -40,9 +40,9 @@ public class AuditEvidenceService {
 
     private final IncidentRepository incidents;
     private final AuditIntegrityService auditIntegrity;
-    private final GatewaySystemClient gateway;
+    private final RuntimeStatusClient gateway;
 
-    public AuditEvidenceService(IncidentRepository incidents, AuditIntegrityService auditIntegrity, GatewaySystemClient gateway) {
+    public AuditEvidenceService(IncidentRepository incidents, AuditIntegrityService auditIntegrity, RuntimeStatusClient gateway) {
         this.incidents = incidents;
         this.auditIntegrity = auditIntegrity;
         this.gateway = gateway;
@@ -57,15 +57,14 @@ public class AuditEvidenceService {
         List<AuditEventEntity> local = integrity.events();
         AuditIntegrityResponse integrityResponse = integrityResponse(integrity);
 
-        Optional<GatewaySystemClient.TenantStatus> tenant = gateway.tenantStatus();
-        Optional<GatewaySystemClient.AgentStatus> agent = gateway.agentStatus();
-        Optional<GatewaySystemClient.ExecutorStatus> executor = gateway.executorStatus();
-        Optional<GatewaySystemClient.ContractIdentity> contract = gateway.contractIdentity();
-        // Activity provenance comes from T3N or, on the self-hosted gateway (network "selfhosted"), from guard-runtime.
-        String source = tenant.map(GatewaySystemClient.TenantStatus::network).filter("selfhosted"::equals).isPresent() ? "guard-runtime" : "T3N";
+        Optional<RuntimeStatusClient.TenantStatus> tenant = gateway.tenantStatus();
+        Optional<RuntimeStatusClient.AgentStatus> agent = gateway.agentStatus();
+        Optional<RuntimeStatusClient.ExecutorStatus> executor = gateway.executorStatus();
+        Optional<RuntimeStatusClient.ContractIdentity> contract = gateway.contractIdentity();
+        String source = "guard-runtime";
         long fromMs = incident.getCreatedAt().minusSeconds(CLOCK_SKEW_MARGIN_SECONDS).toEpochMilli();
         long toMs = Instant.now().plusSeconds(CLOCK_SKEW_MARGIN_SECONDS).toEpochMilli();
-        Optional<ActivityPage> activity = tenant.filter(GatewaySystemClient.TenantStatus::ready)
+        Optional<ActivityPage> activity = tenant.filter(RuntimeStatusClient.TenantStatus::ready)
             .flatMap(ignored -> contract)
             .flatMap(ignored -> gateway.activity(fromMs, toMs, requestedLimit));
 
@@ -78,12 +77,12 @@ public class AuditEvidenceService {
         if (blank(tenantDid) || blank(contractId)) return degraded(local, integrityResponse, requestedLimit, source);
 
         Optional<String> proposalAgentDid = agent
-            .filter(GatewaySystemClient.AgentStatus::ready)
-            .map(GatewaySystemClient.AgentStatus::agentDid)
+            .filter(RuntimeStatusClient.AgentStatus::ready)
+            .map(RuntimeStatusClient.AgentStatus::agentDid)
             .filter(did -> !blank(did));
         Optional<String> protectedExecutorDid = executor
-            .filter(GatewaySystemClient.ExecutorStatus::ready)
-            .map(GatewaySystemClient.ExecutorStatus::executorDid)
+            .filter(RuntimeStatusClient.ExecutorStatus::ready)
+            .map(RuntimeStatusClient.ExecutorStatus::executorDid)
             .filter(did -> !blank(did));
 
         ActivityPage page = activity.get();

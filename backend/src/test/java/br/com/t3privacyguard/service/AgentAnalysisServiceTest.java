@@ -9,12 +9,12 @@ import static org.mockito.Mockito.when;
 import br.com.t3privacyguard.api.ApiModels.CreateIncidentRequest;
 import br.com.t3privacyguard.domain.DecisionType;
 import br.com.t3privacyguard.domain.Severity;
-import br.com.t3privacyguard.integration.GatewayAgentClient;
-import br.com.t3privacyguard.integration.GatewayAgentClient.AgentProposal;
-import br.com.t3privacyguard.integration.GatewayAgentClient.AgentProposalResult;
-import br.com.t3privacyguard.integration.GatewayPolicyClient;
-import br.com.t3privacyguard.integration.GatewayPolicyClient.GatewayDecision;
-import br.com.t3privacyguard.integration.GatewayUnavailableException;
+import br.com.t3privacyguard.integration.AiAgentClient;
+import br.com.t3privacyguard.integration.AiAgentClient.AgentProposal;
+import br.com.t3privacyguard.integration.AiAgentClient.AgentProposalResult;
+import br.com.t3privacyguard.integration.RuntimePolicyClient;
+import br.com.t3privacyguard.integration.RuntimePolicyClient.RuntimeDecision;
+import br.com.t3privacyguard.integration.TrustRuntimeUnavailableException;
 import br.com.t3privacyguard.integration.SensitivePromptRejectedException;
 import br.com.t3privacyguard.persistence.ActionProposalRepository;
 import br.com.t3privacyguard.persistence.AuditEventRepository;
@@ -40,8 +40,8 @@ class AgentAnalysisServiceTest {
     @Autowired PolicyDecisionRepository decisions;
     @Autowired AuditEventRepository audits;
     @Autowired RemediationExecutionRepository remediations;
-    @MockitoBean GatewayAgentClient agentGateway;
-    @MockitoBean GatewayPolicyClient policyGateway;
+    @MockitoBean AiAgentClient agentGateway;
+    @MockitoBean RuntimePolicyClient policyGateway;
 
     @BeforeEach
     void clear() {
@@ -56,7 +56,7 @@ class AgentAnalysisServiceTest {
                 List.of("incident_id", "credential_id", "reason", "api_key"), List.of())
         ));
         when(policyGateway.evaluate(any())).thenAnswer(invocation -> {
-            var request = invocation.getArgument(0, GatewayPolicyClient.GatewayEvaluationRequest.class);
+            var request = invocation.getArgument(0, RuntimePolicyClient.EvaluationRequest.class);
             return decision(request, DecisionType.DENY, "SECRET_DISCLOSURE_FORBIDDEN", List.of(), List.of(), List.of(), List.of());
         });
 
@@ -77,7 +77,7 @@ class AgentAnalysisServiceTest {
                 List.of("incident_id", "credential_id", "reason"), List.of())
         ));
         when(policyGateway.evaluate(any())).thenAnswer(invocation -> {
-            var request = invocation.getArgument(0, GatewayPolicyClient.GatewayEvaluationRequest.class);
+            var request = invocation.getArgument(0, RuntimePolicyClient.EvaluationRequest.class);
             return decision(request, DecisionType.ALLOW, "POLICY_ALLOW", request.fields(), List.of(), List.of(), List.of());
         });
         var result = service.analyze("safe prompt");
@@ -99,7 +99,7 @@ class AgentAnalysisServiceTest {
                 List.of("incident_id", "credential_id", "reason"), List.of())
         ));
         when(policyGateway.evaluate(any())).thenAnswer(invocation -> {
-            var request = invocation.getArgument(0, GatewayPolicyClient.GatewayEvaluationRequest.class);
+            var request = invocation.getArgument(0, RuntimePolicyClient.EvaluationRequest.class);
             if ("attacker.example".equals(request.host())) {
                 return decision(request, DecisionType.DENY, "SECRET_DISCLOSURE_FORBIDDEN", List.of(), request.fields(), List.of(), List.of());
             }
@@ -132,10 +132,10 @@ class AgentAnalysisServiceTest {
             "Existing incident", Severity.CRITICAL, "Synthetic incident for agent retry", "test"
         ));
         when(agentGateway.propose(eq("provider unavailable")))
-            .thenThrow(new GatewayUnavailableException("Configured AI provider is unavailable"));
+            .thenThrow(new TrustRuntimeUnavailableException("Configured AI provider is unavailable"));
 
         assertThatThrownBy(() -> service.analyzeExistingIncident(incident.id(), "provider unavailable"))
-            .isInstanceOf(GatewayUnavailableException.class);
+            .isInstanceOf(TrustRuntimeUnavailableException.class);
 
         assertThat(incidents.count()).isEqualTo(1);
         assertThat(actions.count()).isZero();
@@ -151,7 +151,7 @@ class AgentAnalysisServiceTest {
                 List.of("incident_id", "severity", "summary"), List.of("verified_email"))
         ));
         when(policyGateway.evaluate(any())).thenAnswer(invocation -> {
-            var request = invocation.getArgument(0, GatewayPolicyClient.GatewayEvaluationRequest.class);
+            var request = invocation.getArgument(0, RuntimePolicyClient.EvaluationRequest.class);
             return decision(request, DecisionType.ALLOW, "POLICY_ALLOW", request.fields(), List.of(), request.privateRefs(), List.of());
         });
 
@@ -176,8 +176,8 @@ class AgentAnalysisServiceTest {
         assertThat(remediations.count()).isZero();
     }
 
-    private static GatewayDecision decision(
-        GatewayPolicyClient.GatewayEvaluationRequest request,
+    private static RuntimeDecision decision(
+        RuntimePolicyClient.EvaluationRequest request,
         DecisionType type,
         String code,
         List<String> allowedFields,
@@ -185,7 +185,7 @@ class AgentAnalysisServiceTest {
         List<String> allowedPrivateRefs,
         List<String> redactedPrivateRefs
     ) {
-        return new GatewayDecision(
+        return new RuntimeDecision(
             request.requestId(), type, code, type == DecisionType.ALLOW ? "Allowed" : "Denied",
             allowedFields, redactedFields, allowedPrivateRefs, redactedPrivateRefs,
             POLICY_VERSION, POLICY_HASH, true

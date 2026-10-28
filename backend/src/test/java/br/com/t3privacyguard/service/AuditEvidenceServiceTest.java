@@ -10,9 +10,9 @@ import br.com.t3privacyguard.audit.AuditIntegrityService;
 import br.com.t3privacyguard.audit.AuditIntegrityState;
 import br.com.t3privacyguard.domain.AuditReconciliationStatus;
 import br.com.t3privacyguard.domain.Severity;
-import br.com.t3privacyguard.integration.GatewaySystemClient;
-import br.com.t3privacyguard.integration.GatewaySystemClient.ActivityEvent;
-import br.com.t3privacyguard.integration.GatewaySystemClient.ActivityPage;
+import br.com.t3privacyguard.integration.RuntimeStatusClient;
+import br.com.t3privacyguard.integration.RuntimeStatusClient.ActivityEvent;
+import br.com.t3privacyguard.integration.RuntimeStatusClient.ActivityPage;
 import br.com.t3privacyguard.persistence.AuditEventEntity;
 import br.com.t3privacyguard.persistence.IncidentEntity;
 import br.com.t3privacyguard.persistence.IncidentRepository;
@@ -25,7 +25,7 @@ import org.junit.jupiter.api.Test;
 class AuditEvidenceServiceTest {
     private IncidentRepository incidents;
     private AuditIntegrityService auditIntegrity;
-    private GatewaySystemClient gateway;
+    private RuntimeStatusClient gateway;
     private AuditEvidenceService service;
     private IncidentEntity incident;
 
@@ -33,7 +33,7 @@ class AuditEvidenceServiceTest {
     void setUp() {
         incidents = mock(IncidentRepository.class);
         auditIntegrity = mock(AuditIntegrityService.class);
-        gateway = mock(GatewaySystemClient.class);
+        gateway = mock(RuntimeStatusClient.class);
         service = new AuditEvidenceService(incidents, auditIntegrity, gateway);
         Instant createdAt = Instant.now().minusSeconds(60);
         incident = new IncidentEntity("incident-1", "Test", Severity.HIGH, "Summary", "test", createdAt, createdAt.plusSeconds(3600));
@@ -139,7 +139,7 @@ class AuditEvidenceServiceTest {
         );
         local(local, AuditIntegrityState.VERIFIED);
         availableTenantAndContract();
-        when(gateway.agentStatus()).thenReturn(Optional.of(new GatewaySystemClient.AgentStatus(true, true, true, "did:t3n:agent", "testnet")));
+        when(gateway.agentStatus()).thenReturn(Optional.of(new RuntimeStatusClient.AgentStatus(true, true, true, "did:t3n:agent", "testnet")));
         when(gateway.executorStatus()).thenReturn(Optional.empty());
         whenActivity(100, new ActivityPage(List.of(
             activity(63, "hash-63", "execute-remediation", "did:t3n:executor", "did:t3n:tenant", "z:tenant:privacy-guard"),
@@ -169,7 +169,7 @@ class AuditEvidenceServiceTest {
         local(local, AuditIntegrityState.VERIFIED);
         availableTenantAndContract();
         when(gateway.agentStatus()).thenReturn(Optional.empty());
-        when(gateway.executorStatus()).thenReturn(Optional.of(new GatewaySystemClient.ExecutorStatus(true, true, true, "did:t3n:executor", "testnet")));
+        when(gateway.executorStatus()).thenReturn(Optional.of(new RuntimeStatusClient.ExecutorStatus(true, true, true, "did:t3n:executor", "testnet")));
         whenActivity(100, new ActivityPage(List.of(
             activity(73, "hash-73", "verify-remediation", "did:t3n:executor", "did:t3n:tenant", "z:tenant:privacy-guard"),
             activity(72, "hash-72", "evaluate-action", "did:t3n:agent", "did:t3n:tenant", "z:tenant:privacy-guard")
@@ -257,7 +257,7 @@ class AuditEvidenceServiceTest {
         assertThat(result.localEvents()).hasSize(2);
         assertThat(result.t3nEvents()).isEmpty();
         assertThat(result.provenance().t3nAvailable()).isFalse();
-        assertThat(result.provenance().message()).isEqualTo("T3N activity temporarily unavailable. Local business audit remains available; network provenance was not verified.");
+        assertThat(result.provenance().message()).isEqualTo("guard-runtime activity temporarily unavailable. Local business audit remains available; network provenance was not verified.");
     }
 
     private void local(List<AuditEventEntity> events, AuditIntegrityState state) {
@@ -274,13 +274,13 @@ class AuditEvidenceServiceTest {
 
     private void availableIdentity() {
         availableTenantAndContract();
-        when(gateway.agentStatus()).thenReturn(Optional.of(new GatewaySystemClient.AgentStatus(true, true, true, "did:t3n:agent", "testnet")));
-        when(gateway.executorStatus()).thenReturn(Optional.of(new GatewaySystemClient.ExecutorStatus(true, true, true, "did:t3n:executor", "testnet")));
+        when(gateway.agentStatus()).thenReturn(Optional.of(new RuntimeStatusClient.AgentStatus(true, true, true, "did:t3n:agent", "testnet")));
+        when(gateway.executorStatus()).thenReturn(Optional.of(new RuntimeStatusClient.ExecutorStatus(true, true, true, "did:t3n:executor", "testnet")));
     }
 
     private void availableTenantAndContract() {
-        when(gateway.tenantStatus()).thenReturn(Optional.of(new GatewaySystemClient.TenantStatus(true, true, "did:t3n:tenant", "testnet")));
-        when(gateway.contractIdentity()).thenReturn(Optional.of(new GatewaySystemClient.ContractIdentity("z:tenant:privacy-guard", "1")));
+        when(gateway.tenantStatus()).thenReturn(Optional.of(new RuntimeStatusClient.TenantStatus(true, true, "did:t3n:tenant", "testnet")));
+        when(gateway.contractIdentity()).thenReturn(Optional.of(new RuntimeStatusClient.ContractIdentity("z:tenant:privacy-guard", "1")));
     }
 
     private void whenActivity(int limit, ActivityPage page) {
