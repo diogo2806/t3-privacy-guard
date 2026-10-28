@@ -148,6 +148,11 @@ echo "state=$NOTIFY_STATE"
 if grep -q "soc@example.test" "$WORK/backend.log" "$WORK/gateway.log"; then EMAIL_SEEN=yes; else EMAIL_SEEN=no; fi
 echo "verified email in backend or gateway logs: $EMAIL_SEEN"
 
+step "Audit evidence: local HMAC chain reconciled with guard-runtime's activity log"
+AUDIT="$(get "/incidents/$INCIDENT_ID/audit-evidence")"
+echo "integrity=$(json integrity.state <<<"$AUDIT") runtimeAvailable=$(json provenance.t3nAvailable <<<"$AUDIT") matched=$(json provenance.matched <<<"$AUDIT") unmatched=$(json provenance.unmatched <<<"$AUDIT") localOnly=$(json provenance.localOnly <<<"$AUDIT") runtimeOnly=$(json provenance.t3nOnly <<<"$AUDIT")"
+echo "message: $(json provenance.message <<<"$AUDIT")"
+
 step "guard-runtime activity log"
 if [[ -s "$WORK/runtime/activity.jsonl" ]]; then
   node -e "for(const l of require('fs').readFileSync(process.argv[1],'utf8').trim().split('\n')){const e=JSON.parse(l);console.log('  #'+e.sequence+' '+e.actorDid+' '+e.function+' '+e.outcome)}" "$WORK/runtime/activity.jsonl"

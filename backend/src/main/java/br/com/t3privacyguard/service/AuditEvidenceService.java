@@ -61,6 +61,8 @@ public class AuditEvidenceService {
         Optional<GatewaySystemClient.AgentStatus> agent = gateway.agentStatus();
         Optional<GatewaySystemClient.ExecutorStatus> executor = gateway.executorStatus();
         Optional<GatewaySystemClient.ContractIdentity> contract = gateway.contractIdentity();
+        // Activity provenance comes from T3N or, on the self-hosted gateway (network "selfhosted"), from guard-runtime.
+        String source = tenant.map(GatewaySystemClient.TenantStatus::network).filter("selfhosted"::equals).isPresent() ? "guard-runtime" : "T3N";
         long fromMs = incident.getCreatedAt().minusSeconds(CLOCK_SKEW_MARGIN_SECONDS).toEpochMilli();
         long toMs = Instant.now().plusSeconds(CLOCK_SKEW_MARGIN_SECONDS).toEpochMilli();
         Optional<ActivityPage> activity = tenant.filter(GatewaySystemClient.TenantStatus::ready)
@@ -68,12 +70,12 @@ public class AuditEvidenceService {
             .flatMap(ignored -> gateway.activity(fromMs, toMs, requestedLimit));
 
         if (activity.isEmpty() || tenant.isEmpty() || contract.isEmpty()) {
-            return degraded(local, integrityResponse, requestedLimit);
+            return degraded(local, integrityResponse, requestedLimit, source);
         }
 
         String tenantDid = tenant.get().tenantDid();
         String contractId = contract.get().contractId();
-        if (blank(tenantDid) || blank(contractId)) return degraded(local, integrityResponse, requestedLimit);
+        if (blank(tenantDid) || blank(contractId)) return degraded(local, integrityResponse, requestedLimit, source);
 
         Optional<String> proposalAgentDid = agent
             .filter(GatewaySystemClient.AgentStatus::ready)
@@ -136,7 +138,7 @@ public class AuditEvidenceService {
             .toList();
         int t3nOnly = (int) t3nEvidence.stream().filter(event -> event.status() == AuditReconciliationStatus.T3N_ONLY).count();
 
-        String message = provenanceMessage(page.complete(), proposalAgentDid.isPresent(), protectedExecutorDid.isPresent());
+        String message = provenanceMessage(source, page.complete(), proposalAgentDid.isPresent(), protectedExecutorDid.isPresent());
         AuditProvenance provenance = new AuditProvenance(true, true, page.complete(), matched, unmatched, localOnly, t3nOnly, message);
         return new AuditEvidenceResponse(localEvidence, t3nEvidence, provenance, integrityResponse, page.nextSequence(), requestedLimit);
     }
@@ -153,21 +155,21 @@ public class AuditEvidenceService {
         };
     }
 
-    private static String provenanceMessage(boolean complete, boolean proposalAgentAvailable, boolean protectedExecutorAvailable) {
+    private static String provenanceMessage(String source, boolean complete, boolean proposalAgentAvailable, boolean protectedExecutorAvailable) {
         boolean principalsAvailable = proposalAgentAvailable && protectedExecutorAvailable;
         if (!complete && !principalsAvailable) {
-            return "T3N activity is available, but the bounded activity window was truncated and one or more canonical principal identities are unavailable. Affected operations cannot be matched, and unmatched evidence is not proof that no network event exists.";
+            return source + " activity is available, but the bounded activity window was truncated and one or more canonical principal identities are unavailable. Affected operations cannot be matched, and unmatched evidence is not proof that no network event exists.";
         }
         if (!complete) {
-            return "T3N activity is available, but the bounded activity window was truncated. Unmatched evidence is not proof that no network event exists.";
+            return source + " activity is available, but the bounded activity window was truncated. Unmatched evidence is not proof that no network event exists.";
         }
         if (!principalsAvailable) {
-            return "T3N activity is available, but one or more canonical principal identities are unavailable. Events remain visible, but affected operations cannot be matched.";
+            return source + " activity is available, but one or more canonical principal identities are unavailable. Events remain visible, but affected operations cannot be matched.";
         }
-        return "T3N activity is available. Reconciliation requires exact sequence, hash, contract, function and the canonical actor for that function.";
+        return source + " activity is available. Reconciliation requires exact sequence, hash, contract, function and the canonical actor for that function.";
     }
 
-    private AuditEvidenceResponse degraded(List<AuditEventEntity> local, AuditIntegrityResponse integrity, int limit) {
+    private AuditEvidenceResponse degraded(List<AuditEventEntity> local, AuditIntegrityResponse integrity, int limit, String source) {
         List<LocalAuditEvidence> localEvidence = local.stream().map(event -> {
             AuditReconciliationStatus status = event.getT3nFunction() == null
                 ? AuditReconciliationStatus.LOCAL_ONLY
@@ -184,7 +186,7 @@ public class AuditEvidenceService {
             unmatched,
             localOnly,
             0,
-            "T3N activity temporarily unavailable. Local business audit remains available; network provenance was not verified."
+            source + " activity temporarily unavailable. Local business audit remains available; network provenance was not verified."
         );
         return new AuditEvidenceResponse(localEvidence, List.of(), provenance, integrity, null, limit);
     }
