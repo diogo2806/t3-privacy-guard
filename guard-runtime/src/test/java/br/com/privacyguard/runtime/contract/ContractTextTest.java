@@ -1,4 +1,4 @@
-package br.com.privacyguard.runtime.policy;
+package br.com.privacyguard.runtime.contract;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

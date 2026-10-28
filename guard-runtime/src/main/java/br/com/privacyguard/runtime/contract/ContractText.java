@@ -1,19 +1,19 @@
-package br.com.privacyguard.runtime.policy;
+package br.com.privacyguard.runtime.contract;
 
 import java.util.Comparator;
 
 /**
  * Text rules of the original Rust contract. Java's own trim/lowercase/length/ordering differ from Rust's for
- * non-ASCII input, and any difference would change decisions or the canonical policy hash.
+ * non-ASCII input, and any difference would change decisions, capability bindings or the canonical policy hash.
  */
-final class ContractText {
+public final class ContractText {
     /** Rust orders String keys by UTF-8 bytes, which is code point order; String.compareTo uses UTF-16 units. */
-    static final Comparator<String> CODE_POINT_ORDER = ContractText::compareCodePoints;
+    public static final Comparator<String> CODE_POINT_ORDER = ContractText::compareCodePoints;
 
     private ContractText() {}
 
     /** Rust char::is_whitespace (Unicode White_Space). Character.isWhitespace skips NBSP and adds U+001C..U+001F. */
-    static boolean isWhitespace(int codePoint) {
+    public static boolean isWhitespace(int codePoint) {
         return (codePoint >= 0x09 && codePoint <= 0x0D)
             || codePoint == 0x20
             || codePoint == 0x85
@@ -27,7 +27,7 @@ final class ContractText {
             || codePoint == 0x3000;
     }
 
-    static String trim(String value) {
+    public static String trim(String value) {
         int start = 0;
         int end = value.length();
         while (start < end) {
@@ -44,7 +44,7 @@ final class ContractText {
     }
 
     /** Rust str::to_ascii_lowercase: only A-Z change. */
-    static String asciiLowercase(String value) {
+    public static String asciiLowercase(String value) {
         char[] chars = value.toCharArray();
         for (int i = 0; i < chars.length; i++) {
             if (chars[i] >= 'A' && chars[i] <= 'Z') chars[i] = (char) (chars[i] + ('a' - 'A'));
@@ -52,12 +52,12 @@ final class ContractText {
         return new String(chars);
     }
 
-    static String normalized(String value) {
+    public static String normalized(String value) {
         return asciiLowercase(trim(value));
     }
 
     /** Rust str::len is the UTF-8 byte length. */
-    static int utf8Length(String value) {
+    public static int utf8Length(String value) {
         int bytes = 0;
         for (int i = 0; i < value.length(); ) {
             int codePoint = value.codePointAt(i);
@@ -67,12 +67,16 @@ final class ContractText {
         return bytes;
     }
 
-    static boolean containsWhitespace(String value) {
+    public static boolean containsWhitespace(String value) {
         return value.codePoints().anyMatch(ContractText::isWhitespace);
     }
 
+    public static boolean isAscii(String value) {
+        return value.chars().allMatch(current -> current < 0x80);
+    }
+
     /** Rust strings are valid UTF-8, so JSON escapes producing lone surrogates are rejected there. */
-    static boolean hasUnpairedSurrogate(String value) {
+    public static boolean hasUnpairedSurrogate(String value) {
         for (int i = 0; i < value.length(); i++) {
             char current = value.charAt(i);
             if (Character.isHighSurrogate(current)) {

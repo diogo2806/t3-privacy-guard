@@ -6,6 +6,7 @@ import static br.com.privacyguard.runtime.policy.PolicyFixtures.T3N_DID;
 import static br.com.privacyguard.runtime.policy.PolicyFixtures.allowedRequest;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import br.com.privacyguard.runtime.contract.InvalidContractInputException;
 import br.com.privacyguard.runtime.policy.PolicyDecision.Decision;
 import java.util.List;
 import java.util.Map;

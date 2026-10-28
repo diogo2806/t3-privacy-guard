@@ -1,5 +1,8 @@
 package br.com.privacyguard.runtime.policy;
 
+import br.com.privacyguard.runtime.contract.ContractText;
+import br.com.privacyguard.runtime.contract.InvalidContractInputException;
+import br.com.privacyguard.runtime.contract.StrictJson;
 import br.com.privacyguard.runtime.policy.PolicyDecision.Decision;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.ArrayList;

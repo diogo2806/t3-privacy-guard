@@ -1,7 +1,12 @@
 package br.com.privacyguard.runtime.policy;
 
+import br.com.privacyguard.runtime.contract.CanonicalJson;
+import br.com.privacyguard.runtime.contract.ContractText;
+import br.com.privacyguard.runtime.contract.InvalidContractInputException;
+import br.com.privacyguard.runtime.contract.StrictJson;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
@@ -83,7 +88,35 @@ public final class PolicyDocumentParser {
         }
 
         PolicyDocument document = new PolicyDocument(version, canonicalActions);
-        return new AppliedPolicy(document, version, sha256Hex(CanonicalJson.policyDocument(document)));
+        return new AppliedPolicy(document, version, sha256Hex(canonicalBytes(document)));
+    }
+
+    /** serde_json::to_vec of the Rust PolicyDocument: compact, struct field order, actions in code point order. */
+    static byte[] canonicalBytes(PolicyDocument document) {
+        StringBuilder out = new StringBuilder(1024);
+        out.append("{\"version\":");
+        CanonicalJson.appendString(out, document.version());
+        out.append(",\"actions\":{");
+        boolean first = true;
+        for (Map.Entry<String, PolicyDocument.ActionPolicy> entry : document.actions().entrySet()) {
+            if (!first) out.append(',');
+            first = false;
+            PolicyDocument.ActionPolicy rule = entry.getValue();
+            CanonicalJson.appendString(out, entry.getKey());
+            out.append(":{\"purpose\":");
+            CanonicalJson.appendString(out, rule.purpose());
+            out.append(",\"allowed_fields\":");
+            CanonicalJson.appendStringArray(out, rule.allowedFields());
+            out.append(",\"allowed_hosts\":");
+            CanonicalJson.appendStringArray(out, rule.allowedHosts());
+            out.append(",\"allowed_private_refs\":");
+            CanonicalJson.appendStringArray(out, rule.allowedPrivateRefs());
+            out.append(",\"requires_host\":").append(rule.requiresHost());
+            out.append(",\"requires_human_authorization\":").append(rule.requiresHumanAuthorization());
+            out.append('}');
+        }
+        out.append("}}");
+        return out.toString().getBytes(StandardCharsets.UTF_8);
     }
 
     static boolean validHost(String host) {

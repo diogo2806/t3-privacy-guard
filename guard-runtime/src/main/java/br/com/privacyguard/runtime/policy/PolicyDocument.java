@@ -1,5 +1,6 @@
 package br.com.privacyguard.runtime.policy;
 
+import br.com.privacyguard.runtime.contract.ContractText;
 import java.util.Collections;
 import java.util.List;
 import java.util.SortedMap;

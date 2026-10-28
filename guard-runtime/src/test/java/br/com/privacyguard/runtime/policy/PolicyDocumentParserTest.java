@@ -39,7 +39,7 @@ class PolicyDocumentParserTest {
     void canonicalizationNormalizesAndSortsLikeTheContract() {
         AppliedPolicy applied = policy("""
             {"version":"  v1  ","actions":{"revoke-credential":{"purpose":" Incident-Remediation ","allowed_fields":["Reason"," incident_id","CREDENTIAL_ID"],"allowed_hosts":["Security-API.internal"],"requires_host":true,"requires_human_authorization":true}}}""");
-        assertThat(new String(CanonicalJson.policyDocument(applied.document()), StandardCharsets.UTF_8)).isEqualTo(
+        assertThat(new String(PolicyDocumentParser.canonicalBytes(applied.document()), StandardCharsets.UTF_8)).isEqualTo(
             "{\"version\":\"v1\",\"actions\":{\"revoke-credential\":{\"purpose\":\"incident-remediation\","
                 + "\"allowed_fields\":[\"credential_id\",\"incident_id\",\"reason\"],\"allowed_hosts\":[\"security-api.internal\"],"
                 + "\"allowed_private_refs\":[],\"requires_host\":true,\"requires_human_authorization\":true}}}");
@@ -149,7 +149,7 @@ class PolicyDocumentParserTest {
     void canonicalJsonEscapesControlCharactersLikeSerde() {
         AppliedPolicy applied = policy("""
             {"version":"v1","actions":{"create-incident":{"purpose":"incident\\u0001\\u001frecording\\t","allowed_fields":["a\\"b\\\\c/é"],"requires_host":false}}}""");
-        String canonical = new String(CanonicalJson.policyDocument(applied.document()), StandardCharsets.UTF_8);
+        String canonical = new String(PolicyDocumentParser.canonicalBytes(applied.document()), StandardCharsets.UTF_8);
         // The trailing tab is trimmed; interior control characters use lowercase \\u00xx; '/' and non-ASCII stay raw.
         assertThat(canonical).contains("\"purpose\":\"incident\\u0001\\u001frecording\"");
         assertThat(canonical).contains("\"allowed_fields\":[\"a\\\"b\\\\c/é\"]");

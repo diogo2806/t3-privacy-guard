@@ -10,4 +10,22 @@ management:
         include: health
 guard-runtime:
   policy-file: ${GUARD_RUNTIME_POLICY_FILE:/data/policy/current.json}
+  replay-file: ${GUARD_RUNTIME_REPLAY_FILE:/data/replay/execution-nonces.json}
   callers-json: ${GUARD_RUNTIME_CALLERS_JSON:[]}
+  profile:
+    # Private value behind the verified_email reference. Never leaves the runtime except inside the approved egress.
+    verified-email: ${GUARD_RUNTIME_VERIFIED_EMAIL:}
+  egress:
+    timeout-ms: ${GUARD_RUNTIME_EGRESS_TIMEOUT_MS:15000}
+    # Local development only: lets security endpoints use http:// (for example a compose network without TLS).
+    allow-insecure-http: ${GUARD_RUNTIME_ALLOW_INSECURE_HTTP:false}
+  remediation:
+    security-api-url: ${SECURITY_API_URL:}
+    security-verification-url: ${SECURITY_VERIFICATION_URL:}
+    security-api-key: ${SECURITY_API_KEY:}
+    authorization:
+      key-id: ${REMEDIATION_AUTH_KEY_ID:primary}
+      public-key-spki: ${REMEDIATION_AUTH_PUBLIC_KEY_SPKI:}
+      previous-key-id: ${REMEDIATION_AUTH_PREVIOUS_KEY_ID:}
+      previous-public-key-spki: ${REMEDIATION_AUTH_PREVIOUS_PUBLIC_KEY_SPKI:}
+      previous-key-grace-seconds: ${REMEDIATION_AUTH_PREVIOUS_KEY_GRACE_SECONDS:}

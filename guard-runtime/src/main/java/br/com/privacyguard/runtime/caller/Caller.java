@@ -12,7 +12,7 @@ public record Caller(String id, Set<GuardFunction> functions) {
         return functions.contains(function);
     }
 
-    public boolean isAgent(String agentId) {
-        return id.equals(agentId);
+    public boolean hasId(String candidate) {
+        return id.equals(candidate);
     }
 }

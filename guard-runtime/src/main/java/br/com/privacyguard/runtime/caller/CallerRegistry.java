@@ -43,6 +43,14 @@ public class CallerRegistry {
         return Optional.empty();
     }
 
+    /**
+     * Whether the id belongs to a configured caller allowed to propose (evaluate-action). Used when remediation
+     * re-evaluates the policy for the agent that proposed the action; the contract accepted any did:t3n: there.
+     */
+    public boolean isProposalAgent(String id) {
+        return credentials.stream().anyMatch(credential -> credential.caller().hasId(id) && credential.caller().mayCall(GuardFunction.EVALUATE_ACTION));
+    }
+
     private static List<Credential> parse(String raw, ObjectMapper mapper) {
         List<ConfiguredCaller> configured;
         try {

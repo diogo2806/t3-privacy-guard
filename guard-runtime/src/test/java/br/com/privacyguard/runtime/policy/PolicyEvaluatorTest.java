@@ -11,6 +11,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import br.com.privacyguard.runtime.caller.Caller;
 import br.com.privacyguard.runtime.caller.GuardFunction;
+import br.com.privacyguard.runtime.contract.InvalidContractInputException;
 import br.com.privacyguard.runtime.policy.PolicyDecision.Decision;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -212,10 +213,10 @@ class PolicyEvaluatorTest {
         Caller caller = new Caller("agent:proposal", Set.of(GuardFunction.EVALUATE_ACTION));
         PolicyFixtures.Request request = revokeRequest();
         request.agentId = " agent:proposal ";
-        assertThat(PolicyEvaluator.evaluate(request.build(), policy(BASELINE_POLICY), caller::isAgent).decision()).isEqualTo(Decision.ALLOW);
+        assertThat(PolicyEvaluator.evaluate(request.build(), policy(BASELINE_POLICY), caller::hasId).decision()).isEqualTo(Decision.ALLOW);
 
         request.agentId = "agent:other";
-        assertThat(PolicyEvaluator.evaluate(request.build(), policy(BASELINE_POLICY), caller::isAgent).reasonCode()).isEqualTo("INVALID_AGENT_DID");
+        assertThat(PolicyEvaluator.evaluate(request.build(), policy(BASELINE_POLICY), caller::hasId).reasonCode()).isEqualTo("INVALID_AGENT_DID");
     }
 
     @Test
