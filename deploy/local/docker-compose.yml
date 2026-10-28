@@ -1,0 +1,84 @@
+# Full stack on one machine without Terminal 3: guard-runtime + gateway (selfhosted) + backend + dashboard.
+# First run: ./init-env.sh (writes .env with fresh secrets), then: docker compose up --build
+# Dashboard: http://localhost:8088 (operator user "operator", password in .env as OPERATOR_PASSWORD).
+#
+# Local development only: services talk plain HTTP on the private compose network and guard-runtime is allowed to
+# call the backend's first-party security adapter over HTTP (GUARD_RUNTIME_ALLOW_INSECURE_HTTP). Production must use
+# HTTPS endpoints and keep that flag off.
+name: privacy-guard-local
+
+services:
+  guard-runtime:
+    build: ../../guard-runtime
+    environment:
+      GUARD_RUNTIME_POLICY_FILE: /config/policy.json
+      GUARD_RUNTIME_REPLAY_FILE: /data/replay/execution-nonces.json
+      GUARD_RUNTIME_ACTIVITY_FILE: /data/activity/activity.jsonl
+      GUARD_RUNTIME_TENANT_ID: ${GUARD_RUNTIME_TENANT_ID:-local}
+      GUARD_RUNTIME_CALLERS_JSON: >-
+        [{"id":"agent:proposal","token":"${GUARD_RUNTIME_PROPOSAL_TOKEN:?run ./init-env.sh first}","functions":["evaluate-action"]},
+        {"id":"agent:executor","token":"${GUARD_RUNTIME_EXECUTOR_TOKEN:?run ./init-env.sh first}","functions":["execute-remediation","verify-remediation"]}]
+      GUARD_RUNTIME_VERIFIED_EMAIL: ${GUARD_RUNTIME_VERIFIED_EMAIL:-soc@example.test}
+      GUARD_RUNTIME_ALLOW_INSECURE_HTTP: "true"
+      SECURITY_API_URL: http://backend:8080/api/security/remediation/execute
+      SECURITY_VERIFICATION_URL: http://backend:8080/api/security/remediation/verify
+      SECURITY_API_KEY: ${SECURITY_API_KEY:?run ./init-env.sh first}
+      REMEDIATION_AUTH_KEY_ID: primary
+      REMEDIATION_AUTH_PUBLIC_KEY_SPKI: ${REMEDIATION_AUTH_PUBLIC_KEY_SPKI:?run ./init-env.sh first}
+    volumes:
+      - ./policy.json:/config/policy.json:ro
+      - guard-runtime-data:/data
+
+  gateway:
+    build:
+      context: ../../t3n-gateway
+      target: selfhosted
+    environment:
+      TRUST_RUNTIME: selfhosted
+      GATEWAY_SERVICE_TOKEN: ${GATEWAY_SERVICE_TOKEN:?run ./init-env.sh first}
+      REMEDIATION_AUTH_PUBLIC_KEY_SPKI: ${REMEDIATION_AUTH_PUBLIC_KEY_SPKI:?run ./init-env.sh first}
+      REMEDIATION_AUTH_KEY_ID: primary
+      REMEDIATION_REPLAY_STORE_PATH: /data/remediation-capability-nonces.json
+      GUARD_RUNTIME_URL: http://guard-runtime:3101
+      GUARD_RUNTIME_PROPOSAL_TOKEN: ${GUARD_RUNTIME_PROPOSAL_TOKEN:?run ./init-env.sh first}
+      GUARD_RUNTIME_EXECUTOR_TOKEN: ${GUARD_RUNTIME_EXECUTOR_TOKEN:?run ./init-env.sh first}
+      AI_PROVIDER: ${AI_PROVIDER:-disabled}
+      AI_API_URL: ${AI_API_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-}
+    volumes:
+      - gateway-data:/data
+    depends_on:
+      - guard-runtime
+
+  backend:
+    build: ../../backend
+    environment:
+      DATABASE_URL: jdbc:h2:file:/data/privacyguard;AUTO_SERVER=TRUE
+      T3N_GATEWAY_URL: http://gateway:3001
+      GATEWAY_SERVICE_TOKEN: ${GATEWAY_SERVICE_TOKEN:?run ./init-env.sh first}
+      SECURITY_API_KEY: ${SECURITY_API_KEY:?run ./init-env.sh first}
+      REMEDIATION_AUTH_PRIVATE_KEY_PKCS8: ${REMEDIATION_AUTH_PRIVATE_KEY_PKCS8:?run ./init-env.sh first}
+      REMEDIATION_AUTH_KEY_ID: primary
+      AUDIT_INTEGRITY_KEY: ${AUDIT_INTEGRITY_KEY:?run ./init-env.sh first}
+      OPERATOR_USERNAME: operator
+      OPERATOR_PASSWORD: ${OPERATOR_PASSWORD:?run ./init-env.sh first}
+      SESSION_COOKIE_SECURE: "false"
+    volumes:
+      - backend-data:/data
+    depends_on:
+      - gateway
+
+  frontend:
+    build: ../../frontend
+    environment:
+      BACKEND_BASE_URL: http://backend:8080
+    ports:
+      - "${DASHBOARD_PORT:-8088}:80"
+    depends_on:
+      - backend
+
+volumes:
+  guard-runtime-data:
+  gateway-data:
+  backend-data:

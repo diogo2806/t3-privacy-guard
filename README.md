@@ -45,6 +45,20 @@ The mechanism behind that product value is:
 > **Evidence reproduction:** [`docs/evidence/README.md`](docs/evidence/README.md)  
 > **Adversarial matrix:** [`docs/evidence/scenario-matrix.md`](docs/evidence/scenario-matrix.md)
 
+## Runs with or without Terminal 3
+
+The trust runtime behind the gateway is selectable with `TRUST_RUNTIME`:
+
+| | `t3n` (default) | `selfhosted` |
+|---|---|---|
+| Policy, capability check, protected execution, read-back | Rust/WASM contract on Terminal 3 | [guard-runtime](guard-runtime/README.md), a separate Java service with the same rules and hashes |
+| Identities and grants | T3N DIDs and function-scoped delegation | One token per caller with explicit function grants |
+| Private values (security API key, verified email) | Private T3N maps and user profile | guard-runtime's own environment, resolved only at egress |
+| Audit provenance | T3N Activity Log | guard-runtime's hash-chained activity log |
+| Needs T3N credentials, testnet or credits | Yes | No |
+
+The backend and the dashboard are the same in both modes; the gateway serves the same internal API from either runtime. To run everything locally without Terminal 3, see [`deploy/local`](deploy/local/README.md) (Docker Compose) or run `scripts/selfhosted-e2e.sh`, which drives a credential revocation and a private notification to an independently verified `COMPLETED`. In self-hosted mode the separation between the model and the authority rests on separate processes, credentials and operators instead of a third-party TEE.
+
 ## Executive demo in one viewport
 
 The dashboard has three deliberately separate presentation levels. **Protection flow** is the operational surface where analysis, human authorization, execution and read-back happen. **Executive demo** is a read-only projection of that same runtime state for a judge or enterprise stakeholder. **Evidence** remains the detailed proof surface. The Executive demo does not own a second incident, policy decision, authorization, remediation state machine or evidence source and exposes no Analyze, Authorize, Execute or Verify action.

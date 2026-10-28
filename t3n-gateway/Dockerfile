@@ -15,6 +15,22 @@ COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build
 
+# Self-hosted gateway (docker build --target selfhosted): fronts guard-runtime, so neither the Rust contract nor any
+# T3N setting is needed. The default target below stays the Terminal 3 gateway.
+FROM node:22.20.0-alpine3.22 AS selfhosted
+WORKDIR /app
+ENV NODE_ENV=production \
+    TRUST_RUNTIME=selfhosted \
+    EVIDENCE_RUNTIME_DIR=/data/evidence
+COPY package*.json ./
+RUN npm install --omit=dev && npm cache clean --force
+COPY --from=gateway-build /app/dist ./dist
+RUN mkdir -p /data/evidence && test -f /app/dist/selfhosted/main.js && chown -R node:node /data
+VOLUME ["/data"]
+USER node
+EXPOSE 3001
+CMD ["node", "dist/index.js"]
+
 FROM node:22.20.0-alpine3.22
 ARG EVIDENCE_SOURCE_COMMIT_SHA=""
 ARG EVIDENCE_SOURCE_TREE_CLEAN=""

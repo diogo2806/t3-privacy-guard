@@ -2,6 +2,14 @@
 
 Este diretório contém o runtime do gateway e os comandos administrativos necessários para preparar a integração T3N publicada.
 
+## Modo selfhosted (sem T3N)
+
+Com `TRUST_RUNTIME=selfhosted` o gateway atende a mesma API interna a partir do [guard-runtime](../guard-runtime/README.md), sem ler nenhuma variável `T3N_*`, sem abrir sessão e sem carregar o SDK da Terminal 3 (`src/index.ts` só importa `src/selfhosted/` nesse modo). Avaliação, remediação, verificação, status de identidades e grants, prontidão de integração e activity log vêm do runtime. Agent Card e A2A são recursos da T3N e não são expostos nesse modo.
+
+Variáveis: `GUARD_RUNTIME_URL`, `GUARD_RUNTIME_PROPOSAL_TOKEN` e `GUARD_RUNTIME_EXECUTOR_TOKEN` (obrigatórias), `GUARD_RUNTIME_PROPOSAL_AGENT_ID` (padrão `agent:proposal`), `GUARD_RUNTIME_EXECUTOR_ID` (padrão `agent:executor`) e `GUARD_RUNTIME_TIMEOUT_MS`, além das compartilhadas `GATEWAY_SERVICE_TOKEN`, `REMEDIATION_AUTH_PUBLIC_KEY_SPKI`, `REMEDIATION_REPLAY_STORE_PATH` e `AI_*`.
+
+Imagem: `docker build --target selfhosted t3n-gateway` gera o gateway sem o contrato Rust. O alvo padrão do `Dockerfile` continua sendo o gateway T3N descrito abaixo. Um stack local completo está em [`deploy/local`](../deploy/local/README.md).
+
 ## Build do container
 
 O serviço do T3N Gateway usa `t3n-gateway` como contexto/base do build no EasyPanel. O `Dockerfile` é, portanto, autocontido nesse diretório e não tenta executar `COPY` de caminhos irmãos ou da raiz do monorepo.
