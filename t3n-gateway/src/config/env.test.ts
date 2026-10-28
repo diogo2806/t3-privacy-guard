@@ -58,6 +58,51 @@ test('defaults to testnet, disabled AI, versioned remediation key, no public A2A
   assert.equal(config.aiApiKey, null);
   assert.equal(config.aiModel, null);
   assert.equal(config.a2aPublicUrl, null);
+  assert.equal(config.trustRuntime, 't3n');
+  assert.equal(config.guardRuntime, null);
+});
+
+const guardRuntimeToken = 'guard-runtime-token-0123456789abcdef0123';
+const selfHostedEnv = {
+  ...baseEnv,
+  TRUST_RUNTIME: 'selfhosted',
+  GUARD_RUNTIME_URL: 'http://guard-runtime:3101/',
+  GUARD_RUNTIME_TOKEN: guardRuntimeToken,
+  GUARD_RUNTIME_AGENT_ID: 'agent:proposal',
+};
+
+test('reads the self-hosted guard runtime configuration for evaluate-action', () => {
+  const config = readGatewayConfig(selfHostedEnv);
+  assert.equal(config.trustRuntime, 'selfhosted');
+  assert.deepEqual(config.guardRuntime, {
+    url: 'http://guard-runtime:3101',
+    token: guardRuntimeToken,
+    agentId: 'agent:proposal',
+    timeoutMs: 5000,
+  });
+  assert.equal(readGatewayConfig({ ...selfHostedEnv, TRUST_RUNTIME: ' SelfHosted ', GUARD_RUNTIME_TIMEOUT_MS: '1500' }).guardRuntime?.timeoutMs, 1500);
+});
+
+test('rejects incomplete or unsafe self-hosted runtime configuration without echoing the token', () => {
+  for (const env of [
+    { ...baseEnv, TRUST_RUNTIME: 'wasm' },
+    { ...selfHostedEnv, GUARD_RUNTIME_URL: '' },
+    { ...selfHostedEnv, GUARD_RUNTIME_URL: 'guard-runtime:3101' },
+    { ...selfHostedEnv, GUARD_RUNTIME_URL: 'ftp://guard-runtime:3101' },
+    { ...selfHostedEnv, GUARD_RUNTIME_URL: `http://agent:${guardRuntimeToken}@guard-runtime:3101` },
+    { ...selfHostedEnv, GUARD_RUNTIME_URL: 'http://guard-runtime:3101/?runtime=1' },
+    { ...selfHostedEnv, GUARD_RUNTIME_TOKEN: 'short-token' },
+    { ...selfHostedEnv, GUARD_RUNTIME_TOKEN: baseEnv.GATEWAY_SERVICE_TOKEN },
+    { ...selfHostedEnv, GUARD_RUNTIME_AGENT_ID: '' },
+    { ...selfHostedEnv, GUARD_RUNTIME_AGENT_ID: 'agent proposal' },
+    { ...selfHostedEnv, GUARD_RUNTIME_TIMEOUT_MS: '0' },
+    { ...selfHostedEnv, GUARD_RUNTIME_TIMEOUT_MS: 'fast' },
+  ]) {
+    assert.throws(
+      () => readGatewayConfig(env),
+      (error: unknown) => error instanceof ConfigurationError && !error.message.includes(guardRuntimeToken),
+    );
+  }
 });
 
 test('normalizes legacy 0.4.0 through 0.4.5 deployment settings to packaged contract 1.0.0', () => {

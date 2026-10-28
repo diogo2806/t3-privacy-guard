@@ -1,4 +1,6 @@
 import { createPublicKey } from 'node:crypto';
+import type { TrustRuntime } from '../contract/policy-evaluator.js';
+import type { GuardRuntimeConfig } from '../contract/self-hosted-policy-evaluator.js';
 import { classifyPrincipalCredential } from '../t3n/principal-credential.js';
 import { resolvePackagedContractVersion } from './contract-version.js';
 
@@ -24,6 +26,9 @@ export interface GatewayConfig {
   readonly aiApiKey: string | null;
   readonly aiModel: string | null;
   readonly a2aPublicUrl: string | null;
+  /** Where evaluate-action runs. Remediation and verification still run on T3N in both modes. */
+  readonly trustRuntime: TrustRuntime;
+  readonly guardRuntime: GuardRuntimeConfig | null;
   readonly remediationCapabilityKey?: undefined;
 }
 
@@ -38,6 +43,7 @@ const DOCUMENTATION_PLACEHOLDER_PREFIX = 'replace-with-';
 const PUBLIC_KEY_PEM_BEGIN = '-----BEGIN PUBLIC KEY-----';
 const PUBLIC_KEY_PEM_END = '-----END PUBLIC KEY-----';
 const CANONICAL_T3N_DID_PATTERN = /^did:t3n:[A-Za-z0-9]+$/;
+const GUARD_RUNTIME_CALLER_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 
 export function rejectDocumentationPlaceholder(value: string, name: string): void {
   if (value.trim().startsWith(DOCUMENTATION_PLACEHOLDER_PREFIX)) {
@@ -210,6 +216,31 @@ export function validateA2aPublicUrl(value: string): string {
   return parsed.toString();
 }
 
+export function validateGuardRuntimeUrl(value: string): string {
+  let parsed: URL;
+  try { parsed = new URL(value); } catch { throw new ConfigurationError('GUARD_RUNTIME_URL must be a valid absolute URL'); }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new ConfigurationError('GUARD_RUNTIME_URL must use http or https');
+  if (parsed.username || parsed.password) throw new ConfigurationError('GUARD_RUNTIME_URL must not contain embedded credentials');
+  if (parsed.search || parsed.hash) throw new ConfigurationError('GUARD_RUNTIME_URL must not contain query parameters or fragments');
+  return parsed.toString().replace(/\/+$/, '');
+}
+
+function readGuardRuntime(env: NodeJS.ProcessEnv, gatewayServiceToken: string): GuardRuntimeConfig {
+  const url = env.GUARD_RUNTIME_URL?.trim();
+  if (!url) throw new ConfigurationError('GUARD_RUNTIME_URL is required when TRUST_RUNTIME=selfhosted');
+  const token = requiredSecret(env, 'GUARD_RUNTIME_TOKEN');
+  if (token === gatewayServiceToken) throw new ConfigurationError('GUARD_RUNTIME_TOKEN must be different from GATEWAY_SERVICE_TOKEN');
+  const agentId = env.GUARD_RUNTIME_AGENT_ID?.trim() ?? '';
+  if (!GUARD_RUNTIME_CALLER_ID_PATTERN.test(agentId)) {
+    throw new ConfigurationError('GUARD_RUNTIME_AGENT_ID must be the caller id this gateway has in guard-runtime');
+  }
+  const timeoutMs = Number(env.GUARD_RUNTIME_TIMEOUT_MS ?? 5000);
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 60_000) {
+    throw new ConfigurationError('GUARD_RUNTIME_TIMEOUT_MS must be an integer between 100 and 60000');
+  }
+  return { url: validateGuardRuntimeUrl(url), token, agentId, timeoutMs };
+}
+
 export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig {
   const apiKey = requiredTenantCredential(env);
   const agentApiKey = optionalPrincipalCredential(env, 'T3N_AGENT_API_KEY');
@@ -256,6 +287,11 @@ export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): Gateway
   const a2aPublicUrlRaw = env.A2A_PUBLIC_URL?.trim() || null;
   const a2aPublicUrl = a2aPublicUrlRaw ? validateA2aPublicUrl(a2aPublicUrlRaw) : null;
 
+  const gatewayServiceToken = requiredSecret(env, 'GATEWAY_SERVICE_TOKEN');
+  const trustRuntimeValue = (env.TRUST_RUNTIME ?? 't3n').trim().toLowerCase();
+  if (trustRuntimeValue !== 't3n' && trustRuntimeValue !== 'selfhosted') throw new ConfigurationError('TRUST_RUNTIME must be t3n or selfhosted');
+  const guardRuntime = trustRuntimeValue === 'selfhosted' ? readGuardRuntime(env, gatewayServiceToken) : null;
+
   return {
     apiKey,
     agentApiKey,
@@ -265,7 +301,7 @@ export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): Gateway
     port: portValue,
     contractTail,
     contractVersion,
-    gatewayServiceToken: requiredSecret(env, 'GATEWAY_SERVICE_TOKEN'),
+    gatewayServiceToken,
     remediationAuthorizationPublicKeySpki: requiredEd25519PublicKey(env, 'REMEDIATION_AUTH_PUBLIC_KEY_SPKI'),
     remediationAuthorizationKeyId: requiredKeyId(env, 'REMEDIATION_AUTH_KEY_ID', 'primary'),
     remediationReplayStorePath: requiredPath(env, 'REMEDIATION_REPLAY_STORE_PATH', '/data/remediation-capability-nonces.json'),
@@ -275,5 +311,7 @@ export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): Gateway
     aiApiKey,
     aiModel,
     a2aPublicUrl,
+    trustRuntime: trustRuntimeValue,
+    guardRuntime,
   };
 }

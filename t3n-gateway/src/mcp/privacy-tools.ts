@@ -69,7 +69,7 @@ export function createPrivacyGuardMcpServer(contracts: PrivacyGuardMcpContract):
   server.registerTool(
     'privacy.evaluate_action',
     {
-      description: 'Evaluate an AI-proposed action under the active T3N privacy policy. This tool never authorizes remediation.',
+      description: 'Evaluate an AI-proposed action under the active versioned privacy policy. This tool never authorizes remediation.',
       inputSchema: PRIVACY_EVALUATE_ACTION_INPUT_SCHEMA,
     },
     async (request) => {

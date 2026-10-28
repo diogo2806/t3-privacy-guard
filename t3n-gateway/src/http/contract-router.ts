@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { EnterpriseIntegrationReadinessService } from '../contract/enterprise-integration-readiness.js';
-import type { PolicyDecisionType, PolicyEvaluationRequest, PrivacyGuardContractService, RemediationVerificationRequest } from '../contract/privacy-guard-contract.js';
+import { evaluationTraceStage, type PolicyEvaluationInput, type PolicyEvaluator } from '../contract/policy-evaluator.js';
+import type { PolicyDecisionType, PrivacyGuardContractService, RemediationVerificationRequest } from '../contract/privacy-guard-contract.js';
 import { logTraceStage, traceRequest } from '../observability/trace.js';
 import type { RemediationAuthorizationVerifier, RemediationBody } from '../security/remediation-authorization.js';
 import { requireServiceToken } from '../security/service-auth.js';
@@ -17,12 +18,14 @@ function validVerificationContract(body: RemediationVerificationRequest): boolea
 }
 
 export function createContractRouter(
-  service: PrivacyGuardContractService,
-  verifier: RemediationAuthorizationVerifier,
+  service: Pick<PrivacyGuardContractService, 'identity' | 'remediate' | 'verifyRemediation'>,
+  verifier: Pick<RemediationAuthorizationVerifier, 'verifyAndConsume'>,
   serviceToken: string,
-  enterpriseIntegrationReadiness: EnterpriseIntegrationReadinessService,
+  enterpriseIntegrationReadiness: Pick<EnterpriseIntegrationReadinessService, 'status'>,
+  evaluator: PolicyEvaluator,
 ): Router {
   const router = Router();
+  const evaluationStage = evaluationTraceStage(evaluator.runtime);
 
   router.get('/identity', async (_request, response) => {
     try { response.json(await service.identity()); }
@@ -36,11 +39,11 @@ export function createContractRouter(
   router.post('/evaluate', requireServiceToken(serviceToken), traceRequest, async (request, response) => {
     const requestId = request.body?.request_id;
     try {
-      const result = await service.evaluate(request.body as Omit<PolicyEvaluationRequest, 'agent_did'>);
-      logTraceStage(response, 'T3N_TEE_EVALUATION', requestId, policyTraceState(result.decision));
+      const result = await evaluator.evaluate(request.body as PolicyEvaluationInput);
+      logTraceStage(response, evaluationStage, requestId, policyTraceState(result.decision));
       response.json(result);
     } catch {
-      logTraceStage(response, 'T3N_TEE_EVALUATION', requestId, 'UNAVAILABLE');
+      logTraceStage(response, evaluationStage, requestId, 'UNAVAILABLE');
       response.status(503).json({ error: 'Policy evaluation is unavailable' });
     }
   });

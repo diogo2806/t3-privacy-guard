@@ -3,6 +3,7 @@ import type { AgentSession } from '../agent/agent-session.js';
 import type { ExecutorSession } from '../agent/executor-session.js';
 import type { GatewayConfig } from '../config/env.js';
 import { getFreshContractVersion } from './fresh-contract-version.js';
+import type { PolicyEvaluator } from './policy-evaluator.js';
 import type { ActivityLogService, ActivityReference } from '../t3n/activity-log-service.js';
 import type { T3nSession } from '../t3n/session.js';
 
@@ -99,7 +100,7 @@ function validPolicyMetadata(version: unknown, hash: unknown): boolean {
     || (typeof version === 'string' && version.length > 0 && typeof hash === 'string' && /^[a-f0-9]{64}$/.test(hash));
 }
 
-function isDecision(value: unknown): value is PolicyDecision {
+export function isPolicyDecision(value: unknown): value is PolicyDecision {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<PolicyDecision>;
   return typeof candidate.request_id === 'string'
@@ -144,7 +145,9 @@ function annotate<T extends object>(result: T, activity?: ActivityReference): T 
   return activity ? { ...result, activity_sequence: activity.sequence, activity_hash: activity.hash } : result;
 }
 
-export class PrivacyGuardContractService {
+export class PrivacyGuardContractService implements PolicyEvaluator {
+  readonly runtime = 't3n' as const;
+
   constructor(
     private readonly config: GatewayConfig,
     private readonly tenantSession: T3nSession,
@@ -191,7 +194,7 @@ export class PrivacyGuardContractService {
       this.tenantSession.getTenantDid(), contractId, contractVersion, 'evaluate-action',
       { ...request, private_refs: request.private_refs ?? [], agent_did: agentDid },
     )));
-    if (!isDecision(captured.result)) throw new Error('T3N contract returned an invalid policy decision');
+    if (!isPolicyDecision(captured.result)) throw new Error('T3N contract returned an invalid policy decision');
     return annotate(captured.result, captured.activity);
   }
 
