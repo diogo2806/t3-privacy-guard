@@ -7,6 +7,7 @@
 
 # Java
 backend/target/
+guard-runtime/target/
 
 # Node
 frontend/node_modules/

@@ -1,0 +1,13 @@
+spring:
+  application:
+    name: privacy-guard-runtime
+server:
+  port: ${GUARD_RUNTIME_PORT:3101}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+guard-runtime:
+  policy-file: ${GUARD_RUNTIME_POLICY_FILE:/data/policy/current.json}
+  callers-json: ${GUARD_RUNTIME_CALLERS_JSON:[]}
