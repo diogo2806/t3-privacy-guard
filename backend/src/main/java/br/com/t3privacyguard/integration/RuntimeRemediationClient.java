@@ -19,6 +19,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class RuntimeRemediationClient {
     private static final List<String> EXECUTOR_FUNCTIONS = List.of("execute-remediation", "verify-remediation");
+    private static final String POLICY_CHANGED_REASON = "active policy changed after authorization; remediation must be re-evaluated";
 
     private final GuardRuntimeClient runtime;
     private final ObjectMapper mapper;
@@ -72,6 +73,10 @@ public class RuntimeRemediationClient {
         GuardRuntimeClient.Response response = runtime.post("/v1/functions/execute-remediation", Caller.EXECUTOR, body);
         if (response.status() == 422 && "EXECUTION_DESTINATION_CHANGED".equals(rejectionReason(response))) {
             throw new RemediationDestinationChangedException("Protected destination changed after human authorization");
+        }
+        // Checked by guard-runtime before any egress, so this is a definite refusal, not an unknown outcome.
+        if (response.status() == 422 && POLICY_CHANGED_REASON.equals(rejectionReason(response))) {
+            throw new RemediationPolicyChangedException("Active policy changed after human authorization");
         }
         if (!response.ok()) throw new TrustRuntimeUnavailableException("Protected remediation acceptance is unavailable (guard-runtime HTTP " + response.status() + ")");
         RemediationResult result = read(response, RemediationResult.class)

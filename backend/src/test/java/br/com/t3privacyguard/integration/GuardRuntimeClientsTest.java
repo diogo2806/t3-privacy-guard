@@ -82,6 +82,10 @@ class GuardRuntimeClientsTest {
             case "/v1/functions/execute-remediation" -> {
                 if ("changed.example".equals(input.path("approved_host").asText())) {
                     respond(exchange, 422, "{\"error\":\"CONTRACT_REJECTED\",\"reason\":\"EXECUTION_DESTINATION_CHANGED\"}");
+                } else if ("stale-policy.example".equals(input.path("approved_host").asText())) {
+                    respond(exchange, 422, "{\"error\":\"CONTRACT_REJECTED\",\"reason\":\"active policy changed after authorization; remediation must be re-evaluated\"}");
+                } else if ("upstream-error.example".equals(input.path("approved_host").asText())) {
+                    respond(exchange, 422, "{\"error\":\"CONTRACT_REJECTED\",\"reason\":\"remediation upstream returned HTTP 500\"}");
                 } else {
                     respond(exchange, 200, "{\"request_id\":\"req-1\",\"status\":\"PENDING_VERIFICATION\",\"http_code\":202,\"operation_id\":\"op-1\",\"policy_version\":\"" + input.path("policy_version").asText() + "\",\"policy_hash\":\"" + input.path("policy_hash").asText() + "\"}");
                 }
@@ -132,6 +136,11 @@ class GuardRuntimeClientsTest {
 
         assertThatThrownBy(() -> remediation.execute(remediation("changed.example"), "v2.payload.signature"))
             .isInstanceOf(RemediationDestinationChangedException.class);
+        assertThatThrownBy(() -> remediation.execute(remediation("stale-policy.example"), "v2.payload.signature"))
+            .isInstanceOf(RemediationPolicyChangedException.class);
+        // A refusal after the upstream call stays an unknown outcome: the side effect may have happened.
+        assertThatThrownBy(() -> remediation.execute(remediation("upstream-error.example"), "v2.payload.signature"))
+            .isInstanceOf(TrustRuntimeUnavailableException.class);
         assertThat(remediation.verify("req-1", "op-1").status()).isEqualTo("VERIFIED");
     }
 

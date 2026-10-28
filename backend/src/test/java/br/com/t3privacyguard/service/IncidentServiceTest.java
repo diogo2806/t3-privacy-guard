@@ -13,6 +13,7 @@ import br.com.t3privacyguard.api.ApiModels.CreateActionRequest;
 import br.com.t3privacyguard.api.ApiModels.CreateIncidentRequest;
 import br.com.t3privacyguard.domain.DecisionType;
 import br.com.t3privacyguard.domain.Severity;
+import br.com.t3privacyguard.integration.RemediationPolicyChangedException;
 import br.com.t3privacyguard.integration.RuntimePolicyClient;
 import br.com.t3privacyguard.integration.RuntimePolicyClient.RuntimeDecision;
 import br.com.t3privacyguard.integration.RuntimeRemediationClient;
@@ -338,6 +339,21 @@ class IncidentServiceTest {
         assertThat(first.state()).isEqualTo("UNVERIFIED");
         assertThat(first.failureCode()).isEqualTo("EXECUTION_RESULT_UNKNOWN");
         assertThat(second.state()).isEqualTo("UNVERIFIED");
+        verify(remediationGateway, times(1)).execute(any(), anyString());
+    }
+
+    @Test void aPolicyChangeAfterAuthorizationIsADefiniteRefusalNotAnUnknownOutcome() {
+        var context = authorizedAction("req-stale-policy");
+        when(remediationGateway.execute(any(), anyString())).thenThrow(new RemediationPolicyChangedException("Active policy changed after human authorization"));
+
+        var result = service.executeRemediation(context.incidentId(), context.actionId());
+
+        assertThat(result.state()).isEqualTo("FAILED");
+        assertThat(result.failureCode()).isEqualTo("POLICY_CHANGED_AFTER_AUTHORIZATION");
+        assertThat(service.history(context.incidentId())).anySatisfy(event -> {
+            assertThat(event.type()).isEqualTo("REMEDIATION_BLOCKED");
+            assertThat(event.message()).contains("newer policy version");
+        });
         verify(remediationGateway, times(1)).execute(any(), anyString());
     }
 

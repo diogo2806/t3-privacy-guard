@@ -196,6 +196,13 @@ describe('RemediationPanel', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/authorize it before executing again/i);
   });
 
+  it('explains a policy change after approval as a new evaluation and authorization', () => {
+    renderPanel(execution('FAILED', { failureCode: 'POLICY_CHANGED_AFTER_AUTHORIZATION', operationId: null, httpCode: null }));
+    expect(screen.getByRole('alert')).toHaveTextContent(/Policy changed/i);
+    expect(screen.getByRole('alert')).toHaveTextContent(/before any external call/i);
+    expect(screen.queryByText(/Execution failed before a verified completion state/i)).not.toBeInTheDocument();
+  });
+
   it('marks the Guard runtime proof boundary verified only after protected execution returns an HTTP result', () => {
     renderPanel(execution('PENDING_VERIFICATION'));
     const proofRegion = screen.getByRole('region', { name: 'Approved remediation destination and authorization proof status' });

@@ -19,6 +19,7 @@ import br.com.t3privacyguard.integration.RuntimeRemediationClient;
 import br.com.t3privacyguard.integration.RuntimeRemediationClient.RemediationRequest;
 import br.com.t3privacyguard.integration.TrustRuntimeUnavailableException;
 import br.com.t3privacyguard.integration.RemediationDestinationChangedException;
+import br.com.t3privacyguard.integration.RemediationPolicyChangedException;
 import br.com.t3privacyguard.persistence.ActionProposalEntity;
 import br.com.t3privacyguard.persistence.ActionProposalRepository;
 import br.com.t3privacyguard.persistence.IncidentEntity;
@@ -317,6 +318,19 @@ public class IncidentService {
                 "execute-remediation"
             );
             traces.record(action, "PROTECTED_EGRESS", "DENIED", "EXECUTION_DESTINATION_CHANGED", elapsedMillis(startedAt));
+            return remediationResponse(incidentId, actionId, state);
+        } catch (RemediationPolicyChangedException ex) {
+            RemediationExecutionEntity state = executionCoordinator.markFailed(actionId, "POLICY_CHANGED_AFTER_AUTHORIZATION");
+            audit(
+                incidentId,
+                "REMEDIATION_BLOCKED",
+                "Protected execution was blocked because a newer policy version became active after policy " + decision.getPolicyVersion()
+                    + " was approved; re-evaluation and re-authorization are required",
+                null,
+                null,
+                "execute-remediation"
+            );
+            traces.record(action, "PROTECTED_EGRESS", "DENIED", "POLICY_CHANGED_AFTER_AUTHORIZATION", elapsedMillis(startedAt));
             return remediationResponse(incidentId, actionId, state);
         } catch (TrustRuntimeUnavailableException ex) {
             RemediationExecutionEntity state = executionCoordinator.markUnverified(actionId, "EXECUTION_RESULT_UNKNOWN");

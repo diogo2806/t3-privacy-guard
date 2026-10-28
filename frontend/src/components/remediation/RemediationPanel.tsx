@@ -90,6 +90,7 @@ export function RemediationPanel({ action, decision, execution, busy, onAuthoriz
   const canExecute = baseCanExecute && hasExecutorAuthority && !samePrincipalAsApprover;
   const canVerify = baseCanVerify && hasExecutorAuthority && !samePrincipalAsApprover;
   const destinationChanged = execution?.failureCode === 'EXECUTION_DESTINATION_CHANGED';
+  const policyChanged = execution?.failureCode === 'POLICY_CHANGED_AFTER_AUTHORIZATION';
   const state = stateCopy(execution);
   const proofState = execution ? 'ISSUED FOR EXECUTION' : hasBoundAuthorization && statusAuthorized ? 'ISSUED ON EXECUTE' : 'NOT ISSUED';
   const runtimeProofState = execution?.httpCode ? 'VERIFIED' : execution ? 'NOT CONFIRMED' : 'NOT RUN';
@@ -166,7 +167,8 @@ export function RemediationPanel({ action, decision, execution, busy, onAuthoriz
       {hasVerifiedExecutor && execution?.state === 'PENDING_VERIFICATION' && <div className="inline-notice remediation-status-message"><Clock3 aria-hidden="true" /><span>The one-time proof passed the protected Guard runtime execution boundary and the side effect was accepted, but completion still depends on independent verification of {expectedState}.</span></div>}
       {hasVerifiedExecutor && execution?.state === 'UNVERIFIED' && <div className="inline-notice remediation-status-message"><CircleAlert aria-hidden="true" /><span>The outcome is ambiguous or the expected external state was not confirmed. The system will not send the side effect again automatically.</span></div>}
       {hasVerifiedExecutor && destinationChanged && <div className="feedback feedback-error remediation-status-message" role="alert"><CircleAlert aria-hidden="true" /><span>Destination changed. The protected configuration no longer matches the destination that was approved. Create a new action, evaluate the intended destination, and authorize it before executing again.</span></div>}
-      {hasVerifiedExecutor && execution?.state === 'FAILED' && !destinationChanged && <div className="feedback feedback-error remediation-status-message"><CircleAlert aria-hidden="true" /><span>Execution failed before a verified completion state. Review the audit trail before any new action.</span></div>}
+      {hasVerifiedExecutor && policyChanged && <div className="feedback feedback-error remediation-status-message" role="alert"><CircleAlert aria-hidden="true" /><span>Policy changed. A newer policy version became active after this remediation was approved, so Guard runtime refused it before any external call. Create a new action, evaluate it under the active policy, and authorize it again.</span></div>}
+      {hasVerifiedExecutor && execution?.state === 'FAILED' && !destinationChanged && !policyChanged && <div className="feedback feedback-error remediation-status-message"><CircleAlert aria-hidden="true" /><span>Execution failed before a verified completion state. Review the audit trail before any new action.</span></div>}
       {hasVerifiedExecutor && execution?.state === 'COMPLETED' && <div className="success-state"><CheckCircle2 aria-hidden="true" /><span>{isPrivateNotification ? 'Independent read-back verified DELIVERED and confirmed private-recipient resolution inside Guard runtime. The plaintext recipient was not returned to the application.' : 'Independent read-back verified REVOKED. This remediation is now COMPLETED.'}</span></div>}
 
       {canVerify && <button className="button button-secondary" type="button" onClick={onVerify} disabled={busy}><RefreshCw aria-hidden="true" />Verify external state</button>}

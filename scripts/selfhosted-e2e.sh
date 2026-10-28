@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # End-to-end check of the two services without Docker: guard-runtime (Java) + app (backend serving the dashboard),
 # driven through the backend API exactly as the dashboard drives it: login, incident, action, policy evaluation,
-# human authorization, protected execution and independent read-back, plus the MCP endpoint. Every secret is
-# generated for this run and discarded afterwards.
+# human authorization, protected execution and independent read-back, plus the MCP endpoint and policy versioning
+# (publish, stale approval refused, rollback). Every secret is generated for this run and discarded afterwards.
 #
 # Requirements: Java 21, Maven, Node 22+, curl. Ports default to 3101 (guard-runtime) and 8080 (app); override with
 # RUNTIME_PORT and BACKEND_PORT.
@@ -37,6 +37,7 @@ fi
 
 PROPOSAL_TOKEN="$(random_secret)"
 EXECUTOR_TOKEN="$(random_secret)"
+POLICY_ADMIN_TOKEN="$(random_secret)"
 MCP_TOKEN="$(random_secret)"
 SECURITY_API_KEY="$(random_secret)"
 AUDIT_KEY="$(random_secret)"
@@ -50,10 +51,11 @@ SECURITY_BASE="http://localhost:$BACKEND_PORT/api/security/remediation"
 step "Starting guard-runtime on :$RUNTIME_PORT"
 env GUARD_RUNTIME_PORT="$RUNTIME_PORT" \
   GUARD_RUNTIME_POLICY_FILE="$ROOT/deploy/local/policy.json" \
+  GUARD_RUNTIME_POLICY_DIR="$WORK/runtime/policy" \
   GUARD_RUNTIME_REPLAY_FILE="$WORK/runtime/replay.json" \
   GUARD_RUNTIME_ACTIVITY_FILE="$WORK/runtime/activity.jsonl" \
   GUARD_RUNTIME_TENANT_ID=local \
-  GUARD_RUNTIME_CALLERS_JSON="[{\"id\":\"agent:proposal\",\"token\":\"$PROPOSAL_TOKEN\",\"functions\":[\"evaluate-action\"]},{\"id\":\"agent:executor\",\"token\":\"$EXECUTOR_TOKEN\",\"functions\":[\"execute-remediation\",\"verify-remediation\"]}]" \
+  GUARD_RUNTIME_CALLERS_JSON="[{\"id\":\"agent:proposal\",\"token\":\"$PROPOSAL_TOKEN\",\"functions\":[\"evaluate-action\"]},{\"id\":\"agent:executor\",\"token\":\"$EXECUTOR_TOKEN\",\"functions\":[\"execute-remediation\",\"verify-remediation\"]},{\"id\":\"agent:policy-admin\",\"token\":\"$POLICY_ADMIN_TOKEN\",\"functions\":[\"manage-policy\"]}]" \
   GUARD_RUNTIME_VERIFIED_EMAIL=soc@example.test \
   GUARD_RUNTIME_ALLOW_INSECURE_HTTP=true \
   SECURITY_API_URL="$SECURITY_BASE/execute" \
@@ -77,6 +79,7 @@ env "${DASHBOARD_ENV[@]}" SERVER_PORT="$BACKEND_PORT" \
   GUARD_RUNTIME_URL="http://localhost:$RUNTIME_PORT" \
   GUARD_RUNTIME_PROPOSAL_TOKEN="$PROPOSAL_TOKEN" \
   GUARD_RUNTIME_EXECUTOR_TOKEN="$EXECUTOR_TOKEN" \
+  GUARD_RUNTIME_POLICY_ADMIN_TOKEN="$POLICY_ADMIN_TOKEN" \
   MCP_TOKEN="$MCP_TOKEN" \
   SECURITY_API_KEY="$SECURITY_API_KEY" \
   REMEDIATION_AUTH_PRIVATE_KEY_PKCS8="$CAPABILITY_PRIVATE_KEY" \
@@ -162,6 +165,28 @@ echo "evaluate with api_key -> $MCP_DECISION"
 MCP_UNAUTHORIZED="$(curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' -X POST "$APP/mcp" -d '{"jsonrpc":"2.0","id":1,"method":"ping"}')"
 echo "without token -> HTTP $MCP_UNAUTHORIZED"
 
+step "Policy versioning: an approval does not survive a policy change"
+POLICY="$(get /policy)"
+SEED_VERSION="$(json version <<<"$POLICY")"
+echo "active=$SEED_VERSION managed=$(json managed <<<"$POLICY")"
+STALE_ID="$(post "/incidents/$INCIDENT_ID/actions" '{"requestId":"e2e-revoke-002","action":"revoke-credential","resource":"credential:cred-43","purpose":"incident-remediation","host":"localhost","fields":["incident_id","credential_id","reason"],"privateRefs":[]}' | json id)"
+echo "decision under $SEED_VERSION: $(json decision <<<"$(post "/incidents/$INCIDENT_ID/actions/$STALE_ID/evaluate")")"
+post "/incidents/$INCIDENT_ID/actions/$STALE_ID/authorize-remediation" > /dev/null
+PUBLISH_BODY="$(node -e "const p=JSON.parse(process.argv[1]);p.document.version=p.version+'-e2e';console.log(JSON.stringify({document:p.document,expectedCurrentHash:p.hash}))" "$POLICY")"
+PUBLISHED="$(post /policy/publish "$PUBLISH_BODY")"
+NEW_VERSION="$(json version <<<"$PUBLISHED")"
+echo "published $NEW_VERSION (previous $(json previousVersion <<<"$PUBLISHED"))"
+STALE_EXECUTION="$(post "/incidents/$INCIDENT_ID/actions/$STALE_ID/execute-remediation")"
+STALE_STATE="$(json state <<<"$STALE_EXECUTION")"
+STALE_FAILURE="$(json failureCode <<<"$STALE_EXECUTION")"
+echo "execute the approval from $SEED_VERSION -> state=${STALE_STATE:-refused} ${STALE_FAILURE}$(json detail <<<"$STALE_EXECUTION")"
+CONFLICT_STATUS="$(curl -s -o /dev/null -w '%{http_code}' -c "$JAR" -b "$JAR" -H "Content-Type: application/json" -H "X-XSRF-TOKEN: $(csrf)" -X POST "$API/policy/publish" -d "$PUBLISH_BODY")"
+echo "publish again with the old hash -> HTTP $CONFLICT_STATUS"
+ROLLED_BACK="$(post /policy/rollback "{\"version\":\"$SEED_VERSION\",\"expectedCurrentHash\":\"$(json hash <<<"$PUBLISHED")\"}")"
+ACTIVE_AFTER="$(json version <<<"$(get /policy)")"
+echo "rolled back to $(json version <<<"$ROLLED_BACK"); active=$ACTIVE_AFTER"
+get "/policy/history" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{for(const e of JSON.parse(s))console.log('  #'+e.sequence+' '+e.operation+' '+e.version+' requested by '+(e.requestedBy||'-')+' via '+e.caller)})"
+
 step "guard-runtime activity log"
 if [[ -s "$WORK/runtime/activity.jsonl" ]]; then
   node -e "for(const l of require('fs').readFileSync(process.argv[1],'utf8').trim().split('\n')){const e=JSON.parse(l);console.log('  #'+e.sequence+' '+e.actorDid+' '+e.function+' '+e.outcome)}" "$WORK/runtime/activity.jsonl"
@@ -169,16 +194,18 @@ fi
 
 step "Secrets never logged"
 LEAKS=0
-for secret in "$PROPOSAL_TOKEN" "$EXECUTOR_TOKEN" "$MCP_TOKEN" "$SECURITY_API_KEY" "$OPERATOR_PASSWORD"; do
+for secret in "$PROPOSAL_TOKEN" "$EXECUTOR_TOKEN" "$POLICY_ADMIN_TOKEN" "$MCP_TOKEN" "$SECURITY_API_KEY" "$OPERATOR_PASSWORD"; do
   if grep -q -- "$secret" "$WORK"/*.log; then LEAKS=$((LEAKS + 1)); fi
 done
 echo "secrets found in logs: $LEAKS"
 
 if [[ "$FINAL_STATE" == "COMPLETED" && "$NOTIFY_STATE" == "COMPLETED" && "$LEAKS" == "0" && "$EMAIL_SEEN" == "no" \
-  && "$MCP_DECISION" == "DENY" && "$MCP_UNAUTHORIZED" == "401" && "$DASHBOARD_STATUS" =~ ^(200|skipped)$ ]]; then
-  printf '\nPASS: both remediations independently verified and COMPLETED; MCP and dashboard served by the app.\n'
+  && "$MCP_DECISION" == "DENY" && "$MCP_UNAUTHORIZED" == "401" && "$DASHBOARD_STATUS" =~ ^(200|skipped)$ \
+  && -n "$NEW_VERSION" && "$STALE_STATE" == "FAILED" && "$STALE_FAILURE" == "POLICY_CHANGED_AFTER_AUTHORIZATION" && "$CONFLICT_STATUS" == "409" \
+  && "$ACTIVE_AFTER" == "$SEED_VERSION" ]]; then
+  printf '\nPASS: both remediations independently verified and COMPLETED; MCP and dashboard served by the app; a policy change voided the old approval and rollback restored the version.\n'
 else
-  printf '\nFAIL: revoke %s, notify %s, secrets in logs %s, email seen %s, MCP %s/%s, dashboard %s. Re-run with KEEP_WORK=1 to inspect logs.\n' \
-    "$FINAL_STATE" "$NOTIFY_STATE" "$LEAKS" "$EMAIL_SEEN" "$MCP_DECISION" "$MCP_UNAUTHORIZED" "$DASHBOARD_STATUS"
+  printf '\nFAIL: revoke %s, notify %s, secrets in logs %s, email seen %s, MCP %s/%s, dashboard %s, policy published %s / stale approval %s / conflict %s / active after rollback %s. Re-run with KEEP_WORK=1 to inspect logs.\n' \
+    "$FINAL_STATE" "$NOTIFY_STATE" "$LEAKS" "$EMAIL_SEEN" "$MCP_DECISION" "$MCP_UNAUTHORIZED" "$DASHBOARD_STATUS" "${NEW_VERSION:-no}" "${STALE_STATE:-refused}" "$CONFLICT_STATUS" "$ACTIVE_AFTER"
   exit 1
 fi
