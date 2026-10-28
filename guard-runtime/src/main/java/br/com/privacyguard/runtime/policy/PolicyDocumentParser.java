@@ -92,7 +92,7 @@ public final class PolicyDocumentParser {
     }
 
     /** serde_json::to_vec of the Rust PolicyDocument: compact, struct field order, actions in code point order. */
-    static byte[] canonicalBytes(PolicyDocument document) {
+    public static byte[] canonicalBytes(PolicyDocument document) {
         StringBuilder out = new StringBuilder(1024);
         out.append("{\"version\":");
         CanonicalJson.appendString(out, document.version());

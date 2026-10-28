@@ -11,6 +11,8 @@ management:
 guard-runtime:
   policy-file: ${GUARD_RUNTIME_POLICY_FILE:/data/policy/current.json}
   replay-file: ${GUARD_RUNTIME_REPLAY_FILE:/data/replay/execution-nonces.json}
+  activity-file: ${GUARD_RUNTIME_ACTIVITY_FILE:/data/activity/activity.jsonl}
+  tenant-id: ${GUARD_RUNTIME_TENANT_ID:default}
   callers-json: ${GUARD_RUNTIME_CALLERS_JSON:[]}
   profile:
     # Private value behind the verified_email reference. Never leaves the runtime except inside the approved egress.

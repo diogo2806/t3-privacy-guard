@@ -24,7 +24,8 @@ import java.util.regex.Pattern;
 
 /** Port of the target-independent part of remediation.rs. Error texts are the contract's. */
 public final class RemediationRules {
-    public static final String VERIFIED_EMAIL_MARKER = "{{profile.verified_contacts.email.value}}";
+    public static final String VERIFIED_EMAIL_PATH = "profile.verified_contacts.email.value";
+    public static final String VERIFIED_EMAIL_MARKER = "{{" + VERIFIED_EMAIL_PATH + "}}";
     static final String REVOKE_CREDENTIAL_ACTION = "revoke-credential";
     static final String NOTIFY_SECURITY_ACTION = "notify-security";
     private static final int MAX_NORMAL_PAYLOAD_ENTRIES = 16;

@@ -1,7 +1,13 @@
 package br.com.privacyguard.runtime.api;
 
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.matchesPattern;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -36,6 +42,9 @@ class ContractFunctionControllerTest {
     static void runtimeProperties(DynamicPropertyRegistry registry) {
         registry.add("guard-runtime.policy-file", POLICY_FILE::toString);
         registry.add("guard-runtime.replay-file", () -> POLICY_FILE.resolveSibling("replay.json").toString());
+        registry.add("guard-runtime.activity-file", () -> POLICY_FILE.resolveSibling("activity.jsonl").toString());
+        registry.add("guard-runtime.tenant-id", () -> "acme");
+        registry.add("guard-runtime.remediation.security-api-url", () -> "https://security-api.internal/api/security/remediation/execute");
         registry.add("guard-runtime.callers-json", () -> """
             [{"id":"agent:proposal","token":"%s","functions":["evaluate-action"]},
              {"id":"agent:executor","token":"%s","functions":["execute-remediation","verify-remediation"]}]"""
@@ -133,6 +142,43 @@ class ContractFunctionControllerTest {
         call(EXECUTOR_TOKEN, "/v1/functions/verify-remediation", verification())
             .andExpect(status().isUnprocessableEntity())
             .andExpect(jsonPath("$.reason").value("required private configuration security_verification_url is missing"));
+    }
+
+    @Test
+    void everyAuthenticatedCallIsRecordedInTheActivityLog() throws Exception {
+        String sequence = call(PROPOSAL_TOKEN, revoke("incident_id"))
+            .andExpect(status().isOk())
+            .andExpect(header().string("X-Activity-Hash", matchesPattern("[0-9a-f]{64}")))
+            .andReturn().getResponse().getHeader("X-Activity-Sequence");
+        call(PROPOSAL_TOKEN, "/v1/functions/execute-remediation", execution("v2.a.b")).andExpect(header().exists("X-Activity-Sequence"));
+
+        mvc.perform(get("/v1/activity").param("limit", "200").header(HttpHeaders.AUTHORIZATION, "Bearer " + EXECUTOR_TOKEN))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.events[?(@.sequence == " + sequence + ")].function").value("evaluate-action"))
+            .andExpect(jsonPath("$.events[?(@.sequence == " + sequence + ")].actorDid").value("agent:proposal"))
+            .andExpect(jsonPath("$.events[?(@.sequence == " + sequence + ")].onBehalfOfDid").value("acme"))
+            .andExpect(jsonPath("$.events[?(@.function == 'execute-remediation' && @.actorDid == 'agent:proposal')].outcome").value(org.hamcrest.Matchers.hasItem("denied")));
+        mvc.perform(get("/v1/activity")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void callersCanCheckTheirEffectiveGrantsAndReadiness() throws Exception {
+        mvc.perform(get("/v1/caller").header(HttpHeaders.AUTHORIZATION, "Bearer " + EXECUTOR_TOKEN))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.id").value("agent:executor"))
+            .andExpect(jsonPath("$.functions[0]").value("execute-remediation"))
+            .andExpect(jsonPath("$.functions[1]").value("verify-remediation"));
+        mvc.perform(get("/v1/readiness").header(HttpHeaders.AUTHORIZATION, "Bearer " + PROPOSAL_TOKEN))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.contract_version").value("1.0.0"))
+            .andExpect(jsonPath("$.policy_state").value("AVAILABLE"))
+            .andExpect(jsonPath("$.policy_hash").value(REPOSITORY_POLICY_HASH))
+            .andExpect(jsonPath("$.policy_document.actions['revoke-credential'].allowed_hosts[0]").value("api-privacy.iforce.com.br"))
+            .andExpect(jsonPath("$.execution_host").value("security-api.internal"))
+            .andExpect(jsonPath("$.verification_host").value(nullValue()))
+            .andExpect(jsonPath("$.credential_configured").value(false))
+            .andExpect(content().string(not(containsString("/api/security"))));
+        mvc.perform(get("/v1/caller")).andExpect(status().isUnauthorized());
     }
 
     private static String execution(String proof) {
