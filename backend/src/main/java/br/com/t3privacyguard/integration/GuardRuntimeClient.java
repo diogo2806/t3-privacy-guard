@@ -11,17 +11,18 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.regex.Pattern;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
- * HTTP access to guard-runtime. The backend holds two separate runtime credentials, exactly as the trust model
- * requires: the proposal agent may only evaluate, the protected executor may only execute and verify. Neither token
- * ever appears in an exception message or log.
+ * HTTP access to guard-runtime. The backend holds separate runtime credentials, exactly as the trust model requires:
+ * the proposal agent may only evaluate, the protected executor may only execute and verify, and the optional policy
+ * administrator may only manage policy versions. No token ever appears in an exception message or log.
  */
 @Component
 public class GuardRuntimeClient {
-    public enum Caller { PROPOSAL, EXECUTOR }
+    public enum Caller { PROPOSAL, EXECUTOR, POLICY_ADMIN }
 
     /** activitySequence/activityHash come from the runtime's X-Activity-* headers when the call was logged. */
     public record Response(int status, JsonNode body, Long activitySequence, String activityHash) {
@@ -42,8 +43,22 @@ public class GuardRuntimeClient {
     private final String proposalToken;
     private final String executorId;
     private final String executorToken;
+    private final String policyAdminToken;
     private final Duration timeout;
 
+    public GuardRuntimeClient(
+        ObjectMapper mapper,
+        String url,
+        String proposalAgentId,
+        String proposalToken,
+        String executorId,
+        String executorToken,
+        long timeoutMs
+    ) {
+        this(mapper, url, proposalAgentId, proposalToken, executorId, executorToken, "", timeoutMs);
+    }
+
+    @Autowired
     public GuardRuntimeClient(
         ObjectMapper mapper,
         @Value("${privacy-guard.guard-runtime.url:}") String url,
@@ -51,6 +66,7 @@ public class GuardRuntimeClient {
         @Value("${privacy-guard.guard-runtime.proposal-token:}") String proposalToken,
         @Value("${privacy-guard.guard-runtime.executor-id:agent:executor}") String executorId,
         @Value("${privacy-guard.guard-runtime.executor-token:}") String executorToken,
+        @Value("${privacy-guard.guard-runtime.policy-admin-token:}") String policyAdminToken,
         @Value("${privacy-guard.guard-runtime.timeout-ms:15000}") long timeoutMs
     ) {
         this.mapper = mapper;
@@ -64,6 +80,13 @@ public class GuardRuntimeClient {
         }
         if (this.proposalToken.equals(this.executorToken)) {
             throw new IllegalStateException("GUARD_RUNTIME_PROPOSAL_TOKEN and GUARD_RUNTIME_EXECUTOR_TOKEN must be different");
+        }
+        // Optional: without it the dashboard shows the policy as read-only.
+        this.policyAdminToken = policyAdminToken == null || policyAdminToken.isBlank()
+            ? null
+            : requireToken(policyAdminToken, "GUARD_RUNTIME_POLICY_ADMIN_TOKEN");
+        if (this.policyAdminToken != null && (this.policyAdminToken.equals(this.proposalToken) || this.policyAdminToken.equals(this.executorToken))) {
+            throw new IllegalStateException("GUARD_RUNTIME_POLICY_ADMIN_TOKEN must differ from the proposal and executor tokens");
         }
         if (timeoutMs < 100 || timeoutMs > 60_000) throw new IllegalStateException("GUARD_RUNTIME_TIMEOUT_MS must be between 100 and 60000");
         this.timeout = Duration.ofMillis(timeoutMs);
@@ -81,9 +104,13 @@ public class GuardRuntimeClient {
         return executorId;
     }
 
-    /** Both runtime tokens, so other secrets can be checked for accidental reuse. */
+    public boolean policyAdministrationConfigured() {
+        return policyAdminToken != null;
+    }
+
+    /** All runtime tokens, so other secrets can be checked for accidental reuse. */
     public boolean usesToken(String candidate) {
-        return candidate != null && (candidate.equals(proposalToken) || candidate.equals(executorToken));
+        return candidate != null && (candidate.equals(proposalToken) || candidate.equals(executorToken) || candidate.equals(policyAdminToken));
     }
 
     public Response post(String path, Caller caller, Object body) {
@@ -108,10 +135,16 @@ public class GuardRuntimeClient {
     }
 
     private HttpRequest.Builder authorized(String path, Caller caller) {
+        String token = switch (caller) {
+            case PROPOSAL -> proposalToken;
+            case EXECUTOR -> executorToken;
+            case POLICY_ADMIN -> policyAdminToken;
+        };
+        if (token == null) throw new IllegalStateException("GUARD_RUNTIME_POLICY_ADMIN_TOKEN is not configured");
         return HttpRequest.newBuilder(URI.create(baseUrl + path))
             .timeout(timeout)
             .header("Accept", "application/json")
-            .header("Authorization", "Bearer " + (caller == Caller.PROPOSAL ? proposalToken : executorToken))
+            .header("Authorization", "Bearer " + token)
             .header(TraceContext.HEADER, TraceContext.currentOrGenerate());
     }
 

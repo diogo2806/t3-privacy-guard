@@ -3,6 +3,7 @@ package br.com.t3privacyguard.api;
 import br.com.t3privacyguard.audit.AuditIntegrityException;
 import br.com.t3privacyguard.integration.AiProviderUnavailableException;
 import br.com.t3privacyguard.integration.InvalidAgentProposalException;
+import br.com.t3privacyguard.integration.PolicyAdministrationException;
 import br.com.t3privacyguard.integration.SensitivePromptRejectedException;
 import br.com.t3privacyguard.integration.TrustRuntimeUnavailableException;
 import br.com.t3privacyguard.privacy.UnsafeIncidentContentException;
@@ -65,6 +66,18 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(InvalidAgentProposalException.class)
     ResponseEntity<ProblemDetail> invalidProposal(InvalidAgentProposalException ex) { return problem(HttpStatus.UNPROCESSABLE_ENTITY, "Invalid agent proposal", "The AI agent returned an invalid or unsafe structured proposal. Nothing was stored or evaluated."); }
+
+    @ExceptionHandler(PolicyAdministrationException.class)
+    ResponseEntity<ProblemDetail> policyAdministration(PolicyAdministrationException ex) {
+        HttpStatus status = switch (ex.kind()) {
+            case UNAVAILABLE, CONFLICT -> HttpStatus.CONFLICT;
+            case NOT_FOUND -> HttpStatus.NOT_FOUND;
+            case INVALID -> HttpStatus.UNPROCESSABLE_ENTITY;
+        };
+        ProblemDetail body = problemBody(status, "Policy change refused", ex.getMessage());
+        body.setProperty("code", ex.code());
+        return ResponseEntity.status(status).body(body);
+    }
 
     @ExceptionHandler(InvalidBusinessImpactWindowException.class)
     ResponseEntity<ProblemDetail> invalidBusinessImpactWindow(InvalidBusinessImpactWindowException ex) {

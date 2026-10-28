@@ -80,6 +80,7 @@ class AuditIntegrityRotationTest {
             RUNTIME_PROPOSAL_TOKEN,
             "runtime-executor-token-0123456789abcdef",
             "",
+            "",
             REMEDIATION_KEY,
             OPERATOR_PASSWORD
         )).isInstanceOf(IllegalStateException.class)
@@ -93,6 +94,7 @@ class AuditIntegrityRotationTest {
             previousKeys,
             RUNTIME_PROPOSAL_TOKEN,
             "runtime-executor-token-0123456789abcdef",
+            "",
             "",
             REMEDIATION_KEY,
             OPERATOR_PASSWORD

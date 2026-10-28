@@ -50,7 +50,7 @@ class OperatorSecurityIntegrationTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.authenticated").value(true))
             .andExpect(jsonPath("$.username").value("test-operator"))
-            .andExpect(jsonPath("$.authorities", containsInAnyOrder("ANALYST", "APPROVER", "EXECUTOR", "AUDITOR")))
+            .andExpect(jsonPath("$.authorities", containsInAnyOrder("ANALYST", "APPROVER", "EXECUTOR", "AUDITOR", "POLICY_ADMIN")))
             .andExpect(jsonPath("$.enterpriseSeparationOfDuties").value(false))
             .andReturn();
 

@@ -34,6 +34,8 @@ privacy-guard:
     proposal-token: ${GUARD_RUNTIME_PROPOSAL_TOKEN:}
     executor-id: ${GUARD_RUNTIME_EXECUTOR_ID:agent:executor}
     executor-token: ${GUARD_RUNTIME_EXECUTOR_TOKEN:}
+    # Optional caller granted only manage-policy; without it the dashboard shows the policy read-only.
+    policy-admin-token: ${GUARD_RUNTIME_POLICY_ADMIN_TOKEN:}
     timeout-ms: ${GUARD_RUNTIME_TIMEOUT_MS:15000}
   ai:
     provider: ${AI_PROVIDER:disabled}
@@ -73,6 +75,10 @@ privacy-guard:
     auditor:
       username: ${AUDITOR_USERNAME:}
       password: ${AUDITOR_PASSWORD:}
+    # Optional fifth account allowed to publish and roll back policy versions.
+    policy-admin:
+      username: ${POLICY_ADMIN_USERNAME:}
+      password: ${POLICY_ADMIN_PASSWORD:}
   incident-intake:
     enabled: ${INCIDENT_INTAKE_ENABLED:false}
     integrations-json: '${INCIDENT_INTAKE_INTEGRATIONS_JSON:[]}'

@@ -3,6 +3,7 @@ package br.com.t3privacyguard.security;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -36,6 +37,7 @@ public class SecurityConfig {
     static final String APPROVER = "APPROVER";
     static final String EXECUTOR = "EXECUTOR";
     static final String AUDITOR = "AUDITOR";
+    static final String POLICY_ADMIN = "POLICY_ADMIN";
     // Same policy the dashboard had behind nginx: everything same-origin, no inline script or style.
     private static final String DASHBOARD_CONTENT_SECURITY_POLICY = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; "
         + "form-action 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; manifest-src 'self'";
@@ -58,6 +60,8 @@ public class SecurityConfig {
         @Value("${privacy-guard.iam.executor.password:}") String executorPassword,
         @Value("${privacy-guard.iam.auditor.username:}") String auditorUsername,
         @Value("${privacy-guard.iam.auditor.password:}") String auditorPassword,
+        @Value("${privacy-guard.iam.policy-admin.username:}") String policyAdminUsername,
+        @Value("${privacy-guard.iam.policy-admin.password:}") String policyAdminPassword,
         PasswordEncoder passwordEncoder
     ) {
         if (!enterpriseSodEnabled) {
@@ -70,26 +74,39 @@ public class SecurityConfig {
                 ANALYST,
                 APPROVER,
                 EXECUTOR,
-                AUDITOR
+                AUDITOR,
+                POLICY_ADMIN
             ));
         }
 
-        List<UserDetails> users = List.of(
+        List<UserDetails> users = new ArrayList<>(List.of(
             buildUser(analystUsername, analystPassword, passwordEncoder, "ANALYST_USERNAME", "ANALYST_PASSWORD", ANALYST),
             buildUser(approverUsername, approverPassword, passwordEncoder, "APPROVER_USERNAME", "APPROVER_PASSWORD", APPROVER),
             buildUser(executorUsername, executorPassword, passwordEncoder, "EXECUTOR_USERNAME", "EXECUTOR_PASSWORD", EXECUTOR),
             buildUser(auditorUsername, auditorPassword, passwordEncoder, "AUDITOR_USERNAME", "AUDITOR_PASSWORD", AUDITOR)
-        );
-        List<String> configuredPrincipals = List.of(
+        ));
+        List<String> configuredPrincipals = new ArrayList<>(List.of(
             analystUsername.trim(),
             approverUsername.trim(),
             executorUsername.trim(),
             auditorUsername.trim()
-        );
+        ));
         if (new HashSet<>(configuredPrincipals).size() != configuredPrincipals.size()) {
             throw new IllegalStateException("Enterprise separation of duties requires four distinct human principals");
         }
+        // The policy administrator is optional; without it nobody can change policy from the dashboard.
+        boolean policyAdminConfigured = !isBlank(policyAdminUsername) || !isBlank(policyAdminPassword);
+        if (policyAdminConfigured) {
+            users.add(buildUser(policyAdminUsername, policyAdminPassword, passwordEncoder, "POLICY_ADMIN_USERNAME", "POLICY_ADMIN_PASSWORD", POLICY_ADMIN));
+            if (configuredPrincipals.contains(policyAdminUsername.trim())) {
+                throw new IllegalStateException("POLICY_ADMIN_USERNAME must differ from the other four principals");
+            }
+        }
         return new InMemoryUserDetailsManager(users);
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     private static UserDetails buildUser(
@@ -253,7 +270,11 @@ public class SecurityConfig {
                     "/api/incidents/*/actions/*/execute-remediation",
                     "/api/incidents/*/actions/*/verify-remediation"
                 ).hasRole(EXECUTOR)
-                .anyRequest().hasAnyRole(ANALYST, APPROVER, EXECUTOR, AUDITOR))
+                .requestMatchers(HttpMethod.POST, "/api/policy/validate", "/api/policy/publish", "/api/policy/rollback").hasRole(POLICY_ADMIN)
+                .requestMatchers(HttpMethod.GET, "/api/policy", "/api/policy/**").hasAnyRole(POLICY_ADMIN, AUDITOR)
+                .requestMatchers("/api/policy", "/api/policy/**").denyAll()
+                .requestMatchers(HttpMethod.POST, "/api/auth/logout").authenticated()
+                .anyRequest().hasAnyRole(ANALYST, APPROVER, EXECUTOR, AUDITOR, POLICY_ADMIN))
             .headers(headers -> headers
                 .contentSecurityPolicy(csp -> csp.policyDirectives(DASHBOARD_CONTENT_SECURITY_POLICY))
                 .referrerPolicy(referrer -> referrer.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))

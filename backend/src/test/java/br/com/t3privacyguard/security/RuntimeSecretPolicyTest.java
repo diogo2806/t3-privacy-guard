@@ -34,7 +34,7 @@ class RuntimeSecretPolicyTest {
 
         assertThat(user.getUsername()).isEqualTo("runtime-operator");
         assertThat(user.getAuthorities()).extracting("authority")
-            .containsExactlyInAnyOrder("ROLE_ANALYST", "ROLE_APPROVER", "ROLE_EXECUTOR", "ROLE_AUDITOR");
+            .containsExactlyInAnyOrder("ROLE_ANALYST", "ROLE_APPROVER", "ROLE_EXECUTOR", "ROLE_AUDITOR", "ROLE_POLICY_ADMIN");
     }
 
     @Test
@@ -53,6 +53,8 @@ class RuntimeSecretPolicyTest {
             "executor-password",
             "auditor-01",
             "auditor-password",
+            "",
+            "",
             config.passwordEncoder()
         ))
             .isInstanceOf(IllegalStateException.class)
@@ -67,6 +69,7 @@ class RuntimeSecretPolicyTest {
             "",
             "runtime-proposal-token-12345678901234567890",
             "runtime-executor-token-12345678901234567890",
+            "",
             "",
             "runtime-remediation-private-key",
             "runtime-operator-password"
@@ -83,6 +86,7 @@ class RuntimeSecretPolicyTest {
             "",
             "runtime-proposal-token-12345678901234567890",
             "runtime-executor-token-12345678901234567890",
+            "",
             "",
             "runtime-remediation-private-key",
             "runtime-operator-password"
@@ -104,6 +108,47 @@ class RuntimeSecretPolicyTest {
             "",
             "",
             "",
+            "",
+            "",
+            config.passwordEncoder()
+        );
+    }
+
+    @Test
+    void enterpriseModeAcceptsAnOptionalDistinctPolicyAdministrator() {
+        SecurityConfig config = new SecurityConfig();
+
+        UserDetailsService users = enterpriseUsers(config, "policy-01", "policy-password");
+        assertThat(users.loadUserByUsername("policy-01").getAuthorities())
+            .extracting(authority -> authority.getAuthority())
+            .containsExactly("ROLE_POLICY_ADMIN");
+        assertThat(users.loadUserByUsername("auditor-01").getAuthorities())
+            .extracting(authority -> authority.getAuthority())
+            .containsExactly("ROLE_AUDITOR");
+
+        assertThatThrownBy(() -> enterpriseUsers(config, "auditor-01", "policy-password"))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessage("POLICY_ADMIN_USERNAME must differ from the other four principals");
+        assertThatThrownBy(() -> enterpriseUsers(config, "policy-01", ""))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("POLICY_ADMIN_PASSWORD");
+    }
+
+    private static UserDetailsService enterpriseUsers(SecurityConfig config, String policyAdmin, String policyAdminPassword) {
+        return config.operatorUserDetailsService(
+            true,
+            "",
+            "",
+            "analyst-01",
+            "analyst-password",
+            "approver-01",
+            "approver-password",
+            "executor-01",
+            "executor-password",
+            "auditor-01",
+            "auditor-password",
+            policyAdmin,
+            policyAdminPassword,
             config.passwordEncoder()
         );
     }

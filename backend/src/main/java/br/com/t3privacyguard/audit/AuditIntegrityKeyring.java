@@ -23,6 +23,7 @@ public final class AuditIntegrityKeyring {
         @Value("${privacy-guard.guard-runtime.proposal-token:}") String runtimeProposalToken,
         @Value("${privacy-guard.guard-runtime.executor-token:}") String runtimeExecutorToken,
         @Value("${privacy-guard.mcp.token:}") String mcpToken,
+        @Value("${privacy-guard.guard-runtime.policy-admin-token:}") String runtimePolicyAdminToken,
         @Value("${privacy-guard.remediation-capability.private-key-pkcs8:}") String remediationAuthorizationPrivateKey,
         @Value("${privacy-guard.operator.password:}") String operatorPassword
     ) {
@@ -31,6 +32,7 @@ public final class AuditIntegrityKeyring {
         rejectReuse(currentKey, runtimeProposalToken, "GUARD_RUNTIME_PROPOSAL_TOKEN");
         rejectReuse(currentKey, runtimeExecutorToken, "GUARD_RUNTIME_EXECUTOR_TOKEN");
         rejectReuse(currentKey, mcpToken, "MCP_TOKEN");
+        rejectReuse(currentKey, runtimePolicyAdminToken, "GUARD_RUNTIME_POLICY_ADMIN_TOKEN");
         rejectReuse(currentKey, remediationAuthorizationPrivateKey, "REMEDIATION_AUTH_PRIVATE_KEY_PKCS8");
         rejectReuse(currentKey, operatorPassword, "OPERATOR_PASSWORD");
 
