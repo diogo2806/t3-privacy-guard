@@ -15,7 +15,7 @@ export type EnterpriseIntegrationDiagnosticCode =
 export type RemediationState = 'EXECUTING' | 'PENDING_VERIFICATION' | 'COMPLETED' | 'UNVERIFIED' | 'FAILED';
 export type AuditReconciliationStatus = 'LOCAL_ONLY' | 'RUNTIME_ONLY' | 'MATCHED' | 'UNMATCHED';
 export type AuditIntegrityState = 'VERIFIED' | 'BROKEN' | 'KEY_MISMATCH' | 'LEGACY_UNVERIFIED' | 'PURGED' | 'NOT_AVAILABLE';
-export type HumanAuthority = 'ANALYST' | 'APPROVER' | 'EXECUTOR' | 'AUDITOR';
+export type HumanAuthority = 'ANALYST' | 'APPROVER' | 'EXECUTOR' | 'AUDITOR' | 'POLICY_ADMIN';
 export type BusinessImpactWindow = 'retained' | '24h' | '7d';
 export type IncidentOriginType = 'APPLICATION' | 'EXTERNAL';
 export type IncidentWorkspaceStage =
@@ -149,6 +149,38 @@ export interface SystemStatus {
   message: string;
 }
 
+export interface PolicyActionRule {
+  purpose: string;
+  allowed_fields: string[];
+  allowed_hosts: string[];
+  allowed_private_refs: string[];
+  requires_host: boolean;
+  requires_human_authorization: boolean;
+}
+export interface PolicyDocument { version: string; actions: Record<string, PolicyActionRule>; }
+export interface PolicyView {
+  administrationConfigured: boolean;
+  managed: boolean;
+  state: 'AVAILABLE' | 'UNAVAILABLE' | 'INVALID' | 'UNKNOWN';
+  version?: string | null;
+  hash?: string | null;
+  document?: PolicyDocument | null;
+  reason?: string | null;
+}
+export interface PolicyHistoryEntry {
+  sequence: number;
+  operation: 'seed' | 'publish' | 'rollback';
+  version: string;
+  hash: string;
+  previousVersion?: string | null;
+  previousHash?: string | null;
+  caller: string;
+  requestedBy?: string | null;
+  timestamp: string;
+}
+export interface PolicyValidation { valid: boolean; reason?: string | null; version?: string | null; hash?: string | null; document?: PolicyDocument | null; }
+export interface PolicyChange { changed: boolean; version: string; hash: string; previousVersion?: string | null; previousHash?: string | null; }
+
 interface CsrfState { token: string; headerName: string; }
 let csrfState: CsrfState | null = null;
 let operatorSessionState: OperatorSession | null = null;
@@ -229,4 +261,9 @@ export const privacyGuardApi = {
   executionTrace: (incidentId: string, actionId: string) => api<ExecutionTraceEvent[]>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/trace`),
   history: (incidentId: string) => api<AuditEvent[]>(`/api/incidents/${encodeURIComponent(incidentId)}/history`),
   auditEvidence: (incidentId: string, limit = 100) => api<AuditEvidence>(`/api/incidents/${encodeURIComponent(incidentId)}/audit-evidence?limit=${encodeURIComponent(String(limit))}`),
+  policy: () => api<PolicyView>('/api/policy'),
+  policyHistory: (limit = 50) => api<PolicyHistoryEntry[]>(`/api/policy/history?limit=${encodeURIComponent(String(limit))}`),
+  validatePolicy: (document: PolicyDocument) => api<PolicyValidation>('/api/policy/validate', { method: 'POST', body: JSON.stringify({ document }) }),
+  publishPolicy: (document: PolicyDocument, expectedCurrentHash: string | null) => api<PolicyChange>('/api/policy/publish', { method: 'POST', body: JSON.stringify({ document, expectedCurrentHash }) }),
+  rollbackPolicy: (version: string, expectedCurrentHash: string | null) => api<PolicyChange>('/api/policy/rollback', { method: 'POST', body: JSON.stringify({ version, expectedCurrentHash }) }),
 };

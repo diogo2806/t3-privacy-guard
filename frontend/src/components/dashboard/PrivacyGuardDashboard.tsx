@@ -8,6 +8,7 @@ import {
   type BusinessImpact,
   type BusinessImpactWindow,
   type ExecutionTraceEvent,
+  type HumanAuthority,
   type Incident,
   type IncidentWorkspace,
   type IncidentWorkspaceItem,
@@ -29,6 +30,7 @@ import { IncidentSummary } from '../incidents/IncidentSummary';
 import { IncidentWorkspaceQueue } from '../incidents/IncidentWorkspaceQueue';
 import { AppHeader } from '../layout/AppHeader';
 import { DecisionPanel } from '../policy/DecisionPanel';
+import { PolicyEditor } from '../policy/PolicyEditor';
 import { RemediationPanel } from '../remediation/RemediationPanel';
 import { EnterpriseScenarioCatalog } from '../scenarios/EnterpriseScenarioCatalog';
 import { DEFAULT_ENTERPRISE_SCENARIO, ENTERPRISE_SCENARIOS, type EnterpriseScenarioDefinition } from '../scenarios/scenarioDefinitions';
@@ -80,12 +82,12 @@ export function PrivacyGuardDashboard() {
     <div className="app-shell">
       <AppHeader />
       <OperatorSessionGate session={session} loading={sessionLoading} busy={authBusy} error={authError} retryAfterSeconds={authRetryAfterSeconds} onLogin={login} onLogout={logout} />
-      {session?.authenticated && <AuthenticatedDashboard onSessionExpired={expireSession} />}
+      {session?.authenticated && <AuthenticatedDashboard authorities={session.authorities ?? []} onSessionExpired={expireSession} />}
     </div>
   );
 }
 
-function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => void }) {
+function AuthenticatedDashboard({ authorities, onSessionExpired }: { authorities: HumanAuthority[]; onSessionExpired: () => void }) {
   const [view, setView] = useState<DashboardView>('demo');
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [selectedScenarioId, setSelectedScenarioId] = useState(DEFAULT_ENTERPRISE_SCENARIO.id);
@@ -394,11 +396,12 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
     if (selected) void openWorkspaceIncident(selected);
   };
 
+  const canReadPolicy = authorities.includes('POLICY_ADMIN') || authorities.includes('AUDITOR');
   const showSafePath = Boolean(incidentScenario?.remediationPrompt) && decision?.decision === 'DENY' && Boolean(incident);
 
   return (
     <>
-      <DashboardTabs active={view} onChange={setView} />
+      <DashboardTabs active={view} onChange={setView} showPolicy={canReadPolicy} />
       {error && <div className="feedback feedback-error" role="alert">{error}</div>}
       {notice && <div className="feedback feedback-success" role="status">{notice}</div>}
 
@@ -460,6 +463,8 @@ function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => 
           </main>
         </>
       )}
+
+      {view === 'policy' && canReadPolicy && <PolicyEditor canEdit={authorities.includes('POLICY_ADMIN')} onSessionExpired={onSessionExpired} />}
 
       {view === 'presentation' && (
         <ExecutiveDemoView

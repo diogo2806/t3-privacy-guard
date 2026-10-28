@@ -27,4 +27,14 @@ describe('DashboardTabs', () => {
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith('demo');
   });
+
+  it('offers the policy tab only when the session may read policy', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<DashboardTabs active="policy" onChange={onChange} showPolicy />);
+
+    expect(screen.getByRole('button', { name: 'Policy' })).toHaveAttribute('aria-current', 'page');
+    await user.click(screen.getByRole('button', { name: 'Executive demo' }));
+    expect(onChange).toHaveBeenCalledWith('presentation');
+  });
 });
