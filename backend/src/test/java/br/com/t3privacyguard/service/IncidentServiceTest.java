@@ -58,7 +58,7 @@ class IncidentServiceTest {
     void clear() {
         remediations.deleteAll(); audits.deleteAll(); decisions.deleteAll(); actions.deleteAll(); incidents.deleteAll();
         reset(gateway, remediationGateway);
-        when(remediationGateway.requireExecutorDid()).thenReturn("did:t3n:protected-executor-test");
+        when(remediationGateway.requireExecutorDid()).thenReturn("agent:protected-executor-test");
     }
 
     @Test void rejectsDuplicateRequestIdAsReplay() {

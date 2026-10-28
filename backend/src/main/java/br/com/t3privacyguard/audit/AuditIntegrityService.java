@@ -47,9 +47,9 @@ public class AuditIntegrityService {
         String incidentId,
         String type,
         String message,
-        Long t3nSequence,
-        String t3nHash,
-        String t3nFunction
+        Long runtimeSequence,
+        String runtimeHash,
+        String runtimeFunction
     ) {
         incidents.findByIdForUpdate(incidentId)
             .orElseThrow(() -> new IncidentNotFoundException("Incident not found"));
@@ -94,9 +94,9 @@ public class AuditIntegrityService {
                 type,
                 createdAt,
                 message,
-                t3nSequence,
-                t3nHash,
-                t3nFunction,
+                runtimeSequence,
+                runtimeHash,
+                runtimeFunction,
                 previousMac
             )
         );
@@ -107,9 +107,9 @@ public class AuditIntegrityService {
             type,
             message,
             createdAt,
-            t3nSequence,
-            t3nHash,
-            t3nFunction,
+            runtimeSequence,
+            runtimeHash,
+            runtimeFunction,
             sequence,
             previousMac,
             eventMac,
@@ -253,14 +253,14 @@ public class AuditIntegrityService {
                     event.getType(),
                     event.getCreatedAt(),
                     event.getMessage(),
-                    event.getT3nSequence(),
-                    event.getT3nHash(),
-                    event.getT3nFunction(),
+                    event.getRuntimeSequence(),
+                    event.getRuntimeHash(),
+                    event.getRuntimeFunction(),
                     event.getPreviousMac()
                 )
             );
             if (!AuditMac.secureHexEquals(event.getEventMac(), expectedEventMac)) {
-                return broken(events, checked, head.getLastEventMac(), "An audit event MAC does not match its persisted content or T3N provenance metadata.");
+                return broken(events, checked, head.getLastEventMac(), "An audit event MAC does not match its persisted content or runtime provenance metadata.");
             }
 
             expectedPreviousMac = event.getEventMac();

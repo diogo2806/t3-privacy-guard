@@ -26,7 +26,7 @@ class RemediationAuthorizationSignerTest {
     private static final String KEY_ID = "primary";
     private static final String POLICY_VERSION = "2026-09-12.1";
     private static final String POLICY_HASH = "a".repeat(64);
-    private static final String EXECUTOR_DID = "did:t3n:protected-executor-test";
+    private static final String EXECUTOR_DID = "agent:protected-executor-test";
     private static final String OPERATOR = "ops-reviewer";
     private final ObjectMapper mapper = new ObjectMapper();
 

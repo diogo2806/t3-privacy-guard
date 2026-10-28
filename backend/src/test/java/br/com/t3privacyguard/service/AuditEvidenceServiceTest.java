@@ -67,10 +67,10 @@ class AuditEvidenceServiceTest {
         local(local, AuditIntegrityState.VERIFIED);
         availableIdentity();
         whenActivity(100, new ActivityPage(List.of(
-            activity(45, "ignored", "evaluate-action", "did:t3n:agent", "did:t3n:tenant", "z:other:contract"),
-            activity(44, "hash-44", "verify-remediation", "did:t3n:executor", "did:t3n:tenant", "z:tenant:privacy-guard"),
-            activity(43, "hash-43", "execute-remediation", "did:t3n:executor", "did:t3n:tenant", "z:tenant:privacy-guard"),
-            activity(42, "hash-42", "evaluate-action", "did:t3n:agent", "did:t3n:tenant", "z:tenant:privacy-guard")
+            activity(45, "ignored", "evaluate-action", "agent:agent", "agent:tenant", "z:other:contract"),
+            activity(44, "hash-44", "verify-remediation", "agent:executor", "agent:tenant", "z:tenant:privacy-guard"),
+            activity(43, "hash-43", "execute-remediation", "agent:executor", "agent:tenant", "z:tenant:privacy-guard"),
+            activity(42, "hash-42", "evaluate-action", "agent:agent", "agent:tenant", "z:tenant:privacy-guard")
         ), null, true));
 
         var result = service.read("incident-1", 100);
@@ -82,11 +82,11 @@ class AuditEvidenceServiceTest {
             AuditReconciliationStatus.MATCHED,
             AuditReconciliationStatus.MATCHED
         );
-        assertThat(result.t3nEvents()).extracting(event -> event.sequence()).containsExactly(44L, 43L, 42L);
-        assertThat(result.t3nEvents()).extracting(event -> event.status()).containsOnly(AuditReconciliationStatus.MATCHED);
+        assertThat(result.runtimeEvents()).extracting(event -> event.sequence()).containsExactly(44L, 43L, 42L);
+        assertThat(result.runtimeEvents()).extracting(event -> event.status()).containsOnly(AuditReconciliationStatus.MATCHED);
         assertThat(result.provenance().matched()).isEqualTo(3);
         assertThat(result.provenance().unmatched()).isZero();
-        assertThat(result.provenance().t3nOnly()).isZero();
+        assertThat(result.provenance().runtimeOnly()).isZero();
     }
 
     @Test
@@ -97,7 +97,7 @@ class AuditEvidenceServiceTest {
         local(local, AuditIntegrityState.BROKEN);
         availableIdentity();
         whenActivity(100, new ActivityPage(List.of(
-            activity(42, "hash-42", "evaluate-action", "did:t3n:agent", "did:t3n:tenant", "z:tenant:privacy-guard")
+            activity(42, "hash-42", "evaluate-action", "agent:agent", "agent:tenant", "z:tenant:privacy-guard")
         ), null, true));
 
         var result = service.read("incident-1", 100);
@@ -117,18 +117,18 @@ class AuditEvidenceServiceTest {
         local(local, AuditIntegrityState.VERIFIED);
         availableIdentity();
         whenActivity(100, new ActivityPage(List.of(
-            activity(54, "hash-54", "verify-remediation", "did:t3n:agent", "did:t3n:tenant", "z:tenant:privacy-guard"),
-            activity(53, "hash-53", "execute-remediation", "did:t3n:agent", "did:t3n:tenant", "z:tenant:privacy-guard"),
-            activity(52, "hash-52", "evaluate-action", "did:t3n:executor", "did:t3n:tenant", "z:tenant:privacy-guard")
+            activity(54, "hash-54", "verify-remediation", "agent:agent", "agent:tenant", "z:tenant:privacy-guard"),
+            activity(53, "hash-53", "execute-remediation", "agent:agent", "agent:tenant", "z:tenant:privacy-guard"),
+            activity(52, "hash-52", "evaluate-action", "agent:executor", "agent:tenant", "z:tenant:privacy-guard")
         ), null, true));
 
         var result = service.read("incident-1", 100);
 
         assertThat(result.localEvents()).extracting(event -> event.status()).containsOnly(AuditReconciliationStatus.UNMATCHED);
-        assertThat(result.t3nEvents()).extracting(event -> event.status()).containsOnly(AuditReconciliationStatus.T3N_ONLY);
+        assertThat(result.runtimeEvents()).extracting(event -> event.status()).containsOnly(AuditReconciliationStatus.RUNTIME_ONLY);
         assertThat(result.provenance().matched()).isZero();
         assertThat(result.provenance().unmatched()).isEqualTo(3);
-        assertThat(result.provenance().t3nOnly()).isEqualTo(3);
+        assertThat(result.provenance().runtimeOnly()).isEqualTo(3);
     }
 
     @Test
@@ -139,11 +139,11 @@ class AuditEvidenceServiceTest {
         );
         local(local, AuditIntegrityState.VERIFIED);
         availableTenantAndContract();
-        when(gateway.agentStatus()).thenReturn(Optional.of(new RuntimeStatusClient.AgentStatus(true, true, true, "did:t3n:agent", "testnet")));
+        when(gateway.agentStatus()).thenReturn(Optional.of(new RuntimeStatusClient.AgentStatus(true, true, true, "agent:agent", "testnet")));
         when(gateway.executorStatus()).thenReturn(Optional.empty());
         whenActivity(100, new ActivityPage(List.of(
-            activity(63, "hash-63", "execute-remediation", "did:t3n:executor", "did:t3n:tenant", "z:tenant:privacy-guard"),
-            activity(62, "hash-62", "evaluate-action", "did:t3n:agent", "did:t3n:tenant", "z:tenant:privacy-guard")
+            activity(63, "hash-63", "execute-remediation", "agent:executor", "agent:tenant", "z:tenant:privacy-guard"),
+            activity(62, "hash-62", "evaluate-action", "agent:agent", "agent:tenant", "z:tenant:privacy-guard")
         ), null, true));
 
         var result = service.read("incident-1", 100);
@@ -152,11 +152,11 @@ class AuditEvidenceServiceTest {
             AuditReconciliationStatus.MATCHED,
             AuditReconciliationStatus.UNMATCHED
         );
-        assertThat(result.t3nEvents()).extracting(event -> event.status()).containsExactly(
-            AuditReconciliationStatus.T3N_ONLY,
+        assertThat(result.runtimeEvents()).extracting(event -> event.status()).containsExactly(
+            AuditReconciliationStatus.RUNTIME_ONLY,
             AuditReconciliationStatus.MATCHED
         );
-        assertThat(result.provenance().t3nAvailable()).isTrue();
+        assertThat(result.provenance().runtimeAvailable()).isTrue();
         assertThat(result.provenance().message()).contains("canonical principal identities are unavailable");
     }
 
@@ -169,10 +169,10 @@ class AuditEvidenceServiceTest {
         local(local, AuditIntegrityState.VERIFIED);
         availableTenantAndContract();
         when(gateway.agentStatus()).thenReturn(Optional.empty());
-        when(gateway.executorStatus()).thenReturn(Optional.of(new RuntimeStatusClient.ExecutorStatus(true, true, true, "did:t3n:executor", "testnet")));
+        when(gateway.executorStatus()).thenReturn(Optional.of(new RuntimeStatusClient.ExecutorStatus(true, true, true, "agent:executor", "testnet")));
         whenActivity(100, new ActivityPage(List.of(
-            activity(73, "hash-73", "verify-remediation", "did:t3n:executor", "did:t3n:tenant", "z:tenant:privacy-guard"),
-            activity(72, "hash-72", "evaluate-action", "did:t3n:agent", "did:t3n:tenant", "z:tenant:privacy-guard")
+            activity(73, "hash-73", "verify-remediation", "agent:executor", "agent:tenant", "z:tenant:privacy-guard"),
+            activity(72, "hash-72", "evaluate-action", "agent:agent", "agent:tenant", "z:tenant:privacy-guard")
         ), null, true));
 
         var result = service.read("incident-1", 100);
@@ -181,7 +181,7 @@ class AuditEvidenceServiceTest {
             AuditReconciliationStatus.UNMATCHED,
             AuditReconciliationStatus.MATCHED
         );
-        assertThat(result.provenance().t3nAvailable()).isTrue();
+        assertThat(result.provenance().runtimeAvailable()).isTrue();
         assertThat(result.provenance().matched()).isEqualTo(1);
         assertThat(result.provenance().unmatched()).isEqualTo(1);
     }
@@ -194,13 +194,13 @@ class AuditEvidenceServiceTest {
         local(local, AuditIntegrityState.VERIFIED);
         availableIdentity();
         whenActivity(100, new ActivityPage(List.of(
-            activity(82, "hash-82", "evaluate-action", "did:t3n:agent", "did:t3n:tenant", "z:tenant:privacy-guard")
+            activity(82, "hash-82", "evaluate-action", "agent:agent", "agent:tenant", "z:tenant:privacy-guard")
         ), null, true));
 
         var result = service.read("incident-1", 100);
 
         assertThat(result.localEvents().getFirst().status()).isEqualTo(AuditReconciliationStatus.UNMATCHED);
-        assertThat(result.t3nEvents().getFirst().status()).isEqualTo(AuditReconciliationStatus.T3N_ONLY);
+        assertThat(result.runtimeEvents().getFirst().status()).isEqualTo(AuditReconciliationStatus.RUNTIME_ONLY);
         assertThat(result.provenance().matched()).isZero();
     }
 
@@ -212,14 +212,14 @@ class AuditEvidenceServiceTest {
         local(local, AuditIntegrityState.VERIFIED);
         availableIdentity();
         whenActivity(100, new ActivityPage(List.of(
-            activity(93, "hash-93", "evaluate-action", "did:t3n:agent", "did:t3n:tenant", "z:other:contract"),
-            activity(92, "hash-92", "evaluate-action", "did:t3n:agent", "did:t3n:other-tenant", "z:tenant:privacy-guard")
+            activity(93, "hash-93", "evaluate-action", "agent:agent", "agent:tenant", "z:other:contract"),
+            activity(92, "hash-92", "evaluate-action", "agent:agent", "agent:other-tenant", "z:tenant:privacy-guard")
         ), null, true));
 
         var result = service.read("incident-1", 100);
 
         assertThat(result.localEvents().getFirst().status()).isEqualTo(AuditReconciliationStatus.UNMATCHED);
-        assertThat(result.t3nEvents()).isEmpty();
+        assertThat(result.runtimeEvents()).isEmpty();
         assertThat(result.provenance().matched()).isZero();
     }
 
@@ -231,13 +231,13 @@ class AuditEvidenceServiceTest {
         local(local, AuditIntegrityState.VERIFIED);
         availableIdentity();
         whenActivity(100, new ActivityPage(List.of(
-            activity(102, "hash-102", "evaluate-action", "did:t3n:agent", "did:t3n:tenant", "z:tenant:privacy-guard")
+            activity(102, "hash-102", "evaluate-action", "agent:agent", "agent:tenant", "z:tenant:privacy-guard")
         ), 101L, false));
 
         var result = service.read("incident-1", 100);
 
         assertThat(result.localEvents().getFirst().status()).isEqualTo(AuditReconciliationStatus.MATCHED);
-        assertThat(result.provenance().t3nComplete()).isFalse();
+        assertThat(result.provenance().runtimeComplete()).isFalse();
         assertThat(result.provenance().message()).contains("bounded activity window was truncated");
         assertThat(result.nextSequence()).isEqualTo(101L);
     }
@@ -255,8 +255,8 @@ class AuditEvidenceServiceTest {
 
         assertThat(result.integrity().state()).isEqualTo(AuditIntegrityState.VERIFIED);
         assertThat(result.localEvents()).hasSize(2);
-        assertThat(result.t3nEvents()).isEmpty();
-        assertThat(result.provenance().t3nAvailable()).isFalse();
+        assertThat(result.runtimeEvents()).isEmpty();
+        assertThat(result.provenance().runtimeAvailable()).isFalse();
         assertThat(result.provenance().message()).isEqualTo("guard-runtime activity temporarily unavailable. Local business audit remains available; network provenance was not verified.");
     }
 
@@ -274,12 +274,12 @@ class AuditEvidenceServiceTest {
 
     private void availableIdentity() {
         availableTenantAndContract();
-        when(gateway.agentStatus()).thenReturn(Optional.of(new RuntimeStatusClient.AgentStatus(true, true, true, "did:t3n:agent", "testnet")));
-        when(gateway.executorStatus()).thenReturn(Optional.of(new RuntimeStatusClient.ExecutorStatus(true, true, true, "did:t3n:executor", "testnet")));
+        when(gateway.agentStatus()).thenReturn(Optional.of(new RuntimeStatusClient.AgentStatus(true, true, true, "agent:agent", "testnet")));
+        when(gateway.executorStatus()).thenReturn(Optional.of(new RuntimeStatusClient.ExecutorStatus(true, true, true, "agent:executor", "testnet")));
     }
 
     private void availableTenantAndContract() {
-        when(gateway.tenantStatus()).thenReturn(Optional.of(new RuntimeStatusClient.TenantStatus(true, true, "did:t3n:tenant", "testnet")));
+        when(gateway.tenantStatus()).thenReturn(Optional.of(new RuntimeStatusClient.TenantStatus(true, true, "agent:tenant", "testnet")));
         when(gateway.contractIdentity()).thenReturn(Optional.of(new RuntimeStatusClient.ContractIdentity("z:tenant:privacy-guard", "1")));
     }
 

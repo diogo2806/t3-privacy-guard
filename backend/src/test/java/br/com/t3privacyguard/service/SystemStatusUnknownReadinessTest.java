@@ -31,9 +31,9 @@ class SystemStatusUnknownReadinessTest {
     @BeforeEach
     void baseStatus() {
         when(gateway.health()).thenReturn(true);
-        when(gateway.tenantStatus()).thenReturn(Optional.of(new TenantStatus(true, true, "did:t3n:tenant", "testnet")));
-        when(gateway.agentStatus()).thenReturn(Optional.of(new AgentStatus(true, true, true, "did:t3n:proposal-agent", "testnet")));
-        when(gateway.executorStatus()).thenReturn(Optional.of(new ExecutorStatus(true, true, true, "did:t3n:executor", "testnet")));
+        when(gateway.tenantStatus()).thenReturn(Optional.of(new TenantStatus(true, true, "agent:tenant", "testnet")));
+        when(gateway.agentStatus()).thenReturn(Optional.of(new AgentStatus(true, true, true, "agent:proposal-agent", "testnet")));
+        when(gateway.executorStatus()).thenReturn(Optional.of(new ExecutorStatus(true, true, true, "agent:executor", "testnet")));
         when(gateway.contractIdentity()).thenReturn(Optional.of(new ContractIdentity(CONTRACT_ID, "0.4.1")));
     }
 

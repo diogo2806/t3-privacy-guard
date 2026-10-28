@@ -15,7 +15,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class SecurityRemediationAuthenticationFilter extends OncePerRequestFilter {
     public static final String REMEDIATION_AUTHORITY = "SCOPE_security:remediation";
     private static final String BEARER_PREFIX = "Bearer ";
-    private static final String PRINCIPAL = "t3n-protected-remediation";
+    private static final String PRINCIPAL = "guard-runtime-protected-remediation";
 
     private final SecurityRemediationCredential credential;
 

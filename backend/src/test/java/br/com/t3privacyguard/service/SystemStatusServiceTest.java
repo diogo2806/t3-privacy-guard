@@ -31,10 +31,10 @@ class SystemStatusServiceTest {
     @BeforeEach
     void baseStatus() {
         when(gateway.health()).thenReturn(true);
-        when(gateway.tenantStatus()).thenReturn(Optional.of(new TenantStatus(true, true, "did:t3n:tenant", "testnet")));
-        when(gateway.agentStatus()).thenReturn(Optional.of(new AgentStatus(true, true, true, "did:t3n:proposal-agent", "testnet")));
-        when(gateway.executorStatus()).thenReturn(Optional.of(new ExecutorStatus(true, true, true, "did:t3n:protected-executor", "testnet")));
-        when(gateway.agentRegistration()).thenReturn(Optional.of(registration("did:t3n:proposal-agent", "REGISTERED")));
+        when(gateway.tenantStatus()).thenReturn(Optional.of(new TenantStatus(true, true, "agent:tenant", "testnet")));
+        when(gateway.agentStatus()).thenReturn(Optional.of(new AgentStatus(true, true, true, "agent:proposal-agent", "testnet")));
+        when(gateway.executorStatus()).thenReturn(Optional.of(new ExecutorStatus(true, true, true, "agent:protected-executor", "testnet")));
+        when(gateway.agentRegistration()).thenReturn(Optional.of(registration("agent:proposal-agent", "REGISTERED")));
         when(gateway.enterpriseIntegrationReadiness()).thenReturn(Optional.of(integration("READY")));
         when(gateway.contractIdentity()).thenReturn(Optional.of(new ContractIdentity("z:tenant:privacy-guard", "0.4.0")));
         when(remediationCredential.isConfigured()).thenReturn(true);
@@ -268,7 +268,7 @@ class SystemStatusServiceTest {
 
     @Test
     void registrationMismatchDoesNotReclassifyEffectiveAuthorization() {
-        when(gateway.agentRegistration()).thenReturn(Optional.of(registration("did:t3n:other", "REGISTERED")));
+        when(gateway.agentRegistration()).thenReturn(Optional.of(registration("agent:other", "REGISTERED")));
         when(gateway.delegationStatus("z:tenant:privacy-guard")).thenReturn(Optional.of(delegation(
             "ACTIVE", "ACTIVE", List.of("evaluate-action"), List.of("incident_id"), List.of(),
             List.of("evaluate-action"), List.of("incident_id", "credential_id", "reason")

@@ -527,7 +527,7 @@ public class IncidentService {
     private void validateLogicalPrivateRefs(List<String> refs) {
         for (String ref : refs) {
             String normalized = ref == null ? "" : ref.trim().toLowerCase();
-            if (!"verified_email".equals(normalized)) throw new IllegalArgumentException("Only the logical private reference verified_email is supported; plaintext and T3N placeholder strings are not accepted");
+            if (!"verified_email".equals(normalized)) throw new IllegalArgumentException("Only the logical private reference verified_email is supported; plaintext and profile placeholder strings are not accepted");
         }
     }
 
@@ -535,11 +535,11 @@ public class IncidentService {
         boolean failClosedWithoutPolicy = decision.decision() == DecisionType.DENY
             && ("POLICY_UNAVAILABLE".equals(decision.reasonCode()) || "POLICY_INVALID".equals(decision.reasonCode()));
         if (decision.policyVersion() == null || decision.policyHash() == null) {
-            if (!failClosedWithoutPolicy) throw new IllegalStateException("T3N decision omitted required versioned policy metadata");
+            if (!failClosedWithoutPolicy) throw new IllegalStateException("guard-runtime decision omitted required versioned policy metadata");
             return;
         }
         if (decision.policyVersion().isBlank() || decision.policyVersion().length() > 64 || !decision.policyHash().matches("[a-f0-9]{64}") || decision.requiresHumanAuthorization() == null) {
-            throw new IllegalStateException("T3N decision returned invalid versioned policy metadata");
+            throw new IllegalStateException("guard-runtime decision returned invalid versioned policy metadata");
         }
     }
 
@@ -554,10 +554,10 @@ public class IncidentService {
         audit(incidentId, type, message, null, null, null);
     }
 
-    private void audit(String incidentId, String type, String message, Long t3nSequence, String t3nHash, String t3nFunction) {
-        Long networkSequence = t3nSequence != null && t3nSequence >= 0 ? t3nSequence : null;
-        String function = safeNullable(t3nFunction, 120);
-        String hash = networkSequence == null ? null : safeNullable(t3nHash, 128);
+    private void audit(String incidentId, String type, String message, Long runtimeSequence, String runtimeHash, String runtimeFunction) {
+        Long networkSequence = runtimeSequence != null && runtimeSequence >= 0 ? runtimeSequence : null;
+        String function = safeNullable(runtimeFunction, 120);
+        String hash = networkSequence == null ? null : safeNullable(runtimeHash, 128);
         auditIntegrity.append(
             incidentId,
             type,

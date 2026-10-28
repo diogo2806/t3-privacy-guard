@@ -108,11 +108,11 @@ public final class ApiModels {
         String message,
         Instant createdAt,
         AuditReconciliationStatus status,
-        Long t3nSequence,
-        String t3nFunction,
+        Long runtimeSequence,
+        String runtimeFunction,
         Long matchedSequence
     ) {}
-    public record T3nActivityEvidence(
+    public record RuntimeActivityEvidence(
         long sequence,
         String hash,
         Instant timestamp,
@@ -126,17 +126,17 @@ public final class ApiModels {
     ) {}
     public record AuditProvenance(
         boolean localAvailable,
-        boolean t3nAvailable,
-        boolean t3nComplete,
+        boolean runtimeAvailable,
+        boolean runtimeComplete,
         int matched,
         int unmatched,
         int localOnly,
-        int t3nOnly,
+        int runtimeOnly,
         String message
     ) {}
     public record AuditEvidenceResponse(
         List<LocalAuditEvidence> localEvents,
-        List<T3nActivityEvidence> t3nEvents,
+        List<RuntimeActivityEvidence> runtimeEvents,
         AuditProvenance provenance,
         AuditIntegrityResponse integrity,
         Long nextSequence,

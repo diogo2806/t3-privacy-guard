@@ -149,35 +149,6 @@ export interface SystemStatus {
   message: string;
 }
 
-// Wire names and values that predate the self-hosted guard-runtime. The backend keeps them for compatibility, so they
-// are translated once here and the rest of the UI only sees runtime-neutral names.
-type WireDiagnosticCode = EnterpriseIntegrationDiagnosticCode | 'T3N_CONTROL_PLANE_UNAVAILABLE';
-type WireReconciliationStatus = Exclude<AuditReconciliationStatus, 'RUNTIME_ONLY'> | 'T3N_ONLY';
-interface SystemStatusWire extends Omit<SystemStatus, 'enterpriseIntegrationDiagnosticCode'> { enterpriseIntegrationDiagnosticCode?: WireDiagnosticCode; }
-interface LocalAuditEvidenceWire extends AuditEvent { status: WireReconciliationStatus; t3nSequence?: number | null; t3nFunction?: string | null; matchedSequence?: number | null; }
-interface RuntimeActivityEvidenceWire extends Omit<RuntimeActivityEvidence, 'status'> { status: WireReconciliationStatus; }
-interface AuditProvenanceWire { localAvailable: boolean; t3nAvailable: boolean; t3nComplete: boolean; matched: number; unmatched: number; localOnly: number; t3nOnly: number; message: string; }
-interface AuditEvidenceWire { localEvents: LocalAuditEvidenceWire[]; t3nEvents: RuntimeActivityEvidenceWire[]; provenance: AuditProvenanceWire; integrity: AuditIntegrity; nextSequence?: number | null; limit: number; }
-
-function toSystemStatus({ enterpriseIntegrationDiagnosticCode: code, ...status }: SystemStatusWire): SystemStatus {
-  if (code === undefined) return status;
-  return { ...status, enterpriseIntegrationDiagnosticCode: code === 'T3N_CONTROL_PLANE_UNAVAILABLE' ? 'TRUST_RUNTIME_UNAVAILABLE' : code };
-}
-
-function toReconciliationStatus(status: WireReconciliationStatus): AuditReconciliationStatus {
-  return status === 'T3N_ONLY' ? 'RUNTIME_ONLY' : status;
-}
-
-function toAuditEvidence({ localEvents, t3nEvents, provenance, ...evidence }: AuditEvidenceWire): AuditEvidence {
-  const { t3nAvailable, t3nComplete, t3nOnly, ...counts } = provenance;
-  return {
-    ...evidence,
-    localEvents: localEvents.map(({ t3nSequence, t3nFunction, ...event }) => ({ ...event, status: toReconciliationStatus(event.status), runtimeSequence: t3nSequence, runtimeFunction: t3nFunction })),
-    runtimeEvents: t3nEvents.map((event) => ({ ...event, status: toReconciliationStatus(event.status) })),
-    provenance: { ...counts, runtimeAvailable: t3nAvailable, runtimeComplete: t3nComplete, runtimeOnly: t3nOnly },
-  };
-}
-
 interface CsrfState { token: string; headerName: string; }
 let csrfState: CsrfState | null = null;
 let operatorSessionState: OperatorSession | null = null;
@@ -239,7 +210,7 @@ export const privacyGuardApi = {
   currentSession: () => operatorSessionState,
   login: async (input: { username: string; password: string }) => { const session = await loadSession('/api/auth/login', { method: 'POST', body: JSON.stringify(input) }); csrfState = null; return session; },
   logout: async () => { await api<void>('/api/auth/logout', { method: 'POST' }); csrfState = null; operatorSessionState = null; },
-  systemStatus: async () => toSystemStatus(await api<SystemStatusWire>('/api/system/status')),
+  systemStatus: () => api<SystemStatus>('/api/system/status'),
   businessImpact: (window: BusinessImpactWindow = 'retained') => api<BusinessImpact>(`/api/business-impact?window=${encodeURIComponent(window)}`),
   incidentWorkspace: () => api<IncidentWorkspace>('/api/incident-workspace'),
   analyzeAgent: (prompt: string) => api<AgentAnalysis>('/api/agent/analyze', { method: 'POST', body: JSON.stringify({ prompt }) }),
@@ -257,5 +228,5 @@ export const privacyGuardApi = {
   verifyRemediation: (incidentId: string, actionId: string) => api<RemediationExecution>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/verify-remediation`, { method: 'POST' }),
   executionTrace: (incidentId: string, actionId: string) => api<ExecutionTraceEvent[]>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/trace`),
   history: (incidentId: string) => api<AuditEvent[]>(`/api/incidents/${encodeURIComponent(incidentId)}/history`),
-  auditEvidence: async (incidentId: string, limit = 100) => toAuditEvidence(await api<AuditEvidenceWire>(`/api/incidents/${encodeURIComponent(incidentId)}/audit-evidence?limit=${encodeURIComponent(String(limit))}`)),
+  auditEvidence: (incidentId: string, limit = 100) => api<AuditEvidence>(`/api/incidents/${encodeURIComponent(incidentId)}/audit-evidence?limit=${encodeURIComponent(String(limit))}`),
 };

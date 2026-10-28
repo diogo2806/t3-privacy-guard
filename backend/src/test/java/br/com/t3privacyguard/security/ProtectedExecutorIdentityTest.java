@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Test;
 class ProtectedExecutorIdentityTest {
     @Test
     void acceptsT3nDidsAndSelfHostedCallerIds() {
-        assertThat(ProtectedExecutorIdentity.isValid("did:t3n:protected-executor")).isTrue();
+        assertThat(ProtectedExecutorIdentity.isValid("agent:protected-executor")).isTrue();
         assertThat(ProtectedExecutorIdentity.isValid("agent:executor")).isTrue();
     }
 

@@ -22,9 +22,9 @@ final class AuditMac {
         String type,
         Instant createdAt,
         String message,
-        Long t3nSequence,
-        String t3nHash,
-        String t3nFunction,
+        Long runtimeSequence,
+        String runtimeHash,
+        String runtimeFunction,
         String previousMac
     ) {
         return String.join("\n",
@@ -36,9 +36,9 @@ final class AuditMac {
             encoded(type),
             createdAt.toString(),
             encoded(message),
-            t3nSequence == null ? "" : Long.toString(t3nSequence),
-            encodedNullable(t3nHash),
-            encodedNullable(t3nFunction),
+            runtimeSequence == null ? "" : Long.toString(runtimeSequence),
+            encodedNullable(runtimeHash),
+            encodedNullable(runtimeFunction),
             previousMac
         );
     }

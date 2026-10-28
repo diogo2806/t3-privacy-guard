@@ -152,7 +152,7 @@ echo "verified email in backend logs: $EMAIL_SEEN"
 
 step "Audit evidence: local HMAC chain reconciled with guard-runtime's activity log"
 AUDIT="$(get "/incidents/$INCIDENT_ID/audit-evidence")"
-echo "integrity=$(json integrity.state <<<"$AUDIT") matched=$(json provenance.matched <<<"$AUDIT") unmatched=$(json provenance.unmatched <<<"$AUDIT") localOnly=$(json provenance.localOnly <<<"$AUDIT") runtimeOnly=$(json provenance.t3nOnly <<<"$AUDIT")"
+echo "integrity=$(json integrity.state <<<"$AUDIT") matched=$(json provenance.matched <<<"$AUDIT") unmatched=$(json provenance.unmatched <<<"$AUDIT") localOnly=$(json provenance.localOnly <<<"$AUDIT") runtimeOnly=$(json provenance.runtimeOnly <<<"$AUDIT")"
 
 step "MCP: an external agent asks the guard before acting"
 echo "initialize: $(mcp '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"e2e","version":"1"}}}' | json result.serverInfo.name)"

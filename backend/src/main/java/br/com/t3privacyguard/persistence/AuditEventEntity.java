@@ -20,11 +20,11 @@ public class AuditEventEntity {
     @Column(nullable = false)
     private Instant createdAt;
     @Column(name = "t3n_sequence")
-    private Long t3nSequence;
+    private Long runtimeSequence;
     @Column(name = "t3n_hash", length = 128)
-    private String t3nHash;
+    private String runtimeHash;
     @Column(name = "t3n_function", length = 120)
-    private String t3nFunction;
+    private String runtimeFunction;
     @Column(name = "sequence_number")
     private Long sequence;
     @Column(name = "previous_mac", length = 64)
@@ -48,11 +48,11 @@ public class AuditEventEntity {
         String type,
         String message,
         Instant createdAt,
-        Long t3nSequence,
-        String t3nHash,
-        String t3nFunction
+        Long runtimeSequence,
+        String runtimeHash,
+        String runtimeFunction
     ) {
-        this(id, incidentId, type, message, createdAt, t3nSequence, t3nHash, t3nFunction, null, null, null, null, null);
+        this(id, incidentId, type, message, createdAt, runtimeSequence, runtimeHash, runtimeFunction, null, null, null, null, null);
     }
 
     public AuditEventEntity(
@@ -61,9 +61,9 @@ public class AuditEventEntity {
         String type,
         String message,
         Instant createdAt,
-        Long t3nSequence,
-        String t3nHash,
-        String t3nFunction,
+        Long runtimeSequence,
+        String runtimeHash,
+        String runtimeFunction,
         Long sequence,
         String previousMac,
         String eventMac,
@@ -75,9 +75,9 @@ public class AuditEventEntity {
         this.type = type;
         this.message = message;
         this.createdAt = createdAt;
-        this.t3nSequence = t3nSequence;
-        this.t3nHash = t3nHash;
-        this.t3nFunction = t3nFunction;
+        this.runtimeSequence = runtimeSequence;
+        this.runtimeHash = runtimeHash;
+        this.runtimeFunction = runtimeFunction;
         this.sequence = sequence;
         this.previousMac = previousMac;
         this.eventMac = eventMac;
@@ -90,9 +90,9 @@ public class AuditEventEntity {
     public String getType() { return type; }
     public String getMessage() { return message; }
     public Instant getCreatedAt() { return createdAt; }
-    public Long getT3nSequence() { return t3nSequence; }
-    public String getT3nHash() { return t3nHash; }
-    public String getT3nFunction() { return t3nFunction; }
+    public Long getRuntimeSequence() { return runtimeSequence; }
+    public String getRuntimeHash() { return runtimeHash; }
+    public String getRuntimeFunction() { return runtimeFunction; }
     public Long getSequence() { return sequence; }
     public String getPreviousMac() { return previousMac; }
     public String getEventMac() { return eventMac; }

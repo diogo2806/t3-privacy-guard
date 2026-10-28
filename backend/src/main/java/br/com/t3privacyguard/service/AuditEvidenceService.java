@@ -4,7 +4,7 @@ import br.com.t3privacyguard.api.ApiModels.AuditEvidenceResponse;
 import br.com.t3privacyguard.api.ApiModels.AuditIntegrityResponse;
 import br.com.t3privacyguard.api.ApiModels.AuditProvenance;
 import br.com.t3privacyguard.api.ApiModels.LocalAuditEvidence;
-import br.com.t3privacyguard.api.ApiModels.T3nActivityEvidence;
+import br.com.t3privacyguard.api.ApiModels.RuntimeActivityEvidence;
 import br.com.t3privacyguard.audit.AuditIntegrityService;
 import br.com.t3privacyguard.domain.AuditReconciliationStatus;
 import br.com.t3privacyguard.integration.RuntimeStatusClient;
@@ -105,16 +105,16 @@ public class AuditEvidenceService {
         for (AuditEventEntity event : local) {
             AuditReconciliationStatus status;
             Long matchedSequence = null;
-            if (event.getT3nFunction() == null) {
+            if (event.getRuntimeFunction() == null) {
                 status = AuditReconciliationStatus.LOCAL_ONLY;
                 localOnly += 1;
             } else {
-                ActivityEvent candidate = event.getT3nSequence() == null ? null : bySequence.get(event.getT3nSequence());
+                ActivityEvent candidate = event.getRuntimeSequence() == null ? null : bySequence.get(event.getRuntimeSequence());
                 boolean exact = candidate != null
-                    && event.getT3nFunction().equals(candidate.function())
-                    && event.getT3nHash() != null
-                    && event.getT3nHash().equals(candidate.hash())
-                    && expectedActorDid(event.getT3nFunction(), proposalAgentDid, protectedExecutorDid)
+                    && event.getRuntimeFunction().equals(candidate.function())
+                    && event.getRuntimeHash() != null
+                    && event.getRuntimeHash().equals(candidate.hash())
+                    && expectedActorDid(event.getRuntimeFunction(), proposalAgentDid, protectedExecutorDid)
                         .map(expectedDid -> expectedDid.equals(candidate.actorDid()))
                         .orElse(false);
                 if (exact) {
@@ -130,16 +130,16 @@ public class AuditEvidenceService {
             localEvidence.add(localEvidence(event, status, matchedSequence));
         }
 
-        List<T3nActivityEvidence> t3nEvidence = relevant.stream()
-            .map(event -> t3nEvidence(event, matchedSequences.contains(event.sequence())
+        List<RuntimeActivityEvidence> runtimeEvidence = relevant.stream()
+            .map(event -> runtimeEvidence(event, matchedSequences.contains(event.sequence())
                 ? AuditReconciliationStatus.MATCHED
-                : AuditReconciliationStatus.T3N_ONLY))
+                : AuditReconciliationStatus.RUNTIME_ONLY))
             .toList();
-        int t3nOnly = (int) t3nEvidence.stream().filter(event -> event.status() == AuditReconciliationStatus.T3N_ONLY).count();
+        int runtimeOnly = (int) runtimeEvidence.stream().filter(event -> event.status() == AuditReconciliationStatus.RUNTIME_ONLY).count();
 
         String message = provenanceMessage(source, page.complete(), proposalAgentDid.isPresent(), protectedExecutorDid.isPresent());
-        AuditProvenance provenance = new AuditProvenance(true, true, page.complete(), matched, unmatched, localOnly, t3nOnly, message);
-        return new AuditEvidenceResponse(localEvidence, t3nEvidence, provenance, integrityResponse, page.nextSequence(), requestedLimit);
+        AuditProvenance provenance = new AuditProvenance(true, true, page.complete(), matched, unmatched, localOnly, runtimeOnly, message);
+        return new AuditEvidenceResponse(localEvidence, runtimeEvidence, provenance, integrityResponse, page.nextSequence(), requestedLimit);
     }
 
     private static Optional<String> expectedActorDid(
@@ -170,7 +170,7 @@ public class AuditEvidenceService {
 
     private AuditEvidenceResponse degraded(List<AuditEventEntity> local, AuditIntegrityResponse integrity, int limit, String source) {
         List<LocalAuditEvidence> localEvidence = local.stream().map(event -> {
-            AuditReconciliationStatus status = event.getT3nFunction() == null
+            AuditReconciliationStatus status = event.getRuntimeFunction() == null
                 ? AuditReconciliationStatus.LOCAL_ONLY
                 : AuditReconciliationStatus.UNMATCHED;
             return localEvidence(event, status, null);
@@ -208,14 +208,14 @@ public class AuditEvidenceService {
             event.getMessage(),
             event.getCreatedAt(),
             status,
-            event.getT3nSequence(),
-            event.getT3nFunction(),
+            event.getRuntimeSequence(),
+            event.getRuntimeFunction(),
             matchedSequence
         );
     }
 
-    private static T3nActivityEvidence t3nEvidence(ActivityEvent event, AuditReconciliationStatus status) {
-        return new T3nActivityEvidence(
+    private static RuntimeActivityEvidence runtimeEvidence(ActivityEvent event, AuditReconciliationStatus status) {
+        return new RuntimeActivityEvidence(
             event.sequence(),
             event.hash(),
             Instant.ofEpochMilli(event.timestampMs()),

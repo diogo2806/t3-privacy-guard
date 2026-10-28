@@ -87,7 +87,7 @@ class AuditIntegrityServiceTest {
     void changedMessageIsDetected() {
         String incidentId = incidentWithTwoEvents();
         AuditEventEntity event = events(incidentId).getFirst();
-        audits.saveAndFlush(copy(event, event.getSequence(), event.getPreviousMac(), event.getEventMac(), event.getIntegrityKeyId(), "tampered", event.getT3nHash()));
+        audits.saveAndFlush(copy(event, event.getSequence(), event.getPreviousMac(), event.getEventMac(), event.getIntegrityKeyId(), "tampered", event.getRuntimeHash()));
 
         assertThat(integrity.verify(incidentId).state()).isEqualTo(AuditIntegrityState.BROKEN);
     }
@@ -134,7 +134,7 @@ class AuditIntegrityServiceTest {
     void sequenceOrLinkTamperIsDetected() {
         String incidentId = incidentWithTwoEvents();
         AuditEventEntity second = events(incidentId).getLast();
-        audits.saveAndFlush(copy(second, 1L, "f".repeat(64), second.getEventMac(), second.getIntegrityKeyId(), second.getMessage(), second.getT3nHash()));
+        audits.saveAndFlush(copy(second, 1L, "f".repeat(64), second.getEventMac(), second.getIntegrityKeyId(), second.getMessage(), second.getRuntimeHash()));
 
         assertThat(integrity.verify(incidentId).state()).isEqualTo(AuditIntegrityState.BROKEN);
     }
@@ -143,7 +143,7 @@ class AuditIntegrityServiceTest {
     void missingConfiguredHistoricalKeyIsExplicit() {
         String incidentId = incidentWithTwoEvents();
         AuditEventEntity first = events(incidentId).getFirst();
-        audits.saveAndFlush(copy(first, first.getSequence(), first.getPreviousMac(), first.getEventMac(), "retired-key-not-configured", first.getMessage(), first.getT3nHash()));
+        audits.saveAndFlush(copy(first, first.getSequence(), first.getPreviousMac(), first.getEventMac(), "retired-key-not-configured", first.getMessage(), first.getRuntimeHash()));
 
         assertThat(integrity.verify(incidentId).state()).isEqualTo(AuditIntegrityState.KEY_MISMATCH);
     }
@@ -228,7 +228,7 @@ class AuditIntegrityServiceTest {
         String eventMac,
         String keyId,
         String message,
-        String t3nHash
+        String runtimeHash
     ) {
         return new AuditEventEntity(
             source.getId(),
@@ -236,9 +236,9 @@ class AuditIntegrityServiceTest {
             source.getType(),
             message,
             source.getCreatedAt(),
-            source.getT3nSequence(),
-            t3nHash,
-            source.getT3nFunction(),
+            source.getRuntimeSequence(),
+            runtimeHash,
+            source.getRuntimeFunction(),
             sequence,
             previousMac,
             eventMac,
