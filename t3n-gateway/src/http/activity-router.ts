@@ -1,6 +1,6 @@
 import { Router, type Request } from 'express';
 import { requireServiceToken } from '../security/service-auth.js';
-import type { ActivityLogService } from '../t3n/activity-log-service.js';
+import type { ActivityLogQuery } from '../t3n/activity-log-service.js';
 
 const MAX_LIMIT = 200;
 
@@ -13,7 +13,7 @@ function queryInteger(request: Request, name: string, minimum: number, maximum =
   return value;
 }
 
-export function createActivityRouter(service: ActivityLogService, serviceToken: string): Router {
+export function createActivityRouter(service: { read(query: ActivityLogQuery): Promise<unknown> }, serviceToken: string): Router {
   const router = Router();
 
   router.get('/', requireServiceToken(serviceToken), async (request, response) => {
@@ -32,7 +32,7 @@ export function createActivityRouter(service: ActivityLogService, serviceToken: 
         response.status(400).json({ error: 'Activity query is invalid' });
         return;
       }
-      response.status(503).json({ error: 'T3N activity log is unavailable' });
+      response.status(503).json({ error: 'Activity log is unavailable' });
     }
   });
 

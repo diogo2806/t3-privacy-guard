@@ -29,7 +29,7 @@ export function createContractRouter(
 
   router.get('/identity', async (_request, response) => {
     try { response.json(await service.identity()); }
-    catch { response.status(503).json({ error: 'Registered T3N contract is unavailable' }); }
+    catch { response.status(503).json({ error: 'Contract identity is unavailable' }); }
   });
 
   router.get('/enterprise-integration-readiness', async (_request, response) => {

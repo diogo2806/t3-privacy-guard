@@ -1,35 +1,49 @@
 import { createPublicKey } from 'node:crypto';
 import type { TrustRuntime } from '../contract/policy-evaluator.js';
-import type { GuardRuntimeConfig } from '../contract/self-hosted-policy-evaluator.js';
 import { classifyPrincipalCredential } from '../t3n/principal-credential.js';
 import { resolvePackagedContractVersion } from './contract-version.js';
 
 export type T3nNetwork = 'testnet' | 'production';
 export type AiProvider = 'disabled' | 'openai-compatible';
 
-export interface GatewayConfig {
+/** Settings both runtimes need: the internal API, the gateway's own capability check and the AI provider. */
+export interface SharedGatewayConfig {
+  readonly port: number;
+  readonly gatewayServiceToken: string;
+  readonly remediationAuthorizationPublicKeySpki: string;
+  readonly remediationAuthorizationKeyId: string;
+  readonly remediationReplayStorePath: string;
+  readonly aiProvider: AiProvider;
+  readonly aiApiUrl: string | null;
+  readonly aiApiKey: string | null;
+  readonly aiModel: string | null;
+}
+
+export interface GatewayConfig extends SharedGatewayConfig {
   readonly apiKey: string;
   readonly agentApiKey: string | null;
   readonly executorApiKey: string | null;
   readonly orgDid?: string | null;
   readonly network: T3nNetwork;
-  readonly port: number;
   readonly contractTail: string;
   readonly contractVersion: string;
-  readonly gatewayServiceToken: string;
-  readonly remediationAuthorizationPublicKeySpki: string;
-  readonly remediationAuthorizationKeyId: string;
-  readonly remediationReplayStorePath: string;
   readonly trustManifestFloorStorePath: string;
-  readonly aiProvider: AiProvider;
-  readonly aiApiUrl: string | null;
-  readonly aiApiKey: string | null;
-  readonly aiModel: string | null;
   readonly a2aPublicUrl: string | null;
-  /** Where evaluate-action runs. Remediation and verification still run on T3N in both modes. */
-  readonly trustRuntime: TrustRuntime;
-  readonly guardRuntime: GuardRuntimeConfig | null;
   readonly remediationCapabilityKey?: undefined;
+}
+
+/** The self-hosted runtime's two callers, kept apart like the T3N Proposal Agent and Protected Executor. */
+export interface GuardRuntimeConfig {
+  readonly url: string;
+  readonly proposalAgentId: string;
+  readonly proposalToken: string;
+  readonly executorId: string;
+  readonly executorToken: string;
+  readonly timeoutMs: number;
+}
+
+export interface SelfHostedGatewayConfig extends SharedGatewayConfig {
+  readonly guardRuntime: GuardRuntimeConfig;
 }
 
 export class ConfigurationError extends Error {
@@ -216,6 +230,7 @@ export function validateA2aPublicUrl(value: string): string {
   return parsed.toString();
 }
 
+
 export function validateGuardRuntimeUrl(value: string): string {
   let parsed: URL;
   try { parsed = new URL(value); } catch { throw new ConfigurationError('GUARD_RUNTIME_URL must be a valid absolute URL'); }
@@ -225,20 +240,75 @@ export function validateGuardRuntimeUrl(value: string): string {
   return parsed.toString().replace(/\/+$/, '');
 }
 
+function guardRuntimeCallerId(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
+  const raw = env[name];
+  const value = raw === undefined ? fallback : raw.trim();
+  if (!GUARD_RUNTIME_CALLER_ID_PATTERN.test(value)) throw new ConfigurationError(`${name} must be a caller id configured in guard-runtime`);
+  return value;
+}
+
 function readGuardRuntime(env: NodeJS.ProcessEnv, gatewayServiceToken: string): GuardRuntimeConfig {
   const url = env.GUARD_RUNTIME_URL?.trim();
   if (!url) throw new ConfigurationError('GUARD_RUNTIME_URL is required when TRUST_RUNTIME=selfhosted');
-  const token = requiredSecret(env, 'GUARD_RUNTIME_TOKEN');
-  if (token === gatewayServiceToken) throw new ConfigurationError('GUARD_RUNTIME_TOKEN must be different from GATEWAY_SERVICE_TOKEN');
-  const agentId = env.GUARD_RUNTIME_AGENT_ID?.trim() ?? '';
-  if (!GUARD_RUNTIME_CALLER_ID_PATTERN.test(agentId)) {
-    throw new ConfigurationError('GUARD_RUNTIME_AGENT_ID must be the caller id this gateway has in guard-runtime');
+  const proposalToken = requiredSecret(env, 'GUARD_RUNTIME_PROPOSAL_TOKEN');
+  const executorToken = requiredSecret(env, 'GUARD_RUNTIME_EXECUTOR_TOKEN');
+  if (proposalToken === executorToken) throw new ConfigurationError('GUARD_RUNTIME_PROPOSAL_TOKEN and GUARD_RUNTIME_EXECUTOR_TOKEN must be different');
+  if (proposalToken === gatewayServiceToken || executorToken === gatewayServiceToken) {
+    throw new ConfigurationError('Guard runtime tokens must be different from GATEWAY_SERVICE_TOKEN');
   }
-  const timeoutMs = Number(env.GUARD_RUNTIME_TIMEOUT_MS ?? 5000);
+  const proposalAgentId = guardRuntimeCallerId(env, 'GUARD_RUNTIME_PROPOSAL_AGENT_ID', 'agent:proposal');
+  const executorId = guardRuntimeCallerId(env, 'GUARD_RUNTIME_EXECUTOR_ID', 'agent:executor');
+  if (proposalAgentId === executorId) throw new ConfigurationError('GUARD_RUNTIME_PROPOSAL_AGENT_ID and GUARD_RUNTIME_EXECUTOR_ID must be different');
+  const timeoutMs = Number(env.GUARD_RUNTIME_TIMEOUT_MS ?? 15_000);
   if (!Number.isInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 60_000) {
     throw new ConfigurationError('GUARD_RUNTIME_TIMEOUT_MS must be an integer between 100 and 60000');
   }
-  return { url: validateGuardRuntimeUrl(url), token, agentId, timeoutMs };
+  return { url: validateGuardRuntimeUrl(url), proposalAgentId, proposalToken, executorId, executorToken, timeoutMs };
+}
+
+function readSharedGatewayConfig(env: NodeJS.ProcessEnv): SharedGatewayConfig {
+  const portValue = Number(env.T3N_GATEWAY_PORT ?? 3001);
+  if (!Number.isInteger(portValue) || portValue < 1 || portValue > 65535) throw new ConfigurationError('T3N_GATEWAY_PORT must be a valid TCP port');
+
+  const aiProviderValue = (env.AI_PROVIDER ?? 'disabled').trim().toLowerCase();
+  if (aiProviderValue !== 'disabled' && aiProviderValue !== 'openai-compatible') throw new ConfigurationError('AI_PROVIDER must be disabled or openai-compatible');
+  let aiApiUrl: string | null = null;
+  let aiApiKey: string | null = null;
+  let aiModel: string | null = null;
+  if (aiProviderValue === 'openai-compatible') {
+    aiApiUrl = env.AI_API_URL?.trim() || 'https://api.openai.com/v1/chat/completions';
+    aiApiKey = env.AI_API_KEY?.trim() || null;
+    aiModel = env.AI_MODEL?.trim() || null;
+    if (!aiApiKey || !aiModel) throw new ConfigurationError('AI_API_KEY and AI_MODEL are required when AI_PROVIDER=openai-compatible');
+    let parsed: URL;
+    try { parsed = new URL(aiApiUrl); } catch { throw new ConfigurationError('AI_API_URL must be a valid URL'); }
+    validateAiProviderUrl(parsed);
+  }
+
+  return {
+    port: portValue,
+    gatewayServiceToken: requiredSecret(env, 'GATEWAY_SERVICE_TOKEN'),
+    remediationAuthorizationPublicKeySpki: requiredEd25519PublicKey(env, 'REMEDIATION_AUTH_PUBLIC_KEY_SPKI'),
+    remediationAuthorizationKeyId: requiredKeyId(env, 'REMEDIATION_AUTH_KEY_ID', 'primary'),
+    remediationReplayStorePath: requiredPath(env, 'REMEDIATION_REPLAY_STORE_PATH', '/data/remediation-capability-nonces.json'),
+    aiProvider: aiProviderValue,
+    aiApiUrl,
+    aiApiKey,
+    aiModel,
+  };
+}
+
+/** Which trust runtime this gateway fronts: Terminal 3 (default) or the self-hosted guard-runtime. */
+export function readTrustRuntime(env: NodeJS.ProcessEnv = process.env): TrustRuntime {
+  const value = (env.TRUST_RUNTIME ?? 't3n').trim().toLowerCase();
+  if (value !== 't3n' && value !== 'selfhosted') throw new ConfigurationError('TRUST_RUNTIME must be t3n or selfhosted');
+  return value;
+}
+
+/** Self-hosted mode needs no T3N_* setting at all. */
+export function readSelfHostedGatewayConfig(env: NodeJS.ProcessEnv = process.env): SelfHostedGatewayConfig {
+  const shared = readSharedGatewayConfig(env);
+  return { ...shared, guardRuntime: readGuardRuntime(env, shared.gatewayServiceToken) };
 }
 
 export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig {
@@ -256,9 +326,6 @@ export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): Gateway
   const networkValue = (env.T3N_NETWORK ?? 'testnet').trim().toLowerCase();
   if (networkValue !== 'testnet' && networkValue !== 'production') throw new ConfigurationError('T3N_NETWORK must be either testnet or production');
 
-  const portValue = Number(env.T3N_GATEWAY_PORT ?? 3001);
-  if (!Number.isInteger(portValue) || portValue < 1 || portValue > 65535) throw new ConfigurationError('T3N_GATEWAY_PORT must be a valid TCP port');
-
   const contractTail = (env.T3N_CONTRACT_TAIL ?? 'privacy-guard').trim();
   if (!/^[a-zA-Z0-9_-][a-zA-Z0-9_.-]{0,127}$/.test(contractTail)) throw new ConfigurationError('T3N_CONTRACT_TAIL has an invalid format');
 
@@ -269,49 +336,19 @@ export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): Gateway
     throw new ConfigurationError(error instanceof Error ? error.message : 'T3N_CONTRACT_VERSION is invalid');
   }
 
-  const aiProviderValue = (env.AI_PROVIDER ?? 'disabled').trim().toLowerCase();
-  if (aiProviderValue !== 'disabled' && aiProviderValue !== 'openai-compatible') throw new ConfigurationError('AI_PROVIDER must be disabled or openai-compatible');
-  let aiApiUrl: string | null = null;
-  let aiApiKey: string | null = null;
-  let aiModel: string | null = null;
-  if (aiProviderValue === 'openai-compatible') {
-    aiApiUrl = env.AI_API_URL?.trim() || 'https://api.openai.com/v1/chat/completions';
-    aiApiKey = env.AI_API_KEY?.trim() || null;
-    aiModel = env.AI_MODEL?.trim() || null;
-    if (!aiApiKey || !aiModel) throw new ConfigurationError('AI_API_KEY and AI_MODEL are required when AI_PROVIDER=openai-compatible');
-    let parsed: URL;
-    try { parsed = new URL(aiApiUrl); } catch { throw new ConfigurationError('AI_API_URL must be a valid URL'); }
-    validateAiProviderUrl(parsed);
-  }
-
   const a2aPublicUrlRaw = env.A2A_PUBLIC_URL?.trim() || null;
   const a2aPublicUrl = a2aPublicUrlRaw ? validateA2aPublicUrl(a2aPublicUrlRaw) : null;
 
-  const gatewayServiceToken = requiredSecret(env, 'GATEWAY_SERVICE_TOKEN');
-  const trustRuntimeValue = (env.TRUST_RUNTIME ?? 't3n').trim().toLowerCase();
-  if (trustRuntimeValue !== 't3n' && trustRuntimeValue !== 'selfhosted') throw new ConfigurationError('TRUST_RUNTIME must be t3n or selfhosted');
-  const guardRuntime = trustRuntimeValue === 'selfhosted' ? readGuardRuntime(env, gatewayServiceToken) : null;
-
   return {
+    ...readSharedGatewayConfig(env),
     apiKey,
     agentApiKey,
     executorApiKey,
     orgDid,
     network: networkValue,
-    port: portValue,
     contractTail,
     contractVersion,
-    gatewayServiceToken,
-    remediationAuthorizationPublicKeySpki: requiredEd25519PublicKey(env, 'REMEDIATION_AUTH_PUBLIC_KEY_SPKI'),
-    remediationAuthorizationKeyId: requiredKeyId(env, 'REMEDIATION_AUTH_KEY_ID', 'primary'),
-    remediationReplayStorePath: requiredPath(env, 'REMEDIATION_REPLAY_STORE_PATH', '/data/remediation-capability-nonces.json'),
     trustManifestFloorStorePath: requiredPath(env, 'T3N_TRUST_FLOOR_STORE_PATH', '/data/t3n-trust-floor.json'),
-    aiProvider: aiProviderValue,
-    aiApiUrl,
-    aiApiKey,
-    aiModel,
     a2aPublicUrl,
-    trustRuntime: trustRuntimeValue,
-    guardRuntime,
   };
 }

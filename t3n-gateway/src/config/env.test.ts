@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ConfigurationError, readGatewayConfig, rejectDocumentationPlaceholder } from './env.js';
+import { ConfigurationError, readGatewayConfig, readSelfHostedGatewayConfig, readTrustRuntime, rejectDocumentationPlaceholder } from './env.js';
 
 const publicKeySpki = 'MCowBQYDK2VwAyEAW3EwSatHmT/ZSgrqu/G3ecXJrTviA5SjAoCwIfwau6A=';
 const tenantKey = `0x${'11'.repeat(32)}`;
@@ -58,49 +58,70 @@ test('defaults to testnet, disabled AI, versioned remediation key, no public A2A
   assert.equal(config.aiApiKey, null);
   assert.equal(config.aiModel, null);
   assert.equal(config.a2aPublicUrl, null);
-  assert.equal(config.trustRuntime, 't3n');
-  assert.equal(config.guardRuntime, null);
 });
 
-const guardRuntimeToken = 'guard-runtime-token-0123456789abcdef0123';
+const proposalToken = 'guard-runtime-proposal-token-0123456789abcdef';
+const executorToken = 'guard-runtime-executor-token-0123456789abcdef';
 const selfHostedEnv = {
-  ...baseEnv,
   TRUST_RUNTIME: 'selfhosted',
+  GATEWAY_SERVICE_TOKEN: baseEnv.GATEWAY_SERVICE_TOKEN,
+  REMEDIATION_AUTH_PUBLIC_KEY_SPKI: publicKeySpki,
   GUARD_RUNTIME_URL: 'http://guard-runtime:3101/',
-  GUARD_RUNTIME_TOKEN: guardRuntimeToken,
-  GUARD_RUNTIME_AGENT_ID: 'agent:proposal',
+  GUARD_RUNTIME_PROPOSAL_TOKEN: proposalToken,
+  GUARD_RUNTIME_EXECUTOR_TOKEN: executorToken,
 };
 
-test('reads the self-hosted guard runtime configuration for evaluate-action', () => {
-  const config = readGatewayConfig(selfHostedEnv);
-  assert.equal(config.trustRuntime, 'selfhosted');
-  assert.deepEqual(config.guardRuntime, {
-    url: 'http://guard-runtime:3101',
-    token: guardRuntimeToken,
-    agentId: 'agent:proposal',
-    timeoutMs: 5000,
-  });
-  assert.equal(readGatewayConfig({ ...selfHostedEnv, TRUST_RUNTIME: ' SelfHosted ', GUARD_RUNTIME_TIMEOUT_MS: '1500' }).guardRuntime?.timeoutMs, 1500);
+test('trust runtime defaults to T3N and accepts selfhosted', () => {
+  assert.equal(readTrustRuntime({}), 't3n');
+  assert.equal(readTrustRuntime({ TRUST_RUNTIME: ' SelfHosted ' }), 'selfhosted');
+  assert.throws(() => readTrustRuntime({ TRUST_RUNTIME: 'wasm' }), ConfigurationError);
 });
 
-test('rejects incomplete or unsafe self-hosted runtime configuration without echoing the token', () => {
+test('self-hosted configuration needs no T3N setting and keeps the two callers apart', () => {
+  const config = readSelfHostedGatewayConfig(selfHostedEnv);
+  assert.deepEqual(config.guardRuntime, {
+    url: 'http://guard-runtime:3101',
+    proposalAgentId: 'agent:proposal',
+    proposalToken,
+    executorId: 'agent:executor',
+    executorToken,
+    timeoutMs: 15_000,
+  });
+  assert.equal(config.port, 3001);
+  assert.equal(config.remediationAuthorizationPublicKeySpki, publicKeySpki);
+  const custom = readSelfHostedGatewayConfig({
+    ...selfHostedEnv,
+    GUARD_RUNTIME_PROPOSAL_AGENT_ID: 'acme:proposal',
+    GUARD_RUNTIME_EXECUTOR_ID: 'acme:executor',
+    GUARD_RUNTIME_TIMEOUT_MS: '1500',
+  }).guardRuntime;
+  assert.equal(custom.proposalAgentId, 'acme:proposal');
+  assert.equal(custom.executorId, 'acme:executor');
+  assert.equal(custom.timeoutMs, 1500);
+});
+
+test('rejects incomplete or unsafe self-hosted runtime configuration without echoing tokens', () => {
   for (const env of [
-    { ...baseEnv, TRUST_RUNTIME: 'wasm' },
     { ...selfHostedEnv, GUARD_RUNTIME_URL: '' },
     { ...selfHostedEnv, GUARD_RUNTIME_URL: 'guard-runtime:3101' },
     { ...selfHostedEnv, GUARD_RUNTIME_URL: 'ftp://guard-runtime:3101' },
-    { ...selfHostedEnv, GUARD_RUNTIME_URL: `http://agent:${guardRuntimeToken}@guard-runtime:3101` },
+    { ...selfHostedEnv, GUARD_RUNTIME_URL: `http://agent:${proposalToken}@guard-runtime:3101` },
     { ...selfHostedEnv, GUARD_RUNTIME_URL: 'http://guard-runtime:3101/?runtime=1' },
-    { ...selfHostedEnv, GUARD_RUNTIME_TOKEN: 'short-token' },
-    { ...selfHostedEnv, GUARD_RUNTIME_TOKEN: baseEnv.GATEWAY_SERVICE_TOKEN },
-    { ...selfHostedEnv, GUARD_RUNTIME_AGENT_ID: '' },
-    { ...selfHostedEnv, GUARD_RUNTIME_AGENT_ID: 'agent proposal' },
+    { ...selfHostedEnv, GUARD_RUNTIME_PROPOSAL_TOKEN: 'short-token' },
+    { ...selfHostedEnv, GUARD_RUNTIME_EXECUTOR_TOKEN: proposalToken },
+    { ...selfHostedEnv, GUARD_RUNTIME_EXECUTOR_TOKEN: baseEnv.GATEWAY_SERVICE_TOKEN },
+    { ...selfHostedEnv, GUARD_RUNTIME_PROPOSAL_AGENT_ID: '' },
+    { ...selfHostedEnv, GUARD_RUNTIME_PROPOSAL_AGENT_ID: 'agent proposal' },
+    { ...selfHostedEnv, GUARD_RUNTIME_EXECUTOR_ID: 'agent:proposal' },
     { ...selfHostedEnv, GUARD_RUNTIME_TIMEOUT_MS: '0' },
     { ...selfHostedEnv, GUARD_RUNTIME_TIMEOUT_MS: 'fast' },
+    { ...selfHostedEnv, GATEWAY_SERVICE_TOKEN: '' },
   ]) {
     assert.throws(
-      () => readGatewayConfig(env),
-      (error: unknown) => error instanceof ConfigurationError && !error.message.includes(guardRuntimeToken),
+      () => readSelfHostedGatewayConfig(env),
+      (error: unknown) => error instanceof ConfigurationError
+        && !error.message.includes(proposalToken)
+        && !error.message.includes(executorToken),
     );
   }
 });
