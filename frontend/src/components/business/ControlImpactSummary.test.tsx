@@ -45,8 +45,10 @@ describe('ControlImpactSummary', () => {
   it('keeps absent denominators as NOT OBSERVED instead of inventing zero percent', () => {
     render(<ControlImpactSummary impact={{ ...impact, evaluatedActions: 0, deniedBeforeEgress: 0, finalizedExecutions: 0, verifiedCompleted: 0, blockedRatePct: null, verifiedCompletionRatePct: null, medianDecisionMs: null, medianVerifiedOutcomeMs: null }} loading={false} error={null} window="retained" />);
 
-    expect(screen.getAllByText('NOT OBSERVED').length).toBeGreaterThanOrEqual(4);
+    expect(screen.getAllByText('NOT OBSERVED')).toHaveLength(2);
+    expect(screen.getAllByText('Not yet observed')).toHaveLength(2);
     expect(screen.queryByText('0.0%')).not.toBeInTheDocument();
+    expect(screen.queryByText('0 ms')).not.toBeInTheDocument();
   });
 
   it('changes observation window through the reusable control', async () => {

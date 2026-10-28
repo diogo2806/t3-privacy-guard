@@ -7,7 +7,7 @@ export function AppHeader() {
       <div className="brand-lockup">
         <PrivacyGuardMark />
         <div>
-          <p className="eyebrow">Built on T3 Network</p>
+          <p className="eyebrow">Self-hosted guard runtime</p>
           <h1>T3 Privacy Guard</h1>
           <p className="header-subtitle"><strong>Keep authority outside the model.</strong></p>
           <p className="header-supporting-copy">AI proposes. Policy decides. Humans authorize. Independent verification proves completion.</p>

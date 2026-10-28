@@ -3,7 +3,6 @@ export type DecisionType = 'ALLOW' | 'REDACT' | 'DENY';
 export type ProposalStatus = 'PENDING' | 'EVALUATED' | 'REMEDIATION_AUTHORIZED' | 'REMEDIATED';
 export type DelegationState = 'ACTIVE' | 'SCHEDULED' | 'REVOKED' | 'NOT_GRANTED' | 'UNKNOWN';
 export type EffectiveDelegationState = 'ACTIVE' | 'DENIED' | 'UNKNOWN';
-export type AgentRegistrationState = 'REGISTERED' | 'NOT_REGISTERED' | 'MISMATCH' | 'UNAVAILABLE';
 export type EnterpriseIntegrationState = 'READY' | 'INCOMPLETE' | 'MISMATCH' | 'UNKNOWN';
 export type EnterpriseIntegrationDiagnosticCode =
   | 'NONE'
@@ -12,12 +11,9 @@ export type EnterpriseIntegrationDiagnosticCode =
   | 'PRIVATE_CONFIGURATION_UNAVAILABLE'
   | 'ENDPOINT_CONFIGURATION_INVALID'
   | 'DELEGATION_UNAVAILABLE'
-  | 'INSUFFICIENT_CREDIT'
-  | 'T3N_CONTROL_PLANE_UNAVAILABLE'
   | 'TRUST_RUNTIME_UNAVAILABLE';
-export type EvidenceScenarioStatus = 'PASS' | 'FAIL' | 'NOT_RUN';
 export type RemediationState = 'EXECUTING' | 'PENDING_VERIFICATION' | 'COMPLETED' | 'UNVERIFIED' | 'FAILED';
-export type AuditReconciliationStatus = 'LOCAL_ONLY' | 'T3N_ONLY' | 'MATCHED' | 'UNMATCHED';
+export type AuditReconciliationStatus = 'LOCAL_ONLY' | 'RUNTIME_ONLY' | 'MATCHED' | 'UNMATCHED';
 export type AuditIntegrityState = 'VERIFIED' | 'BROKEN' | 'KEY_MISMATCH' | 'LEGACY_UNVERIFIED' | 'PURGED' | 'NOT_AVAILABLE';
 export type HumanAuthority = 'ANALYST' | 'APPROVER' | 'EXECUTOR' | 'AUDITOR';
 export type BusinessImpactWindow = 'retained' | '24h' | '7d';
@@ -72,11 +68,11 @@ export interface PolicyDecision {
   evaluatedAt: string;
 }
 export interface AuditEvent { id: string; incidentId: string; type: string; message: string; createdAt: string; }
-export interface LocalAuditEvidence extends AuditEvent { status: AuditReconciliationStatus; t3nSequence?: number | null; t3nFunction?: string | null; matchedSequence?: number | null; }
-export interface T3nActivityEvidence { sequence: number; hash: string; timestamp: string; callerType: string; actorDid: string; onBehalfOfDid: string; contractId: string; function: string; outcome: string; status: AuditReconciliationStatus; }
-export interface AuditProvenance { localAvailable: boolean; t3nAvailable: boolean; t3nComplete: boolean; matched: number; unmatched: number; localOnly: number; t3nOnly: number; message: string; }
+export interface LocalAuditEvidence extends AuditEvent { status: AuditReconciliationStatus; runtimeSequence?: number | null; runtimeFunction?: string | null; matchedSequence?: number | null; }
+export interface RuntimeActivityEvidence { sequence: number; hash: string; timestamp: string; callerType: string; actorDid: string; onBehalfOfDid: string; contractId: string; function: string; outcome: string; status: AuditReconciliationStatus; }
+export interface AuditProvenance { localAvailable: boolean; runtimeAvailable: boolean; runtimeComplete: boolean; matched: number; unmatched: number; localOnly: number; runtimeOnly: number; message: string; }
 export interface AuditIntegrity { state: AuditIntegrityState; eventsChecked: number; head?: string | null; version?: string | null; detail: string; }
-export interface AuditEvidence { localEvents: LocalAuditEvidence[]; t3nEvents: T3nActivityEvidence[]; provenance: AuditProvenance; integrity: AuditIntegrity; nextSequence?: number | null; limit: number; }
+export interface AuditEvidence { localEvents: LocalAuditEvidence[]; runtimeEvents: RuntimeActivityEvidence[]; provenance: AuditProvenance; integrity: AuditIntegrity; nextSequence?: number | null; limit: number; }
 export interface ExecutionTraceEvent { id: string; incidentId: string; actionId: string; traceId: string; requestId: string; stage: string; state: string; reasonCode?: string | null; durationMs?: number | null; createdAt: string; }
 export interface OperatorSession { authenticated: boolean; username?: string | null; authorities?: HumanAuthority[]; enterpriseSeparationOfDuties?: boolean; }
 export interface AgentAnalysis { provider: string; model: string; incident: Incident; action: ActionProposal; decision: PolicyDecision; }
@@ -103,7 +99,7 @@ export interface BusinessImpact {
 }
 export interface EnterpriseVerificationContract { action: string; expectedState: string; }
 export interface SystemStatus {
-  gatewayReachable: boolean;
+  runtimeReachable: boolean;
   tenantAuthenticated: boolean;
   network?: string | null;
   tenantDid?: string | null;
@@ -113,14 +109,6 @@ export interface SystemStatus {
   executorConfigured: boolean;
   executorAuthenticated: boolean;
   executorDid?: string | null;
-  agentRegistrationState: AgentRegistrationState;
-  agentCardUri?: string | null;
-  agentCardSha256?: string | null;
-  agentCardVerifiedAt?: string | null;
-  agentCardServices: string[];
-  a2aConfigured: boolean;
-  a2aPublicUrl?: string | null;
-  a2aConfigurationCheckedAt?: string | null;
   contractResolved: boolean;
   contractId?: string | null;
   contractVersion?: string | null;
@@ -160,32 +148,35 @@ export interface SystemStatus {
   executorDelegationCheckedScopes: string[];
   message: string;
 }
-export interface EvidenceMetadata {
-  source: 'T3N_TESTNET';
-  generatedAt: string;
-  sourceCommitSha: string;
-  sourceTreeClean: boolean;
-  network: string;
-  sdkVersion: string;
-  tenantDid: string;
-  agentDid: string;
-  executorDid: string;
-  agentRegistrationState: AgentRegistrationState;
-  agentCardUri?: string | null;
-  agentCardSha256?: string | null;
-  agentCardVerifiedAt: string;
-  agentCardServices: string[];
-  contractId: string;
-  contractVersion: string;
-  wasmSha256: string;
-  policyVersion: string;
-  policyHash: string;
-  trustAnchorVerified: boolean;
-  trustManifestFloorPersisted: boolean;
-  trustManifestVersion: number;
+
+// Wire names and values that predate the self-hosted guard-runtime. The backend keeps them for compatibility, so they
+// are translated once here and the rest of the UI only sees runtime-neutral names.
+type WireDiagnosticCode = EnterpriseIntegrationDiagnosticCode | 'T3N_CONTROL_PLANE_UNAVAILABLE';
+type WireReconciliationStatus = Exclude<AuditReconciliationStatus, 'RUNTIME_ONLY'> | 'T3N_ONLY';
+interface SystemStatusWire extends Omit<SystemStatus, 'enterpriseIntegrationDiagnosticCode'> { enterpriseIntegrationDiagnosticCode?: WireDiagnosticCode; }
+interface LocalAuditEvidenceWire extends AuditEvent { status: WireReconciliationStatus; t3nSequence?: number | null; t3nFunction?: string | null; matchedSequence?: number | null; }
+interface RuntimeActivityEvidenceWire extends Omit<RuntimeActivityEvidence, 'status'> { status: WireReconciliationStatus; }
+interface AuditProvenanceWire { localAvailable: boolean; t3nAvailable: boolean; t3nComplete: boolean; matched: number; unmatched: number; localOnly: number; t3nOnly: number; message: string; }
+interface AuditEvidenceWire { localEvents: LocalAuditEvidenceWire[]; t3nEvents: RuntimeActivityEvidenceWire[]; provenance: AuditProvenanceWire; integrity: AuditIntegrity; nextSequence?: number | null; limit: number; }
+
+function toSystemStatus({ enterpriseIntegrationDiagnosticCode: code, ...status }: SystemStatusWire): SystemStatus {
+  if (code === undefined) return status;
+  return { ...status, enterpriseIntegrationDiagnosticCode: code === 'T3N_CONTROL_PLANE_UNAVAILABLE' ? 'TRUST_RUNTIME_UNAVAILABLE' : code };
 }
-export interface EvidenceScenario { id: string; expected: string; actual?: string | null; status: EvidenceScenarioStatus; detail?: string | null; }
-export interface EvidenceBundle { metadata: EvidenceMetadata; scenarios: EvidenceScenario[]; totals: { pass: number; fail: number; notRun: number }; }
+
+function toReconciliationStatus(status: WireReconciliationStatus): AuditReconciliationStatus {
+  return status === 'T3N_ONLY' ? 'RUNTIME_ONLY' : status;
+}
+
+function toAuditEvidence({ localEvents, t3nEvents, provenance, ...evidence }: AuditEvidenceWire): AuditEvidence {
+  const { t3nAvailable, t3nComplete, t3nOnly, ...counts } = provenance;
+  return {
+    ...evidence,
+    localEvents: localEvents.map(({ t3nSequence, t3nFunction, ...event }) => ({ ...event, status: toReconciliationStatus(event.status), runtimeSequence: t3nSequence, runtimeFunction: t3nFunction })),
+    runtimeEvents: t3nEvents.map((event) => ({ ...event, status: toReconciliationStatus(event.status) })),
+    provenance: { ...counts, runtimeAvailable: t3nAvailable, runtimeComplete: t3nComplete, runtimeOnly: t3nOnly },
+  };
+}
 
 interface CsrfState { token: string; headerName: string; }
 let csrfState: CsrfState | null = null;
@@ -248,8 +239,7 @@ export const privacyGuardApi = {
   currentSession: () => operatorSessionState,
   login: async (input: { username: string; password: string }) => { const session = await loadSession('/api/auth/login', { method: 'POST', body: JSON.stringify(input) }); csrfState = null; return session; },
   logout: async () => { await api<void>('/api/auth/logout', { method: 'POST' }); csrfState = null; operatorSessionState = null; },
-  systemStatus: () => api<SystemStatus>('/api/system/status'),
-  latestEvidence: () => api<EvidenceBundle>('/api/evidence/latest'),
+  systemStatus: async () => toSystemStatus(await api<SystemStatusWire>('/api/system/status')),
   businessImpact: (window: BusinessImpactWindow = 'retained') => api<BusinessImpact>(`/api/business-impact?window=${encodeURIComponent(window)}`),
   incidentWorkspace: () => api<IncidentWorkspace>('/api/incident-workspace'),
   analyzeAgent: (prompt: string) => api<AgentAnalysis>('/api/agent/analyze', { method: 'POST', body: JSON.stringify({ prompt }) }),
@@ -267,5 +257,5 @@ export const privacyGuardApi = {
   verifyRemediation: (incidentId: string, actionId: string) => api<RemediationExecution>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/verify-remediation`, { method: 'POST' }),
   executionTrace: (incidentId: string, actionId: string) => api<ExecutionTraceEvent[]>(`/api/incidents/${encodeURIComponent(incidentId)}/actions/${encodeURIComponent(actionId)}/trace`),
   history: (incidentId: string) => api<AuditEvent[]>(`/api/incidents/${encodeURIComponent(incidentId)}/history`),
-  auditEvidence: (incidentId: string, limit = 100) => api<AuditEvidence>(`/api/incidents/${encodeURIComponent(incidentId)}/audit-evidence?limit=${encodeURIComponent(String(limit))}`),
+  auditEvidence: async (incidentId: string, limit = 100) => toAuditEvidence(await api<AuditEvidenceWire>(`/api/incidents/${encodeURIComponent(incidentId)}/audit-evidence?limit=${encodeURIComponent(String(limit))}`)),
 };

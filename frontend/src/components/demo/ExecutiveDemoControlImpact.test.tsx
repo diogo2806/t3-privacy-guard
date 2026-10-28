@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { BusinessImpact } from '../../services/privacyGuardApi';
 import { DEFAULT_ENTERPRISE_SCENARIO } from '../scenarios/scenarioDefinitions';
 import { ExecutiveDemoView } from './ExecutiveDemoView';
@@ -40,10 +40,6 @@ describe('ExecutiveDemoView control impact', () => {
         businessImpact={impact}
         businessImpactLoading={false}
         businessImpactError={null}
-        evidence={null}
-        evidenceLoading={false}
-        evidenceError={null}
-        onOpenEvidence={vi.fn()}
       />,
     );
 

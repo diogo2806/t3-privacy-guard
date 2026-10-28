@@ -39,11 +39,11 @@ describe('EnterpriseScenarioCatalog', () => {
     expect(onSelect.mock.calls[0][0].id).toBe('account-takeover');
   });
 
-  it('keeps every preset synthetic and never embeds raw T3N placeholders or email addresses', () => {
+  it('keeps every preset synthetic and never embeds raw profile placeholders, credential literals or email addresses', () => {
     for (const scenario of ENTERPRISE_SCENARIOS) {
       expect(scenario.prompt).not.toMatch(/\{\{profile\./i);
       expect(scenario.prompt).not.toMatch(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
-      expect(scenario.prompt).not.toMatch(/t3n[_-]?api[_-]?key\s*[:=]/i);
+      expect(scenario.prompt).not.toMatch(/api[_-]?key\s*[:=]/i);
     }
     expect(ENTERPRISE_SCENARIOS.find((scenario) => scenario.id === 'notify-security-contact')?.prompt).toContain('verified_email');
   });

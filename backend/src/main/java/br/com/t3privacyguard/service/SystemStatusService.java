@@ -182,7 +182,7 @@ public class SystemStatusService {
     }
 
     public record SystemStatusResponse(
-        boolean gatewayReachable,
+        boolean runtimeReachable,
         boolean tenantAuthenticated,
         String network,
         String tenantDid,

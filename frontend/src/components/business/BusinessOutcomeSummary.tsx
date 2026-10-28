@@ -1,6 +1,5 @@
 import { BriefcaseBusiness, CheckCircle2, CircleAlert, Clock3, ShieldCheck } from 'lucide-react';
 import type { ActionProposal, AgentAnalysis, Incident, PolicyDecision, RemediationExecution } from '../../services/privacyGuardApi';
-import { useTrustRuntime } from '../../services/trustRuntime';
 import type { EnterpriseScenarioDefinition } from '../scenarios/scenarioDefinitions';
 import { SectionHeader } from '../ui/SectionHeader';
 import { Surface } from '../ui/Surface';
@@ -32,10 +31,10 @@ function elapsedMs(start?: string | null, end?: string | null): number | null {
 export function formatObservedDuration(milliseconds: number | null): string {
   if (milliseconds === null) return NOT_OBSERVED;
   if (milliseconds < 1_000) return `${Math.round(milliseconds)} ms`;
-  if (milliseconds <= 60_000) return `${(milliseconds / 1_000).toFixed(1)} s`;
-  const minutes = Math.floor(milliseconds / 60_000);
-  const seconds = (milliseconds % 60_000) / 1_000;
-  return `${minutes}m ${seconds.toFixed(1)}s`;
+  // Round in whole tenths of a second: toFixed on the float would show 4850 ms as 4.8 s.
+  const tenths = Math.round(milliseconds / 100);
+  if (milliseconds <= 60_000) return `${(tenths / 10).toFixed(1)} s`;
+  return `${Math.floor(tenths / 600)}m ${((tenths % 600) / 10).toFixed(1)}s`;
 }
 
 function list(values: string[]): string {
@@ -109,7 +108,6 @@ function currentResult(
   responseAction: ActionProposal | null,
   responseDecision: PolicyDecision | null,
   execution: RemediationExecution | null,
-  runtimeName: string,
 ): string {
   if (execution?.state === 'COMPLETED') {
     return responseAction?.action === 'notify-security'
@@ -123,13 +121,13 @@ function currentResult(
   if (isAuthorized(responseAction)) return 'Authorized. Protected execution has not started.';
   if (executableProtectedDecision(responseAction, responseDecision)) {
     return responseDecision?.decision === 'REDACT'
-      ? `${runtimeName} minimized the request to an executable minimum. Human authorization is still required.`
+      ? 'Guard runtime minimized the request to an executable minimum. Human authorization is still required.'
       : 'Policy allows the action. Human authorization is still required.';
   }
-  if (responseDecision?.decision === 'REDACT') return `${runtimeName} requires a smaller data scope before execution.`;
-  if (responseDecision?.decision === 'DENY') return `${runtimeName} blocked the proposed action before protected egress.`;
-  if (threatDecision?.decision === 'DENY') return `${runtimeName} blocked the proposed action before protected egress.`;
-  if (threatDecision?.decision === 'REDACT') return `${runtimeName} requires a smaller data scope before execution.`;
+  if (responseDecision?.decision === 'REDACT') return 'Guard runtime requires a smaller data scope before execution.';
+  if (responseDecision?.decision === 'DENY') return 'Guard runtime blocked the proposed action before protected egress.';
+  if (threatDecision?.decision === 'DENY') return 'Guard runtime blocked the proposed action before protected egress.';
+  if (threatDecision?.decision === 'REDACT') return 'Guard runtime requires a smaller data scope before execution.';
   if (threatDecision?.decision === 'ALLOW') return 'Policy allows the proposal to continue, but that is not authorization or execution.';
   return 'No threat has been analyzed yet.';
 }
@@ -152,7 +150,6 @@ function completedTitle(action: ActionProposal | null): string {
 }
 
 export function BusinessOutcomeSummary({ scenario, incident, selectedAction, decision, remediationExecution, agentAnalysis }: Props) {
-  const runtimeName = useTrustRuntime().name;
   const threatAction = agentAnalysis?.action ?? selectedAction;
   const threatDecision = agentAnalysis?.decision ?? decision;
   const policyDecisionTime = formatObservedDuration(elapsedMs(threatAction?.createdAt, threatDecision?.evaluatedAt));
@@ -162,7 +159,7 @@ export function BusinessOutcomeSummary({ scenario, incident, selectedAction, dec
   const verifiedOutcomeTime = remediationExecution?.state === 'COMPLETED' && remediationExecution.completedAt && verifiedOutcomeMs !== null
     ? formatObservedDuration(verifiedOutcomeMs)
     : NOT_VERIFIED;
-  const outcomeText = currentResult(threatDecision, selectedAction, decision, remediationExecution, runtimeName);
+  const outcomeText = currentResult(threatDecision, selectedAction, decision, remediationExecution);
   const successful = remediationExecution?.state === 'COMPLETED';
   const unresolved = remediationExecution?.state === 'FAILED' || remediationExecution?.state === 'UNVERIFIED';
 
@@ -201,8 +198,8 @@ export function BusinessOutcomeSummary({ scenario, incident, selectedAction, dec
           </dl>
         </section>
 
-        <section className="business-outcome-section" aria-labelledby="t3n-control-title">
-          <div className="business-outcome-section-heading"><ShieldCheck aria-hidden="true" /><h3 id="t3n-control-title">{runtimeName} control outcome</h3></div>
+        <section className="business-outcome-section" aria-labelledby="runtime-control-title">
+          <div className="business-outcome-section-heading"><ShieldCheck aria-hidden="true" /><h3 id="runtime-control-title">Guard runtime control outcome</h3></div>
           <dl className="business-outcome-grid">
             <div><dt>Policy decision</dt><dd>{threatDecision?.decision ?? NOT_OBSERVED}</dd></div>
             <div><dt>Reason code</dt><dd>{threatDecision?.reasonCode ?? NOT_OBSERVED}</dd></div>

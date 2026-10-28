@@ -6,7 +6,6 @@ import type {
   RemediationExecution,
   SystemStatus,
 } from '../../services/privacyGuardApi';
-import { trustRuntimeOf } from '../../services/trustRuntime';
 import { Button } from '../ui/Button';
 
 interface Props {
@@ -23,25 +22,25 @@ interface Props {
 type StepTone = 'pending' | 'info' | 'success' | 'warning' | 'danger';
 interface TrustStep { label: string; state: string; detail: string; tone: StepTone; icon: LucideIcon; }
 
-function readinessState(status: SystemStatus | null, loading: boolean, runtimeName: string): { className: string; label: string } {
-  if (loading) return { className: 'trust-readiness-pending', label: `Checking ${runtimeName}` };
+function readinessState(status: SystemStatus | null, loading: boolean): { className: string; label: string } {
+  if (loading) return { className: 'trust-readiness-pending', label: 'Checking Guard runtime' };
   if (status?.protectedRemediationReady && status.enterpriseIntegrationReady) {
-    return { className: 'trust-readiness-ready', label: `${runtimeName} + external execution ready` };
+    return { className: 'trust-readiness-ready', label: 'Guard runtime + external execution ready' };
   }
   if (status?.protectedRemediationReady) {
     if (status.enterpriseIntegrationState === 'INCOMPLETE') {
-      return { className: 'trust-readiness-pending', label: `${runtimeName} authorization ready · external execution not configured` };
+      return { className: 'trust-readiness-pending', label: 'Guard runtime authorization ready · external execution not configured' };
     }
     if (status.enterpriseIntegrationState === 'MISMATCH') {
-      return { className: 'trust-readiness-pending', label: `${runtimeName} authorization ready · external integration mismatch` };
+      return { className: 'trust-readiness-pending', label: 'Guard runtime authorization ready · external integration mismatch' };
     }
-    return { className: 'trust-readiness-pending', label: `${runtimeName} authorization ready · external execution unconfirmed` };
+    return { className: 'trust-readiness-pending', label: 'Guard runtime authorization ready · external execution unconfirmed' };
   }
   if (status?.evaluationReady) return { className: 'trust-readiness-pending', label: 'Evaluation ready · execution blocked' };
-  if (status?.delegationMemberState === 'SCHEDULED' || status?.executorDelegationMemberState === 'SCHEDULED') return { className: 'trust-readiness-pending', label: 'Member grant scheduled' };
+  if (status?.delegationMemberState === 'SCHEDULED' || status?.executorDelegationMemberState === 'SCHEDULED') return { className: 'trust-readiness-pending', label: 'Function grant scheduled' };
   if (status?.delegationEffectiveState === 'DENIED' || status?.executorDelegationEffectiveState === 'DENIED') return { className: 'trust-readiness-unavailable', label: 'Effective access denied' };
   if (status?.delegationEffectiveState === 'UNKNOWN' || status?.executorDelegationEffectiveState === 'UNKNOWN') return { className: 'trust-readiness-unavailable', label: 'Effective access unknown' };
-  return { className: 'trust-readiness-unavailable', label: `${runtimeName} controls unavailable` };
+  return { className: 'trust-readiness-unavailable', label: 'Guard runtime controls unavailable' };
 }
 
 function isHumanAuthorized(action: ActionProposal | null): boolean {
@@ -52,14 +51,13 @@ function blockedExecutionDetail(
   decision: PolicyDecision | null,
   authorized: boolean,
   status: SystemStatus | null,
-  runtimeName: string,
 ): string {
   if (decision?.decision === 'ALLOW' && authorized) {
     if (status?.protectedRemediationReady && !status.enterpriseIntegrationReady) {
-      return `${runtimeName} authorization is ready, but the external execution integration is not configured or not ready.`;
+      return 'Guard runtime authorization is ready, but the external execution integration is not configured or not ready.';
     }
     if (!status?.protectedRemediationReady) {
-      return `Human authorization is recorded, but Protected Executor ${runtimeName} access is not ready.`;
+      return 'Human authorization is recorded, but Protected Executor Guard runtime access is not ready.';
     }
   }
   return 'No protected side effect is available yet.';
@@ -71,7 +69,6 @@ function trustSteps(
   selectedAction: ActionProposal | null,
   execution: RemediationExecution | null,
   status: SystemStatus | null,
-  runtimeName: string,
 ): TrustStep[] {
   const proposalReceived = Boolean(agentAnalysis || selectedAction);
   const authorized = isHumanAuthorized(selectedAction);
@@ -97,37 +94,37 @@ function trustSteps(
 
   return [
     { label: 'AI', state: proposalReceived ? 'RECEIVED' : 'WAITING', detail: proposalReceived ? 'A structured action proposal exists. The Proposal Agent can request policy evaluation but cannot execute protected actions.' : 'Waiting for an agent proposal.', tone: proposalReceived ? 'info' : 'pending', icon: BrainCircuit },
-    { label: 'Policy', state: decision?.decision ?? (selectedAction?.status === 'PENDING' ? 'PENDING' : 'WAITING'), detail: !decision ? `${runtimeName} policy has not produced a decision yet.` : decision.decision === 'ALLOW' ? 'Policy allows the proposal to continue; it does not execute automatically.' : decision.decision === 'REDACT' ? 'The proposal must be minimized before it may continue.' : 'Policy blocked the proposal before protected egress.', tone: policyTone, icon: ShieldCheck },
-    { label: 'Human', state: humanState, detail: humanState === 'AUTHORIZED' ? 'Authorization is recorded and bound to the current Protected Executor DID.' : humanState === 'REQUIRED' ? 'A human must authorize before the Protected Executor may be invoked.' : 'Human authorization applies only after an ALLOW decision.', tone: humanTone, icon: UserCheck },
-    { label: 'Execute', state: executionState, detail: executionState === 'BLOCKED' ? blockedExecutionDetail(decision, authorized, status, runtimeName) : executionState === 'READY' ? 'The authorized request may invoke the separate Protected Executor and configured external integration.' : executionState === 'EXECUTING' ? 'The Protected Executor durably claimed execution and it is in progress.' : executionState === 'ACCEPTED' ? 'The external action was accepted; acceptance is not completion.' : executionState === 'UNVERIFIED' ? 'The external outcome is ambiguous and is not reported as completed.' : 'Execution failed without verified completion.', tone: executionTone, icon: ServerCog },
+    { label: 'Policy', state: decision?.decision ?? (selectedAction?.status === 'PENDING' ? 'PENDING' : 'WAITING'), detail: !decision ? 'Guard runtime policy has not produced a decision yet.' : decision.decision === 'ALLOW' ? 'Policy allows the proposal to continue; it does not execute automatically.' : decision.decision === 'REDACT' ? 'The proposal must be minimized before it may continue.' : 'Policy blocked the proposal before protected egress.', tone: policyTone, icon: ShieldCheck },
+    { label: 'Human', state: humanState, detail: humanState === 'AUTHORIZED' ? 'Authorization is recorded and bound to the current Protected Executor identity.' : humanState === 'REQUIRED' ? 'A human must authorize before the Protected Executor may be invoked.' : 'Human authorization applies only after an ALLOW decision.', tone: humanTone, icon: UserCheck },
+    { label: 'Execute', state: executionState, detail: executionState === 'BLOCKED' ? blockedExecutionDetail(decision, authorized, status) : executionState === 'READY' ? 'The authorized request may invoke the separate Protected Executor and configured external integration.' : executionState === 'EXECUTING' ? 'The Protected Executor durably claimed execution and it is in progress.' : executionState === 'ACCEPTED' ? 'The external action was accepted; acceptance is not completion.' : executionState === 'UNVERIFIED' ? 'The external outcome is ambiguous and is not reported as completed.' : 'Execution failed without verified completion.', tone: executionTone, icon: ServerCog },
     { label: 'Verify', state: verificationState, detail: verificationState === 'VERIFIED' ? 'Independent read-back confirmed the expected external state.' : verificationState === 'PENDING' ? 'Completion is waiting for independent read-back.' : verificationState === 'UNVERIFIED' ? 'Independent verification did not prove completion.' : 'No verified completion is claimed yet.', tone: verificationTone, icon: BadgeCheck },
   ];
 }
 
-function externalIntegrationMessage(status: SystemStatus, runtimeName: string): string | null {
+function externalIntegrationMessage(status: SystemStatus): string | null {
   if (!status.protectedRemediationReady || status.enterpriseIntegrationReady) return null;
   if (status.enterpriseIntegrationState === 'INCOMPLETE') {
-    return `${runtimeName} Proposal and Protected Executor authorization are ready. External execution remains blocked until an enterprise execution and verification integration is configured.`;
+    return 'Guard runtime Proposal and Protected Executor authorization are ready. External execution remains blocked until an enterprise execution and verification integration is configured.';
   }
   if (status.enterpriseIntegrationState === 'MISMATCH') {
-    return `${runtimeName} authorization is ready, but the configured external integration does not match policy or delegation. Execution remains blocked.`;
+    return 'Guard runtime authorization is ready, but the configured external integration does not match policy or executor grants. Execution remains blocked.';
   }
-  return `${runtimeName} authorization is ready, but external execution readiness could not be confirmed. Execution remains blocked.`;
+  return 'Guard runtime authorization is ready, but external execution readiness could not be confirmed. Execution remains blocked.';
 }
 
-function resultMessage(decision: PolicyDecision | null, selectedAction: ActionProposal | null, execution: RemediationExecution | null, statusLoading: boolean, proposalReceived: boolean, status: SystemStatus | null, runtimeName: string): string {
-  if (!statusLoading && status?.delegationMemberState === 'SCHEDULED') return 'The Proposal Member grant is scheduled, so policy evaluation is not ready.';
-  if (!statusLoading && status?.delegationEffectiveState === 'DENIED') return `${runtimeName} denied the effective access required for evaluation. The system fails closed.`;
-  if (!statusLoading && status?.delegationEffectiveState === 'UNKNOWN') return `Proposal effective ${runtimeName} access could not be confirmed. The system fails closed.`;
+function resultMessage(decision: PolicyDecision | null, selectedAction: ActionProposal | null, execution: RemediationExecution | null, statusLoading: boolean, proposalReceived: boolean, status: SystemStatus | null): string {
+  if (!statusLoading && status?.delegationMemberState === 'SCHEDULED') return 'The Proposal function grant is scheduled, so policy evaluation is not ready.';
+  if (!statusLoading && status?.delegationEffectiveState === 'DENIED') return 'Guard runtime denied the effective access required for evaluation. The system fails closed.';
+  if (!statusLoading && status?.delegationEffectiveState === 'UNKNOWN') return 'Proposal effective Guard runtime access could not be confirmed. The system fails closed.';
   if (!statusLoading && status?.evaluationReady && !status.protectedRemediationReady) {
-    if (status.executorDelegationEffectiveState === 'DENIED') return `Policy evaluation is ready, but ${runtimeName} denied Protected Executor access. Execution remains blocked.`;
+    if (status.executorDelegationEffectiveState === 'DENIED') return 'Policy evaluation is ready, but Guard runtime denied Protected Executor access. Execution remains blocked.';
     return 'Policy evaluation is ready, but Protected Executor access is not confirmed. Execution remains blocked.';
   }
-  if (!statusLoading && !status?.evaluationReady) return `${runtimeName} controls are unavailable or incomplete. A Member grant alone is never treated as authorization.`;
+  if (!statusLoading && !status?.evaluationReady) return 'Guard runtime controls are unavailable or incomplete. A function grant alone is never treated as authorization.';
 
-  const integrationMessage = !statusLoading && status ? externalIntegrationMessage(status, runtimeName) : null;
+  const integrationMessage = !statusLoading && status ? externalIntegrationMessage(status) : null;
   if (!proposalReceived) return integrationMessage ?? 'Analyze a synthetic scenario. The AI can propose, but it cannot authorize or execute.';
-  if (!decision) return selectedAction?.status === 'PENDING' ? `The proposal is waiting for ${runtimeName} policy evaluation.` : `A proposal exists, but ${runtimeName} policy has not produced a decision yet.`;
+  if (!decision) return selectedAction?.status === 'PENDING' ? 'The proposal is waiting for Guard runtime policy evaluation.' : 'A proposal exists, but Guard runtime policy has not produced a decision yet.';
   if (decision.decision === 'DENY') return 'Proposal blocked before protected egress. No execution is claimed.';
   if (decision.decision === 'REDACT') return 'Data minimization is required before the action may continue.';
   if (!isHumanAuthorized(selectedAction)) return 'Human authorization is the next required action before protected execution.';
@@ -141,10 +138,9 @@ function resultMessage(decision: PolicyDecision | null, selectedAction: ActionPr
 }
 
 export function TrustFlowSummary({ agentAnalysis, decision, selectedAction, remediationExecution, systemStatus, statusLoading, busy = false, onRetryEvaluation }: Props) {
-  const runtimeName = trustRuntimeOf(systemStatus).name;
-  const steps = trustSteps(agentAnalysis, decision, selectedAction, remediationExecution, systemStatus, runtimeName);
+  const steps = trustSteps(agentAnalysis, decision, selectedAction, remediationExecution, systemStatus);
   const proposalReceived = Boolean(agentAnalysis || selectedAction);
-  const readiness = readinessState(systemStatus, statusLoading, runtimeName);
+  const readiness = readinessState(systemStatus, statusLoading);
 
   return (
     <section className="trust-flow card" aria-labelledby="trust-flow-title">
@@ -162,13 +158,13 @@ export function TrustFlowSummary({ agentAnalysis, decision, selectedAction, reme
               <span>{index + 1}. {step.label}</span>
               <strong>{step.state}</strong>
               <details className="trust-step-details"><summary>Why</summary><small>{step.detail}</small></details>
-              {retryHere && <Button variant="secondary" onClick={onRetryEvaluation} disabled={busy}>Retry {runtimeName} evaluation</Button>}
+              {retryHere && <Button variant="secondary" onClick={onRetryEvaluation} disabled={busy}>Retry Guard runtime evaluation</Button>}
             </div>
             {index < steps.length - 1 && <ArrowRight className="trust-step-arrow" aria-hidden="true" />}
           </li>;
         })}
       </ol>
-      <div className="trust-result" aria-live="polite"><span>Current result</span><strong>{resultMessage(decision, selectedAction, remediationExecution, statusLoading, proposalReceived, systemStatus, runtimeName)}</strong></div>
+      <div className="trust-result" aria-live="polite"><span>Current result</span><strong>{resultMessage(decision, selectedAction, remediationExecution, statusLoading, proposalReceived, systemStatus)}</strong></div>
     </section>
   );
 }

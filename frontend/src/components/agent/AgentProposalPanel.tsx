@@ -1,6 +1,5 @@
 import { Bot, Cpu, ShieldCheck } from 'lucide-react';
 import type { AgentAnalysis } from '../../services/privacyGuardApi';
-import { useTrustRuntime } from '../../services/trustRuntime';
 import { InlineNotice } from '../ui/InlineNotice';
 import { SectionHeader } from '../ui/SectionHeader';
 import { Surface } from '../ui/Surface';
@@ -10,7 +9,6 @@ const privateRefLabel: Record<string, string> = {
 };
 
 export function AgentProposalPanel({ analysis }: { analysis: AgentAnalysis | null }) {
-  const runtimeName = useTrustRuntime().name;
   if (!analysis) return null;
   const proposal = analysis.action;
   const hasPrivateRefs = proposal.privateRefs.length > 0;
@@ -32,12 +30,12 @@ export function AgentProposalPanel({ analysis }: { analysis: AgentAnalysis | nul
           <dl className="privacy-boundary-grid">
             <div><dt>Plaintext visible to agent</dt><dd>NO</dd></div>
             <div><dt>Plaintext visible to Java</dt><dd>NO</dd></div>
-            <div><dt>Resolved by {runtimeName} at egress</dt><dd>YES, when protected execution runs</dd></div>
+            <div><dt>Resolved by Guard runtime at egress</dt><dd>YES, when protected execution runs</dd></div>
           </dl>
           <p className="card-copy">The agent received a logical reference, not the private value. The application never renders the resolved plaintext.</p>
         </div>
       )}
-      <InlineNotice className="agent-authority-note">This card shows the most recent provider response. Persisted action and audit history distinguish each proposal in the incident. The model proposes field names only; it cannot supply the operational values that are executed. Synthetic normal values are created and persisted by the trusted backend, while {runtimeName} decides which of those values may reach protected egress.</InlineNotice>
+      <InlineNotice className="agent-authority-note">This card shows the most recent provider response. Persisted action and audit history distinguish each proposal in the incident. The model proposes field names only; it cannot supply the operational values that are executed. Synthetic normal values are created and persisted by the trusted backend, while Guard runtime decides which of those values may reach protected egress.</InlineNotice>
     </Surface>
   );
 }

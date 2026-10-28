@@ -11,11 +11,12 @@ import { EnterpriseIntegrationStatus } from './EnterpriseIntegrationStatus';
 function status(
   state: EnterpriseIntegrationState,
   adapterConfigured = true,
-  diagnosticCode: EnterpriseIntegrationDiagnosticCode = state === 'UNKNOWN' ? 'T3N_CONTROL_PLANE_UNAVAILABLE' : 'NONE',
+  diagnosticCode: EnterpriseIntegrationDiagnosticCode = state === 'UNKNOWN' ? 'TRUST_RUNTIME_UNAVAILABLE' : 'NONE',
 ): SystemStatus {
   const ready = state === 'READY';
   const unknown = state === 'UNKNOWN';
   return {
+    network: 'selfhosted',
     protectedRemediationReady: true,
     enterpriseIntegrationState: state,
     enterpriseIntegrationDiagnosticCode: diagnosticCode,
@@ -39,7 +40,7 @@ function status(
 }
 
 describe('EnterpriseIntegrationStatus', () => {
-  it('shows READY only for coherent configuration, T3N protected readiness and the first-party adapter', () => {
+  it('shows READY only for coherent configuration, Guard runtime protected readiness and the first-party adapter', () => {
     render(<EnterpriseIntegrationStatus status={status('READY')} loading={false} />);
     expect(screen.getAllByText('READY').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByRole('heading', { name: 'Protected execution integration' })).toBeInTheDocument();
@@ -50,10 +51,11 @@ describe('EnterpriseIntegrationStatus', () => {
     expect(screen.getByText('create-incident, isolate-account, notify-security')).toBeInTheDocument();
     expect(screen.getByText(/does not claim endpoint health/i)).toBeInTheDocument();
     expect(screen.getByText(/controlled by Privacy Guard/i)).toBeInTheDocument();
+    expect(screen.getByText(/reported separately from Guard runtime authorization/)).toBeInTheDocument();
     expect(screen.queryByText(/Readiness diagnostic:/i)).not.toBeInTheDocument();
   });
 
-  it('keeps the workflow blocked when T3N is ready but the first-party adapter is not configured', () => {
+  it('keeps the workflow blocked when Guard runtime is ready but the first-party adapter is not configured', () => {
     render(<EnterpriseIntegrationStatus status={status('READY', false)} loading={false} />);
     expect(screen.getByText('First-party remediation adapter').parentElement).toHaveTextContent('Not configured');
     expect(screen.getByText('Operational protected workflow').parentElement).toHaveTextContent('NOT READY');
@@ -81,37 +83,36 @@ describe('EnterpriseIntegrationStatus', () => {
     expect(screen.getByText('Independent verification configured').parentElement).toHaveTextContent('Unknown');
     expect(screen.getByText('Execution credential configured').parentElement).toHaveTextContent('Unknown');
     expect(screen.getByText('Policy allows execution host').parentElement).toHaveTextContent('Unknown');
-    expect(screen.getByText('Executor delegation allows execution host').parentElement).toHaveTextContent('Unknown');
+    expect(screen.getByText('Executor grant allows execution host').parentElement).toHaveTextContent('Unknown');
     expect(screen.getByText('Execution host').parentElement).toHaveTextContent('Unknown');
     expect(screen.getByText('Verification host').parentElement).toHaveTextContent('Unknown');
     expect(screen.getByText('First-party remediation adapter').parentElement).toHaveTextContent('Configured');
     expect(screen.getByText('Operational protected workflow').parentElement).toHaveTextContent('NOT READY');
     expect(screen.getByText('POLICY_UNAVAILABLE')).toBeInTheDocument();
-    expect(screen.getByText(/active protected policy could not be read from T3N/i)).toBeInTheDocument();
+    expect(screen.getByText(/active protected policy could not be read from Guard runtime/i)).toBeInTheDocument();
   });
 
-  it('shows insufficient T3N credit as an actionable external provisioning condition without exposing balances or secrets', () => {
-    const { container } = render(
-      <EnterpriseIntegrationStatus status={status('UNKNOWN', true, 'INSUFFICIENT_CREDIT')} loading={false} />,
-    );
-
-    expect(screen.getByText('INSUFFICIENT_CREDIT')).toBeInTheDocument();
-    expect(screen.getByText(/does not have enough credit/i)).toBeInTheDocument();
-    expect(screen.getByText(/replenish T3N account credits and retry provisioning/i)).toBeInTheDocument();
+  it('explains an unreachable Guard runtime with its allowlisted diagnostic', () => {
+    render(<EnterpriseIntegrationStatus status={status('UNKNOWN')} loading={false} />);
+    expect(screen.getByText('TRUST_RUNTIME_UNAVAILABLE')).toBeInTheDocument();
+    expect(screen.getByText(/Guard runtime could not be reached, so readiness could not be confirmed/)).toBeInTheDocument();
     expect(screen.getByText('Operational protected workflow').parentElement).toHaveTextContent('NOT READY');
-    expect(container.textContent).not.toContain('available=');
-    expect(container.textContent).not.toContain('required=');
-    expect(container.textContent).not.toContain('SECURITY_API_KEY');
   });
 
-  it('falls back to a safe control-plane diagnostic for an older backend response', () => {
+  it('falls back to the runtime-unavailable diagnostic when an UNKNOWN status omits the code', () => {
     const olderStatus = status('UNKNOWN');
     delete olderStatus.enterpriseIntegrationDiagnosticCode;
 
     render(<EnterpriseIntegrationStatus status={olderStatus} loading={false} />);
 
-    expect(screen.getByText('T3N_CONTROL_PLANE_UNAVAILABLE')).toBeInTheDocument();
-    expect(screen.getByText(/control-plane readiness could not be confirmed/i)).toBeInTheDocument();
+    expect(screen.getByText('TRUST_RUNTIME_UNAVAILABLE')).toBeInTheDocument();
+    expect(screen.getByText(/Guard runtime could not be reached/i)).toBeInTheDocument();
+  });
+
+  it('explains unconfirmed Executor grants', () => {
+    render(<EnterpriseIntegrationStatus status={status('UNKNOWN', true, 'DELEGATION_UNAVAILABLE')} loading={false} />);
+    expect(screen.getByText('DELEGATION_UNAVAILABLE')).toBeInTheDocument();
+    expect(screen.getByText(/Protected Executor function grants could not be confirmed/i)).toBeInTheDocument();
   });
 
   it('does not expose a full private URL or secret-shaped field', () => {

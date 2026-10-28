@@ -4,7 +4,6 @@ import type {
   EnterpriseIntegrationState,
   SystemStatus,
 } from '../../services/privacyGuardApi';
-import { trustRuntimeOf } from '../../services/trustRuntime';
 import { StatusPill, type PillState } from '../status/StatusPill';
 
 interface Props {
@@ -12,19 +11,14 @@ interface Props {
   loading: boolean;
 }
 
-function diagnosticCopy(runtimeName: string): Record<Exclude<EnterpriseIntegrationDiagnosticCode, 'NONE'>, string> {
-  return {
-    POLICY_UNAVAILABLE: `The active protected policy could not be read from ${runtimeName}.`,
-    POLICY_INVALID: 'The active protected policy could not be validated.',
-    PRIVATE_CONFIGURATION_UNAVAILABLE: `The protected execution configuration could not be read from ${runtimeName}.`,
-    ENDPOINT_CONFIGURATION_INVALID: 'A protected execution endpoint is invalid or is not an HTTPS endpoint.',
-    DELEGATION_UNAVAILABLE: 'Protected Executor delegation could not be confirmed.',
-    // Account credit exists only on T3N, so this copy names T3N in every mode.
-    INSUFFICIENT_CREDIT: 'The authenticated T3N account does not have enough credit for the required control-plane operation. Replenish T3N account credits and retry provisioning.',
-    T3N_CONTROL_PLANE_UNAVAILABLE: `${runtimeName} control-plane readiness could not be confirmed.`,
-    TRUST_RUNTIME_UNAVAILABLE: 'The self-hosted guard-runtime could not be reached, so readiness could not be confirmed.',
-  };
-}
+const DIAGNOSTIC_COPY: Record<Exclude<EnterpriseIntegrationDiagnosticCode, 'NONE'>, string> = {
+  POLICY_UNAVAILABLE: 'The active protected policy could not be read from Guard runtime.',
+  POLICY_INVALID: 'The active protected policy could not be validated.',
+  PRIVATE_CONFIGURATION_UNAVAILABLE: 'The protected execution configuration could not be read from Guard runtime.',
+  ENDPOINT_CONFIGURATION_INVALID: 'A protected execution endpoint is invalid or is not an HTTPS endpoint.',
+  DELEGATION_UNAVAILABLE: 'Protected Executor function grants could not be confirmed.',
+  TRUST_RUNTIME_UNAVAILABLE: 'Guard runtime could not be reached, so readiness could not be confirmed.',
+};
 
 function integrationPillState(state?: EnterpriseIntegrationState): PillState {
   if (state === 'READY') return 'ok';
@@ -50,10 +44,9 @@ function observedHost(host: string | null | undefined, state: EnterpriseIntegrat
 }
 
 export function EnterpriseIntegrationStatus({ status, loading }: Props) {
-  const runtime = trustRuntimeOf(status);
   const integrationState = status?.enterpriseIntegrationState ?? 'UNKNOWN';
   const diagnosticCode: EnterpriseIntegrationDiagnosticCode = status?.enterpriseIntegrationDiagnosticCode
-    ?? (integrationState === 'UNKNOWN' ? (runtime.selfHosted ? 'TRUST_RUNTIME_UNAVAILABLE' : 'T3N_CONTROL_PLANE_UNAVAILABLE') : 'NONE');
+    ?? (integrationState === 'UNKNOWN' ? 'TRUST_RUNTIME_UNAVAILABLE' : 'NONE');
   const operational = Boolean(
     status?.protectedRemediationReady
     && status.enterpriseIntegrationReady
@@ -70,7 +63,7 @@ export function EnterpriseIntegrationStatus({ status, loading }: Props) {
           <h2>Protected execution integration</h2>
           <p>
             {loading
-              ? 'Checking whether protected execution, independent verification, active policy and Executor delegation are coherently configured.'
+              ? 'Checking whether protected execution, independent verification, active policy and Executor grants are coherently configured.'
               : 'This is a read-only configuration and authorization check. It does not execute a remediation and does not claim endpoint health.'}
           </p>
         </div>
@@ -84,8 +77,8 @@ export function EnterpriseIntegrationStatus({ status, loading }: Props) {
         <div className="status-item"><ServerCog aria-hidden="true" /><div><span>First-party remediation adapter</span>{adapterPill(status?.firstPartyRemediationAdapterConfigured, loading)}</div></div>
         <div className="status-item"><ShieldCheck aria-hidden="true" /><div><span>Policy allows execution host</span>{booleanPill(status?.enterprisePolicyAllowsExecutionHost, loading)}</div></div>
         <div className="status-item"><ShieldCheck aria-hidden="true" /><div><span>Policy allows verification host</span>{booleanPill(status?.enterprisePolicyAllowsVerificationHost, loading)}</div></div>
-        <div className="status-item"><ShieldCheck aria-hidden="true" /><div><span>Executor delegation allows execution host</span>{booleanPill(status?.enterpriseExecutorDelegationAllowsExecutionHost, loading)}</div></div>
-        <div className="status-item"><ShieldCheck aria-hidden="true" /><div><span>Executor delegation allows verification host</span>{booleanPill(status?.enterpriseExecutorDelegationAllowsVerificationHost, loading)}</div></div>
+        <div className="status-item"><ShieldCheck aria-hidden="true" /><div><span>Executor grant allows execution host</span>{booleanPill(status?.enterpriseExecutorDelegationAllowsExecutionHost, loading)}</div></div>
+        <div className="status-item"><ShieldCheck aria-hidden="true" /><div><span>Executor grant allows verification host</span>{booleanPill(status?.enterpriseExecutorDelegationAllowsVerificationHost, loading)}</div></div>
         <div className="status-item"><BadgeCheck aria-hidden="true" /><div><span>Operational protected workflow</span><StatusPill state={loading ? 'pending' : operational ? 'ok' : 'off'} label={loading ? 'CHECKING' : operational ? 'READY' : 'NOT READY'} /></div></div>
       </div>
 
@@ -108,9 +101,9 @@ export function EnterpriseIntegrationStatus({ status, loading }: Props) {
 
       <div className="status-footer">
         {!loading && diagnosticCode !== 'NONE' && (
-          <p role="status"><strong>Readiness diagnostic:</strong> <code>{diagnosticCode}</code>. {diagnosticCopy(runtime.name)[diagnosticCode]}</p>
+          <p role="status"><strong>Readiness diagnostic:</strong> <code>{diagnosticCode}</code>. {DIAGNOSTIC_COPY[diagnosticCode]}</p>
         )}
-        <p>The first-party adapter is controlled by Privacy Guard and is reported separately from {runtime.name} authorization. Only canonical hostnames are shown; secrets, private paths, query strings and fragments remain inside the protected configuration boundary.</p>
+        <p>The first-party adapter is controlled by Privacy Guard and is reported separately from Guard runtime authorization. Only canonical hostnames are shown; secrets, private paths, query strings and fragments remain inside the protected configuration boundary.</p>
       </div>
     </section>
   );

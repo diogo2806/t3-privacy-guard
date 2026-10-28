@@ -17,31 +17,31 @@ const matchedEvidence: AuditEvidence = {
   localEvents: [{
     ...localEvent,
     status: 'MATCHED',
-    t3nSequence: 42,
-    t3nFunction: 'evaluate-action',
+    runtimeSequence: 42,
+    runtimeFunction: 'evaluate-action',
     matchedSequence: 42,
   }],
-  t3nEvents: [{
+  runtimeEvents: [{
     sequence: 42,
     hash: 'hash-42',
     timestamp: '2026-09-12T20:00:01Z',
     callerType: 'agent',
-    actorDid: 'did:t3n:agent',
-    onBehalfOfDid: 'did:t3n:tenant',
-    contractId: 'z:tenant:privacy-guard',
+    actorDid: 'agent:proposal',
+    onBehalfOfDid: 'tenant:acme',
+    contractId: 'privacy-guard',
     function: 'evaluate-action',
     outcome: 'success',
     status: 'MATCHED',
   }],
   provenance: {
     localAvailable: true,
-    t3nAvailable: true,
-    t3nComplete: true,
+    runtimeAvailable: true,
+    runtimeComplete: true,
     matched: 1,
     unmatched: 0,
     localOnly: 0,
-    t3nOnly: 0,
-    message: 'T3N activity is available. Reconciliation requires exact sequence, hash, contract, function and the canonical actor for that function.',
+    runtimeOnly: 0,
+    message: 'guard-runtime activity is available. Reconciliation requires exact sequence, hash, contract, function and the canonical actor for that function.',
   },
   integrity: {
     state: 'VERIFIED',
@@ -57,34 +57,47 @@ const matchedEvidence: AuditEvidence = {
 afterEach(() => vi.restoreAllMocks());
 
 describe('AuditTrail', () => {
-  it('shows local HMAC integrity independently from T3N provenance and preserves the actor boundary', async () => {
+  it('shows local HMAC integrity independently from Guard runtime provenance and preserves the actor boundary', async () => {
     vi.spyOn(privacyGuardApi, 'auditEvidence').mockResolvedValue(matchedEvidence);
     render(<AuditTrail events={[localEvent]} />);
 
-    expect(await screen.findByText('T3N Activity Log')).toBeInTheDocument();
+    expect(await screen.findByText('Guard runtime Activity Log')).toBeInTheDocument();
     expect(screen.getByText('Sanitized business audit')).toBeInTheDocument();
     expect(screen.getByLabelText('Local audit integrity: Integrity verified')).toBeInTheDocument();
-    expect(screen.getByText(/Local HMAC integrity and T3N network provenance are independent signals/)).toBeInTheDocument();
+    expect(screen.getByText(/Local HMAC integrity and Guard runtime activity provenance are independent signals/)).toBeInTheDocument();
     expect(screen.getByText(/Proposal Agent for evaluation, Protected Executor for execution and verification/)).toBeInTheDocument();
     expect(screen.getAllByText('Matched')).toHaveLength(3);
     expect(screen.getByText('Sequence 42 · success')).toBeInTheDocument();
-    expect(screen.getByText(/Expected T3N function:/)).toBeInTheDocument();
-    expect(screen.getByText('did:t3n:agent')).toBeInTheDocument();
+    expect(screen.getByText(/Expected Guard runtime function:/)).toBeInTheDocument();
+    expect(screen.getByText('agent:proposal')).toBeInTheDocument();
   });
 
-  it('keeps verified local integrity positive when T3N provenance is unavailable', async () => {
+  it('labels runtime activity without a local match as runtime only', async () => {
     vi.spyOn(privacyGuardApi, 'auditEvidence').mockResolvedValue({
-      localEvents: [{ ...localEvent, status: 'UNMATCHED', t3nFunction: 'evaluate-action' }],
-      t3nEvents: [],
+      ...matchedEvidence,
+      runtimeEvents: [{ ...matchedEvidence.runtimeEvents[0], status: 'RUNTIME_ONLY' }],
+      provenance: { ...matchedEvidence.provenance, matched: 0, runtimeOnly: 1 },
+    });
+    render(<AuditTrail events={[localEvent]} />);
+
+    expect(await screen.findByText('Sequence 42 · success')).toBeInTheDocument();
+    expect(screen.getAllByText('Runtime only')).toHaveLength(2);
+    expect(screen.getByText('Runtime only', { selector: '.audit-status' })).toHaveClass('audit-status-runtime-only');
+  });
+
+  it('keeps verified local integrity positive when Guard runtime provenance is unavailable', async () => {
+    vi.spyOn(privacyGuardApi, 'auditEvidence').mockResolvedValue({
+      localEvents: [{ ...localEvent, status: 'UNMATCHED', runtimeFunction: 'evaluate-action' }],
+      runtimeEvents: [],
       provenance: {
         localAvailable: true,
-        t3nAvailable: false,
-        t3nComplete: false,
+        runtimeAvailable: false,
+        runtimeComplete: false,
         matched: 0,
         unmatched: 1,
         localOnly: 0,
-        t3nOnly: 0,
-        message: 'T3N activity temporarily unavailable. Local business audit remains available; network provenance was not verified.',
+        runtimeOnly: 0,
+        message: 'guard-runtime activity temporarily unavailable. Local business audit remains available; runtime provenance was not verified.',
       },
       integrity: {
         state: 'VERIFIED',
@@ -98,13 +111,14 @@ describe('AuditTrail', () => {
     });
     render(<AuditTrail events={[localEvent]} />);
 
-    expect(await screen.findByText(/T3N activity temporarily unavailable/)).toBeInTheDocument();
+    expect(await screen.findByText(/guard-runtime activity temporarily unavailable/)).toBeInTheDocument();
     expect(screen.getByLabelText('Local audit integrity: Integrity verified')).toBeInTheDocument();
     expect(screen.getByText('Policy decision ALLOW with reason POLICY_ALLOW')).toBeInTheDocument();
-    expect(screen.getByText('T3N unavailable')).toBeInTheDocument();
+    expect(screen.getByText('Runtime unavailable')).toBeInTheDocument();
+    expect(screen.getByText(/Runtime provenance was not verified/)).toBeInTheDocument();
   });
 
-  it('shows broken local integrity as an alert even when the T3N event matches', async () => {
+  it('shows broken local integrity as an alert even when the Guard runtime event matches', async () => {
     vi.spyOn(privacyGuardApi, 'auditEvidence').mockResolvedValue({
       ...matchedEvidence,
       integrity: {

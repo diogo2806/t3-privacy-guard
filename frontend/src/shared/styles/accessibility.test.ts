@@ -1,3 +1,5 @@
+// @vitest-environment node
+// The stylesheets are read from disk; under jsdom Vite rewrites new URL(..., import.meta.url) to an http asset URL.
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
@@ -7,7 +9,6 @@ const semanticStyleFiles = [
   'auth.css',
   'buttons.css',
   'dashboard.css',
-  'evidence.css',
   'presentation.css',
   'trust.css',
 ] as const;

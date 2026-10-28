@@ -22,13 +22,13 @@ const analysis: AgentAnalysis = {
 };
 
 describe('AgentProposalPanel', () => {
-  it('renders only the logical private-data category and explains the T3N boundary', () => {
+  it('renders only the logical private-data category and explains the Guard runtime boundary', () => {
     render(<AgentProposalPanel analysis={analysis} />);
 
     expect(screen.getByRole('heading', { name: 'Latest agent proposal' })).toBeInTheDocument();
     expect(screen.getByText('Verified email')).toBeInTheDocument();
     expect(screen.getByText('Plaintext visible to agent')).toBeInTheDocument();
-    expect(screen.getByText('Resolved by T3N at egress')).toBeInTheDocument();
+    expect(screen.getByText('Resolved by Guard runtime at egress')).toBeInTheDocument();
     expect(screen.getByText(/most recent provider response/i)).toBeInTheDocument();
     expect(screen.queryByText(/@example\.com/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/\{\{profile\./i)).not.toBeInTheDocument();

@@ -90,7 +90,6 @@
 .executive-demo-proof-grid > div { min-width: 0; padding: .5rem; border-top: 1px solid var(--border-subtle); }
 .executive-demo-proof-grid dd { font-size: .875rem; font-weight: var(--font-weight-medium); }
 .executive-demo-proof-grid code { color: var(--text-primary); font-size: .875rem; }
-.executive-demo-proof-empty { margin: .55rem 0 0; color: var(--text-secondary); font-size: .875rem; }
 .executive-demo-proof-note { margin: .45rem 0 0; color: var(--text-tertiary); font-size: .75rem; line-height: 1.35; }
 .executive-demo-actions { display: flex; justify-content: flex-end; gap: .55rem; align-items: center; }
 .executive-demo-actions .manual-trigger { margin: 0; }
@@ -101,11 +100,9 @@
 .executive-tone-danger { color: var(--danger); }
 .executive-tone-text-pending { color: var(--text-secondary); }
 .executive-tone-text-info { color: var(--info); }
-.executive-tone-text-success,
-.executive-proof-ok { color: var(--success); }
+.executive-tone-text-success { color: var(--success); }
 .executive-tone-text-warning { color: var(--warning); }
-.executive-tone-text-danger,
-.executive-proof-danger { color: var(--danger); }
+.executive-tone-text-danger { color: var(--danger); }
 @media (max-width: 1050px) {
   .executive-demo-proof-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .executive-demo-trust-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }

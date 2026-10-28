@@ -1,11 +1,9 @@
 import '@testing-library/jest-dom/vitest';
 import type { ComponentProps } from 'react';
 import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type {
   ActionProposal,
-  EvidenceBundle,
   PolicyDecision,
   RemediationExecution,
   SystemStatus,
@@ -38,6 +36,7 @@ function decision(type: PolicyDecision['decision']): PolicyDecision {
     redactedFields: type === 'REDACT' ? ['api_key'] : [],
     allowedPrivateRefs: [],
     redactedPrivateRefs: [],
+    policyVersion: '2026-09-13.1',
     evaluatedAt: '2026-09-13T20:00:00.420Z',
   };
 }
@@ -55,45 +54,16 @@ function execution(state: RemediationExecution['state']): RemediationExecution {
 }
 
 const systemStatus = {
+  network: 'selfhosted',
   protectedRemediationReady: true,
   evaluationReady: true,
   enterpriseIntegrationState: 'READY',
   enterpriseIntegrationReady: true,
-  agentDid: 'did:t3n:testnet:proposal-agent-123456789',
-  executorDid: 'did:t3n:testnet:protected-executor-987654321',
+  agentDid: 'agent:proposal',
+  executorDid: 'agent:executor',
   delegationEffectiveState: 'ACTIVE',
   executorDelegationEffectiveState: 'ACTIVE',
-  agentRegistrationState: 'REGISTERED',
 } as SystemStatus;
-
-const evidence = {
-  metadata: {
-    source: 'T3N_TESTNET',
-    generatedAt: '2026-09-13T20:02:00.000Z',
-    sourceCommitSha: '0fe48b8aab7917788eb30b81d45e6a11821e48c2',
-    sourceTreeClean: true,
-    network: 'testnet',
-    sdkVersion: 'test-sdk',
-    tenantDid: 'did:t3n:testnet:tenant-123456789',
-    agentDid: 'did:t3n:testnet:proposal-agent-123456789',
-    executorDid: 'did:t3n:testnet:protected-executor-987654321',
-    agentRegistrationState: 'REGISTERED',
-    agentCardUri: 'https://example.test/.well-known/agent-card.json',
-    agentCardSha256: 'agent-card-sha256',
-    agentCardVerifiedAt: '2026-09-13T20:01:30.000Z',
-    agentCardServices: ['evaluate-action'],
-    contractId: 'privacy-guard-contract-testnet-123456789',
-    contractVersion: '0.4.0',
-    wasmSha256: 'wasm-sha256',
-    policyVersion: 'policy-v1',
-    policyHash: 'policy-sha256',
-    trustAnchorVerified: true,
-    trustManifestFloorPersisted: true,
-    trustManifestVersion: 1,
-  },
-  scenarios: [],
-  totals: { pass: 12, fail: 0, notRun: 1 },
-} satisfies EvidenceBundle;
 
 type ExecutiveDemoProps = ComponentProps<typeof ExecutiveDemoView>;
 
@@ -106,10 +76,6 @@ function renderExecutive(overrides: Partial<ExecutiveDemoProps> = {}) {
     selectedAction: null,
     decision: null,
     remediationExecution: null,
-    evidence: null,
-    evidenceLoading: false,
-    evidenceError: null,
-    onOpenEvidence: vi.fn(),
     ...overrides,
   };
   return { ...render(<ExecutiveDemoView {...props} />), props };
@@ -127,7 +93,7 @@ describe('ExecutiveDemoView', () => {
 
     const surface = screen.getByTestId('executive-demo-view');
     const valueHeadline = 'Use AI agents in sensitive workflows without giving the model security authority.';
-    const mechanism = 'AI can propose. Policy decides. Humans authorize. T3N executes.';
+    const mechanism = 'AI can propose. Policy decides. Humans authorize. Guard runtime executes.';
     expect(screen.getByRole('heading', { level: 1, name: valueHeadline })).toBeInTheDocument();
     expect(screen.getByText(/Keep private data, policy decisions and critical actions outside the model/i)).toBeInTheDocument();
     expect(screen.getByText(mechanism)).toBeInTheDocument();
@@ -138,14 +104,13 @@ describe('ExecutiveDemoView', () => {
     expect((surface.textContent ?? '').indexOf(valueHeadline)).toBeLessThan((surface.textContent ?? '').indexOf(mechanism));
   });
 
-  it('starts without inventing an outcome or live evidence claim', () => {
+  it('starts without inventing an outcome or decision', () => {
     renderExecutive();
 
     expect(screen.getByTestId('executive-observed-outcome')).toHaveTextContent('NOT YET OBSERVED');
-    expect(screen.getByTestId('executive-readiness')).toHaveTextContent('INCOMPLETE');
-    expect(screen.getByTestId('executive-proof')).toHaveTextContent('Live evidence not loaded/generated');
-    expect(screen.getByTestId('executive-proof')).toHaveTextContent(/No PASS state.*is inferred/i);
     expect(screen.getByTestId('executive-step-ai-proposal')).toHaveTextContent('WAITING');
+    expect(screen.getByTestId('executive-step-guard-runtime-policy')).toHaveTextContent('No Guard runtime decision observed yet.');
+    expectProofFact('Policy version', 'NOT OBSERVED');
   });
 
   it.each([
@@ -156,10 +121,11 @@ describe('ExecutiveDemoView', () => {
     renderExecutive({ selectedAction: baseAction, decision: decision(type) });
 
     expect(screen.getByTestId('executive-observed-outcome')).toHaveTextContent(outcome);
-    expect(screen.getByTestId('executive-step-t3n-policy')).toHaveTextContent(type);
+    expect(screen.getByTestId('executive-step-guard-runtime-policy')).toHaveTextContent(type);
     expect(screen.getByTestId('executive-step-executor')).toHaveTextContent('NOT EXECUTED');
     expect(screen.getByTestId('executive-step-executor')).not.toHaveClass('executive-tone-success');
     expect(screen.getByTestId('executive-step-verify')).toHaveTextContent('WAITING');
+    expectProofFact('Policy version', '2026-09-13.1');
   });
 
   it('shows human authorization as observed but does not claim execution or verification', () => {
@@ -190,55 +156,66 @@ describe('ExecutiveDemoView', () => {
     expect(screen.getByTestId('executive-step-verify')).toHaveTextContent(verification);
   });
 
-  it('shows compact proof only from a valid evidence bundle and keeps runtime readiness claims explicit', () => {
-    renderExecutive({ evidence });
+  it('derives LIVE / READY from live status only and keeps runtime claims explicit', () => {
+    renderExecutive();
 
-    expect(screen.getByTestId('executive-readiness')).toHaveTextContent('T3N LIVE / READY');
-    expect(screen.getByTestId('executive-proof')).toHaveTextContent('12 PASS / 0 FAIL / 1 NOT RUN');
-    expect(screen.getByTestId('executive-proof')).toHaveTextContent('0fe48b8a…');
-    expect(screen.getByTestId('executive-proof')).toHaveTextContent('privacy-guard-co…23456789');
-    expect(screen.getByTestId('executive-proof')).toHaveTextContent('0.4.0');
-    expect(screen.getByTestId('executive-proof')).toHaveTextContent('SEPARATE');
-    expect(screen.getByTestId('executive-proof')).toHaveTextContent('CONFIRMED');
+    expect(screen.getByTestId('executive-readiness')).toHaveTextContent('GUARD RUNTIME LIVE / READY');
+    expectProofFact('Policy evaluation', 'READY');
+    expectProofFact('Protected remediation', 'READY');
+    expectProofFact('Identity separation', 'SEPARATE');
+    expectProofFact('Effective access', 'CONFIRMED');
     expectProofFact('Enterprise integration', 'READY');
-    expectProofFact('Agent registration', 'REGISTERED');
-    expect(screen.getByTestId('executive-proof')).toHaveTextContent(/Agent registration.*not authorization/i);
-    expect(screen.getByTestId('executive-proof')).toHaveTextContent(/NOT RUN is not proof/i);
+    expect(screen.getByTestId('executive-proof')).toHaveTextContent(/Enterprise integration READY does not prove external service success/i);
+    expect(screen.getByTestId('executive-proof')).not.toHaveTextContent(/\bPASS\b|evidence bundle|Agent Card|registration/);
+  });
+
+  it('shows checking while the live status is loading', () => {
+    renderExecutive({ statusLoading: true });
+
+    expect(screen.getByTestId('executive-readiness')).toHaveTextContent('CHECKING RUNTIME');
+    expect(screen.getByTestId('executive-proof')).toHaveTextContent('Checking live status…');
   });
 
   it('shows NOT OBSERVED for runtime proof facts when SystemStatus is unavailable', () => {
-    renderExecutive({ evidence, systemStatus: null });
+    renderExecutive({ systemStatus: null });
 
-    expect(screen.getByTestId('executive-readiness')).toHaveTextContent('INCOMPLETE');
+    expect(screen.getByTestId('executive-readiness')).toHaveTextContent('NOT READY');
+    expect(screen.getByTestId('executive-proof')).toHaveTextContent('Live status not loaded');
+    expectProofFact('Policy evaluation', 'NOT OBSERVED');
+    expectProofFact('Identity separation', 'NOT OBSERVED');
+    expectProofFact('Effective access', 'NOT OBSERVED');
     expectProofFact('Enterprise integration', 'NOT OBSERVED');
-    expectProofFact('Agent registration', 'NOT OBSERVED');
   });
 
-  it('does not label runtime ready when the evidence bundle contains a failure', () => {
-    renderExecutive({ evidence: { ...evidence, totals: { pass: 11, fail: 1, notRun: 1 } } });
+  it('does not label runtime ready when protected remediation is not ready', () => {
+    renderExecutive({
+      systemStatus: { ...systemStatus, protectedRemediationReady: false, executorDelegationEffectiveState: 'DENIED' } as SystemStatus,
+    });
 
     expect(screen.getByTestId('executive-readiness')).toHaveTextContent('INCOMPLETE');
-    expect(screen.getByTestId('executive-proof')).toHaveTextContent('11 PASS / 1 FAIL / 1 NOT RUN');
+    expectProofFact('Protected remediation', 'NOT READY');
+    expectProofFact('Effective access', 'DENIED');
   });
 
   it('does not label runtime ready when enterprise integration is incomplete', () => {
     renderExecutive({
-      evidence,
       systemStatus: { ...systemStatus, enterpriseIntegrationState: 'INCOMPLETE', enterpriseIntegrationReady: false } as SystemStatus,
     });
 
     expect(screen.getByTestId('executive-readiness')).toHaveTextContent('INCOMPLETE');
     expectProofFact('Enterprise integration', 'INCOMPLETE');
-    expectProofFact('Agent registration', 'REGISTERED');
   });
 
-  it('navigates only to technical evidence and keeps the Screen Manual accessible', async () => {
-    const user = userEvent.setup();
-    const onOpenEvidence = vi.fn();
-    renderExecutive({ evidence, onOpenEvidence });
+  it('flags a shared proposal and executor identity', () => {
+    renderExecutive({ systemStatus: { ...systemStatus, executorDid: systemStatus.agentDid } as SystemStatus });
 
-    await user.click(screen.getByRole('button', { name: 'Open technical evidence' }));
-    expect(onOpenEvidence).toHaveBeenCalledTimes(1);
+    expectProofFact('Identity separation', 'IDENTITY COLLISION');
+  });
+
+  it('offers only the Screen Manual as an action', () => {
+    renderExecutive();
+
+    expect(screen.getAllByRole('button')).toHaveLength(1);
     const manual = screen.getByRole('button', { name: 'Open Screen Manual' });
     expect(manual).toHaveAttribute('title', 'Open Screen Manual');
   });

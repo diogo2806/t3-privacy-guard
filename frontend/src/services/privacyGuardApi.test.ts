@@ -13,7 +13,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 describe('privacyGuardApi same-origin transport', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('keeps browser API calls relative so nginx can route them to the configured backend', async () => {
+  it('keeps browser API calls relative so they reach the backend that serves the dashboard', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({ authenticated: false }));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -76,5 +76,49 @@ describe('privacyGuardApi.businessImpact', () => {
     const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect(request.method).toBe('GET');
     expect(request.body).toBeUndefined();
+  });
+});
+
+describe('privacyGuardApi legacy wire values', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('presents the legacy control-plane diagnostic as an unavailable trust runtime', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ network: 'selfhosted', enterpriseIntegrationState: 'UNKNOWN', enterpriseIntegrationDiagnosticCode: 'T3N_CONTROL_PLANE_UNAVAILABLE' }))
+      .mockResolvedValueOnce(jsonResponse({ network: 'selfhosted', enterpriseIntegrationState: 'UNKNOWN', enterpriseIntegrationDiagnosticCode: 'POLICY_UNAVAILABLE' }))
+      .mockResolvedValueOnce(jsonResponse({ network: 'selfhosted', enterpriseIntegrationState: 'UNKNOWN' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    expect((await privacyGuardApi.systemStatus()).enterpriseIntegrationDiagnosticCode).toBe('TRUST_RUNTIME_UNAVAILABLE');
+    expect((await privacyGuardApi.systemStatus()).enterpriseIntegrationDiagnosticCode).toBe('POLICY_UNAVAILABLE');
+    expect(await privacyGuardApi.systemStatus()).not.toHaveProperty('enterpriseIntegrationDiagnosticCode');
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/system/status');
+  });
+
+  it('maps legacy audit provenance names and the runtime-only status to runtime-neutral fields', async () => {
+    const runtimeEvent = {
+      sequence: 7, hash: 'hash-7', timestamp: '2026-10-28T12:00:01Z', callerType: 'agent', actorDid: 'agent:proposal',
+      onBehalfOfDid: 'tenant:acme', contractId: 'privacy-guard', function: 'evaluate-action', outcome: 'success',
+    };
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({
+      localEvents: [{ id: 'local-1', incidentId: 'incident/1', type: 'POLICY_DECISION', message: 'Policy decision', createdAt: '2026-10-28T12:00:00Z', status: 'LOCAL_ONLY', t3nSequence: null, t3nFunction: 'evaluate-action', matchedSequence: null }],
+      t3nEvents: [{ ...runtimeEvent, status: 'T3N_ONLY' }],
+      provenance: { localAvailable: true, t3nAvailable: true, t3nComplete: false, matched: 0, unmatched: 0, localOnly: 1, t3nOnly: 1, message: 'guard-runtime activity is available.' },
+      integrity: { state: 'VERIFIED', eventsChecked: 1, head: null, version: 'v1', detail: 'HMAC chain verified.' },
+      nextSequence: 6,
+      limit: 25,
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const evidence = await privacyGuardApi.auditEvidence('incident/1', 25);
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/incidents/incident%2F1/audit-evidence?limit=25');
+    expect(evidence.localEvents).toEqual([{ id: 'local-1', incidentId: 'incident/1', type: 'POLICY_DECISION', message: 'Policy decision', createdAt: '2026-10-28T12:00:00Z', status: 'LOCAL_ONLY', runtimeSequence: null, runtimeFunction: 'evaluate-action', matchedSequence: null }]);
+    expect(evidence.runtimeEvents).toEqual([{ ...runtimeEvent, status: 'RUNTIME_ONLY' }]);
+    expect(evidence.provenance).toEqual({ localAvailable: true, runtimeAvailable: true, runtimeComplete: false, matched: 0, unmatched: 0, localOnly: 1, runtimeOnly: 1, message: 'guard-runtime activity is available.' });
+    expect(evidence.integrity.state).toBe('VERIFIED');
+    expect(evidence.nextSequence).toBe(6);
+    expect(evidence.limit).toBe(25);
+    expect(Object.keys(evidence).sort()).toEqual(['integrity', 'limit', 'localEvents', 'nextSequence', 'provenance', 'runtimeEvents']);
   });
 });

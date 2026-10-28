@@ -20,6 +20,11 @@
 .status-meta code { color: var(--text-secondary); font-size: .78rem; }
 .status-footer { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: .75rem; color: var(--text-tertiary); }
 .status-footer p { margin: 0; }
+.dashboard-tabs { display: flex; gap: .4rem; margin: 0 0 1rem; border-bottom: 1px solid var(--border-subtle); }
+.dashboard-tab { border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; font-weight: var(--font-weight-display); padding: .7rem 1rem; }
+.dashboard-tab:hover { color: var(--text-primary); }
+.dashboard-tab:focus-visible { color: var(--text-primary); outline: 3px solid var(--focus-ring); outline-offset: 3px; border-radius: var(--radius-sm); }
+.dashboard-tab-active { border-bottom-color: var(--brand); color: var(--brand); }
 .dashboard-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(290px, .75fr); gap: 1rem; align-items: start; }
 .dashboard-main { display: grid; gap: 1rem; }
 .dashboard-side { position: sticky; top: 1rem; }
@@ -111,7 +116,7 @@
 .audit-status-matched { border-color: var(--success-border); background: var(--success-soft); color: var(--success); }
 .audit-status-unmatched, .audit-status-unavailable { border-color: var(--warning-border); background: var(--warning-soft); color: var(--warning-text-strong); }
 .audit-status-local-only { color: var(--text-tertiary); background: var(--surface-1); }
-.audit-status-t3n-only { border-color: var(--border-strong); background: var(--brand-selected); color: var(--brand); }
+.audit-status-runtime-only { border-color: var(--border-strong); background: var(--brand-selected); color: var(--brand); }
 .audit-list-network { max-height: 430px; overflow-y: auto; padding-right: .25rem; }
 .audit-window-note { margin: .75rem 0 0; padding: .65rem; border-left: 3px solid var(--warning); background: var(--warning-soft); color: var(--warning-text-strong); font-size: .74rem; line-height: 1.45; }
 .feedback { margin-bottom: 1rem; padding: .78rem 1rem; border-radius: var(--radius-sm); border: 1px solid; }

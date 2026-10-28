@@ -20,8 +20,15 @@ const baseDecision = {
 };
 
 describe('DecisionPanel', () => {
+  it('attributes the awaiting state to Guard runtime', () => {
+    render(<DecisionPanel decision={null} />);
+    expect(screen.getByText('Guard runtime policy decision')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Awaiting evaluation' })).toBeInTheDocument();
+  });
+
   it('renders policy provenance without calling it attestation', () => {
     render(<DecisionPanel decision={baseDecision} />);
+    expect(screen.getByText('Guard runtime policy decision')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'ALLOW' })).toBeInTheDocument();
     expect(screen.getByText('2026-09-12.1')).toBeInTheDocument();
     expect(screen.getByText('a'.repeat(64))).toBeInTheDocument();

@@ -7,7 +7,6 @@ import {
   type AuditEvent,
   type BusinessImpact,
   type BusinessImpactWindow,
-  type EvidenceBundle,
   type ExecutionTraceEvent,
   type Incident,
   type IncidentWorkspace,
@@ -17,7 +16,6 @@ import {
   type RemediationExecution,
   type SystemStatus,
 } from '../../services/privacyGuardApi';
-import { T3N_RUNTIME, TrustRuntimeContext, trustRuntimeOf, type TrustRuntimeInfo } from '../../services/trustRuntime';
 import { ActionProposalPanel } from '../actions/ActionProposalPanel';
 import { AgentPromptPanel } from '../agent/AgentPromptPanel';
 import { AgentProposalPanel } from '../agent/AgentProposalPanel';
@@ -27,7 +25,6 @@ import { ExecutionTrace } from '../audit/ExecutionTrace';
 import { BusinessOutcomeSummary } from '../business/BusinessOutcomeSummary';
 import { ControlImpactSummary } from '../business/ControlImpactSummary';
 import { ExecutiveDemoView } from '../demo/ExecutiveDemoView';
-import { EvidenceCenter } from '../evidence/EvidenceCenter';
 import { IncidentSummary } from '../incidents/IncidentSummary';
 import { IncidentWorkspaceQueue } from '../incidents/IncidentWorkspaceQueue';
 import { AppHeader } from '../layout/AppHeader';
@@ -47,8 +44,6 @@ export function PrivacyGuardDashboard() {
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authRetryAfterSeconds, setAuthRetryAfterSeconds] = useState(0);
-  // The header sits outside the authenticated tree, so it shows the last runtime the dashboard observed (T3N until then).
-  const [trustRuntime, setTrustRuntime] = useState<TrustRuntimeInfo>(T3N_RUNTIME);
 
   useEffect(() => {
     void privacyGuardApi.session().then(setSession).catch(() => setSession({ authenticated: false })).finally(() => setSessionLoading(false));
@@ -82,17 +77,15 @@ export function PrivacyGuardDashboard() {
   }, []);
 
   return (
-    <TrustRuntimeContext.Provider value={trustRuntime}>
-      <div className="app-shell">
-        <AppHeader />
-        <OperatorSessionGate session={session} loading={sessionLoading} busy={authBusy} error={authError} retryAfterSeconds={authRetryAfterSeconds} onLogin={login} onLogout={logout} />
-        {session?.authenticated && <AuthenticatedDashboard onSessionExpired={expireSession} onTrustRuntimeChange={setTrustRuntime} />}
-      </div>
-    </TrustRuntimeContext.Provider>
+    <div className="app-shell">
+      <AppHeader />
+      <OperatorSessionGate session={session} loading={sessionLoading} busy={authBusy} error={authError} retryAfterSeconds={authRetryAfterSeconds} onLogin={login} onLogout={logout} />
+      {session?.authenticated && <AuthenticatedDashboard onSessionExpired={expireSession} />}
+    </div>
   );
 }
 
-function AuthenticatedDashboard({ onSessionExpired, onTrustRuntimeChange }: { onSessionExpired: () => void; onTrustRuntimeChange: (runtime: TrustRuntimeInfo) => void }) {
+function AuthenticatedDashboard({ onSessionExpired }: { onSessionExpired: () => void }) {
   const [view, setView] = useState<DashboardView>('demo');
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [selectedScenarioId, setSelectedScenarioId] = useState(DEFAULT_ENTERPRISE_SCENARIO.id);
@@ -116,17 +109,11 @@ function AuthenticatedDashboard({ onSessionExpired, onTrustRuntimeChange }: { on
   const [businessImpactWindow, setBusinessImpactWindow] = useState<BusinessImpactWindow>('retained');
   const [businessImpactLoading, setBusinessImpactLoading] = useState(false);
   const [businessImpactError, setBusinessImpactError] = useState<string | null>(null);
-  const [evidence, setEvidence] = useState<EvidenceBundle | null>(null);
-  const [evidenceLoading, setEvidenceLoading] = useState(false);
-  const [evidenceError, setEvidenceError] = useState<string | null>(null);
   const [statusLoading, setStatusLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const selectionGeneration = useRef(0);
-  const trustRuntime = trustRuntimeOf(systemStatus);
-
-  useEffect(() => { onTrustRuntimeChange(trustRuntime); }, [onTrustRuntimeChange, trustRuntime]);
 
   const selectedScenario = ENTERPRISE_SCENARIOS.find((scenario) => scenario.id === selectedScenarioId) ?? DEFAULT_ENTERPRISE_SCENARIO;
   const incidentScenario = incidentScenarioId ? (ENTERPRISE_SCENARIOS.find((scenario) => scenario.id === incidentScenarioId) ?? null) : null;
@@ -179,17 +166,6 @@ function AuthenticatedDashboard({ onSessionExpired, onTrustRuntimeChange }: { on
       else setBusinessImpactError(cause instanceof Error ? cause.message : 'Measured control impact could not be loaded safely.');
     } finally { setBusinessImpactLoading(false); }
   }, [businessImpactWindow, onSessionExpired]);
-
-  const refreshEvidence = useCallback(async () => {
-    setEvidenceLoading(true); setEvidenceError(null);
-    try { setEvidence(await privacyGuardApi.latestEvidence()); }
-    catch (cause) {
-      setEvidence(null);
-      if (cause instanceof PrivacyGuardApiError && cause.status === 401) onSessionExpired();
-      else if (cause instanceof PrivacyGuardApiError && cause.status === 404) setEvidenceError('No live T3N evidence has been generated yet.');
-      else setEvidenceError(cause instanceof Error ? cause.message : 'Evidence could not be loaded safely.');
-    } finally { setEvidenceLoading(false); }
-  }, [onSessionExpired]);
 
   const loadDecision = useCallback(async (currentIncident: Incident, action: ActionProposal, generation?: number) => {
     if (action.status === 'PENDING') { if (isCurrentSelection(generation)) setDecision(null); return; }
@@ -291,11 +267,6 @@ function AuthenticatedDashboard({ onSessionExpired, onTrustRuntimeChange }: { on
 
   useEffect(() => { void refreshBusinessImpact(); }, [refreshBusinessImpact]);
 
-  useEffect(() => {
-    const evidenceView = view === 'presentation' || view === 'evidence';
-    if (evidenceView && !evidence && !evidenceLoading && !evidenceError) void refreshEvidence();
-  }, [view, evidence, evidenceLoading, evidenceError, refreshEvidence]);
-
   const run = async (operation: () => Promise<void>) => {
     setBusy(true); setError(null); setNotice(null);
     try { await operation(); } catch (cause) { handleError(cause, 'The operation could not be completed safely.'); } finally { setBusy(false); }
@@ -316,9 +287,9 @@ function AuthenticatedDashboard({ onSessionExpired, onTrustRuntimeChange }: { on
     setAgentAnalysis(result); setRemediationExecution(null); setIncident(result.incident); setSelectedAction(result.action); setDecision(result.decision);
     await Promise.all([refreshIncident(result.incident, result.action.id, generation), refreshBusinessImpact(), refreshWorkspace()]);
     if (!isCurrentSelection(generation)) return;
-    if (result.decision.decision === 'DENY') setNotice(`The independent ${trustRuntime.name} policy blocked the agent proposal before protected egress.`);
-    else if (result.decision.decision === 'REDACT') setNotice(`${trustRuntime.name} requires data minimization before the proposal can continue.`);
-    else setNotice(`${trustRuntime.name} policy allowed the proposal to continue. ALLOW is not authorization or execution.`);
+    if (result.decision.decision === 'DENY') setNotice('The independent Guard runtime policy blocked the agent proposal before protected egress.');
+    else if (result.decision.decision === 'REDACT') setNotice('Guard runtime requires data minimization before the proposal can continue.');
+    else setNotice('Guard runtime policy allowed the proposal to continue. ALLOW is not authorization or execution.');
   });
 
   const selectScenario = (scenario: EnterpriseScenarioDefinition) => {
@@ -351,13 +322,13 @@ function AuthenticatedDashboard({ onSessionExpired, onTrustRuntimeChange }: { on
     if (!isCurrentSelection(generation)) return;
 
     if (result.decision.decision === 'DENY') {
-      setNotice(`The agent produced a new remediation proposal, but ${trustRuntime.name} denied it. No fallback action was created.`);
+      setNotice('The agent produced a new remediation proposal, but Guard runtime denied it. No fallback action was created.');
     } else if (result.decision.decision === 'REDACT') {
-      setNotice(`The agent produced a new remediation proposal, but ${trustRuntime.name} requires further minimization. No fallback action was created.`);
+      setNotice('The agent produced a new remediation proposal, but Guard runtime requires further minimization. No fallback action was created.');
     } else if (result.action.action !== 'revoke-credential') {
-      setNotice(`${trustRuntime.name} allowed the agent proposal for ${result.action.action}, but protected execution in this demo exists only for revoke-credential. No fallback action was created.`);
+      setNotice(`Guard runtime allowed the agent proposal for ${result.action.action}, but protected execution in this demo exists only for revoke-credential. No fallback action was created.`);
     } else {
-      setNotice(`The agent proposed a credential revocation and ${trustRuntime.name} allowed it. Human authorization is still required before protected execution.`);
+      setNotice('The agent proposed a credential revocation and Guard runtime allowed it. Human authorization is still required before protected execution.');
     }
   });
 
@@ -426,7 +397,7 @@ function AuthenticatedDashboard({ onSessionExpired, onTrustRuntimeChange }: { on
   const showSafePath = Boolean(incidentScenario?.remediationPrompt) && decision?.decision === 'DENY' && Boolean(incident);
 
   return (
-    <TrustRuntimeContext.Provider value={trustRuntime}>
+    <>
       <DashboardTabs active={view} onChange={setView} />
       {error && <div className="feedback feedback-error" role="alert">{error}</div>}
       {notice && <div className="feedback feedback-success" role="status">{notice}</div>}
@@ -502,16 +473,8 @@ function AuthenticatedDashboard({ onSessionExpired, onTrustRuntimeChange }: { on
           businessImpact={businessImpact}
           businessImpactLoading={businessImpactLoading}
           businessImpactError={businessImpactError}
-          evidence={evidence}
-          evidenceLoading={evidenceLoading}
-          evidenceError={evidenceError}
-          onOpenEvidence={() => setView('evidence')}
         />
       )}
-
-      {view === 'evidence' && (
-        <EvidenceCenter evidence={evidence} loading={evidenceLoading} error={evidenceError} onRefresh={() => void refreshEvidence()} />
-      )}
-    </TrustRuntimeContext.Provider>
+    </>
   );
 }

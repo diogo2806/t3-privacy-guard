@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { OperatorSessionGate } from './OperatorSessionGate';
 
 describe('OperatorSessionGate', () => {
-  it('keeps T3N credentials out of the human authority login copy and clears the password after submit', async () => {
+  it('keeps runtime caller tokens out of the human authority login copy and clears the password after submit', async () => {
     const user = userEvent.setup();
     const onLogin = vi.fn(async () => undefined);
     render(
@@ -27,7 +27,7 @@ describe('OperatorSessionGate', () => {
 
     expect(onLogin).toHaveBeenCalledWith({ username: 'operator', password: 'secret-value' });
     expect(password).toHaveValue('');
-    expect(screen.getByText(/T3N tenant and agent credentials are never used/i)).toBeInTheDocument();
+    expect(screen.getByText(/Guard runtime caller tokens are never used/i)).toBeInTheDocument();
   });
 
   it('shows the signed-in principal, effective authorities and enterprise SoD state', () => {

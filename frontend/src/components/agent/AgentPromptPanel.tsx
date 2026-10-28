@@ -1,5 +1,4 @@
 import { Bot, PlayCircle } from 'lucide-react';
-import { useTrustRuntime } from '../../services/trustRuntime';
 import { Button } from '../ui/Button';
 import { SectionHeader } from '../ui/SectionHeader';
 import { Surface } from '../ui/Surface';
@@ -13,11 +12,10 @@ interface Props {
 }
 
 export function AgentPromptPanel({ busy, prompt, privacyError, onPromptChange, onAnalyze }: Props) {
-  const runtimeName = useTrustRuntime().name;
   return (
     <Surface className="agent-prompt-card" aria-labelledby="agent-prompt-title">
       <SectionHeader eyebrow="Untrusted agent input" title="Analyze a proposed action" titleId="agent-prompt-title" icon={<Bot aria-hidden="true" />} />
-      <p className="card-copy">The scenario prepares synthetic input only. The model can propose an action; {runtimeName} independently decides whether that proposal may continue.</p>
+      <p className="card-copy">The scenario prepares synthetic input only. The model can propose an action; Guard runtime independently decides whether that proposal may continue.</p>
       <details className="technical-disclosure">
         <summary>Prompt privacy guidance</summary>
         <p className="card-copy"><strong>Do not paste private values or secrets.</strong> High-confidence sensitive literals are blocked before a remote AI provider, but free text is not a complete PII scanner. Use approved logical references such as “verified email”.</p>

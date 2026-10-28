@@ -88,14 +88,15 @@ describe('RemediationPanel', () => {
     expect(screen.getByText('Authorized at')).toBeInTheDocument();
     expect(screen.getByText('One-time authorization proof')).toBeInTheDocument();
     expect(screen.getByText('ISSUED ON EXECUTE')).toBeInTheDocument();
-    expect(screen.getByText('T3N execution proof check')).toBeInTheDocument();
+    expect(screen.getByText('Guard runtime execution proof check')).toBeInTheDocument();
     expect(screen.getByText('NOT RUN')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Guard runtime payload minimization' })).toBeInTheDocument();
     expect(screen.getByText('Requested fields')).toBeInTheDocument();
     expect(screen.getByText('Allowed for egress')).toBeInTheDocument();
     expect(screen.getByText('Trusted synthetic values')).toBeInTheDocument();
     expect(screen.getByText('Protected egress payload')).toBeInTheDocument();
     expect(screen.getAllByText('reason=suspected compromise').length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText(/Ed25519-signed one-time proof/i)).toBeInTheDocument();
+    expect(screen.getByText(/Human authorization is bound to the authenticated approver/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Execute protected credential revocation' })).toBeInTheDocument();
   });
 
@@ -151,17 +152,18 @@ describe('RemediationPanel', () => {
     expect(screen.queryByRole('button', { name: /Execute protected credential revocation/i })).not.toBeInTheDocument();
   });
 
-  it('shows only the logical private reference and T3N resolution boundary for notify-security', () => {
+  it('shows only the logical private reference and Guard runtime resolution boundary for notify-security', () => {
     const notifyAction = notificationAction();
     renderPanel(null, vi.fn(), notifyAction, notificationDecision(notifyAction));
     expect(screen.getByText('Logical private reference')).toBeInTheDocument();
     expect(screen.getAllByText('verified_email').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('Resolution boundary')).toBeInTheDocument();
-    expect(screen.getByText('T3N PROTECTED EXECUTION')).toBeInTheDocument();
+    expect(screen.getByText('GUARD RUNTIME PROTECTED EXECUTION')).toBeInTheDocument();
     expect(screen.getByText('Plaintext visible to app')).toBeInTheDocument();
     expect(screen.getByText('NO')).toBeInTheDocument();
-    expect(screen.getByText(/plaintext recipient is not returned to the browser, Java backend or gateway response/i)).toBeInTheDocument();
-    expect(screen.getByText(/Ed25519-signed one-time proof/i)).toBeInTheDocument();
+    expect(screen.getByText(/Guard runtime resolves the private recipient inside protected execution/i)).toBeInTheDocument();
+    expect(screen.getByText(/plaintext recipient is not returned to the browser or the Java backend/i)).toBeInTheDocument();
+    expect(screen.getByText('One-time authorization proof')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Execute protected security notification' })).toBeInTheDocument();
     expect(document.body.textContent).not.toContain('@');
   });
@@ -183,7 +185,7 @@ describe('RemediationPanel', () => {
     }), vi.fn(), notifyAction, notificationDecision(notifyAction));
     expect(screen.getByText('DELIVERED')).toBeInTheDocument();
     expect(screen.getByText('DELIVERED + RESOLUTION VERIFIED')).toBeInTheDocument();
-    expect(screen.getByText(/confirmed private-recipient resolution inside T3N/i)).toBeInTheDocument();
+    expect(screen.getByText(/confirmed private-recipient resolution inside Guard runtime/i)).toBeInTheDocument();
     expect(document.body.textContent).not.toContain('@');
   });
 
@@ -194,7 +196,7 @@ describe('RemediationPanel', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/authorize it before executing again/i);
   });
 
-  it('marks the T3N proof boundary verified only after protected execution returns an HTTP result', () => {
+  it('marks the Guard runtime proof boundary verified only after protected execution returns an HTTP result', () => {
     renderPanel(execution('PENDING_VERIFICATION'));
     const proofRegion = screen.getByRole('region', { name: 'Approved remediation destination and authorization proof status' });
     expect(within(proofRegion).getByText('VERIFIED')).toBeInTheDocument();
@@ -236,7 +238,7 @@ describe('RemediationPanel', () => {
       remediationAuthorizedAt: null,
     };
     renderPanel(null, vi.fn(), unsupported);
-    expect(screen.getByText(/can be evaluated by the T3N policy/i)).toBeInTheDocument();
+    expect(screen.getByText(/can be evaluated by the Guard runtime policy/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Authorize/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Execute protected/i })).not.toBeInTheDocument();
   });

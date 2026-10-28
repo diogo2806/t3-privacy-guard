@@ -7,24 +7,19 @@ import type { ActionProposal, PolicyDecision, RemediationExecution, SystemStatus
 import { TrustFlowSummary } from './TrustFlowSummary';
 
 const READY_STATUS: SystemStatus = {
-  gatewayReachable: true,
+  runtimeReachable: true,
   tenantAuthenticated: true,
-  network: 'testnet',
-  tenantDid: 'did:t3n:tenant',
+  network: 'selfhosted',
+  tenantDid: 'tenant:acme',
   agentConfigured: true,
   agentAuthenticated: true,
-  agentDid: 'did:t3n:proposal-agent',
+  agentDid: 'agent:proposal',
   executorConfigured: true,
   executorAuthenticated: true,
-  executorDid: 'did:t3n:protected-executor',
-  agentRegistrationState: 'REGISTERED',
-  agentCardServices: ['A2A', 'DID'],
-  a2aConfigured: true,
-  a2aPublicUrl: 'https://guard.example/a2a',
-  a2aConfigurationCheckedAt: '2026-09-13T11:00:00Z',
+  executorDid: 'agent:executor',
   contractResolved: true,
-  contractId: 'z:tenant:privacy-guard',
-  contractVersion: '0.4.0',
+  contractId: 'privacy-guard',
+  contractVersion: '1.0.0',
   evaluationReady: true,
   protectedRemediationReady: true,
   enterpriseIntegrationState: 'READY',
@@ -102,6 +97,12 @@ describe('TrustFlowSummary', () => {
     expect(screen.getAllByText('WAITING')).toHaveLength(3);
     expect(screen.getByText(/AI can propose, but it cannot authorize or execute/i)).toBeInTheDocument();
     expect(screen.getByText('Current result')).toBeInTheDocument();
+    expect(screen.getByText('Guard runtime + external execution ready')).toBeInTheDocument();
+  });
+
+  it('attributes a pending decision to Guard runtime policy', () => {
+    renderSummary({ selectedAction: ACTION });
+    expect(screen.getByText('A proposal exists, but Guard runtime policy has not produced a decision yet.')).toBeInTheDocument();
   });
 
   it('keeps ALLOW separate from human authorization and protected execution', () => {
@@ -115,7 +116,8 @@ describe('TrustFlowSummary', () => {
     const user = userEvent.setup();
     const onRetryEvaluation = vi.fn();
     renderSummary({ selectedAction: { ...ACTION, status: 'PENDING' }, onRetryEvaluation });
-    await user.click(screen.getByRole('button', { name: 'Retry T3N evaluation' }));
+    expect(screen.getByText('The proposal is waiting for Guard runtime policy evaluation.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Retry Guard runtime evaluation' }));
     expect(onRetryEvaluation).toHaveBeenCalledTimes(1);
   });
 
@@ -135,7 +137,7 @@ describe('TrustFlowSummary', () => {
   it('explicit Proposal denial fails closed', () => {
     const { container } = render(<TrustFlowSummary agentAnalysis={null} decision={null} selectedAction={null} remediationExecution={null} systemStatus={{ ...READY_STATUS, evaluationReady: false, protectedRemediationReady: false, delegationEffectiveState: 'DENIED' }} statusLoading={false} />);
     expect(screen.getByText('Effective access denied')).toBeInTheDocument();
-    expect(screen.getByText(/T3N denied the effective access required for evaluation/i)).toBeInTheDocument();
+    expect(screen.getByText(/Guard runtime denied the effective access required for evaluation/i)).toBeInTheDocument();
     expect(container.querySelector('.trust-readiness-ready')).not.toBeInTheDocument();
   });
 
@@ -149,14 +151,14 @@ describe('TrustFlowSummary', () => {
   it('keeps evaluation ready while Executor denial blocks execution', () => {
     const { container } = render(<TrustFlowSummary agentAnalysis={null} decision={null} selectedAction={null} remediationExecution={null} systemStatus={{ ...READY_STATUS, protectedRemediationReady: false, executorDelegationEffectiveState: 'DENIED' }} statusLoading={false} />);
     expect(screen.getByText('Evaluation ready · execution blocked')).toBeInTheDocument();
-    expect(screen.getByText(/T3N denied Protected Executor access/i)).toBeInTheDocument();
+    expect(screen.getByText(/Guard runtime denied Protected Executor access/i)).toBeInTheDocument();
     expect(container.querySelector('.trust-readiness-ready')).not.toBeInTheDocument();
   });
 
-  it('separates ready T3N authorization from absent external integration', () => {
+  it('separates ready Guard runtime authorization from absent external integration', () => {
     const { container } = render(<TrustFlowSummary agentAnalysis={null} decision={null} selectedAction={null} remediationExecution={null} systemStatus={INCOMPLETE_EXTERNAL_STATUS} statusLoading={false} />);
-    expect(screen.getByText('T3N authorization ready · external execution not configured')).toBeInTheDocument();
-    expect(screen.getByText(/T3N Proposal and Protected Executor authorization are ready/i)).toBeInTheDocument();
+    expect(screen.getByText('Guard runtime authorization ready · external execution not configured')).toBeInTheDocument();
+    expect(screen.getByText(/Guard runtime Proposal and Protected Executor authorization are ready/i)).toBeInTheDocument();
     expect(screen.getByText(/External execution remains blocked/i)).toBeInTheDocument();
     expect(container.querySelector('.trust-readiness-ready')).not.toBeInTheDocument();
   });
@@ -176,10 +178,10 @@ describe('TrustFlowSummary', () => {
     expect(screen.getByText(/external execution integration is not configured or not ready/i)).toBeInTheDocument();
   });
 
-  it('keeps scheduled Proposal Member grant pending and not ready', () => {
+  it('keeps a scheduled Proposal function grant pending and not ready', () => {
     const { container } = render(<TrustFlowSummary agentAnalysis={null} decision={null} selectedAction={null} remediationExecution={null} systemStatus={{ ...READY_STATUS, evaluationReady: false, protectedRemediationReady: false, delegationMemberState: 'SCHEDULED', delegationEffectiveState: 'DENIED', delegationCheckedFunctions: [], delegationCheckedScopes: [] }} statusLoading={false} />);
-    expect(screen.getByText('Member grant scheduled')).toBeInTheDocument();
-    expect(screen.getByText(/Proposal Member grant is scheduled/i)).toBeInTheDocument();
+    expect(screen.getByText('Function grant scheduled')).toBeInTheDocument();
+    expect(screen.getByText(/Proposal function grant is scheduled/i)).toBeInTheDocument();
     expect(container.querySelector('.trust-readiness-pending')).toBeInTheDocument();
   });
 });

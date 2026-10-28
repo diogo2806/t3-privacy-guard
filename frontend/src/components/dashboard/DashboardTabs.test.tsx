@@ -13,8 +13,7 @@ describe('DashboardTabs', () => {
     expect(screen.getByRole('button', { name: 'Protection flow' })).toHaveFocus();
     await user.tab();
     expect(screen.getByRole('button', { name: 'Executive demo' })).toHaveFocus();
-    await user.tab();
-    expect(screen.getByRole('button', { name: 'Evidence' })).toHaveFocus();
+    expect(screen.getAllByRole('button')).toHaveLength(2);
   });
 
   it('marks the active area and emits the selected view without side effects', async () => {
@@ -24,8 +23,8 @@ describe('DashboardTabs', () => {
 
     expect(screen.getByRole('button', { name: 'Executive demo' })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('button', { name: 'Protection flow' })).not.toHaveAttribute('aria-current');
-    await user.click(screen.getByRole('button', { name: 'Evidence' }));
+    await user.click(screen.getByRole('button', { name: 'Protection flow' }));
     expect(onChange).toHaveBeenCalledTimes(1);
-    expect(onChange).toHaveBeenCalledWith('evidence');
+    expect(onChange).toHaveBeenCalledWith('demo');
   });
 });

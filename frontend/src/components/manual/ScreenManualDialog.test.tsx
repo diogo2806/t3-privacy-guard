@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { ScreenManualDialog } from './ScreenManualDialog';
 
 describe('ScreenManualDialog', () => {
-  it('traps focus and explains executive demo, human proof, private notification, business outcome, control impact, A2A, privacy and provenance', async () => {
+  it('traps focus and explains the trust runtime, executive demo, human proof, private notification, business outcome, control impact, privacy and provenance', async () => {
     const user = userEvent.setup();
     render(<div><button type="button">Outside action</button><ScreenManualDialog /></div>);
 
@@ -19,16 +19,20 @@ describe('ScreenManualDialog', () => {
     expect(dialog).toHaveAttribute('aria-modal', 'true');
     expect(dialog).toHaveTextContent('Screen Manual');
     expect(screen.getByRole('heading', { name: 'Purpose' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Trust runtime' })).toBeInTheDocument();
+    expect(dialog).toHaveTextContent(/Guard runtime.*self-hosted.*policy.*one-time human-authorization capability.*independent read-back.*hash-chained activity log/i);
+    expect(dialog).toHaveTextContent(/Proposal Agent and the Protected Executor are separate callers.*explicit function grants/i);
+    expect(dialog).toHaveTextContent(/credential and the verified email are held only by Guard runtime and resolved at egress/i);
     expect(screen.getByRole('heading', { name: 'Areas, fields and actions' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Human access and permissions' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Executive Demo' })).toBeInTheDocument();
     expect(dialog).toHaveTextContent(/projection of the same runtime state.*does not create a parallel incident.*authorization.*execution.*evidence path/i);
     expect(dialog).toHaveTextContent(/business problem.*observed outcome.*measured operational impact.*authority mechanism.*technical proof/i);
-    expect(dialog).toHaveTextContent(/AI can propose\. Policy decides\. Humans authorize\. T3N executes\..*Trust path/i);
+    expect(dialog).toHaveTextContent(/AI can propose\. Policy decides\. Humans authorize\. Guard runtime executes\..*Trust path/i);
     expect(dialog).toHaveTextContent(/BLOCKED BEFORE PROTECTED EGRESS.*MINIMIZATION REQUIRED.*HUMAN AUTHORIZATION REQUIRED/i);
     expect(dialog).toHaveTextContent(/AUTHORIZED \/ NOT EXECUTED.*ACCEPTED \/ NOT VERIFIED/i);
-    expect(dialog).toHaveTextContent(/Proof at a glance.*does not replace.*Evidence Center/i);
-    expect(dialog).toHaveTextContent(/T3N LIVE \/ READY.*protected remediation ready.*valid evidence/i);
+    expect(dialog).toHaveTextContent(/Proof at a glance.*live SystemStatus/i);
+    expect(dialog).toHaveTextContent(/GUARD RUNTIME LIVE \/ READY.*protected remediation ready.*Enterprise integration READY/i);
     expect(dialog).toHaveTextContent(/has no Analyze, Authorize, Execute, or Verify buttons/i);
     expect(dialog).toHaveTextContent(/does not convert operational metrics into money saved.*breaches avoided.*guaranteed compliance.*risk reduction/i);
     expect(screen.getByRole('heading', { name: 'Business Outcome' })).toBeInTheDocument();
@@ -42,39 +46,37 @@ describe('ScreenManualDialog', () => {
     expect(dialog).toHaveTextContent(/Median policy decision.*evaluatedAt.*action.createdAt/i);
     expect(dialog).toHaveTextContent(/Financial ROI is NOT MEASURED/i);
     expect(dialog).toHaveTextContent(/Retained.*24 hours.*7 days/i);
-    expect(screen.getByText('Identity, Member grant and effective authorization')).toBeInTheDocument();
-    expect(dialog).toHaveTextContent(/checkDelegation.*authenticated client/i);
+    expect(screen.getByText('Callers, function grants and effective authorization')).toBeInTheDocument();
+    expect(dialog).toHaveTextContent(/Effective Guard runtime access.*caller's own authenticated token/i);
     expect(dialog).toHaveTextContent(/evaluate-action.*execute-remediation.*verify-remediation/i);
     expect(dialog).toHaveTextContent(/Confirmed.*Denied.*Unknown/i);
     expect(screen.getByText('Readiness')).toBeInTheDocument();
     expect(dialog).toHaveTextContent(/Proposal evaluation.*Protected remediation authorization/i);
-    expect(dialog).toHaveTextContent(/T3N authorization is independent.*external execution integration.*INCOMPLETE.*Execute stays blocked/i);
-    expect(dialog).toHaveTextContent(/Missing external integration is not reported as a T3N denial/i);
-    expect(screen.getByText('Agent Card and public A2A')).toBeInTheDocument();
-    expect(dialog).toHaveTextContent(/A2A.*public evaluation/i);
+    expect(dialog).toHaveTextContent(/Guard runtime authorization is independent from protected execution integration configuration/i);
+    expect(dialog).toHaveTextContent(/Missing configuration is not reported as a Guard runtime denial/i);
+    expect(dialog).toHaveTextContent(/TRUST_RUNTIME_UNAVAILABLE/);
     expect(dialog).toHaveTextContent(/PII-free/i);
     expect(screen.getByText('Policy, minimization, human authorization and execution')).toBeInTheDocument();
     expect(dialog).toHaveTextContent(/one-time.*v2.*Ed25519/i);
-    expect(dialog).toHaveTextContent(/Gateway proof check.*fail-fast.*does not replace T3N/i);
-    expect(dialog).toHaveTextContent(/Before reading.*security_api_url.*security_api_key.*WASM verifies signature.*nonce/i);
-    expect(dialog).toHaveTextContent(/does not claim that T3N verified the human's civil identity/i);
+    expect(dialog).toHaveTextContent(/Guard runtime execution proof check.*execute-remediation.*Executor caller's token/i);
+    expect(dialog).toHaveTextContent(/Before reading the security endpoint configuration or credential.*Guard runtime verifies signature.*nonce/i);
+    expect(dialog).toHaveTextContent(/does not claim that Guard runtime verified the human's civil identity/i);
     expect(dialog).toHaveTextContent(/notify-security.*incident_id.*severity.*summary.*verified_email/i);
-    expect(dialog).toHaveTextContent(/browser.*model.*Java backend.*gateway.*logical reference.*verified_email/i);
-    expect(dialog).toHaveTextContent(/profile marker.*exclusively inside the Rust\/WASM contract/i);
+    expect(dialog).toHaveTextContent(/browser, model, and Java backend carry only the logical reference verified_email/i);
+    expect(dialog).toHaveTextContent(/profile marker is created exclusively inside Guard runtime/i);
     expect(dialog).toHaveTextContent(/Resolved plaintext.*protected egress.*authorized external service.*not returned/i);
     expect(dialog).toHaveTextContent(/DELIVERED.*recipient_resolved=true/i);
-    expect(screen.getByText('Local audit integrity and T3N Activity Log')).toBeInTheDocument();
+    expect(screen.getByText('Local audit integrity and Guard runtime Activity Log')).toBeInTheDocument();
     expect(dialog).toHaveTextContent(/HMAC-SHA256/i);
     expect(dialog).toHaveTextContent(/tamper-evident/i);
     expect(dialog).toHaveTextContent(/VERIFIED.*BROKEN.*KEY_MISMATCH.*LEGACY_UNVERIFIED/i);
     expect(dialog).toHaveTextContent(/old internally consistent snapshot/i);
-    expect(dialog).toHaveTextContent(/evaluate-action.*Proposal Agent.*execute-remediation.*verify-remediation.*Protected Executor/i);
-    expect(screen.getByText('Proof & evidence')).toBeInTheDocument();
-    expect(dialog).toHaveTextContent(/Source tree/i);
-    expect(dialog).toHaveTextContent(/LIVE-PROFILE-PLACEHOLDER-RESOLUTION.*NOT RUN.*T3N testnet/i);
-    expect(dialog).toHaveTextContent(/signed proof.*nonce.*private key.*non-secret/i);
+    expect(dialog).toHaveTextContent(/append-only and hash-chained/i);
+    expect(dialog).toHaveTextContent(/evaluate-action must identify the Proposal Agent.*execute-remediation.*verify-remediation.*Protected Executor/i);
     expect(dialog).toHaveTextContent(/COMPLETED/i);
     expect(screen.getByRole('heading', { name: 'Messages and error states' })).toBeInTheDocument();
+    expect(dialog).not.toHaveTextContent(/Agent Card|A2A|WASM|Rust|checkDelegation|Member grant|credit|gateway|DID/);
+    expect(screen.queryByRole('heading', { name: /evidence/i })).not.toBeInTheDocument();
     expect(closeButton).toHaveFocus();
 
     await user.tab();

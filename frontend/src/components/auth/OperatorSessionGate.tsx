@@ -64,7 +64,7 @@ export function OperatorSessionGate({ session, loading, busy, error, retryAfterS
       <div>
         <p className="eyebrow">Application access</p>
         <h2 id="operator-login-title">Human authority sign in</h2>
-        <p className="auth-help">Use the application credentials assigned to your human authority. T3N tenant and agent credentials are never used for this login.</p>
+        <p className="auth-help">Use the application credentials assigned to your human authority. Guard runtime caller tokens are never used for this login.</p>
       </div>
       <form className="auth-form" onSubmit={(event) => void submit(event)}>
         <label>Username<input name="username" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required disabled={busy} /></label>

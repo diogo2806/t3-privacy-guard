@@ -1,19 +1,17 @@
 import { CheckCircle2, CircleSlash2, Scissors } from 'lucide-react';
 import type { PolicyDecision } from '../../services/privacyGuardApi';
-import { useTrustRuntime } from '../../services/trustRuntime';
 import { InlineNotice } from '../ui/InlineNotice';
 import { Surface } from '../ui/Surface';
 
 export function DecisionPanel({ decision }: { decision: PolicyDecision | null }) {
-  const runtimeName = useTrustRuntime().name;
-  if (!decision) return <Surface><p className="eyebrow">{runtimeName} policy decision</p><h2>Awaiting evaluation</h2><p className="empty-copy">Select a proposal or run a scenario to obtain a decision from the registered contract.</p></Surface>;
+  if (!decision) return <Surface><p className="eyebrow">Guard runtime policy decision</p><h2>Awaiting evaluation</h2><p className="empty-copy">Select a proposal or run a scenario to obtain a decision from the active Guard runtime policy.</p></Surface>;
   const Icon = decision.decision === 'ALLOW' ? CheckCircle2 : decision.decision === 'REDACT' ? Scissors : CircleSlash2;
   const policyVersion = decision.policyVersion || 'Unavailable (legacy/fail-closed)';
   const policyHash = decision.policyHash || 'Unavailable';
   const humanAuthorization = decision.requiresHumanAuthorization == null ? 'Unavailable' : decision.requiresHumanAuthorization ? 'REQUIRED' : 'NOT REQUIRED BY POLICY';
   return (
     <Surface className={`decision-card decision-${decision.decision.toLowerCase()}`}>
-      <div className="decision-hero"><Icon aria-hidden="true" /><div><p className="eyebrow">{runtimeName} policy decision</p><h2>{decision.decision}</h2><p>{decision.reason}</p></div></div>
+      <div className="decision-hero"><Icon aria-hidden="true" /><div><p className="eyebrow">Guard runtime policy decision</p><h2>{decision.decision}</h2><p>{decision.reason}</p></div></div>
       <div className="decision-code"><span>Reason code</span><code>{decision.reasonCode}</code></div>
       <dl className="detail-grid">
         <div><dt>Policy version</dt><dd>{policyVersion}</dd></div>

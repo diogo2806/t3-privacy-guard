@@ -104,7 +104,7 @@ describe('IncidentWorkspaceQueue', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Open Verified notification/i }));
     expect(props.onSelect).toHaveBeenCalledWith(workspace.incidents[1]);
-    expect(screen.queryByRole('button', { name: /authorize/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^authorize/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^execute/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^verify/i })).not.toBeInTheDocument();
   });

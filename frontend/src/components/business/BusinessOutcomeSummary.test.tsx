@@ -85,7 +85,7 @@ describe('BusinessOutcomeSummary', () => {
   it('shows DENY as a blocked proposal and never as completed remediation', () => {
     renderSummary({ incident: INCIDENT, selectedAction: THREAT_ACTION, decision: policyDecision(THREAT_ACTION, 'DENY'), agentAnalysis: analysis('DENY') });
     expect(screen.getByRole('status')).toHaveTextContent('blocked the proposed action before protected egress');
-    expect(section('T3N control outcome').getByText('DENY')).toBeInTheDocument();
+    expect(section('Guard runtime control outcome').getByText('DENY')).toBeInTheDocument();
     expect(section('Authorized response').getAllByText('NOT APPLICABLE')).toHaveLength(2);
     expect(section('Authorized response').getByText('NOT VERIFIED')).toBeInTheDocument();
   });
@@ -118,7 +118,7 @@ describe('BusinessOutcomeSummary', () => {
 
   it('shows verified revocation state and measured duration only after COMPLETED', () => {
     const remediated = { ...SAFE_ACTION, status: 'REMEDIATED' as const, remediationAuthorizedBy: 'ops-reviewer', remediationAuthorizedAt: '2026-09-13T15:00:01.500Z' };
-    renderSummary({ incident: INCIDENT, selectedAction: remediated, decision: policyDecision(remediated, 'ALLOW'), remediationExecution: execution(remediated, 'COMPLETED', '2026-09-13T15:00:05.850Z'), agentAnalysis: analysis('DENY') });
+    renderSummary({ incident: INCIDENT, selectedAction: remediated, decision: policyDecision(remediated, 'ALLOW'), remediationExecution: execution(remediated, 'COMPLETED', '2026-09-13T15:00:05.900Z'), agentAnalysis: analysis('DENY') });
     expect(screen.getByRole('heading', { name: 'Credential compromise contained' })).toBeInTheDocument();
     expect(section('Authorized response').getByText('REVOKED — VERIFIED')).toBeInTheDocument();
     expect(section('Authorized response').getByText('4.9 s')).toBeInTheDocument();
@@ -150,7 +150,12 @@ describe('BusinessOutcomeSummary', () => {
 
   it('formats observed durations according to the display rounding rules', () => {
     expect(formatObservedDuration(420)).toBe('420 ms');
-    expect(formatObservedDuration(4_850)).toBe('4.9 s');
+    expect(formatObservedDuration(4_900)).toBe('4.9 s');
     expect(formatObservedDuration(61_250)).toBe('1m 1.3s');
+  });
+
+  it('rounds a half tenth of a second up and carries into the next minute', () => {
+    expect(formatObservedDuration(4_850)).toBe('4.9 s');
+    expect(formatObservedDuration(119_960)).toBe('2m 0.0s');
   });
 });

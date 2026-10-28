@@ -4,130 +4,109 @@ import { describe, expect, it, vi } from 'vitest';
 import type { SystemStatus } from '../../services/privacyGuardApi';
 import { SystemStatusBar } from './SystemStatusBar';
 
-function status(agentRegistrationState: SystemStatus['agentRegistrationState']): SystemStatus {
-  return {
-    gatewayReachable: true,
-    tenantAuthenticated: true,
-    network: 'testnet',
-    tenantDid: 'did:t3n:tenant',
-    agentConfigured: true,
-    agentAuthenticated: true,
-    agentDid: 'did:t3n:proposal-agent',
-    executorConfigured: true,
-    executorAuthenticated: true,
-    executorDid: 'did:t3n:protected-executor',
-    agentRegistrationState,
-    agentCardUri: agentRegistrationState === 'REGISTERED' ? 'https://node.example/card' : null,
-    agentCardSha256: agentRegistrationState === 'REGISTERED' ? 'a'.repeat(64) : null,
-    agentCardVerifiedAt: '2026-09-13T11:00:00Z',
-    agentCardServices: agentRegistrationState === 'REGISTERED' ? ['A2A', 'DID'] : [],
-    a2aConfigured: true,
-    a2aPublicUrl: 'https://guard.example/a2a',
-    a2aConfigurationCheckedAt: '2026-09-13T11:00:00Z',
-    contractResolved: true,
-    contractId: 'z:tenant:privacy-guard',
-    contractVersion: '0.4.0',
-    evaluationReady: true,
-    protectedRemediationReady: true,
-    enterpriseIntegrationState: 'READY',
-    enterpriseIntegrationReady: true,
-    firstPartyRemediationAdapterConfigured: true,
-    enterpriseExecutionConfigured: true,
-    enterpriseVerificationConfigured: true,
-    enterpriseCredentialConfigured: true,
-    enterpriseExecutionHost: 'security.company.example',
-    enterpriseVerificationHost: 'verify.company.example',
-    enterprisePolicyAllowsExecutionHost: true,
-    enterprisePolicyAllowsVerificationHost: true,
-    enterpriseExecutorDelegationAllowsExecutionHost: true,
-    enterpriseExecutorDelegationAllowsVerificationHost: true,
-    enterpriseSupportedExecutableActions: ['revoke-credential'],
-    enterpriseSupportedVerifiedActions: ['revoke-credential'],
-    enterpriseVerificationContracts: [{ action: 'revoke-credential', expectedState: 'REVOKED' }],
-    enterpriseEvaluationOnlyActions: ['create-incident', 'isolate-account', 'notify-security'],
-    enterpriseIntegrationCheckedAt: '2026-09-13T21:00:00Z',
-    delegationMemberState: 'ACTIVE',
-    delegationEffectiveState: 'ACTIVE',
-    delegatedFunctions: ['evaluate-action'],
-    delegatedScopes: ['incident_id'],
-    allowedHosts: [],
-    delegationCheckedFunctions: ['evaluate-action'],
-    delegationCheckedScopes: ['incident_id', 'credential_id', 'reason'],
-    executorDelegationMemberState: 'ACTIVE',
-    executorDelegationEffectiveState: 'ACTIVE',
-    executorDelegatedFunctions: ['execute-remediation', 'verify-remediation'],
-    executorDelegatedScopes: ['incident_id', 'credential_id'],
-    executorAllowedHosts: ['security.company.example', 'verify.company.example'],
-    executorDelegationCheckedFunctions: ['execute-remediation', 'verify-remediation'],
-    executorDelegationCheckedScopes: ['incident_id', 'credential_id', 'reason'],
-    message: 'Observed status.',
-  };
-}
+const READY_STATUS: SystemStatus = {
+  runtimeReachable: true,
+  tenantAuthenticated: true,
+  network: 'selfhosted',
+  tenantDid: 'tenant:acme',
+  agentConfigured: true,
+  agentAuthenticated: true,
+  agentDid: 'agent:proposal',
+  executorConfigured: true,
+  executorAuthenticated: true,
+  executorDid: 'agent:executor',
+  contractResolved: true,
+  contractId: 'privacy-guard',
+  contractVersion: '1.0.0',
+  evaluationReady: true,
+  protectedRemediationReady: true,
+  enterpriseIntegrationState: 'READY',
+  enterpriseIntegrationDiagnosticCode: 'NONE',
+  enterpriseIntegrationReady: true,
+  firstPartyRemediationAdapterConfigured: true,
+  enterpriseExecutionConfigured: true,
+  enterpriseVerificationConfigured: true,
+  enterpriseCredentialConfigured: true,
+  enterpriseExecutionHost: 'security.company.example',
+  enterpriseVerificationHost: 'verify.company.example',
+  enterprisePolicyAllowsExecutionHost: true,
+  enterprisePolicyAllowsVerificationHost: true,
+  enterpriseExecutorDelegationAllowsExecutionHost: true,
+  enterpriseExecutorDelegationAllowsVerificationHost: true,
+  enterpriseSupportedExecutableActions: ['revoke-credential'],
+  enterpriseSupportedVerifiedActions: ['revoke-credential'],
+  enterpriseVerificationContracts: [{ action: 'revoke-credential', expectedState: 'REVOKED' }],
+  enterpriseEvaluationOnlyActions: ['create-incident', 'isolate-account', 'notify-security'],
+  enterpriseIntegrationCheckedAt: '2026-10-28T11:00:00Z',
+  delegationMemberState: 'ACTIVE',
+  delegationEffectiveState: 'ACTIVE',
+  delegatedFunctions: ['evaluate-action'],
+  delegatedScopes: ['incident_id'],
+  allowedHosts: [],
+  delegationCheckedFunctions: ['evaluate-action'],
+  delegationCheckedScopes: ['incident_id', 'credential_id', 'reason'],
+  executorDelegationMemberState: 'ACTIVE',
+  executorDelegationEffectiveState: 'ACTIVE',
+  executorDelegatedFunctions: ['execute-remediation', 'verify-remediation'],
+  executorDelegatedScopes: ['incident_id', 'credential_id'],
+  executorAllowedHosts: ['security.company.example', 'verify.company.example'],
+  executorDelegationCheckedFunctions: ['execute-remediation', 'verify-remediation'],
+  executorDelegationCheckedScopes: ['incident_id', 'credential_id', 'reason'],
+  message: 'Observed status.',
+};
 
 describe('SystemStatusBar', () => {
-  it('shows Member grant, effective access and independent T3N readiness', () => {
-    render(<SystemStatusBar status={status('REGISTERED')} loading={false} onRefresh={vi.fn()} />);
-    expect(screen.getByText('Proposal Member grant')).toBeInTheDocument();
-    expect(screen.getByText('Proposal effective T3N access')).toBeInTheDocument();
-    expect(screen.getByText('Executor Member grant')).toBeInTheDocument();
-    expect(screen.getByText('Executor effective T3N access')).toBeInTheDocument();
+  it('shows function grants, effective access and independent Guard runtime readiness', () => {
+    render(<SystemStatusBar status={READY_STATUS} loading={false} onRefresh={vi.fn()} />);
+    expect(screen.getByRole('region', { name: 'Live Guard runtime operational status' })).toBeInTheDocument();
+    expect(screen.getByText('Technical Guard runtime authorization')).toBeInTheDocument();
+    expect(screen.getByText('Proposal function grant')).toBeInTheDocument();
+    expect(screen.getByText('Proposal effective Guard runtime access')).toBeInTheDocument();
+    expect(screen.getByText('Executor function grant')).toBeInTheDocument();
+    expect(screen.getByText('Executor effective Guard runtime access')).toBeInTheDocument();
     expect(screen.getByText('Proposal evaluation')).toBeInTheDocument();
     expect(screen.getByText('Protected remediation')).toBeInTheDocument();
-    expect(screen.getByText('T3N controls ready')).toBeInTheDocument();
+    expect(screen.getByText('Guard runtime controls ready')).toBeInTheDocument();
+    expect(screen.getByText(/Guard runtime confirmed the exact function grants/)).toBeInTheDocument();
+    expect(screen.getByText('Authenticated · selfhosted')).toBeInTheDocument();
     expect(screen.getAllByText('Confirmed')).toHaveLength(2);
-    expect(screen.getByText('did:t3n:protected-executor')).toBeInTheDocument();
+    expect(screen.getByText('agent:executor')).toBeInTheDocument();
     expect(screen.getAllByText('evaluate-action').length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByText('execute-remediation, verify-remediation').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('Enterprise integration')).toBeInTheDocument();
     expect(screen.getByText('Operational protected workflow')).toBeInTheDocument();
   });
 
-  it('shows A2A as published only when the resolved Agent Card contains the service', () => {
-    render(<SystemStatusBar status={status('REGISTERED')} loading={false} onRefresh={vi.fn()} />);
-    expect(screen.getByText('A2A evaluation service')).toBeInTheDocument();
-    expect(screen.getByText('Published')).toHaveClass('status-pill-ok');
-    expect(screen.getByText('Yes · observed in resolved Agent Card')).toBeInTheDocument();
-    expect(screen.getByText('https://guard.example/a2a')).toBeInTheDocument();
-    expect(screen.getByText('Policy evaluation only')).toBeInTheDocument();
-    expect(screen.getByText('Not exposed')).toBeInTheDocument();
-    expect(screen.getByText('Not performed by this status check')).toBeInTheDocument();
-  });
-
-  it('does not promote local A2A configuration to a published or live-verified state', () => {
-    const configuredOnly = { ...status('REGISTERED'), agentCardServices: ['DID'] };
-    render(<SystemStatusBar status={configuredOnly} loading={false} onRefresh={vi.fn()} />);
-    expect(screen.getByText('Configured · not published')).toHaveClass('status-pill-pending');
+  it('does not describe public agent onboarding or provider-specific identities', () => {
+    render(<SystemStatusBar status={READY_STATUS} loading={false} onRefresh={vi.fn()} />);
+    expect(document.body.textContent).not.toMatch(/Agent Card|A2A|onboarding|Member grant|DID/);
   });
 
   it('keeps evaluation ready while executor denial blocks protected remediation', () => {
-    render(<SystemStatusBar status={{ ...status('REGISTERED'), protectedRemediationReady: false, executorDelegationEffectiveState: 'DENIED' }} loading={false} onRefresh={vi.fn()} />);
+    render(<SystemStatusBar status={{ ...READY_STATUS, protectedRemediationReady: false, executorDelegationEffectiveState: 'DENIED' }} loading={false} onRefresh={vi.fn()} />);
     expect(screen.getByText('Evaluation ready · execution blocked')).toHaveClass('status-pill-pending');
     expect(screen.getByText('Denied')).toHaveClass('status-pill-off');
-    expect(screen.queryByText('T3N controls ready')).not.toBeInTheDocument();
+    expect(screen.queryByText('Guard runtime controls ready')).not.toBeInTheDocument();
   });
 
   it('fails closed when Proposal effective access is denied', () => {
-    render(<SystemStatusBar status={{ ...status('REGISTERED'), evaluationReady: false, protectedRemediationReady: false, delegationEffectiveState: 'DENIED' }} loading={false} onRefresh={vi.fn()} />);
+    render(<SystemStatusBar status={{ ...READY_STATUS, evaluationReady: false, protectedRemediationReady: false, delegationEffectiveState: 'DENIED' }} loading={false} onRefresh={vi.fn()} />);
     expect(screen.getAllByText('Denied').length).toBeGreaterThan(0);
-    expect(screen.queryByText('T3N controls ready')).not.toBeInTheDocument();
+    expect(screen.queryByText('Guard runtime controls ready')).not.toBeInTheDocument();
   });
 
-  it('fails closed when Proposal effective verdict is unknown', () => {
-    render(<SystemStatusBar status={{ ...status('REGISTERED'), evaluationReady: false, protectedRemediationReady: false, delegationEffectiveState: 'UNKNOWN' }} loading={false} onRefresh={vi.fn()} />);
+  it('fails closed with the runtime name when Proposal effective verdict is unknown', () => {
+    render(<SystemStatusBar status={{ ...READY_STATUS, evaluationReady: false, protectedRemediationReady: false, delegationEffectiveState: 'UNKNOWN' }} loading={false} onRefresh={vi.fn()} />);
     expect(screen.getAllByText('Unknown').length).toBeGreaterThan(0);
-    expect(screen.queryByText('T3N controls ready')).not.toBeInTheDocument();
+    expect(screen.getByText('Guard runtime controls incomplete')).toBeInTheDocument();
+    expect(screen.getByText(/One or more Guard runtime controls are unavailable or denied/)).toBeInTheDocument();
+    expect(screen.queryByText('Guard runtime controls ready')).not.toBeInTheDocument();
   });
 
-  it('renders scheduled Member grant with no checked restrictions', () => {
-    render(<SystemStatusBar status={{ ...status('REGISTERED'), evaluationReady: false, protectedRemediationReady: false, delegationMemberState: 'SCHEDULED', delegationEffectiveState: 'DENIED', delegationCheckedFunctions: [], delegationCheckedScopes: [], message: 'Proposal Member grant exists, but its authorization window has not begun.' }} loading={false} onRefresh={vi.fn()} />);
+  it('renders a scheduled function grant with no checked restrictions', () => {
+    render(<SystemStatusBar status={{ ...READY_STATUS, evaluationReady: false, protectedRemediationReady: false, delegationMemberState: 'SCHEDULED', delegationEffectiveState: 'DENIED', delegationCheckedFunctions: [], delegationCheckedScopes: [], message: 'Proposal function grant exists, but its authorization window has not begun.' }} loading={false} onRefresh={vi.fn()} />);
     expect(screen.getAllByText('Scheduled').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Not checked').length).toBeGreaterThanOrEqual(2);
-    expect(screen.queryByText('T3N controls ready')).not.toBeInTheDocument();
-  });
-
-  it('renders DID mismatch as a non-success onboarding state without changing T3N authorization', () => {
-    render(<SystemStatusBar status={status('MISMATCH')} loading={false} onRefresh={vi.fn()} />);
-    expect(screen.getByText('Card/DID mismatch')).toHaveClass('status-pill-off');
-    expect(screen.getByText('T3N controls ready')).toBeInTheDocument();
+    expect(screen.queryByText('Guard runtime controls ready')).not.toBeInTheDocument();
   });
 });

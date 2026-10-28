@@ -13,18 +13,15 @@ import type {
   ActionProposal,
   AgentAnalysis,
   BusinessImpact,
-  EvidenceBundle,
   PolicyDecision,
   RemediationExecution,
   SystemStatus,
 } from '../../services/privacyGuardApi';
-import { trustRuntimeOf } from '../../services/trustRuntime';
 import { PrivacyGuardMark } from '../brand/PrivacyGuardMark';
 import { formatObservedDuration } from '../business/BusinessOutcomeSummary';
 import { ControlImpactSummary } from '../business/ControlImpactSummary';
 import { ScreenManualDialog } from '../manual/ScreenManualDialog';
 import type { EnterpriseScenarioDefinition } from '../scenarios/scenarioDefinitions';
-import { Button } from '../ui/Button';
 import { Surface } from '../ui/Surface';
 
 interface Props {
@@ -38,17 +35,11 @@ interface Props {
   businessImpact?: BusinessImpact | null;
   businessImpactLoading?: boolean;
   businessImpactError?: string | null;
-  evidence: EvidenceBundle | null;
-  evidenceLoading: boolean;
-  evidenceError: string | null;
-  onOpenEvidence: () => void;
 }
 
 type Tone = 'pending' | 'info' | 'success' | 'warning' | 'danger';
 
 interface TrustStep {
-  // Stable key and test id; the label follows the active trust runtime.
-  id: string;
   label: string;
   state: string;
   detail: string;
@@ -70,23 +61,12 @@ function isHumanAuthorized(action: ActionProposal | null): boolean {
   return action?.status === 'REMEDIATION_AUTHORIZED' || action?.status === 'REMEDIATED';
 }
 
-function validEvidence(evidence: EvidenceBundle | null): evidence is EvidenceBundle {
-  return Boolean(
-    evidence
-      && evidence.metadata.source === 'T3N_TESTNET'
-      && /^[a-f0-9]{40}$/i.test(evidence.metadata.sourceCommitSha)
-      && evidence.metadata.network.trim()
-      && evidence.metadata.contractId.trim()
-      && evidence.metadata.contractVersion.trim(),
-  );
-}
-
-function readiness(status: SystemStatus | null, statusLoading: boolean, evidence: EvidenceBundle | null, evidenceLoading: boolean, runtimeName: string) {
-  if (statusLoading || evidenceLoading) return { label: 'CHECKING RUNTIME', tone: 'pending' as const };
-  if (status?.protectedRemediationReady && status.enterpriseIntegrationReady && validEvidence(evidence) && evidence.totals.fail === 0) {
-    return { label: `${runtimeName.toUpperCase()} LIVE / READY`, tone: 'success' as const };
+function readiness(status: SystemStatus | null, statusLoading: boolean) {
+  if (statusLoading) return { label: 'CHECKING RUNTIME', tone: 'pending' as const };
+  if (status?.protectedRemediationReady && status.enterpriseIntegrationReady) {
+    return { label: 'GUARD RUNTIME LIVE / READY', tone: 'success' as const };
   }
-  if (status?.evaluationReady || status || evidence) return { label: 'INCOMPLETE', tone: 'warning' as const };
+  if (status) return { label: 'INCOMPLETE', tone: 'warning' as const };
   return { label: 'NOT READY', tone: 'danger' as const };
 }
 
@@ -103,7 +83,7 @@ function observedOutcome(action: ActionProposal | null, decision: PolicyDecision
   return NOT_OBSERVED;
 }
 
-function trustPath(action: ActionProposal | null, decision: PolicyDecision | null, execution: RemediationExecution | null, runtimeName: string): TrustStep[] {
+function trustPath(action: ActionProposal | null, decision: PolicyDecision | null, execution: RemediationExecution | null): TrustStep[] {
   const authorized = isHumanAuthorized(action);
   const proposalDetail = action
     ? `${action.action}${action.host ? ` → ${action.host}` : ' → no outbound host'}`
@@ -135,22 +115,23 @@ function trustPath(action: ActionProposal | null, decision: PolicyDecision | nul
   if (execution?.state === 'UNVERIFIED' || execution?.state === 'FAILED') { verifyState = 'UNVERIFIED'; verifyTone = 'danger'; }
 
   return [
-    { id: 'ai-proposal', label: 'AI proposal', state: action ? 'RECEIVED' : 'WAITING', detail: proposalDetail, tone: action ? 'info' : 'pending', icon: BrainCircuit },
-    { id: 't3n-policy', label: `${runtimeName} policy`, state: decision?.decision ?? 'WAITING', detail: decision ? decision.reasonCode : `No ${runtimeName} decision observed yet.`, tone: policyTone, icon: ShieldCheck },
-    { id: 'human', label: 'Human', state: humanState, detail: humanState === 'REQUIRED' ? 'Human authorization required before protected execution.' : humanState === 'AUTHORIZED' ? 'Authorization is recorded for this action.' : 'No authorization is inferred.', tone: humanTone, icon: UserCheck },
-    { id: 'executor', label: 'Executor', state: executorState, detail: executorState === 'NOT EXECUTED' ? 'Protected egress did not run.' : executorState === 'NOT STARTED' ? 'Authorized, but protected execution has not started.' : 'State comes from the remediation execution record.', tone: executorTone, icon: ServerCog },
-    { id: 'verify', label: 'Verify', state: verifyState, detail: verifyState === 'VERIFIED' ? 'Independent read-back confirmed the expected external state.' : verifyState === 'NOT VERIFIED YET' ? 'Authorization exists, but no independently verified completion has been observed.' : 'No verified completion is claimed unless read-back succeeds.', tone: verifyTone, icon: BadgeCheck },
+    { label: 'AI proposal', state: action ? 'RECEIVED' : 'WAITING', detail: proposalDetail, tone: action ? 'info' : 'pending', icon: BrainCircuit },
+    { label: 'Guard runtime policy', state: decision?.decision ?? 'WAITING', detail: decision ? decision.reasonCode : 'No Guard runtime decision observed yet.', tone: policyTone, icon: ShieldCheck },
+    { label: 'Human', state: humanState, detail: humanState === 'REQUIRED' ? 'Human authorization required before protected execution.' : humanState === 'AUTHORIZED' ? 'Authorization is recorded for this action.' : 'No authorization is inferred.', tone: humanTone, icon: UserCheck },
+    { label: 'Executor', state: executorState, detail: executorState === 'NOT EXECUTED' ? 'Protected egress did not run.' : executorState === 'NOT STARTED' ? 'Authorized, but protected execution has not started.' : 'State comes from the remediation execution record.', tone: executorTone, icon: ServerCog },
+    { label: 'Verify', state: verifyState, detail: verifyState === 'VERIFIED' ? 'Independent read-back confirmed the expected external state.' : verifyState === 'NOT VERIFIED YET' ? 'Authorization exists, but no independently verified completion has been observed.' : 'No verified completion is claimed unless read-back succeeds.', tone: verifyTone, icon: BadgeCheck },
   ];
 }
 
-function shorten(value?: string | null): string {
-  if (!value) return 'NOT OBSERVED';
-  return value.length <= 28 ? value : `${value.slice(0, 16)}…${value.slice(-8)}`;
+function readyLabel(ready?: boolean): { label: string; tone: Tone } {
+  if (ready === undefined) return { label: 'NOT OBSERVED', tone: 'pending' };
+  return ready ? { label: 'READY', tone: 'success' } : { label: 'NOT READY', tone: 'danger' };
 }
 
-function delegationLabel(status: SystemStatus | null): { label: string; tone: Tone } {
-  if (status?.delegationEffectiveState === 'DENIED' || status?.executorDelegationEffectiveState === 'DENIED') return { label: 'DENIED', tone: 'danger' };
-  if (status?.delegationEffectiveState === 'ACTIVE' && status?.executorDelegationEffectiveState === 'ACTIVE') return { label: 'CONFIRMED', tone: 'success' };
+function accessLabel(status: SystemStatus | null): { label: string; tone: Tone } {
+  if (!status) return { label: 'NOT OBSERVED', tone: 'pending' };
+  if (status.delegationEffectiveState === 'DENIED' || status.executorDelegationEffectiveState === 'DENIED') return { label: 'DENIED', tone: 'danger' };
+  if (status.delegationEffectiveState === 'ACTIVE' && status.executorDelegationEffectiveState === 'ACTIVE') return { label: 'CONFIRMED', tone: 'success' };
   return { label: 'UNKNOWN', tone: 'warning' };
 }
 
@@ -171,25 +152,18 @@ export function ExecutiveDemoView({
   businessImpact = null,
   businessImpactLoading = false,
   businessImpactError = null,
-  evidence,
-  evidenceLoading,
-  evidenceError,
-  onOpenEvidence,
 }: Props) {
   const action = selectedAction ?? agentAnalysis?.action ?? null;
   const policyDecision = selectedAction ? decision : (agentAnalysis?.decision ?? decision);
-  const runtimeName = trustRuntimeOf(systemStatus).name;
-  const currentReadiness = readiness(systemStatus, statusLoading, evidence, evidenceLoading, runtimeName);
+  const currentReadiness = readiness(systemStatus, statusLoading);
   const outcome = observedOutcome(action, policyDecision, remediationExecution);
-  const steps = trustPath(action, policyDecision, remediationExecution, runtimeName);
+  const steps = trustPath(action, policyDecision, remediationExecution);
   const decisionTime = formatObservedDuration(elapsedMs(action?.createdAt, policyDecision?.evaluatedAt));
-  const proofAvailable = validEvidence(evidence);
-  const proposalDid = proofAvailable ? evidence.metadata.agentDid : systemStatus?.agentDid;
-  const executorDid = proofAvailable ? evidence.metadata.executorDid : systemStatus?.executorDid;
-  const delegation = delegationLabel(systemStatus);
-  const identities = identitiesLabel(proposalDid, executorDid);
+  const evaluation = readyLabel(systemStatus?.evaluationReady);
+  const remediation = readyLabel(systemStatus?.protectedRemediationReady);
+  const access = accessLabel(systemStatus);
+  const identities = identitiesLabel(systemStatus?.agentDid, systemStatus?.executorDid);
   const enterpriseIntegrationState = systemStatus?.enterpriseIntegrationState ?? 'NOT OBSERVED';
-  const agentRegistrationState = systemStatus?.agentRegistrationState ?? 'NOT OBSERVED';
 
   return (
     <Surface className="executive-demo" elevated aria-labelledby="executive-demo-title" data-testid="executive-demo-view">
@@ -244,13 +218,13 @@ export function ExecutiveDemoView({
         <div className="executive-demo-section-heading">
           <p className="eyebrow">How the control works</p>
           <h2 id="executive-trust-title">Trust path</h2>
-          <p className="executive-demo-mechanism">AI can propose. Policy decides. Humans authorize. {runtimeName} executes.</p>
+          <p className="executive-demo-mechanism">AI can propose. Policy decides. Humans authorize. Guard runtime executes.</p>
         </div>
         <ol className="executive-demo-trust-steps">
           {steps.map((step, index) => {
             const Icon = step.icon;
             return (
-              <li key={step.id} className={`executive-demo-step executive-tone-${step.tone}`} data-testid={`executive-step-${step.id}`}>
+              <li key={step.label} className={`executive-demo-step executive-tone-${step.tone}`} data-testid={`executive-step-${step.label.toLowerCase().replaceAll(' ', '-')}`}>
                 <div className="executive-demo-step-heading"><Icon aria-hidden="true" /><span>{step.label}</span></div>
                 <strong>{step.state}</strong>
                 <small title={step.detail}>{step.detail}</small>
@@ -264,28 +238,21 @@ export function ExecutiveDemoView({
       <section className="executive-demo-proof" aria-labelledby="executive-proof-title" data-testid="executive-proof">
         <div className="executive-demo-proof-heading">
           <div className="executive-demo-block-title"><FileCheck2 aria-hidden="true" /><h2 id="executive-proof-title">Proof at a glance</h2></div>
-          {!proofAvailable && <span className="executive-demo-proof-state" title={evidenceError ?? undefined}>{evidenceLoading ? 'Loading live evidence…' : 'Live evidence not loaded/generated'}</span>}
+          {(statusLoading || !systemStatus) && <span className="executive-demo-proof-state">{statusLoading ? 'Checking live status…' : 'Live status not loaded'}</span>}
         </div>
 
-        {proofAvailable ? (
-          <dl className="executive-demo-proof-grid">
-            <div><dt>Network</dt><dd>{evidence.metadata.network.toUpperCase()}</dd></div>
-            <div><dt>Evidence</dt><dd>{evidence.totals.pass} PASS / {evidence.totals.fail} FAIL / {evidence.totals.notRun} NOT RUN</dd></div>
-            <div><dt>Source</dt><dd className={evidence.metadata.sourceTreeClean ? 'executive-proof-ok' : 'executive-proof-danger'}>{evidence.metadata.sourceTreeClean ? 'CLEAN' : 'DIRTY'} · <code title={evidence.metadata.sourceCommitSha}>{evidence.metadata.sourceCommitSha.slice(0, 8)}…</code></dd></div>
-            <div><dt>Contract</dt><dd><span>{evidence.metadata.contractVersion}</span> · <code title={evidence.metadata.contractId}>{shorten(evidence.metadata.contractId)}</code></dd></div>
-            <div><dt>Identity separation</dt><dd className={`executive-tone-text-${identities.tone}`}>{identities.label}</dd></div>
-            <div><dt>Effective delegation</dt><dd className={`executive-tone-text-${delegation.tone}`}>{delegation.label}</dd></div>
-            <div><dt>Enterprise integration</dt><dd>{enterpriseIntegrationState}</dd></div>
-            <div><dt>Agent registration</dt><dd>{agentRegistrationState}</dd></div>
-          </dl>
-        ) : (
-          <p className="executive-demo-proof-empty">No PASS state, source commit or live-runtime claim is inferred until a valid evidence bundle is loaded.</p>
-        )}
-        <p className="executive-demo-proof-note">PASS and FAIL are observed evidence outcomes. NOT RUN is not proof, and a clean source tree is not a security guarantee. Agent registration reports the observed public Agent Card state, not authorization. Enterprise integration READY does not prove external service success. Full DIDs and integration details remain available in Technical evidence.</p>
+        <dl className="executive-demo-proof-grid">
+          <div><dt>Policy evaluation</dt><dd className={`executive-tone-text-${evaluation.tone}`}>{evaluation.label}</dd></div>
+          <div><dt>Protected remediation</dt><dd className={`executive-tone-text-${remediation.tone}`}>{remediation.label}</dd></div>
+          <div><dt>Identity separation</dt><dd className={`executive-tone-text-${identities.tone}`}>{identities.label}</dd></div>
+          <div><dt>Effective access</dt><dd className={`executive-tone-text-${access.tone}`}>{access.label}</dd></div>
+          <div><dt>Enterprise integration</dt><dd>{enterpriseIntegrationState}</dd></div>
+          <div><dt>Policy version</dt><dd>{policyDecision?.policyVersion ?? 'NOT OBSERVED'}</dd></div>
+        </dl>
+        <p className="executive-demo-proof-note">Facts come from the live system status and the observed policy decision; nothing is inferred while they are unavailable. Effective access means Guard runtime confirmed the separate Proposal and Executor callers against their own function grants. Enterprise integration READY does not prove external service success. Caller identities and integration details remain available in System readiness details.</p>
       </section>
 
       <footer className="executive-demo-actions">
-        <Button variant="secondary" onClick={onOpenEvidence}>Open technical evidence</Button>
         <ScreenManualDialog />
       </footer>
     </Surface>
