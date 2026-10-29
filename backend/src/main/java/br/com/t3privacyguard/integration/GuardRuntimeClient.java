@@ -5,6 +5,10 @@ import br.com.t3privacyguard.security.RuntimeSecretPolicy;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import javax.net.ssl.SSLContext;
+import org.springframework.boot.ssl.SslBundle;
+import org.springframework.boot.ssl.pem.PemSslStoreBundle;
+import org.springframework.boot.ssl.pem.PemSslStoreDetails;
 import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -66,6 +70,19 @@ public class GuardRuntimeClient {
         this(mapper, url, proposalAgentId, proposalToken, executorId, executorToken, "", timeoutMs);
     }
 
+    public GuardRuntimeClient(
+        ObjectMapper mapper,
+        String url,
+        String proposalAgentId,
+        String proposalToken,
+        String executorId,
+        String executorToken,
+        String policyAdminToken,
+        long timeoutMs
+    ) {
+        this(mapper, url, proposalAgentId, proposalToken, executorId, executorToken, policyAdminToken, "", "", "", timeoutMs);
+    }
+
     @Autowired
     public GuardRuntimeClient(
         ObjectMapper mapper,
@@ -75,6 +92,9 @@ public class GuardRuntimeClient {
         @Value("${privacy-guard.guard-runtime.executor-id:agent:executor}") String executorId,
         @Value("${privacy-guard.guard-runtime.executor-token:}") String executorToken,
         @Value("${privacy-guard.guard-runtime.policy-admin-token:}") String policyAdminToken,
+        @Value("${privacy-guard.guard-runtime.tls.ca:}") String tlsCa,
+        @Value("${privacy-guard.guard-runtime.tls.client-certificate:}") String tlsClientCertificate,
+        @Value("${privacy-guard.guard-runtime.tls.client-private-key:}") String tlsClientPrivateKey,
         @Value("${privacy-guard.guard-runtime.timeout-ms:15000}") long timeoutMs
     ) {
         this.mapper = mapper;
@@ -99,10 +119,12 @@ public class GuardRuntimeClient {
         }
         if (timeoutMs < 100 || timeoutMs > 60_000) throw new IllegalStateException("GUARD_RUNTIME_TIMEOUT_MS must be between 100 and 60000");
         this.timeout = Duration.ofMillis(timeoutMs);
-        this.http = HttpClient.newBuilder()
+        HttpClient.Builder builder = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(3))
-            .followRedirects(HttpClient.Redirect.NEVER)
-            .build();
+            .followRedirects(HttpClient.Redirect.NEVER);
+        SSLContext tls = tlsContext(this.baseUrl, tlsCa, tlsClientCertificate, tlsClientPrivateKey);
+        if (tls != null) builder.sslContext(tls);
+        this.http = builder.build();
     }
 
     public String proposalAgentId() {
@@ -221,6 +243,29 @@ public class GuardRuntimeClient {
                 + " (an internal name with an underscore needs http:// and an explicit port)");
         }
         return url;
+    }
+
+    /**
+     * TLS to guard-runtime from PEM files: a private CA to trust (otherwise the JVM's public CAs) and, for mutual TLS,
+     * the app's client certificate and key. Files are read at startup, so a wrong path stops the app.
+     */
+    private static SSLContext tlsContext(String url, String ca, String clientCertificate, String clientPrivateKey) {
+        boolean hasCa = ca != null && !ca.isBlank();
+        boolean hasCertificate = clientCertificate != null && !clientCertificate.isBlank();
+        boolean hasKey = clientPrivateKey != null && !clientPrivateKey.isBlank();
+        if (!hasCa && !hasCertificate && !hasKey) return null;
+        if (!url.startsWith("https://")) throw new IllegalStateException("GUARD_RUNTIME_TLS_* settings need an https:// GUARD_RUNTIME_URL");
+        if (hasCertificate != hasKey) {
+            throw new IllegalStateException("GUARD_RUNTIME_TLS_CLIENT_CERTIFICATE and GUARD_RUNTIME_TLS_CLIENT_PRIVATE_KEY go together");
+        }
+        try {
+            PemSslStoreDetails keyStore = hasCertificate ? PemSslStoreDetails.forCertificate(clientCertificate.trim()).withPrivateKey(clientPrivateKey.trim()) : null;
+            // Without a CA the trust store stays empty and the JVM's default CAs apply.
+            PemSslStoreDetails trustStore = hasCa ? PemSslStoreDetails.forCertificate(ca.trim()) : null;
+            return SslBundle.of(new PemSslStoreBundle(keyStore, trustStore)).createSslContext();
+        } catch (RuntimeException ex) {
+            throw new IllegalStateException("guard-runtime TLS files could not be loaded", ex);
+        }
     }
 
     private static String underscoreHost(String url) {

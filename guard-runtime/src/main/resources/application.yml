@@ -3,6 +3,15 @@ spring:
     name: privacy-guard-runtime
 server:
   port: ${GUARD_RUNTIME_PORT:3101}
+  # Optional TLS for calls from the app (PEM files or classpath: locations). For mutual TLS also set
+  # GUARD_RUNTIME_TLS_CLIENT_AUTH=need and GUARD_RUNTIME_TLS_CLIENT_CA to the CA that signs the app's client
+  # certificate; the caller tokens are still required on top.
+  ssl:
+    enabled: ${GUARD_RUNTIME_TLS_ENABLED:false}
+    certificate: ${GUARD_RUNTIME_TLS_CERTIFICATE:}
+    certificate-private-key: ${GUARD_RUNTIME_TLS_PRIVATE_KEY:}
+    trust-certificate: ${GUARD_RUNTIME_TLS_CLIENT_CA:}
+    client-auth: ${GUARD_RUNTIME_TLS_CLIENT_AUTH:none}
 management:
   endpoints:
     web:

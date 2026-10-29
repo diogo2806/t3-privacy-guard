@@ -41,6 +41,12 @@ privacy-guard:
     # Optional caller granted only manage-policy; without it the dashboard shows the policy read-only.
     policy-admin-token: ${GUARD_RUNTIME_POLICY_ADMIN_TOKEN:}
     timeout-ms: ${GUARD_RUNTIME_TIMEOUT_MS:15000}
+    # Optional TLS with an https:// GUARD_RUNTIME_URL (PEM files): a private CA to trust, and the app's client
+    # certificate and key when guard-runtime requires mutual TLS.
+    tls:
+      ca: ${GUARD_RUNTIME_TLS_CA:}
+      client-certificate: ${GUARD_RUNTIME_TLS_CLIENT_CERTIFICATE:}
+      client-private-key: ${GUARD_RUNTIME_TLS_CLIENT_PRIVATE_KEY:}
   ai:
     provider: ${AI_PROVIDER:disabled}
     api-url: ${AI_API_URL:https://api.openai.com/v1/chat/completions}
