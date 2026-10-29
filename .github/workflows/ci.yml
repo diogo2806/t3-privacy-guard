@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guard-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: mvn -B -f guard-runtime/pom.xml verify
+
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      # Includes the PostgreSQL migration test (embedded PostgreSQL, no Docker needed).
+      - run: mvn -B -f backend/pom.xml verify
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-audit --no-fund
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run build
+
+  end-to-end:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # Both services as processes: revocation and notification to COMPLETED, MCP, policy versioning, no secret in logs.
+      - run: bash scripts/selfhosted-e2e.sh
+
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the app image (dashboard + backend)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: false
+          cache-from: type=gha,scope=app
+          cache-to: type=gha,mode=max,scope=app
+      - name: Build the guard-runtime image
+        uses: docker/build-push-action@v6
+        with:
+          context: guard-runtime
+          file: guard-runtime/Dockerfile
+          push: false
+          cache-from: type=gha,scope=guard-runtime
+          cache-to: type=gha,mode=max,scope=guard-runtime
+
+  # Optional: deploy only after everything above passed. Turn off EasyPanel's auto-deploy on push and add the
+  # services' deploy webhook URLs as the repository secrets EASYPANEL_DEPLOY_HOOK_RUNTIME and EASYPANEL_DEPLOY_HOOK_APP.
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [guard-runtime, backend, frontend, end-to-end, images]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger EasyPanel deploys
+        env:
+          RUNTIME_HOOK: ${{ secrets.EASYPANEL_DEPLOY_HOOK_RUNTIME }}
+          APP_HOOK: ${{ secrets.EASYPANEL_DEPLOY_HOOK_APP }}
+        run: |
+          if [ -z "$RUNTIME_HOOK" ] && [ -z "$APP_HOOK" ]; then
+            echo "No EasyPanel deploy hooks configured; nothing to trigger."
+            exit 0
+          fi
+          if [ -n "$RUNTIME_HOOK" ]; then curl -fsS -X POST "$RUNTIME_HOOK" > /dev/null; echo "guard-runtime deploy triggered"; fi
+          if [ -n "$APP_HOOK" ]; then curl -fsS -X POST "$APP_HOOK" > /dev/null; echo "app deploy triggered"; fi
