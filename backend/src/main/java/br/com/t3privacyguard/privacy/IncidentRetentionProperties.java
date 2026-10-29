@@ -12,7 +12,7 @@ import org.springframework.validation.annotation.Validated;
 @Validated
 public class IncidentRetentionProperties {
     @Min(1)
-    @Max(30)
+    @Max(3650)
     private int days = 7;
 
     public int getDays() {

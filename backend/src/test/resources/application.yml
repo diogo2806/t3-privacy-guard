@@ -15,12 +15,19 @@ server:
         http-only: true
         same-site: strict
         secure: false
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
 privacy-guard:
   guard-runtime:
     url: http://localhost:3101
     proposal-token: test-runtime-proposal-token-1234567890
     policy-admin-token: test-runtime-policy-admin-token-1234567890
     executor-token: test-runtime-executor-token-1234567890
+  metrics:
+    token: test-metrics-token-1234567890123456789012
   mcp:
     token: test-mcp-token-123456789012345678901234
   remediation-capability:

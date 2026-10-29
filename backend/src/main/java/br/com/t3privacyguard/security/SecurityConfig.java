@@ -40,6 +40,7 @@ public class SecurityConfig {
     static final String EXECUTOR = "EXECUTOR";
     static final String AUDITOR = "AUDITOR";
     static final String POLICY_ADMIN = "POLICY_ADMIN";
+    static final String METRICS_AUTHORITY = "SCOPE_metrics:read";
     // Same policy the dashboard had behind nginx: everything same-origin, no inline script or style.
     private static final String DASHBOARD_CONTENT_SECURITY_POLICY = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; "
         + "form-action 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; manifest-src 'self'";
@@ -178,6 +179,28 @@ public class SecurityConfig {
                     "Remediation action not allowed",
                     "This machine credential is not allowed to perform the requested action."
                 )));
+        return http.build();
+    }
+
+    /** Prometheus scraping with METRICS_TOKEN; without the token configured the endpoint answers 401 to everyone. */
+    @Bean
+    @Order(-1)
+    SecurityFilterChain metricsSecurityFilterChain(HttpSecurity http, MetricsCredential metricsCredential) throws Exception {
+        http
+            .securityMatcher("/actuator/prometheus")
+            .csrf(AbstractHttpConfigurer::disable)
+            .authorizeHttpRequests(auth -> auth.anyRequest().hasAuthority(METRICS_AUTHORITY))
+            .formLogin(AbstractHttpConfigurer::disable)
+            .httpBasic(AbstractHttpConfigurer::disable)
+            .logout(AbstractHttpConfigurer::disable)
+            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .addFilterBefore(new StaticTokenAuthenticationFilter(metricsCredential, "metrics-scraper", METRICS_AUTHORITY), UsernamePasswordAuthenticationFilter.class)
+            .exceptionHandling(errors -> errors
+                .authenticationEntryPoint((request, response, exception) -> {
+                    response.setHeader("WWW-Authenticate", "Bearer realm=\"privacy-guard-metrics\"");
+                    response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+                })
+                .accessDeniedHandler((request, response, exception) -> response.sendError(HttpServletResponse.SC_FORBIDDEN)));
         return http.build();
     }
 

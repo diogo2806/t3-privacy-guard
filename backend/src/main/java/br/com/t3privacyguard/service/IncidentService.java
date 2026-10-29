@@ -1,5 +1,6 @@
 package br.com.t3privacyguard.service;
 
+import io.micrometer.core.instrument.Metrics;
 import br.com.t3privacyguard.api.ApiModels.ActionResponse;
 import br.com.t3privacyguard.api.ApiModels.AuditResponse;
 import br.com.t3privacyguard.api.ApiModels.CreateActionRequest;
@@ -183,6 +184,7 @@ public class IncidentService {
         ));
         action.markEvaluated();
         actions.save(action);
+        Metrics.counter("privacy_guard.decisions", "decision", entity.getDecision().name()).increment();
         String policyAudit = entity.getPolicyVersion() == null
             ? " with fail-closed policy metadata unavailable"
             : " under policy " + entity.getPolicyVersion() + " hash " + entity.getPolicyHash();

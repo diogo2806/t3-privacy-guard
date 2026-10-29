@@ -1,5 +1,6 @@
 package br.com.t3privacyguard.service;
 
+import io.micrometer.core.instrument.Metrics;
 import br.com.t3privacyguard.audit.AuditIntegrityService;
 import br.com.t3privacyguard.domain.RemediationStatus;
 import br.com.t3privacyguard.persistence.ActionProposalEntity;
@@ -74,6 +75,7 @@ public class RemediationExecutionCoordinator {
     public RemediationExecutionEntity markCompleted(String actionId) {
         RemediationExecutionEntity entity = require(actionId);
         entity.markCompleted(Instant.now());
+        Metrics.counter("privacy_guard.remediations", "outcome", "COMPLETED").increment();
         return executions.saveAndFlush(entity);
     }
 
@@ -87,6 +89,7 @@ public class RemediationExecutionCoordinator {
             return entity;
         }
         entity.markUnverified(safeCode(failureCode), now);
+        Metrics.counter("privacy_guard.remediations", "outcome", "UNVERIFIED").increment();
         return executions.saveAndFlush(entity);
     }
 
@@ -94,6 +97,7 @@ public class RemediationExecutionCoordinator {
     public RemediationExecutionEntity markFailed(String actionId, String failureCode) {
         RemediationExecutionEntity entity = require(actionId);
         entity.markFailed(safeCode(failureCode), Instant.now());
+        Metrics.counter("privacy_guard.remediations", "outcome", "FAILED").increment();
         return executions.saveAndFlush(entity);
     }
 

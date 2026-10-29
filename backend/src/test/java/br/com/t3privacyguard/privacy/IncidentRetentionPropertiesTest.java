@@ -7,15 +7,15 @@ import org.junit.jupiter.api.Test;
 
 class IncidentRetentionPropertiesTest {
     @Test
-    void rejectsZeroNegativeAndValuesAboveThirtyDays() {
+    void rejectsZeroNegativeAndValuesAboveTenYears() {
         try (var factory = Validation.buildDefaultValidatorFactory()) {
             var validator = factory.getValidator();
 
             IncidentRetentionProperties zero = properties(0);
             IncidentRetentionProperties negative = properties(-1);
-            IncidentRetentionProperties tooLong = properties(31);
+            IncidentRetentionProperties tooLong = properties(3651);
             IncidentRetentionProperties minimum = properties(1);
-            IncidentRetentionProperties maximum = properties(30);
+            IncidentRetentionProperties maximum = properties(3650);
 
             assertThat(validator.validate(zero)).isNotEmpty();
             assertThat(validator.validate(negative)).isNotEmpty();

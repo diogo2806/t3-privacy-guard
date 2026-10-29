@@ -1,5 +1,6 @@
 package br.com.t3privacyguard.security;
 
+import io.micrometer.core.instrument.Metrics;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -38,6 +39,7 @@ public class OperatorLoginAttemptGuard {
     }
 
     public synchronized void recordFailure(String username) {
+        Metrics.counter("privacy_guard.login.failures").increment();
         String key = normalize(username);
         Instant now = clock.instant();
         AttemptState state = attempts.get(key);

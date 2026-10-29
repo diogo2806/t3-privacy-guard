@@ -16,7 +16,8 @@ management:
   endpoints:
     web:
       exposure:
-        include: health
+        # /actuator/prometheus needs GUARD_RUNTIME_METRICS_TOKEN as a bearer token (MetricsTokenFilter).
+        include: health,prometheus
 guard-runtime:
   policy-file: ${GUARD_RUNTIME_POLICY_FILE:/data/policy/current.json}
   # With a directory, policy is versioned and can be published or rolled back through /v1/policy; the file above
@@ -25,6 +26,8 @@ guard-runtime:
   replay-file: ${GUARD_RUNTIME_REPLAY_FILE:/data/replay/execution-nonces.json}
   activity-file: ${GUARD_RUNTIME_ACTIVITY_FILE:/data/activity/activity.jsonl}
   tenant-id: ${GUARD_RUNTIME_TENANT_ID:default}
+  # Bearer token for /actuator/prometheus (32-512 characters). Empty keeps metrics closed.
+  metrics-token: ${GUARD_RUNTIME_METRICS_TOKEN:}
   callers-json: ${GUARD_RUNTIME_CALLERS_JSON:[]}
   profile:
     # Private value behind the verified_email reference. Never leaves the runtime except inside the approved egress.

@@ -13,6 +13,7 @@ import br.com.privacyguard.runtime.remediation.RemediationExecutionRequest;
 import br.com.privacyguard.runtime.remediation.RemediationService;
 import br.com.privacyguard.runtime.remediation.RemediationVerificationRequest;
 import br.com.privacyguard.runtime.store.PolicyStore;
+import io.micrometer.core.instrument.Metrics;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -115,6 +116,7 @@ public class ContractFunctionController {
      * shows up in the backend's reconciliation as a local-only event instead.
      */
     static ResponseEntity<?> recorded(ActivityLog activity, Caller caller, GuardFunction function, Outcome outcome, ResponseEntity<?> response) {
+        Metrics.counter("guard_runtime.calls", "function", function.wireName(), "outcome", outcome.wireName()).increment();
         ActivityEvent event;
         try {
             event = activity.append(caller, function, outcome);

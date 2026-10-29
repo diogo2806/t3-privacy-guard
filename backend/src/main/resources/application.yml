@@ -26,7 +26,8 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        # /actuator/prometheus needs METRICS_TOKEN as a bearer token (see SecurityConfig).
+        include: health,info,prometheus
   endpoint:
     health:
       probes:
@@ -53,6 +54,9 @@ privacy-guard:
     api-key: ${AI_API_KEY:}
     model: ${AI_MODEL:}
     allow-insecure-http: ${AI_ALLOW_INSECURE_HTTP:false}
+  metrics:
+    # Bearer token for /actuator/prometheus (32-512 characters). Empty keeps metrics closed.
+    token: ${METRICS_TOKEN:}
   mcp:
     # Bearer token for /mcp. Empty disables the MCP endpoint.
     token: ${MCP_TOKEN:}
