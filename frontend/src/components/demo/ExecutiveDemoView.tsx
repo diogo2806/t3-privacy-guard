@@ -171,7 +171,7 @@ export function ExecutiveDemoView({
         <div>
           <div className="executive-demo-product-lockup">
             <PrivacyGuardMark className="executive-demo-brand-mark" testId="executive-brand-mark" />
-            <p className="eyebrow">T3 Privacy Guard · Executive demo</p>
+            <p className="eyebrow">Privacy Guard · Executive demo</p>
           </div>
           <h1 id="executive-demo-title">Use AI agents in sensitive workflows without giving the model security authority.</h1>
           <p className="executive-demo-subheadline">Keep private data, policy decisions and critical actions outside the model while preserving useful AI recommendations. Unsafe proposals can be blocked or minimized, protected remediation requires human authorization, and completion is claimed only after independent verification.</p>

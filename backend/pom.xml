@@ -10,7 +10,7 @@
   <groupId>br.com.t3privacyguard</groupId>
   <artifactId>backend</artifactId>
   <version>0.1.0</version>
-  <name>t3-privacy-guard-backend</name>
+  <name>privacy-guard-app</name>
   <properties><java.version>21</java.version></properties>
   <dependencies>
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency>

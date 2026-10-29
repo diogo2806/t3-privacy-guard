@@ -1,4 +1,4 @@
-# T3 Privacy Guard
+# Privacy Guard
 
 A control layer between AI agents and the systems they act on. The agent may propose an action; a separate trust runtime decides whether it is allowed, strips it to the minimum data, waits for an authenticated human, performs it with credentials the agent never sees, and only calls it done after reading the result back from the target system.
 
