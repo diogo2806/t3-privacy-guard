@@ -17,7 +17,7 @@ server:
       cookie:
         http-only: true
         same-site: strict
-        secure: ${SESSION_COOKIE_SECURE:false}
+        secure: ${SESSION_COOKIE_SECURE:true}
 management:
   endpoints:
     web:
@@ -60,7 +60,7 @@ privacy-guard:
   operator:
     username: ${OPERATOR_USERNAME:}
     password: ${OPERATOR_PASSWORD:}
-    cookie-secure: ${SESSION_COOKIE_SECURE:false}
+    cookie-secure: ${SESSION_COOKIE_SECURE:true}
   iam:
     enterprise-sod-enabled: ${ENTERPRISE_SOD_ENABLED:false}
     analyst:

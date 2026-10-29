@@ -235,7 +235,7 @@ public class SecurityConfig {
     SecurityFilterChain operatorSecurityFilterChain(
         HttpSecurity http,
         ObjectMapper objectMapper,
-        @Value("${privacy-guard.operator.cookie-secure:false}") boolean cookieSecure
+        @Value("${privacy-guard.operator.cookie-secure:true}") boolean cookieSecure
     ) throws Exception {
         CookieCsrfTokenRepository csrfRepository = new CookieCsrfTokenRepository();
         csrfRepository.setCookieName("XSRF-TOKEN");

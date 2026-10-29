@@ -87,6 +87,7 @@ env "${DASHBOARD_ENV[@]}" SERVER_PORT="$BACKEND_PORT" \
   AUDIT_INTEGRITY_KEY="$AUDIT_KEY" \
   OPERATOR_USERNAME=operator \
   OPERATOR_PASSWORD="$OPERATOR_PASSWORD" \
+  SESSION_COOKIE_SECURE=false \
   java -jar "$ROOT/backend/target/backend-0.1.0.jar" > "$WORK/backend.log" 2>&1 &
 PIDS+=($!)
 
