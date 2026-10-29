@@ -9,6 +9,9 @@ export default defineConfig(({ mode }) => {
     server: {
       proxy: {
         '/api': { target: backendUrl, changeOrigin: true },
+        // Single sign-on starts and returns on the backend.
+        '/oauth2': { target: backendUrl, changeOrigin: true },
+        '/login/oauth2': { target: backendUrl, changeOrigin: true },
       },
     },
     test: {

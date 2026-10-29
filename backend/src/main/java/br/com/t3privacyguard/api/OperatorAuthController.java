@@ -1,12 +1,14 @@
 package br.com.t3privacyguard.api;
 
 import br.com.t3privacyguard.security.HumanSeparationOfDutiesService;
+import br.com.t3privacyguard.service.PolicyDeniedException;
 import br.com.t3privacyguard.security.OperatorLoginAttemptGuard;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -31,17 +33,23 @@ public class OperatorAuthController {
     private final AuthenticationManager authenticationManager;
     private final OperatorLoginAttemptGuard loginAttemptGuard;
     private final HumanSeparationOfDutiesService separationOfDuties;
+    private final boolean ssoEnabled;
+    private final boolean localLoginEnabled;
     private final SecurityContextRepository securityContextRepository = new HttpSessionSecurityContextRepository();
     private final SecurityContextLogoutHandler logoutHandler = new SecurityContextLogoutHandler();
 
     public OperatorAuthController(
         AuthenticationManager authenticationManager,
         OperatorLoginAttemptGuard loginAttemptGuard,
-        HumanSeparationOfDutiesService separationOfDuties
+        HumanSeparationOfDutiesService separationOfDuties,
+        @Value("${privacy-guard.sso.issuer-uri:}") String ssoIssuerUri,
+        @Value("${privacy-guard.sso.local-login-enabled:true}") boolean localLoginEnabled
     ) {
         this.authenticationManager = authenticationManager;
         this.loginAttemptGuard = loginAttemptGuard;
         this.separationOfDuties = separationOfDuties;
+        this.ssoEnabled = ssoIssuerUri != null && !ssoIssuerUri.isBlank();
+        this.localLoginEnabled = localLoginEnabled;
     }
 
     @PostMapping("/login")
@@ -50,6 +58,7 @@ public class OperatorAuthController {
         HttpServletRequest request,
         HttpServletResponse response
     ) {
+        if (!localLoginEnabled) throw new PolicyDeniedException("Local sign-in is disabled; use single sign-on");
         loginAttemptGuard.assertAllowed(requestBody.username());
 
         final Authentication authentication;
@@ -98,17 +107,24 @@ public class OperatorAuthController {
         boolean authenticated = authentication != null
             && authentication.isAuthenticated()
             && !"anonymousUser".equals(authentication.getName());
-        if (!authenticated) return new SessionResponse(false, null, List.of(), separationOfDuties.enterpriseSodEnabled());
+        if (!authenticated) return new SessionResponse(false, null, List.of(), separationOfDuties.enterpriseSodEnabled(), ssoEnabled, localLoginEnabled);
         List<String> authorities = authentication.getAuthorities().stream()
             .map(authority -> authority.getAuthority())
             .filter(authority -> authority.startsWith("ROLE_"))
             .map(authority -> authority.substring("ROLE_".length()))
             .sorted()
             .toList();
-        return new SessionResponse(true, authentication.getName(), authorities, separationOfDuties.enterpriseSodEnabled());
+        return new SessionResponse(true, authentication.getName(), authorities, separationOfDuties.enterpriseSodEnabled(), ssoEnabled, localLoginEnabled);
     }
 
     public record LoginRequest(@NotBlank String username, @NotBlank String password) {}
-    public record SessionResponse(boolean authenticated, String username, List<String> authorities, boolean enterpriseSeparationOfDuties) {}
+    public record SessionResponse(
+        boolean authenticated,
+        String username,
+        List<String> authorities,
+        boolean enterpriseSeparationOfDuties,
+        boolean ssoEnabled,
+        boolean localLoginEnabled
+    ) {}
     public record CsrfResponse(String token, String headerName) {}
 }

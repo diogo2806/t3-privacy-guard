@@ -66,4 +66,38 @@ describe('OperatorSessionGate', () => {
     expect(screen.getByLabelText('Username')).not.toBeDisabled();
     expect(screen.getByLabelText('Password')).not.toBeDisabled();
   });
+
+  it('offers single sign-on and hides the password form when local sign-in is off', () => {
+    render(
+      <OperatorSessionGate
+        session={{ authenticated: false, authorities: [], ssoEnabled: true, localLoginEnabled: false }}
+        loading={false}
+        busy={false}
+        error={null}
+        onLogin={vi.fn(async () => undefined)}
+        onLogout={vi.fn(async () => undefined)}
+      />,
+    );
+
+    expect(screen.getByRole('link', { name: 'Sign in with single sign-on' })).toHaveAttribute('href', '/oauth2/authorization/sso');
+    expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
+  });
+
+  it('explains a refused single sign-on and keeps local sign-in when it is enabled', () => {
+    window.history.pushState({}, '', '/?sso=error');
+    render(
+      <OperatorSessionGate
+        session={{ authenticated: false, authorities: [], ssoEnabled: true, localLoginEnabled: true }}
+        loading={false}
+        busy={false}
+        error={null}
+        onLogin={vi.fn(async () => undefined)}
+        onLogout={vi.fn(async () => undefined)}
+      />,
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/no Privacy Guard role/i);
+    expect(screen.getByLabelText('Password')).toBeInTheDocument();
+    window.history.pushState({}, '', '/');
+  });
 });

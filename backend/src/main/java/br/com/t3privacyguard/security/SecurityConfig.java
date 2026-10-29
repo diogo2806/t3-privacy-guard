@@ -8,6 +8,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -28,6 +29,7 @@ import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 import org.springframework.security.web.header.writers.StaticHeadersWriter;
 
@@ -62,8 +64,15 @@ public class SecurityConfig {
         @Value("${privacy-guard.iam.auditor.password:}") String auditorPassword,
         @Value("${privacy-guard.iam.policy-admin.username:}") String policyAdminUsername,
         @Value("${privacy-guard.iam.policy-admin.password:}") String policyAdminPassword,
+        @Value("${privacy-guard.sso.local-login-enabled:true}") boolean localLoginEnabled,
+        @Value("${privacy-guard.sso.issuer-uri:}") String ssoIssuerUri,
         PasswordEncoder passwordEncoder
     ) {
+        if (!localLoginEnabled) {
+            // Single sign-on only: no local account exists, so none has to be configured.
+            if (isBlank(ssoIssuerUri)) throw new IllegalStateException("LOCAL_LOGIN_ENABLED=false requires single sign-on (OIDC_ISSUER_URI)");
+            return new InMemoryUserDetailsManager();
+        }
         if (!enterpriseSodEnabled) {
             return new InMemoryUserDetailsManager(buildUser(
                 operatorUsername,
@@ -235,7 +244,9 @@ public class SecurityConfig {
     SecurityFilterChain operatorSecurityFilterChain(
         HttpSecurity http,
         ObjectMapper objectMapper,
-        @Value("${privacy-guard.operator.cookie-secure:true}") boolean cookieSecure
+        @Value("${privacy-guard.operator.cookie-secure:true}") boolean cookieSecure,
+        ObjectProvider<ClientRegistrationRepository> ssoRegistrations,
+        ObjectProvider<SsoRoleMapper> ssoRoles
     ) throws Exception {
         CookieCsrfTokenRepository csrfRepository = new CookieCsrfTokenRepository();
         csrfRepository.setCookieName("XSRF-TOKEN");
@@ -254,7 +265,9 @@ public class SecurityConfig {
                     "/api/auth/session",
                     "/api/auth/csrf",
                     "/actuator/health",
-                    "/actuator/health/**"
+                    "/actuator/health/**",
+                    "/oauth2/authorization/**",
+                    "/login/oauth2/code/**"
                 ).permitAll()
                 // The dashboard's static build; every data request still goes through /api with a session.
                 .requestMatchers(HttpMethod.GET, "/", "/index.html", "/assets/**", "/favicon.ico").permitAll()
@@ -300,6 +313,17 @@ public class SecurityConfig {
                     "Action not allowed",
                     "Your session role is not allowed to perform this action."
                 )));
+
+        ClientRegistrationRepository registrations = ssoRegistrations.getIfAvailable();
+        if (registrations != null) {
+            SsoRoleMapper roles = ssoRoles.getObject();
+            // The dashboard links to /oauth2/authorization/sso; the provider sends the browser back to the dashboard.
+            http.oauth2Login(oauth -> oauth
+                .clientRegistrationRepository(registrations)
+                .userInfoEndpoint(userInfo -> userInfo.oidcUserService(SsoConfiguration.userService(roles)))
+                .successHandler((request, response, authentication) -> response.sendRedirect("/"))
+                .failureHandler((request, response, exception) -> response.sendRedirect("/?sso=error")));
+        }
 
         return http.build();
     }

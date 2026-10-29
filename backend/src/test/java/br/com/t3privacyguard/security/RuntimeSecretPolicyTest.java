@@ -55,6 +55,8 @@ class RuntimeSecretPolicyTest {
             "auditor-password",
             "",
             "",
+            true,
+            "",
             config.passwordEncoder()
         ))
             .isInstanceOf(IllegalStateException.class)
@@ -110,6 +112,8 @@ class RuntimeSecretPolicyTest {
             "",
             "",
             "",
+            true,
+            "",
             config.passwordEncoder()
         );
     }
@@ -149,6 +153,8 @@ class RuntimeSecretPolicyTest {
             "auditor-password",
             policyAdmin,
             policyAdminPassword,
+            true,
+            "",
             config.passwordEncoder()
         );
     }

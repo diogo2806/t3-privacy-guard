@@ -19,7 +19,8 @@ server:
       timeout: ${OPERATOR_SESSION_TIMEOUT:30m}
       cookie:
         http-only: true
-        same-site: strict
+        # Becomes lax automatically when single sign-on is on, so the identity provider's redirect back keeps the session.
+        same-site: ${SESSION_COOKIE_SAME_SITE:strict}
         secure: ${SESSION_COOKIE_SECURE:true}
 management:
   endpoints:
@@ -82,6 +83,19 @@ privacy-guard:
     policy-admin:
       username: ${POLICY_ADMIN_USERNAME:}
       password: ${POLICY_ADMIN_PASSWORD:}
+  sso:
+    # OpenID Connect single sign-on (Entra ID, Okta, Keycloak, Google...). Empty issuer keeps it off.
+    issuer-uri: ${OIDC_ISSUER_URI:}
+    client-id: ${OIDC_CLIENT_ID:}
+    client-secret: ${OIDC_CLIENT_SECRET:}
+    scopes: ${OIDC_SCOPES:openid,profile,email}
+    username-claim: ${OIDC_USERNAME_CLAIM:preferred_username}
+    # Claim holding the user's groups or roles; a dotted path reaches nested claims (Keycloak: realm_access.roles).
+    roles-claim: ${OIDC_ROLES_CLAIM:groups}
+    # JSON from Privacy Guard role to the claim values that grant it, e.g. {"ANALYST":["soc-analysts"],"AUDITOR":["auditors"]}
+    role-mapping: '${OIDC_ROLE_MAPPING:{}}'
+    # false leaves single sign-on as the only way in (no local accounts needed).
+    local-login-enabled: ${LOCAL_LOGIN_ENABLED:true}
   incident-intake:
     enabled: ${INCIDENT_INTAKE_ENABLED:false}
     integrations-json: '${INCIDENT_INTAKE_INTEGRATIONS_JSON:[]}'

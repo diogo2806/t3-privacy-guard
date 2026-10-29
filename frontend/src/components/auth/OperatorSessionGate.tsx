@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { LogIn, LogOut, UserRoundCheck } from 'lucide-react';
+import { KeyRound, LogIn, LogOut, UserRoundCheck } from 'lucide-react';
 import type { OperatorSession } from '../../services/privacyGuardApi';
 
 interface Props {
@@ -59,14 +59,27 @@ export function OperatorSessionGate({ session, loading, busy, error, retryAfterS
   }
 
   const rateLimited = cooldownSeconds > 0;
+  const ssoEnabled = session?.ssoEnabled === true;
+  const localLoginEnabled = session?.localLoginEnabled !== false;
+  const ssoFailed = ssoEnabled && new URLSearchParams(window.location.search).get('sso') === 'error';
   return (
     <section className="auth-panel" aria-labelledby="operator-login-title">
       <div>
         <p className="eyebrow">Application access</p>
         <h2 id="operator-login-title">Human authority sign in</h2>
-        <p className="auth-help">Use the application credentials assigned to your human authority. Guard runtime caller tokens are never used for this login.</p>
+        <p className="auth-help">
+          {ssoEnabled
+            ? 'Sign in with your company account; your groups decide which Privacy Guard roles you hold.'
+            : 'Use the application credentials assigned to your human authority.'} Guard runtime caller tokens are never used for this login.
+        </p>
       </div>
-      <form className="auth-form" onSubmit={(event) => void submit(event)}>
+      {ssoEnabled && (
+        <div className="auth-form">
+          {ssoFailed && <div className="feedback feedback-error" role="alert">Single sign-on did not complete, or your account has no Privacy Guard role. Ask your administrator to map one of your groups to a role.</div>}
+          <a className="button button-primary" href="/oauth2/authorization/sso"><KeyRound aria-hidden="true" />Sign in with single sign-on</a>
+        </div>
+      )}
+      {localLoginEnabled && <form className="auth-form" onSubmit={(event) => void submit(event)}>
         <label>Username<input name="username" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required disabled={busy} /></label>
         <label>Password<input name="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required disabled={busy} /></label>
         {rateLimited ? (
@@ -77,7 +90,7 @@ export function OperatorSessionGate({ session, loading, busy, error, retryAfterS
         <button type="submit" className="button button-primary" disabled={busy || rateLimited || !username.trim() || !password}>
           <LogIn aria-hidden="true" />{busy ? 'Signing in…' : rateLimited ? `Try again in ${cooldownSeconds}s` : 'Sign in'}
         </button>
-      </form>
+      </form>}
     </section>
   );
 }
