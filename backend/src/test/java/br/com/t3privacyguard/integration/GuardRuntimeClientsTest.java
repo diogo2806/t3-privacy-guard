@@ -203,4 +203,17 @@ class GuardRuntimeClientsTest {
         assertThatThrownBy(() -> new GuardRuntimeClient(MAPPER, "http://user:pass@runtime:3101", "agent:proposal", PROPOSAL_TOKEN, "agent:executor", EXECUTOR_TOKEN, 2_000))
             .isInstanceOf(IllegalStateException.class);
     }
+
+    @Test
+    void reachesAnInternalNameWithAnUnderscoreThroughItsResolvedAddress() throws Exception {
+        GuardRuntimeClient swarm = client("http://privacy_guard-runtime:" + server.getAddress().getPort());
+        swarm.resolver(host -> {
+            assertThat(host).isEqualTo("privacy_guard-runtime");
+            return java.net.InetAddress.getByName("127.0.0.1");
+        });
+
+        assertThat(swarm.getPublic("/actuator/health").ok()).isTrue();
+        assertThatThrownBy(() -> client("https://privacy_guard-runtime:3101")).isInstanceOf(IllegalStateException.class).hasMessageContaining("underscore");
+        assertThatThrownBy(() -> client("http://privacy_guard-runtime")).isInstanceOf(IllegalStateException.class);
+    }
 }

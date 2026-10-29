@@ -5,6 +5,9 @@ import br.com.t3privacyguard.security.RuntimeSecretPolicy;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.net.Inet6Address;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -33,12 +36,17 @@ public class GuardRuntimeClient {
 
     private static final Pattern CALLER_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}");
     private static final Pattern ACTIVITY_HASH = Pattern.compile("[0-9a-f]{64}");
+    /** Docker Swarm / EasyPanel internal names look like project_service, which java.net.URI does not accept as a host. */
+    private static final Pattern UNDERSCORE_HTTP_URL = Pattern.compile("http://([A-Za-z0-9][A-Za-z0-9_.-]*):([0-9]{1,5})(/[A-Za-z0-9._~/-]*)?");
     private static final int MIN_TOKEN_LENGTH = 32;
     private static final int MAX_TOKEN_LENGTH = 512;
 
     private final ObjectMapper mapper;
     private final HttpClient http;
     private final String baseUrl;
+    /** Set when the configured host has an underscore: requests go to its resolved address instead. */
+    private final String underscoreHost;
+    private HostResolver resolver = InetAddress::getByName;
     private final String proposalAgentId;
     private final String proposalToken;
     private final String executorId;
@@ -71,6 +79,7 @@ public class GuardRuntimeClient {
     ) {
         this.mapper = mapper;
         this.baseUrl = requireUrl(url);
+        this.underscoreHost = underscoreHost(this.baseUrl);
         this.proposalAgentId = requireCallerId(proposalAgentId, "GUARD_RUNTIME_PROPOSAL_AGENT_ID");
         this.executorId = requireCallerId(executorId, "GUARD_RUNTIME_EXECUTOR_ID");
         this.proposalToken = requireToken(proposalToken, "GUARD_RUNTIME_PROPOSAL_TOKEN");
@@ -131,7 +140,7 @@ public class GuardRuntimeClient {
 
     /** Unauthenticated endpoints such as the health probe. */
     public Response getPublic(String path) {
-        return send(HttpRequest.newBuilder(URI.create(baseUrl + path)).timeout(timeout).header("Accept", "application/json").GET().build());
+        return send(HttpRequest.newBuilder(target(path)).timeout(timeout).header("Accept", "application/json").GET().build());
     }
 
     private HttpRequest.Builder authorized(String path, Caller caller) {
@@ -141,11 +150,35 @@ public class GuardRuntimeClient {
             case POLICY_ADMIN -> policyAdminToken;
         };
         if (token == null) throw new IllegalStateException("GUARD_RUNTIME_POLICY_ADMIN_TOKEN is not configured");
-        return HttpRequest.newBuilder(URI.create(baseUrl + path))
+        return HttpRequest.newBuilder(target(path))
             .timeout(timeout)
             .header("Accept", "application/json")
             .header("Authorization", "Bearer " + token)
             .header(TraceContext.HEADER, TraceContext.currentOrGenerate());
+    }
+
+    /**
+     * guard-runtime does not check the Host header, so an internal name java.net.URI rejects is reached through the
+     * address it resolves to, looked up on every call because container addresses change on redeploy.
+     */
+    private URI target(String path) {
+        if (underscoreHost == null) return URI.create(baseUrl + path);
+        try {
+            InetAddress address = resolver.resolve(underscoreHost);
+            String literal = address instanceof Inet6Address ? "[" + address.getHostAddress() + "]" : address.getHostAddress();
+            return URI.create(baseUrl.replaceFirst("^http://" + Pattern.quote(underscoreHost), "http://" + literal) + path);
+        } catch (UnknownHostException ex) {
+            throw new TrustRuntimeUnavailableException("guard-runtime host could not be resolved", ex);
+        }
+    }
+
+    /** Tests only: answers the lookup of an underscore host. */
+    void resolver(HostResolver resolver) {
+        this.resolver = resolver;
+    }
+
+    interface HostResolver {
+        InetAddress resolve(String host) throws UnknownHostException;
     }
 
     private Response send(HttpRequest request) {
@@ -175,6 +208,7 @@ public class GuardRuntimeClient {
 
     private static String requireUrl(String value) {
         String url = value == null ? "" : value.trim().replaceAll("/+$", "");
+        if (UNDERSCORE_HTTP_URL.matcher(url).matches() && url.substring(7).split("[:/]")[0].contains("_")) return url;
         URI parsed;
         try {
             parsed = URI.create(url);
@@ -183,9 +217,16 @@ public class GuardRuntimeClient {
         }
         if (url.isEmpty() || parsed.getHost() == null || !("http".equals(parsed.getScheme()) || "https".equals(parsed.getScheme()))
             || parsed.getUserInfo() != null || parsed.getQuery() != null || parsed.getFragment() != null) {
-            throw new IllegalStateException("GUARD_RUNTIME_URL must be an http(s) URL without credentials, query or fragment");
+            throw new IllegalStateException("GUARD_RUNTIME_URL must be an http(s) URL without credentials, query or fragment"
+                + " (an internal name with an underscore needs http:// and an explicit port)");
         }
         return url;
+    }
+
+    private static String underscoreHost(String url) {
+        if (!url.startsWith("http://")) return null;
+        String host = url.substring(7).split("[:/]")[0];
+        return host.contains("_") ? host : null;
     }
 
     private static String requireCallerId(String value, String name) {
