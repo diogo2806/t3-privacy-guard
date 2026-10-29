@@ -16,6 +16,8 @@ export default defineConfig(({ mode }) => {
     },
     test: {
       setupFiles: ['./src/test/setup.ts'],
+      // Interaction tests type character by character; shared CI runners need more than the 5 s default.
+      testTimeout: 15000,
     },
   };
 });
