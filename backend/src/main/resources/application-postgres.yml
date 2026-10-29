@@ -1,0 +1,10 @@
+# Production database: SPRING_PROFILES_ACTIVE=postgres with DATABASE_URL=jdbc:postgresql://host:5432/privacyguard,
+# DATABASE_USERNAME and DATABASE_PASSWORD. The schema comes only from the migrations in db/migration/postgresql;
+# Hibernate checks that it matches the entities and refuses to start otherwise.
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+    locations: classpath:db/migration/postgresql
