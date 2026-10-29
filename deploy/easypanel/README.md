@@ -73,6 +73,27 @@ inside the project network.
 Every other setting (separation-of-duties accounts, SSO, PostgreSQL, retention, incident intake) is described in
 [`.env.example`](../../.env.example) and the [production guide](../../docs/production.md).
 
+## PostgreSQL
+
+Add a PostgreSQL service to the project (EasyPanel template) and give the app:
+
+```env
+SPRING_PROFILES_ACTIVE=postgres
+DATABASE_URL=jdbc:postgresql://<project>_postgres:5432/<database>
+DATABASE_USERNAME=<user>
+DATABASE_PASSWORD=<password>
+```
+
+The schema is created by the app's migrations on the first start. Existing H2 data is not copied over; switch while
+the incidents you still need are within retention, or start fresh.
+
+## Deploy only after CI passes
+
+By default EasyPanel deploys on every push, even when a test fails. To deploy only green commits, turn off auto-deploy
+on both services, copy each service's deploy webhook URL and add them to the GitHub repository secrets as
+`EASYPANEL_DEPLOY_HOOK_RUNTIME` and `EASYPANEL_DEPLOY_HOOK_APP`. The CI workflow's last job calls them, guard-runtime
+first, after every test, the end-to-end check and both image builds succeed.
+
 ## Secrets
 
 Run once on any machine with OpenSSL and keep the output in your password manager:

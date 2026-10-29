@@ -68,6 +68,9 @@ Function responses carry `X-Activity-Sequence` and `X-Activity-Hash`; so do publ
 | `REMEDIATION_AUTH_KEY_ID`, `REMEDIATION_AUTH_PUBLIC_KEY_SPKI` | Capability verification key (DER base64 or PEM) |
 | `REMEDIATION_AUTH_PREVIOUS_KEY_ID`, `REMEDIATION_AUTH_PREVIOUS_PUBLIC_KEY_SPKI`, `REMEDIATION_AUTH_PREVIOUS_KEY_GRACE_SECONDS` | Previous key during rotation (grace up to 300 s from startup) |
 | `GUARD_RUNTIME_EGRESS_TIMEOUT_MS` | Outbound call timeout (default `15000`) |
+| `GUARD_RUNTIME_TLS_ENABLED`, `GUARD_RUNTIME_TLS_CERTIFICATE`, `GUARD_RUNTIME_TLS_PRIVATE_KEY` | Serve the API over TLS (PEM files) |
+| `GUARD_RUNTIME_TLS_CLIENT_AUTH`, `GUARD_RUNTIME_TLS_CLIENT_CA` | `need` plus the CA of the app's client certificate for mutual TLS |
+| `GUARD_RUNTIME_METRICS_TOKEN` | Bearer token for `/actuator/prometheus` (`guard_runtime_calls_total` by function and outcome, JVM, HTTP) |
 | `GUARD_RUNTIME_ALLOW_INSECURE_HTTP` | Local development only: allows `http://` and explicit ports for the security API. Production requires HTTPS without a port |
 
 ## Build and test
@@ -85,7 +88,7 @@ mvn -f guard-runtime/pom.xml package
 
 - One runtime instance: the replay store, activity log and policy versions are local files guarded by an in-process lock. Several instances need a shared transactional store.
 - Single tenant per runtime.
-- Caller authentication uses static bearer tokens; mTLS or OIDC workload identity is the next step.
+- Caller authentication uses static bearer tokens, optionally inside mutual TLS; workload identity is not supported.
 - One private value (`verified_email`) and one security API per runtime.
 - Without a TEE, trust rests on the separation of this process, its credentials and its operators. Confidential computing (for example AWS Nitro Enclaves or Azure confidential containers) can add hardware isolation where required.
 

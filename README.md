@@ -130,7 +130,7 @@ Current vocabulary:
 
 ## Human governance
 
-Five application roles: `ANALYST` (incidents, agent analysis, proposals), `APPROVER` (authorizes remediation), `EXECUTOR` (executes and verifies), `AUDITOR` (read-only, including the policy) and `POLICY_ADMIN` (publishes and rolls back policy versions). With `ENTERPRISE_SOD_ENABLED=true` each role is a distinct account (the policy administrator is optional) and the account that authorized a remediation can never execute or verify it. Without it, a single operator account holds all roles; the dashboard labels that mode as local/demo.
+Five application roles: `ANALYST` (incidents, agent analysis, proposals), `APPROVER` (authorizes remediation), `EXECUTOR` (executes and verifies), `AUDITOR` (read-only, including the policy) and `POLICY_ADMIN` (publishes and rolls back policy versions). With single sign-on (OpenID Connect: Entra ID, Okta, Keycloak...) the roles come from the provider's groups through `OIDC_ROLE_MAPPING`, MFA is the provider's, and local accounts can be switched off. With `ENTERPRISE_SOD_ENABLED=true` each role is a distinct account (the policy administrator is optional) and the account that authorized a remediation can never execute or verify it. Without it, a single operator account holds all roles; the dashboard labels that mode as local/demo.
 
 ## Audit
 
@@ -164,7 +164,12 @@ For dashboard development, run the backend on port 8080 and the Vite dev server,
 npm --prefix frontend run dev
 ```
 
-All settings, with comments, are in [`.env.example`](.env.example).
+All settings, with comments, are in [`.env.example`](.env.example). For production read the
+[production guide](docs/production.md) (PostgreSQL, single sign-on, TLS between services, secrets, metrics, backups);
+the [EasyPanel guide](deploy/easypanel/README.md) walks through one concrete deployment, and the
+[security API contract](docs/security-api.md) is what connects Privacy Guard to your own tooling.
+
+CI (`.github/workflows/ci.yml`) runs all test suites, the end-to-end check and both image builds on every push.
 
 ## API
 
@@ -207,8 +212,9 @@ npm --prefix frontend run typecheck
 ## Limits
 
 - One guard-runtime instance per tenant; its replay store, activity log and policy versions are local files. Horizontal scaling needs a shared transactional store.
-- Callers authenticate with static bearer tokens; mTLS or workload identity is the next step.
-- One private value (`verified_email`) and one security API per runtime; real deployments need connectors for their own tooling (IdP, ticketing, messaging).
+- Services authenticate each other with static bearer tokens, optionally inside mutual TLS; workload identity (SPIFFE, cloud IAM) is not supported.
+- One private value (`verified_email`) and one security API per runtime, and two executable actions (`revoke-credential`, `notify-security`). Your tooling connects through the [security API contract](docs/security-api.md); a new kind of executable action needs code in guard-runtime.
+- No independent penetration test has been run yet.
 - Without confidential computing, trust rests on process, credential and operator separation.
 - An idempotency key is sent with every protected call, but exactly-once delivery depends on the target system honouring it.
 
