@@ -125,6 +125,49 @@ Each release is the pair of images built from one commit. Deploy guard-runtime, 
 when the app starts. To roll back, redeploy the previous pair. A database migration is never undone automatically, so
 restore the backup taken before the upgrade if a release with a migration has to be rolled back.
 
+### CVE-2026-114938 (Java4Shell): JVM mitigation and deployment verification
+
+Both Java services use Eclipse Temurin 21 (`eclipse-temurin:21.0.12_8-jre` in the runtime stages as of
+2026-11-18). An unpatched HotSpot JVM can select a vulnerable Base64 decoder on x86-64 machines exposing AVX-512
+VBMI when untrusted Base64 reaches the decoder. A Dockerfile tag, application POM, or merge does **not** establish
+the CPU, effective Java flags, or image deployed on a host.
+
+The root `Dockerfile` and `guard-runtime/Dockerfile` explicitly pass `-XX:-UseBASE64Intrinsics` to their Java
+`ENTRYPOINT`. This is the narrow, **temporary** workaround recommended by
+[Red Hat RHSB-2026-018](https://access.redhat.com/security/vulnerabilities/RHSB-2026-018). It disables the
+accelerated Base64 intrinsic on supported HotSpot JREs, including on hosts where that CPU feature is absent; it may
+reduce Base64 throughput. Existing `JAVA_TOOL_OPTIONS` are left intact, and the explicit launcher argument keeps the
+mitigation in the default command.
+
+After a merge, **rebuild and recreate both containers** (guard-runtime before app); running containers keep their
+old JVM and command line until replaced. With access to the actual Docker host, record the following for **each**
+running container (replace `<container>` and `<image>` with the deployed names):
+
+```sh
+uname -m
+grep -m1 '^flags' /proc/cpuinfo | tr ' ' '\n' | grep -E '^(avx512f|avx512bw|avx512vbmi|bmi2)$' || true
+docker inspect --format 'image={{.Config.Image}} image_id={{.Image}} entrypoint={{json .Config.Entrypoint}}' <container>
+docker image inspect --format '{{json .RepoDigests}}' <image>
+docker exec <container> java -version
+docker exec <container> sh -c 'tr "\000" " " </proc/1/cmdline; echo'
+docker exec <container> java -XX:-UseBASE64Intrinsics -XX:+PrintFlagsFinal -version 2>&1 | grep UseBASE64Intrinsics
+```
+
+The last command checks acceptance of the flag **in a separate JVM**, not the effective flags of the running
+process. Inspect its actual Java command line (or run `jcmd <pid> VM.flags -all` if a compatible JDK attachment
+tool is available) to verify that `UseBASE64Intrinsics` is disabled in that process. An orchestration override of
+`ENTRYPOINT`, an old container, or an unavailable image digest requires further investigation. Locally built
+images may have no `RepoDigests`; preserve their immutable image ID and source commit as evidence instead.
+A missing `avx512vbmi` CPU flag reduces known exposure on that host but does not remove the need to keep the
+defensive configuration through future host changes.
+
+When Eclipse Temurin provides a **published, vendor-confirmed fixed container image** for the required Java 21
+architecture, verify its release, tag, image digest and actual `java -version`, then update both runtime stages and
+rebuild/redeploy both images. Do not treat a floating tag or the unpatched `21.0.13+9` line as proof of a fix; on
+2026-11-18 the Adoptium [support table](https://adoptium.net/support/) listed `21.0.13.1` as a future release.
+Only remove the temporary JVM flag in a subsequent reviewed change after a fixed JRE is confirmed and both
+deployed runtimes have been verified. Verify service health and benchmark Base64-heavy workloads after rollout.
+
 ## 9. Before real data
 
 - Run an independent penetration test against your deployment.
