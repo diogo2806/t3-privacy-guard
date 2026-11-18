@@ -145,13 +145,7 @@ running container (replace `<container>` and `<image>` with the deployed names):
 
 ```sh
 uname -m
-grep -m1 '^flags' /proc/cpuinfo | tr ' ' '\n' | grep -E '^(avx512f|avx512bw|avx512vbmi|bmi2)
-
-- Run an independent penetration test against your deployment.
-- Decide what may be sent to the AI provider: prompts leave your network unless `AI_API_URL` points to a model you host.
-  The prompt guard blocks obvious secrets and personal data but is not a complete classifier.
-- Read the limits in the [README](../README.md#limits).
- || true
+grep -m1 '^flags' /proc/cpuinfo | tr ' ' '\n' | grep -E '^(avx512f|avx512bw|avx512vbmi|bmi2)$' || true
 docker inspect --format 'image={{.Config.Image}} image_id={{.Image}} entrypoint={{json .Config.Entrypoint}}' <container>
 docker image inspect --format '{{json .RepoDigests}}' <image>
 docker exec <container> java -version
