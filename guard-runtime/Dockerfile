@@ -16,4 +16,5 @@ ENV GUARD_RUNTIME_POLICY_FILE=/app/policy/seed.json \
 USER appuser
 VOLUME ["/data"]
 EXPOSE 3101
-ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+# CVE-2026-114938: disable the affected Base64 intrinsic until a vendor-confirmed fixed JRE is deployed.
+ENTRYPOINT ["java", "-XX:-UseBASE64Intrinsics", "-jar", "/app/app.jar"]

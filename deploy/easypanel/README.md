@@ -3,6 +3,12 @@
 Privacy Guard runs as two **App** services in one EasyPanel project, both built from this GitHub repository on every
 push to `main`. guard-runtime stays internal; only the app gets a public domain.
 
+Both Java images ship an explicit `-XX:-UseBASE64Intrinsics` launcher argument as a temporary mitigation for
+CVE-2026-114938. After merging the change, rebuild and recreate **both** EasyPanel App services, starting with
+guard-runtime. Merely merging a PR or rebuilding an image does not establish what the running JVM uses; inspect
+the deployed image, command line and CPU following the [production guide](../../docs/production.md#cve-2026-114938-java4shell-jvm-mitigation-and-deployment-verification).
+Keep existing environment variables and volumes; do not replace `JAVA_TOOL_OPTIONS` just to apply this mitigation.
+
 Deploy guard-runtime first, then the app. Secrets are generated once (see [Secrets](#secrets)) and pasted into the
 services' Environment tab; the same value goes to both services where marked.
 
